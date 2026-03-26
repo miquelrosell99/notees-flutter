@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Dark theme -->
+    <style name="Theme.Notees" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">#E5E5E5</item>
+        <item name="colorOnPrimary">#0A0A0A</item>
+        <item name="colorSurface">#171717</item>
+        <item name="colorOnSurface">#E5E5E5</item>
+        <item name="colorError">#EF5550</item>
+        <item name="android:statusBarColor">#171717</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">#171717</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+
+    <style name="Theme.Notees.Setup" parent="Theme.Notees">
+        <item name="android:statusBarColor">#0A0A0A</item>
+    </style>
+
+</resources>

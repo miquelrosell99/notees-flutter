@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand colors (matching Notees web app) -->
+    <color name="primary">#111111</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="background">#FAFAFA</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="on_surface">#111111</color>
+    <color name="outline">#A3A3A3</color>
+    <color name="error">#C0392B</color>
+
+    <!-- Setup screen -->
+    <color name="setup_background">#FAFAFA</color>
+    <color name="setup_text_primary">#111111</color>
+    <color name="setup_text_secondary">#555555</color>
+
+    <!-- Icon accent (from app SVG icons) -->
+    <color name="icon_background">#4263EB</color>
+
+    <!-- Status bar -->
+    <color name="status_bar">#FAFAFA</color>
+</resources>

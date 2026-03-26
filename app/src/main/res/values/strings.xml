@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Notees</string>
+
+    <!-- Setup screen -->
+    <string name="setup_subtitle">Connect to your server</string>
+    <string name="hint_server_url">https://notees.example.com</string>
+    <string name="setup_helper">Enter the URL of your self-hosted Notees instance</string>
+    <string name="button_connect">Connect</string>
+
+    <!-- Validation errors -->
+    <string name="error_url_empty">Please enter a server URL</string>
+    <string name="error_url_invalid">Please enter a valid URL</string>
+    <string name="error_connection">Could not connect: %1$s</string>
+    <string name="error_unknown">Unknown error</string>
+
+    <!-- Main screen -->
+    <string name="button_retry">Retry</string>
+    <string name="menu_refresh">Refresh</string>
+    <string name="menu_change_server">Change server</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_change_server_title">Change server</string>
+    <string name="dialog_change_server_message">This will disconnect from the current server and clear session data. Continue?</string>
+    <string name="dialog_disconnect">Disconnect</string>
+    <string name="dialog_cancel">Cancel</string>
+</resources>
