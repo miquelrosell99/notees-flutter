@@ -27,11 +27,17 @@ COPY . .
 # Generate local.properties
 RUN echo "sdk.dir=${ANDROID_HOME}" > local.properties
 
-# Generate Gradle wrapper
-RUN gradle wrapper --gradle-version 8.11.1 2>/dev/null || true
+# Download Gradle wrapper JAR and script
+RUN mkdir -p gradle/wrapper && \
+    wget -q "https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradlew" -O gradlew && \
+    wget -q "https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradlew.bat" -O gradlew.bat && \
+    wget -q "https://services.gradle.org/distributions/gradle-8.11.1-bin.zip" -O /tmp/gradle-bin.zip && \
+    echo "distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\ndistributionUrl=file\\:///tmp/gradle-bin.zip\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists" > gradle/wrapper/gradle-wrapper.properties && \
+    wget -q "https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar" -O gradle/wrapper/gradle-wrapper.jar && \
+    chmod +x gradlew
 
 # Build the APK
-RUN chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+RUN ./gradlew assembleDebug --no-daemon
 
 # Output stage — tiny image with just the APK
 FROM scratch AS output
