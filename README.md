@@ -13,43 +13,40 @@ A lightweight Android wrapper that connects to your self-hosted Notees server. O
 - **Dark mode** — follows system theme automatically
 - **Change server** — disconnect and connect to a different instance via the toolbar menu
 
-## Prerequisites
+## Build with Docker (Easiest)
 
-- **Android Studio** — [Download here](https://developer.android.com/studio) (Ladybug or newer recommended)
-- **JDK 17** — bundled with Android Studio
-- **Android SDK 35** — install via Android Studio SDK Manager
+No JDK, Android SDK, or Android Studio needed — just Docker.
 
-## Build Instructions
-
-### 1. Open in Android Studio
-
-```
-File → Open → select the mobile/ directory
-```
-
-Android Studio will automatically download Gradle, sync dependencies, and configure the project.
-
-### 2. Generate the Gradle Wrapper
-
-If the `gradlew` script is missing (it's not checked into version control), Android Studio generates it automatically on first sync. Or run:
-
-```bash
-gradle wrapper --gradle-version 8.11.1
-```
-
-### 3. Build Debug APK
-
-**From Android Studio:**
-- Click **Build → Build Bundle(s) / APK(s) → Build APK(s)**
-- The APK will be at `app/build/outputs/apk/debug/app-debug.apk`
-
-**From command line:**
 ```bash
 cd mobile
+./build-apk.sh
+```
+
+This builds everything inside a container and outputs `notees.apk` in the current directory. Transfer it to your phone and install.
+
+## Build Manually (Alternative)
+
+### Prerequisites
+
+- **JDK 17** — `sudo apt install openjdk-17-jdk` or bundled with Android Studio
+- **Android SDK 35** — via Android Studio SDK Manager or [command-line tools](https://developer.android.com/studio#command-line-tools-only)
+
+### With Android Studio
+
+1. **File → Open** → select the `mobile/` directory
+2. Let Gradle sync (downloads everything automatically)
+3. **Build → Build APK(s)** → outputs to `app/build/outputs/apk/debug/app-debug.apk`
+
+### From Command Line
+
+```bash
+cd mobile
+echo "sdk.dir=$ANDROID_HOME" > local.properties
+gradle wrapper --gradle-version 8.11.1
 ./gradlew assembleDebug
 ```
 
-### 4. Install on Device
+### Install on Device
 
 **Via USB:**
 ```bash
@@ -60,7 +57,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 - Copy the APK to your phone
 - Open it to install (enable "Install from unknown sources" if prompted)
 
-### 5. Build Release APK (for distribution)
+### Build Release APK (for distribution)
 
 First, create a signing keystore:
 
@@ -112,6 +109,8 @@ The signed APK will be at `app/build/outputs/apk/release/app-release.apk`.
 
 ```
 mobile/
+├── Dockerfile                    # Docker-based APK build
+├── build-apk.sh                  # One-command Docker build script
 ├── build.gradle.kts              # Root Gradle config
 ├── settings.gradle.kts           # Project settings
 ├── gradle.properties             # Gradle JVM settings
