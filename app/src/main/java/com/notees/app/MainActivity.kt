@@ -6,8 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Message
-import android.view.Menu
-import android.view.MenuItem
+import android.view.MotionEvent
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
@@ -23,8 +22,8 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.WindowCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-import com.google.android.material.appbar.MaterialToolbar
 
 class MainActivity : AppCompatActivity() {
 
@@ -37,7 +36,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var errorOverlay: View
     private lateinit var errorText: TextView
-    private lateinit var toolbar: MaterialToolbar
 
     private var serverUrl: String = ""
     private var fileUploadCallback: ValueCallback<Array<Uri>>? = null
@@ -58,15 +56,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge fullscreen
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
         setContentView(R.layout.activity_main)
 
         serverUrl = intent.getStringExtra(EXTRA_SERVER_URL)
             ?: ServerPreferences.getServerUrl(this)
             ?: run { goToSetup(); return }
-
-        toolbar = findViewById(R.id.toolbar)
-        setSupportActionBar(toolbar)
-        supportActionBar?.setDisplayShowTitleEnabled(false)
 
         webView = findViewById(R.id.webView)
         swipeRefresh = findViewById(R.id.swipeRefresh)
@@ -82,6 +79,7 @@ class MainActivity : AppCompatActivity() {
         setupWebView()
         setupSwipeRefresh()
         setupBackNavigation()
+        setupThreeFingerTap()
 
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState)
@@ -202,21 +200,15 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menuInflater.inflate(R.menu.main_menu, menu)
-        return true
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
-        R.id.action_refresh -> {
-            webView.reload()
-            true
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupThreeFingerTap() {
+        // Three-finger tap anywhere opens the server settings dialog
+        webView.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN && event.pointerCount == 3) {
+                showChangeServerDialog()
+            }
+            false // don't consume — let WebView handle normally
         }
-        R.id.action_change_server -> {
-            showChangeServerDialog()
-            true
-        }
-        else -> super.onOptionsItemSelected(item)
     }
 
     private fun showChangeServerDialog() {
