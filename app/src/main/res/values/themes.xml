@@ -19,6 +19,14 @@
         <item name="android:statusBarColor">@color/setup_background</item>
     </style>
 
+    <!-- Splash screen (shown while app launches) -->
+    <style name="Theme.Notees.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_app_logo</item>
+        <item name="colorPrimary">@color/primary</item>
+        <item name="postSplashScreenTheme">@style/Theme.Notees</item>
+    </style>
+
     <!-- Transparent theme for trampoline activities (e.g. ShareActivity) -->
     <style name="Theme.Notees.Transparent" parent="Theme.Notees">
         <item name="android:windowIsTranslucent">true</item>

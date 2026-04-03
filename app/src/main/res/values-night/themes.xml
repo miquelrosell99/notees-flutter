@@ -18,4 +18,12 @@
         <item name="android:statusBarColor">#0A0A0A</item>
     </style>
 
+    <!-- Splash screen (dark variant) -->
+    <style name="Theme.Notees.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_app_logo</item>
+        <item name="colorPrimary">#E5E5E5</item>
+        <item name="postSplashScreenTheme">@style/Theme.Notees</item>
+    </style>
+
 </resources>

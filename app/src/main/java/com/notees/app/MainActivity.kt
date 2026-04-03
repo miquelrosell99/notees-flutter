@@ -21,7 +21,10 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import org.json.JSONObject
 
 class MainActivity : AppCompatActivity(), AndroidBridge.Host {
@@ -44,6 +47,9 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
 
     /** Tracks whether the web-app drawer is open (kept in sync via bridge). */
     private var drawerOpen: Boolean = false
+
+    /** Set to true once the first page finishes loading (dismisses splash screen). */
+    private var pageLoaded: Boolean = false
 
     private val fileChooserLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -78,6 +84,7 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
@@ -91,6 +98,16 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         progressBar = findViewById(R.id.progressBar)
         errorOverlay = findViewById(R.id.errorOverlay)
         errorText = findViewById(R.id.errorText)
+
+        // Keep splash screen visible until the first page load completes
+        splashScreen.setKeepOnScreenCondition { !pageLoaded }
+
+        // Apply bottom padding for the software keyboard so content isn't hidden
+        ViewCompat.setOnApplyWindowInsetsListener(webView) { view, insets ->
+            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            view.setPadding(0, 0, 0, imeBottom)
+            insets
+        }
 
         findViewById<View>(R.id.retryButton).setOnClickListener {
             errorOverlay.visibility = View.GONE
@@ -171,6 +188,7 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
+                pageLoaded = true
 
                 // Inject any pending payload after initial load
                 handleIncomingIntent(intent)
