@@ -15,7 +15,21 @@ android {
         versionName = "1.0.0"
     }
 
+    signingConfigs {
+        // Stable debug key so APK updates don't fail with "package conflict".
+        // The keystore is checked into the repo — it's a debug key, not secret.
+        getByName("debug") {
+            storeFile = file("${rootProject.projectDir}/debug.keystore")
+            storePassword = "notees-debug"
+            keyAlias = "notees-debug"
+            keyPassword = "notees-debug"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
