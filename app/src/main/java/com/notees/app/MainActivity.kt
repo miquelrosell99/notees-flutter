@@ -98,11 +98,11 @@ class MainActivity : AppCompatActivity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             cacheMode = WebSettings.LOAD_DEFAULT
             setSupportMultipleWindows(false)
-            setSupportZoom(true)
-            builtInZoomControls = true
+            setSupportZoom(false)
+            builtInZoomControls = false
             displayZoomControls = false
             useWideViewPort = true
-            loadWithOverviewMode = true
+            loadWithOverviewMode = false
             mediaPlaybackRequiresUserGesture = false
             userAgentString = "${userAgentString} NoteesAndroid/1.0"
         }
