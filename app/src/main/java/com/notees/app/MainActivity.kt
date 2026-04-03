@@ -22,7 +22,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.json.JSONObject
 
 class MainActivity : AppCompatActivity(), AndroidBridge.Host {
@@ -36,7 +35,6 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
     }
 
     private lateinit var webView: WebView
-    private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var progressBar: ProgressBar
     private lateinit var errorOverlay: View
     private lateinit var errorText: TextView
@@ -90,7 +88,6 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             ?: run { goToSetup(); return }
 
         webView = findViewById(R.id.webView)
-        swipeRefresh = findViewById(R.id.swipeRefresh)
         progressBar = findViewById(R.id.progressBar)
         errorOverlay = findViewById(R.id.errorOverlay)
         errorText = findViewById(R.id.errorText)
@@ -101,7 +98,6 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         }
 
         setupWebView()
-        setupSwipeRefresh()
         setupBackNavigation()
 
         if (savedInstanceState != null) {
@@ -174,7 +170,6 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                swipeRefresh.isRefreshing = false
                 progressBar.visibility = View.GONE
 
                 // Inject any pending payload after initial load
@@ -187,7 +182,6 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
                 error: WebResourceError,
             ) {
                 if (request.isForMainFrame) {
-                    swipeRefresh.isRefreshing = false
                     progressBar.visibility = View.GONE
                     errorOverlay.visibility = View.VISIBLE
                     errorText.text = getString(
@@ -312,21 +306,6 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
 
     /** Runs arbitrary JS on the main thread. */
     fun evalJs(js: String) = webView.post { webView.evaluateJavascript(js, null) }
-
-    private fun setupSwipeRefresh() {
-        // Only allow pull-to-refresh when the WebView is scrolled to the very top;
-        // otherwise the gesture is consumed by the web page's own scrolling.
-        // canScrollVertically(-1) queries the *web content* scroll position,
-        // unlike scrollY which is always 0 for WebView.
-        swipeRefresh.setOnChildScrollUpCallback { _, _ -> webView.canScrollVertically(-1) }
-
-        swipeRefresh.setOnRefreshListener {
-            errorOverlay.visibility = View.GONE
-            intentDispatched = false
-            webView.reload()
-        }
-        swipeRefresh.setColorSchemeResources(R.color.primary)
-    }
 
     private fun showChangeServerDialog() {
         AlertDialog.Builder(this)
