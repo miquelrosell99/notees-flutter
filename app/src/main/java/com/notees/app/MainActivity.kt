@@ -314,6 +314,10 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
     fun evalJs(js: String) = webView.post { webView.evaluateJavascript(js, null) }
 
     private fun setupSwipeRefresh() {
+        // Only allow pull-to-refresh when the WebView is scrolled to the very top;
+        // otherwise the gesture is consumed by the web page's own scrolling.
+        swipeRefresh.setOnChildScrollUpCallback { _, _ -> webView.scrollY > 0 }
+
         swipeRefresh.setOnRefreshListener {
             errorOverlay.visibility = View.GONE
             intentDispatched = false
