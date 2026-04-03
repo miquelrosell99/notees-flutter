@@ -24,4 +24,8 @@
     <string name="dialog_change_server_message">This will disconnect from the current server and clear session data. Continue?</string>
     <string name="dialog_disconnect">Disconnect</string>
     <string name="dialog_cancel">Cancel</string>
+
+    <!-- App shortcuts (long-press launcher icon) -->
+    <string name="shortcut_quick_note_short">New note</string>
+    <string name="shortcut_quick_note_long">Create a quick note</string>
 </resources>

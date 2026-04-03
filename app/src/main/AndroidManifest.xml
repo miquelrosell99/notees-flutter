@@ -14,6 +14,7 @@
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config">
 
+        <!-- ── Setup / Launcher ───────────────────────────────────────── -->
         <activity
             android:name=".SetupActivity"
             android:exported="true"
@@ -24,12 +25,56 @@
             </intent-filter>
         </activity>
 
+        <!-- ── Main WebView shell ─────────────────────────────────────── -->
         <activity
             android:name=".MainActivity"
-            android:exported="false"
+            android:exported="true"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.Notees" />
+            android:theme="@style/Theme.Notees"
+            android:shortcuts="@xml/shortcuts"
+            android:launchMode="singleTop">
+
+            <!-- Deep link: notees://…  -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="notees" />
+            </intent-filter>
+
+            <!-- Deep link: https://your-server/…  (App Link) -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+            </intent-filter>
+
+            <!-- Quick-note dynamic shortcut target -->
+            <intent-filter>
+                <action android:name="com.notees.app.ACTION_QUICK_NOTE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- ── Share receiver (transparent trampoline) ────────────────── -->
+        <activity
+            android:name=".ShareActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Notees.Transparent"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/html" />
+            </intent-filter>
+        </activity>
 
     </application>
 </manifest>

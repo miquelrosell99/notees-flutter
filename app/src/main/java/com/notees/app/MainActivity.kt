@@ -25,6 +25,357 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 
+class MainActivity : AppCompatActivity(), AndroidBridge.Host {
+
+    companion object {
+        const val EXTRA_SERVER_URL = "server_url"
+        const val EXTRA_SHARE_TEXT = "share_text"
+        const val EXTRA_DEEP_LINK_PATH = "deep_link_path"
+        const val ACTION_SHARE_RECEIVED = "com.notees.app.ACTION_SHARE_RECEIVED"
+        const val ACTION_QUICK_NOTE = "com.notees.app.ACTION_QUICK_NOTE"
+    }
+
+    private lateinit var webView: WebView
+    private lateinit var swipeRefresh: SwipeRefreshLayout
+    private lateinit var progressBar: ProgressBar
+    private lateinit var errorOverlay: View
+    private lateinit var errorText: TextView
+
+    private var serverUrl: String = ""
+    private var fileUploadCallback: ValueCallback<Array<Uri>>? = null
+
+    /** Tracks whether the web-app drawer is open (kept in sync via bridge). */
+    private var drawerOpen: Boolean = false
+
+    private val fileChooserLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uris = if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.let { intent ->
+                intent.clipData?.let { clip ->
+                    Array(clip.itemCount) { clip.getItemAt(it).uri }
+                } ?: intent.data?.let { arrayOf(it) }
+            }
+        } else null
+        fileUploadCallback?.onReceiveValue(uris ?: emptyArray())
+        fileUploadCallback = null
+    }
+
+    // ── AndroidBridge.Host ────────────────────────────────────────────────────
+
+    override fun bridgeOpenDrawer() {
+        drawerOpen = true
+    }
+
+    override fun bridgeCloseDrawer() {
+        drawerOpen = false
+    }
+
+    override fun bridgeIsDrawerOpen(): Boolean = drawerOpen
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        setContentView(R.layout.activity_main)
+
+        serverUrl = intent.getStringExtra(EXTRA_SERVER_URL)
+            ?: ServerPreferences.getServerUrl(this)
+            ?: run { goToSetup(); return }
+
+        webView = findViewById(R.id.webView)
+        swipeRefresh = findViewById(R.id.swipeRefresh)
+        progressBar = findViewById(R.id.progressBar)
+        errorOverlay = findViewById(R.id.errorOverlay)
+        errorText = findViewById(R.id.errorText)
+
+        findViewById<View>(R.id.retryButton).setOnClickListener {
+            errorOverlay.visibility = View.GONE
+            webView.loadUrl(serverUrl)
+        }
+
+        setupWebView()
+        setupSwipeRefresh()
+        setupBackNavigation()
+        setupThreeFingerTap()
+
+        if (savedInstanceState != null) {
+            webView.restoreState(savedInstanceState)
+            // Replay any pending intent after restore
+            handleIncomingIntent(intent)
+        } else {
+            webView.loadUrl(serverUrl)
+            // Payload will be injected once the page finishes loading
+        }
+    }
+
+    /**
+     * Called when the activity is already running and receives a new intent
+     * (FLAG_ACTIVITY_SINGLE_TOP / FLAG_ACTIVITY_CLEAR_TOP).
+     * Handles share intents and deep links arriving while the app is open.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    // ── WebView setup ─────────────────────────────────────────────────────────
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun setupWebView() {
+        // Enable remote debugging in debug builds only
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = true
+            allowFileAccess = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            cacheMode = WebSettings.LOAD_DEFAULT
+            setSupportMultipleWindows(false)
+            setSupportZoom(false)
+            builtInZoomControls = false
+            displayZoomControls = false
+            // Don't override the web app's viewport — it handles mobile itself
+            useWideViewPort = false
+            loadWithOverviewMode = false
+            mediaPlaybackRequiresUserGesture = false
+            userAgentString = "${userAgentString} NoteesAndroid/1.0"
+        }
+
+        // Register the JS bridge as window.Android
+        webView.addJavascriptInterface(AndroidBridge(this, this), "Android")
+
+        CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(webView, true)
+        }
+
+        webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(
+                view: WebView,
+                request: WebResourceRequest,
+            ): Boolean {
+                val url = request.url.toString()
+                return if (url.startsWith(serverUrl)) {
+                    false // internal — let WebView navigate
+                } else {
+                    startActivity(Intent(Intent.ACTION_VIEW, request.url))
+                    true
+                }
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                swipeRefresh.isRefreshing = false
+                progressBar.visibility = View.GONE
+
+                // Inject any pending payload after initial load
+                handleIncomingIntent(intent)
+            }
+
+            override fun onReceivedError(
+                view: WebView,
+                request: WebResourceRequest,
+                error: WebResourceError,
+            ) {
+                if (request.isForMainFrame) {
+                    swipeRefresh.isRefreshing = false
+                    progressBar.visibility = View.GONE
+                    errorOverlay.visibility = View.VISIBLE
+                    errorText.text = getString(
+                        R.string.error_connection,
+                        error.description?.toString() ?: getString(R.string.error_unknown),
+                    )
+                }
+            }
+        }
+
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                if (newProgress < 100) {
+                    progressBar.visibility = View.VISIBLE
+                    progressBar.progress = newProgress
+                } else {
+                    progressBar.visibility = View.GONE
+                }
+            }
+
+            override fun onShowFileChooser(
+                webView: WebView,
+                callback: ValueCallback<Array<Uri>>,
+                params: FileChooserParams,
+            ): Boolean {
+                fileUploadCallback?.onReceiveValue(null)
+                fileUploadCallback = callback
+                fileChooserLauncher.launch(params.createIntent())
+                return true
+            }
+
+            override fun onCreateWindow(
+                view: WebView,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: Message?,
+            ): Boolean = false
+        }
+    }
+
+    // ── Back navigation ───────────────────────────────────────────────────────
+
+    private fun setupBackNavigation() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    // 1. If the web-app drawer is open, tell JS to close it
+                    drawerOpen -> {
+                        evalJs("if(window.noteesBridge) window.noteesBridge.closeDrawer()")
+                        drawerOpen = false
+                    }
+                    // 2. Navigate back inside the WebView history
+                    webView.canGoBack() -> webView.goBack()
+                    // 3. Fall through to the system (minimises / exits)
+                    else -> {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
+                }
+            }
+        })
+    }
+
+    // ── Incoming intents (share / deep link / quick note) ─────────────────────
+
+    /**
+     * Dispatches an incoming intent to the appropriate JS handler.
+     * Safe to call before the page has loaded — the flag is checked
+     * in onPageFinished and replayed once the page is ready.
+     */
+    private var intentDispatched = false
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        if (intent == null || intentDispatched) return
+        // Only act once the WebView has a loaded page
+        if (webView.url == null) return
+
+        when (intent.action) {
+            ACTION_SHARE_RECEIVED -> {
+                val text = intent.getStringExtra(EXTRA_SHARE_TEXT) ?: return
+                val escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+                    .replace("\n", "\\n").replace("\r", "")
+                evalJs("if(window.noteesBridge) window.noteesBridge.onShareReceived('$escaped')")
+                intentDispatched = true
+            }
+            ACTION_QUICK_NOTE -> {
+                evalJs("if(window.noteesBridge) window.noteesBridge.openQuickNote()")
+                intentDispatched = true
+            }
+            Intent.ACTION_VIEW -> {
+                val uri = intent.data ?: return
+                val path = buildDeepLinkPath(uri) ?: return
+                val escaped = path.replace("'", "\\'")
+                evalJs("if(window.noteesBridge) window.noteesBridge.onDeepLink('$escaped')")
+                intentDispatched = true
+            }
+        }
+    }
+
+    /**
+     * Converts a deep-link URI to a relative path the web app can route to.
+     *
+     * Supported schemes:
+     *   notees://note/42          → /node/42
+     *   https://myserver/note/42  → /note/42
+     */
+    private fun buildDeepLinkPath(uri: Uri): String? {
+        return when (uri.scheme) {
+            "notees" -> {
+                val rest = uri.encodedPath?.trimStart('/')
+                "/$rest"
+            }
+            "https", "http" -> {
+                // Only handle URLs that belong to our server
+                val serverHost = Uri.parse(serverUrl).host
+                if (uri.host == serverHost) uri.path else null
+            }
+            else -> null
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Runs arbitrary JS on the main thread. */
+    fun evalJs(js: String) = webView.post { webView.evaluateJavascript(js, null) }
+
+    private fun setupSwipeRefresh() {
+        swipeRefresh.setOnRefreshListener {
+            errorOverlay.visibility = View.GONE
+            intentDispatched = false
+            webView.reload()
+        }
+        swipeRefresh.setColorSchemeResources(R.color.primary)
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupThreeFingerTap() {
+        webView.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN && event.pointerCount == 3) {
+                showChangeServerDialog()
+            }
+            false
+        }
+    }
+
+    private fun showChangeServerDialog() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dialog_change_server_title)
+            .setMessage(R.string.dialog_change_server_message)
+            .setPositiveButton(R.string.dialog_disconnect) { _, _ ->
+                CookieManager.getInstance().removeAllCookies(null)
+                webView.clearCache(true)
+                webView.clearHistory()
+                ServerPreferences.clearServerUrl(this)
+                goToSetup()
+            }
+            .setNegativeButton(R.string.dialog_cancel, null)
+            .show()
+    }
+
+    private fun goToSetup() {
+        startActivity(Intent(this, SetupActivity::class.java))
+        finish()
+    }
+
+    // ── State save / restore ──────────────────────────────────────────────────
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        webView.saveState(outState)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        webView.onResume()
+        CookieManager.getInstance().flush()
+    }
+
+    override fun onPause() {
+        webView.onPause()
+        CookieManager.getInstance().flush()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        webView.destroy()
+        super.onDestroy()
+    }
+}
+
+
 class MainActivity : AppCompatActivity() {
 
     companion object {
