@@ -8,12 +8,12 @@
     android:padding="32dp">
 
     <!-- Icon -->
-    <TextView
+    <ImageView
         android:id="@+id/appIcon"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="📝"
-        android:textSize="64sp"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:src="@drawable/ic_app_logo"
+        android:contentDescription="@string/app_name"
         app:layout_constraintBottom_toTopOf="@id/appTitle"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"

@@ -50,11 +50,11 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="⚠️"
-            android:textSize="48sp" />
+        <ImageView
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_warning"
+            android:importantForAccessibility="no" />
 
         <TextView
             android:id="@+id/errorText"

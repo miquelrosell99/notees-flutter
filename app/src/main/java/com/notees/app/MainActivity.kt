@@ -6,7 +6,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Message
-import android.view.MotionEvent
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
@@ -24,6 +23,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity(), AndroidBridge.Host {
 
@@ -103,7 +103,6 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         setupWebView()
         setupSwipeRefresh()
         setupBackNavigation()
-        setupThreeFingerTap()
 
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState)
@@ -136,8 +135,9 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            @Suppress("DEPRECATION")
             databaseEnabled = true
-            allowFileAccess = true
+            allowFileAccess = false
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             cacheMode = WebSettings.LOAD_DEFAULT
             setSupportMultipleWindows(false)
@@ -147,7 +147,6 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             // Don't override the web app's viewport — it handles mobile itself
             useWideViewPort = false
             loadWithOverviewMode = false
-            mediaPlaybackRequiresUserGesture = false
             userAgentString = "${userAgentString} NoteesAndroid/1.0"
         }
 
@@ -269,9 +268,8 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         when (intent.action) {
             ACTION_SHARE_RECEIVED -> {
                 val text = intent.getStringExtra(EXTRA_SHARE_TEXT) ?: return
-                val escaped = text.replace("\\", "\\\\").replace("'", "\\'")
-                    .replace("\n", "\\n").replace("\r", "")
-                evalJs("if(window.noteesBridge) window.noteesBridge.onShareReceived('$escaped')")
+                val safe = JSONObject.quote(text) // returns a JSON-safe "…" string
+                evalJs("if(window.noteesBridge) window.noteesBridge.onShareReceived($safe)")
                 intentDispatched = true
             }
             ACTION_QUICK_NOTE -> {
@@ -281,8 +279,8 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             Intent.ACTION_VIEW -> {
                 val uri = intent.data ?: return
                 val path = buildDeepLinkPath(uri) ?: return
-                val escaped = path.replace("'", "\\'")
-                evalJs("if(window.noteesBridge) window.noteesBridge.onDeepLink('$escaped')")
+                val safe = JSONObject.quote(path)
+                evalJs("if(window.noteesBridge) window.noteesBridge.onDeepLink($safe)")
                 intentDispatched = true
             }
         }
@@ -322,16 +320,6 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             webView.reload()
         }
         swipeRefresh.setColorSchemeResources(R.color.primary)
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    private fun setupThreeFingerTap() {
-        webView.setOnTouchListener { _, event ->
-            if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN && event.pointerCount == 3) {
-                showChangeServerDialog()
-            }
-            false
-        }
     }
 
     private fun showChangeServerDialog() {

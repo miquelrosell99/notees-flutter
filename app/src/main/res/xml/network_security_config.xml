@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Allow cleartext (HTTP) for local network servers -->
+    <!--
+      Cleartext (HTTP) is permitted because Notees is self-hosted: users may
+      connect to LAN IPs (192.168.x.x), Tailscale hosts (100.x.x.x or
+      *.ts.net), or other private endpoints that lack TLS certificates.
+
+      SetupActivity defaults to https:// and warns if the user explicitly
+      types http:// for a public-looking hostname.  The URL is the user's
+      own deliberate choice — they control the server.
+    -->
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />

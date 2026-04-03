@@ -15,7 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
  *  2. ShareActivity reads the payload, starts (or brings-to-front)
  *     MainActivity and passes the text via EXTRA_SHARE_TEXT.
  *  3. MainActivity injects it into the WebView via JS:
- *       noteesBridge.onShareReceived(text, sourceUrl)
+ *       noteesBridge.onShareReceived(text)
  *  4. The web app opens a quick-capture popup so the user can save it.
  */
 class ShareActivity : AppCompatActivity() {
@@ -27,6 +27,7 @@ class ShareActivity : AppCompatActivity() {
             intent.action == Intent.ACTION_SEND &&
             intent.type?.startsWith("text/") == true ->
                 intent.getStringExtra(Intent.EXTRA_TEXT)
+                    ?.take(100_000) // guard against absurdly large payloads
             else -> null
         }
 

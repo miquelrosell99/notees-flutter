@@ -13,17 +13,20 @@
     <string name="error_url_invalid">Please enter a valid URL</string>
     <string name="error_connection">Could not connect: %1$s</string>
     <string name="error_unknown">Unknown error</string>
+    <string name="error_unreachable">Could not reach server — check the URL and try again</string>
 
     <!-- Main screen -->
     <string name="button_retry">Retry</string>
-    <string name="menu_refresh">Refresh</string>
-    <string name="menu_change_server">Change server</string>
+    <string name="button_connecting">Connecting…</string>
 
     <!-- Dialogs -->
     <string name="dialog_change_server_title">Change server</string>
     <string name="dialog_change_server_message">This will disconnect from the current server and clear session data. Continue?</string>
     <string name="dialog_disconnect">Disconnect</string>
     <string name="dialog_cancel">Cancel</string>
+    <string name="dialog_http_warning_title">Insecure connection</string>
+    <string name="dialog_http_warning_message">This URL uses HTTP instead of HTTPS. Your data will be sent unencrypted and could be intercepted.\n\nFor local or Tailscale servers this is usually fine. For public servers, use HTTPS instead.</string>
+    <string name="dialog_http_warning_continue">Connect anyway</string>
 
     <!-- App shortcuts (long-press launcher icon) -->
     <string name="shortcut_quick_note_short">New note</string>
