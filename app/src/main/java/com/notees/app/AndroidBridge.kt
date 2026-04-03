@@ -29,6 +29,7 @@ class AndroidBridge(
         fun bridgeOpenDrawer()
         fun bridgeCloseDrawer()
         fun bridgeIsDrawerOpen(): Boolean
+        fun bridgeShowServerSettings()
     }
 
     // ── Called by JS ─────────────────────────────────────────────────────────
@@ -76,6 +77,14 @@ class AndroidBridge(
         }
         context.startActivity(intent)
     }
+
+    /**
+     * Opens the native "Change server" dialog from JS.
+     * Callable as: window.Android.showServerSettings()
+     */
+    @JavascriptInterface
+    fun showServerSettings() =
+        ContextCompat.getMainExecutor(context).execute { host.bridgeShowServerSettings() }
 
     /**
      * Returns `true` — lets JS feature-detect that it's running inside the

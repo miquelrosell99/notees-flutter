@@ -32,8 +32,12 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Notees"
-            android:shortcuts="@xml/shortcuts"
             android:launchMode="singleTop">
+
+            <!-- Static app shortcuts (long-press launcher icon) -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
 
             <!-- Deep link: notees://…  -->
             <intent-filter>
