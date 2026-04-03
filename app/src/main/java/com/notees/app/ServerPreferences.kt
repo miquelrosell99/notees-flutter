@@ -40,4 +40,3 @@ object ServerPreferences {
     fun clearServerUrl(context: Context) =
         getPrefs(context).edit().remove(KEY_SERVER_URL).apply()
 }
-}
