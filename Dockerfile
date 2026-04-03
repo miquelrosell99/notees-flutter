@@ -31,7 +31,7 @@ RUN echo "sdk.dir=${ANDROID_HOME}" > local.properties
 
 # Gradle 8.11.1 — SHA-256 from https://gradle.org/release-checksums/
 ENV GRADLE_VERSION=8.11.1
-ENV GRADLE_SHA256=f397b287023acdba1e9f6fc5ea72d22dd63a5f2aff054879e1e68712f7db0b22
+ENV GRADLE_SHA256=f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6
 
 RUN mkdir -p gradle/wrapper && \
     wget -q "https://raw.githubusercontent.com/gradle/gradle/v${GRADLE_VERSION}/gradlew" -O gradlew && \
