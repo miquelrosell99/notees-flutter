@@ -316,7 +316,9 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
     private fun setupSwipeRefresh() {
         // Only allow pull-to-refresh when the WebView is scrolled to the very top;
         // otherwise the gesture is consumed by the web page's own scrolling.
-        swipeRefresh.setOnChildScrollUpCallback { _, _ -> webView.scrollY > 0 }
+        // canScrollVertically(-1) queries the *web content* scroll position,
+        // unlike scrollY which is always 0 for WebView.
+        swipeRefresh.setOnChildScrollUpCallback { _, _ -> webView.canScrollVertically(-1) }
 
         swipeRefresh.setOnRefreshListener {
             errorOverlay.visibility = View.GONE
