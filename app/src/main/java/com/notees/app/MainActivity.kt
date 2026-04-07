@@ -102,10 +102,14 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         // Keep splash screen visible until the first page load completes
         splashScreen.setKeepOnScreenCondition { !pageLoaded }
 
-        // Apply bottom padding for the software keyboard so content isn't hidden
+        // Pad WebView so content doesn't render behind system bars.
+        // Android WebView doesn't expose env(safe-area-inset-*) CSS values,
+        // so we handle the insets natively instead.
         ViewCompat.setOnApplyWindowInsetsListener(webView) { view, insets ->
+            val statusTop = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
             val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            view.setPadding(0, 0, 0, imeBottom)
+            val navBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            view.setPadding(0, statusTop, 0, maxOf(imeBottom, navBottom))
             insets
         }
 
