@@ -112,6 +112,9 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             view.setPadding(0, statusTop, 0, maxOf(imeBottom, navBottom))
             insets
         }
+        // Trigger the listener immediately so padding is applied before the
+        // first page load rather than waiting for the next inset dispatch.
+        ViewCompat.requestApplyInsets(webView)
 
         findViewById<View>(R.id.retryButton).setOnClickListener {
             errorOverlay.visibility = View.GONE
