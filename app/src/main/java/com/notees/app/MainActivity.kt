@@ -25,6 +25,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnAttach
 import org.json.JSONObject
 
 class MainActivity : AppCompatActivity(), AndroidBridge.Host {
@@ -102,19 +103,22 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         // Keep splash screen visible until the first page load completes
         splashScreen.setKeepOnScreenCondition { !pageLoaded }
 
-        // Pad WebView so content doesn't render behind system bars.
-        // Android WebView doesn't expose env(safe-area-inset-*) CSS values,
-        // so we handle the insets natively instead.
-        ViewCompat.setOnApplyWindowInsetsListener(webView) { view, insets ->
+        // Pad the root layout so all content (WebView, error overlay, progress bar)
+        // clears the status bar and navigation bar. Applying insets here is more
+        // reliable than on the WebView because the root is attached to the window
+        // before any child view, guaranteeing the listener fires before the first
+        // page load.
+        val rootLayout = findViewById<View>(R.id.rootLayout)
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { view, insets ->
             val statusTop = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
             val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
             val navBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
             view.setPadding(0, statusTop, 0, maxOf(imeBottom, navBottom))
             insets
         }
-        // Trigger the listener immediately so padding is applied before the
-        // first page load rather than waiting for the next inset dispatch.
-        ViewCompat.requestApplyInsets(webView)
+        // doOnAttach ensures requestApplyInsets is called only once the view is
+        // fully attached to the window, so the listener above is guaranteed to fire.
+        rootLayout.doOnAttach { ViewCompat.requestApplyInsets(it) }
 
         findViewById<View>(R.id.retryButton).setOnClickListener {
             errorOverlay.visibility = View.GONE
