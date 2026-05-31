@@ -3,10 +3,16 @@ package com.notees.app
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
@@ -15,26 +21,43 @@ import java.net.URL
 
 class SetupActivity : AppCompatActivity() {
 
+    private lateinit var serverListView: RecyclerView
+    private lateinit var addServerButton: MaterialButton
+    private lateinit var addServerForm: ViewGroup
     private lateinit var urlInputLayout: TextInputLayout
     private lateinit var urlInput: TextInputEditText
-    private lateinit var connectButton: MaterialButton
+    private lateinit var nicknameInput: TextInputEditText
+    private lateinit var saveServerButton: MaterialButton
+    private lateinit var cancelAddButton: MaterialButton
+    private lateinit var emptyStateView: TextView
+
+    private lateinit var adapter: ServerListAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
 
-        // If a server URL is already saved, skip straight to MainActivity
-        val savedUrl = ServerPreferences.getServerUrl(this)
-        if (savedUrl != null) {
-            launchMain(savedUrl)
-            return
-        }
+        ServerPreferences.migrateLegacyServerUrl(this)
 
+        val servers = ServerPreferences.getServers(this)
+        if (servers.isEmpty()) {
+            showSetupForm()
+        } else {
+            val activeServer = ServerPreferences.getActiveServer(this)
+            if (activeServer != null) {
+                launchMain(activeServer.url)
+                return
+            }
+            showServerList()
+        }
+    }
+
+    private fun showSetupForm() {
         setContentView(R.layout.activity_setup)
 
         urlInputLayout = findViewById(R.id.urlInputLayout)
         urlInput = findViewById(R.id.urlInput)
-        connectButton = findViewById(R.id.connectButton)
+        val connectButton: MaterialButton = findViewById(R.id.connectButton)
 
         connectButton.setOnClickListener { attemptConnect() }
 
@@ -44,6 +67,106 @@ class SetupActivity : AppCompatActivity() {
                 true
             } else false
         }
+    }
+
+    private fun showServerList() {
+        setContentView(R.layout.activity_setup_list)
+
+        serverListView = findViewById(R.id.serverListView)
+        addServerButton = findViewById(R.id.addServerButton)
+        addServerForm = findViewById(R.id.addServerForm)
+        urlInputLayout = findViewById(R.id.urlInputLayout)
+        urlInput = findViewById(R.id.urlInput)
+        nicknameInput = findViewById(R.id.nicknameInput)
+        saveServerButton = findViewById(R.id.saveServerButton)
+        cancelAddButton = findViewById(R.id.cancelAddButton)
+        emptyStateView = findViewById(R.id.emptyStateView)
+
+        adapter = ServerListAdapter(
+            onConnect = { server ->
+                ServerPreferences.setActiveServerId(this, server.id)
+                launchMain(server.url)
+            },
+            onDelete = { server ->
+                showDeleteConfirm(server)
+            },
+            onEdit = { server ->
+                showEditDialog(server)
+            }
+        )
+
+        serverListView.layoutManager = LinearLayoutManager(this)
+        serverListView.adapter = adapter
+
+        addServerButton.setOnClickListener { showAddForm() }
+        saveServerButton.setOnClickListener { saveNewServer() }
+        cancelAddButton.setOnClickListener { hideAddForm() }
+
+        refreshServerList()
+    }
+
+    private fun refreshServerList() {
+        val servers = ServerPreferences.getServers(this)
+        adapter.submitList(servers)
+        emptyStateView.visibility = if (servers.isEmpty()) View.VISIBLE else View.GONE
+    }
+
+    private fun showAddForm() {
+        addServerForm.visibility = View.VISIBLE
+        addServerButton.visibility = View.GONE
+        urlInput.text?.clear()
+        nicknameInput.text?.clear()
+        urlInputLayout.error = null
+    }
+
+    private fun hideAddForm() {
+        addServerForm.visibility = View.GONE
+        addServerButton.visibility = View.VISIBLE
+        urlInputLayout.error = null
+    }
+
+    private fun saveNewServer() {
+        val rawUrl = urlInput.text?.toString()?.trim() ?: ""
+        val nickname = nicknameInput.text?.toString()?.trim() ?: ""
+        urlInputLayout.error = null
+
+        if (rawUrl.isEmpty()) {
+            urlInputLayout.error = getString(R.string.error_url_empty)
+            return
+        }
+
+        val url = normalizeUrl(rawUrl)
+        if (!isValidUrl(url)) {
+            urlInputLayout.error = getString(R.string.error_url_invalid)
+            return
+        }
+
+        val finalNickname = nickname.ifBlank { Uri.parse(url).host ?: url }
+
+        saveServerButton.isEnabled = false
+        saveServerButton.text = getString(R.string.button_connecting)
+
+        Thread {
+            val reachable = pingServer(url)
+            runOnUiThread {
+                saveServerButton.isEnabled = true
+                saveServerButton.text = getString(R.string.button_save)
+                if (reachable) {
+                    val profile = ServerPreferences.ServerProfile(
+                        id = java.util.UUID.randomUUID().toString(),
+                        nickname = finalNickname,
+                        url = url
+                    )
+                    ServerPreferences.addServer(this, profile)
+                    ServerPreferences.setActiveServerId(this, profile.id)
+                    hideAddForm()
+                    refreshServerList()
+                    launchMain(url)
+                } else {
+                    urlInputLayout.error = getString(R.string.error_unreachable)
+                }
+            }
+        }.start()
     }
 
     private fun attemptConnect() {
@@ -61,7 +184,6 @@ class SetupActivity : AppCompatActivity() {
             return
         }
 
-        // Warn about cleartext HTTP on public-looking hostnames
         val uri = Uri.parse(url)
         if (uri.scheme == "http" && !isPrivateHost(uri.host ?: "")) {
             AlertDialog.Builder(this)
@@ -78,35 +200,25 @@ class SetupActivity : AppCompatActivity() {
         verifyAndConnect(url)
     }
 
-    /**
-     * Ping the server in a background thread, then save + launch if reachable.
-     */
     private fun verifyAndConnect(url: String) {
+        val connectButton = findViewById<MaterialButton>(R.id.connectButton)
         connectButton.isEnabled = false
         connectButton.text = getString(R.string.button_connecting)
         urlInputLayout.error = null
 
         Thread {
-            val reachable = try {
-                val conn = URL(url).openConnection() as HttpURLConnection
-                conn.connectTimeout = 8_000
-                conn.readTimeout = 8_000
-                conn.requestMethod = "HEAD"
-                conn.instanceFollowRedirects = true
-                try {
-                    conn.responseCode in 200..499 // any response = server exists
-                } finally {
-                    conn.disconnect()
-                }
-            } catch (_: Exception) {
-                false
-            }
-
+            val reachable = pingServer(url)
             runOnUiThread {
                 connectButton.isEnabled = true
                 connectButton.text = getString(R.string.button_connect)
                 if (reachable) {
-                    ServerPreferences.setServerUrl(this, url)
+                    val profile = ServerPreferences.ServerProfile(
+                        id = java.util.UUID.randomUUID().toString(),
+                        nickname = Uri.parse(url).host ?: url,
+                        url = url
+                    )
+                    ServerPreferences.addServer(this, profile)
+                    ServerPreferences.setActiveServerId(this, profile.id)
                     launchMain(url)
                 } else {
                     urlInputLayout.error = getString(R.string.error_unreachable)
@@ -115,22 +227,64 @@ class SetupActivity : AppCompatActivity() {
         }.start()
     }
 
-    /**
-     * Returns true for hostnames / IPs that look like private networks,
-     * Tailscale, or local mDNS — where cleartext HTTP is expected.
-     */
+    private fun pingServer(url: String): Boolean {
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 8_000
+            conn.readTimeout = 8_000
+            conn.requestMethod = "HEAD"
+            conn.instanceFollowRedirects = true
+            try {
+                conn.responseCode in 200..499
+            } finally {
+                conn.disconnect()
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun showDeleteConfirm(server: ServerPreferences.ServerProfile) {
+        AlertDialog.Builder(this)
+            .setTitle("Remove Server")
+            .setMessage("Remove '${server.nickname}'? This will delete saved credentials for this server.")
+            .setPositiveButton("Remove") { _, _ ->
+                AuthPreferences.clearServerData(this, server.url)
+                ServerPreferences.removeServer(this, server.id)
+                refreshServerList()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showEditDialog(server: ServerPreferences.ServerProfile) {
+        val editText = TextInputEditText(this).apply {
+            setText(server.nickname)
+            hint = "Server nickname"
+        }
+        val inputLayout = TextInputLayout(this).apply {
+            addView(editText)
+            setPadding(48, 24, 48, 0)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Edit Server")
+            .setView(inputLayout)
+            .setPositiveButton("Save") { _, _ ->
+                val newName = editText.text?.toString()?.trim() ?: server.nickname
+                ServerPreferences.updateServer(this, server.copy(nickname = newName))
+                refreshServerList()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun isPrivateHost(host: String): Boolean {
-        // Tailscale MagicDNS
         if (host.endsWith(".ts.net")) return true
-        // mDNS
         if (host.endsWith(".local")) return true
-        // localhost
         if (host == "localhost" || host == "127.0.0.1") return true
-        // Check for private / CGNAT IP ranges
         return try {
             val addr = java.net.InetAddress.getByName(host)
             addr.isSiteLocalAddress || addr.isLoopbackAddress || addr.isLinkLocalAddress ||
-                // Tailscale CGNAT 100.64.0.0/10
                 (addr.address.size == 4 && (addr.address[0].toInt() and 0xFF) == 100 &&
                     (addr.address[1].toInt() and 0xC0) == 64)
         } catch (_: Exception) {
@@ -160,5 +314,51 @@ class SetupActivity : AppCompatActivity() {
         }
         startActivity(intent)
         finish()
+    }
+
+    // ─── RecyclerView Adapter ──────────────────────────────────────────
+
+    class ServerListAdapter(
+        private val onConnect: (ServerPreferences.ServerProfile) -> Unit,
+        private val onDelete: (ServerPreferences.ServerProfile) -> Unit,
+        private val onEdit: (ServerPreferences.ServerProfile) -> Unit,
+    ) : RecyclerView.Adapter<ServerListAdapter.ViewHolder>() {
+
+        private var servers: List<ServerPreferences.ServerProfile> = emptyList()
+
+        fun submitList(list: List<ServerPreferences.ServerProfile>) {
+            servers = list
+            notifyDataSetChanged()
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+            val view = LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_server, parent, false)
+            return ViewHolder(view)
+        }
+
+        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+            holder.bind(servers[position])
+        }
+
+        override fun getItemCount(): Int = servers.size
+
+        inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+            private val nameView: TextView = itemView.findViewById(R.id.serverName)
+            private val urlView: TextView = itemView.findViewById(R.id.serverUrl)
+            private val connectBtn: MaterialButton = itemView.findViewById(R.id.serverConnectBtn)
+            private val deleteBtn: MaterialButton = itemView.findViewById(R.id.serverDeleteBtn)
+
+            fun bind(server: ServerPreferences.ServerProfile) {
+                nameView.text = server.nickname
+                urlView.text = server.url
+                connectBtn.setOnClickListener { onConnect(server) }
+                deleteBtn.setOnClickListener { onDelete(server) }
+                itemView.setOnLongClickListener {
+                    onEdit(server)
+                    true
+                }
+            }
+        }
     }
 }

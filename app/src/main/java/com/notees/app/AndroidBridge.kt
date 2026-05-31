@@ -182,4 +182,33 @@ class AndroidBridge(
     fun setBiometricEnabled(enabled: Boolean) {
         BiometricHelper.setEnabled(context, enabled)
     }
+
+    // ── API key bridge ────────────────────────────────────────────────────────
+
+    /**
+     * Stores an API key for the active server.
+     * Called by the web app after generating a new API key.
+     */
+    @JavascriptInterface
+    fun storeApiKey(key: String) {
+        val server = ServerPreferences.getActiveServer(context) ?: return
+        ServerPreferences.setApiKey(context, server.id, key)
+    }
+
+    /**
+     * Retrieves the stored API key for the active server.
+     * Returns the key string, or an empty string if none is stored.
+     */
+    @JavascriptInterface
+    fun getApiKey(): String =
+        ServerPreferences.getApiKey(context) ?: ""
+
+    /**
+     * Clears the stored API key for the active server.
+     */
+    @JavascriptInterface
+    fun clearApiKey() {
+        val server = ServerPreferences.getActiveServer(context) ?: return
+        ServerPreferences.setApiKey(context, server.id, "")
+    }
 }

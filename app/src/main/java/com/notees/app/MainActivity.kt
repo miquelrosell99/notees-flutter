@@ -340,19 +340,37 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
     fun evalJs(js: String) = webView.post { webView.evaluateJavascript(js, null) }
 
     private fun showChangeServerDialog() {
+        val servers = ServerPreferences.getServers(this)
+        val activeId = ServerPreferences.getActiveServerId(this)
+        val items = servers.map { "${if (it.id == activeId) "● " else ""}${it.nickname}\n${it.url}" }.toTypedArray()
+
+        if (servers.isEmpty()) {
+            goToSetup()
+            return
+        }
+
         AlertDialog.Builder(this)
-            .setTitle(R.string.dialog_change_server_title)
-            .setMessage(R.string.dialog_change_server_message)
-            .setPositiveButton(R.string.dialog_disconnect) { _, _ ->
-                CookieManager.getInstance().removeAllCookies(null)
-                webView.clearCache(true)
-                webView.clearHistory()
-                ServerPreferences.clearServerUrl(this)
-                AuthPreferences.clearAll(this)
+            .setTitle("Switch Server")
+            .setItems(items) { _, which ->
+                val selected = servers[which]
+                if (selected.id != activeId) {
+                    switchToServer(selected)
+                }
+            }
+            .setNeutralButton("Manage") { _, _ ->
                 goToSetup()
             }
             .setNegativeButton(R.string.dialog_cancel, null)
             .show()
+    }
+
+    private fun switchToServer(server: ServerPreferences.ServerProfile) {
+        ServerPreferences.setActiveServerId(this, server.id)
+        CookieManager.getInstance().removeAllCookies(null)
+        webView.clearCache(true)
+        webView.clearHistory()
+        serverUrl = server.url
+        webView.loadUrl(server.url)
     }
 
     private fun goToSetup() {

@@ -18,6 +18,7 @@
     <!-- Main screen -->
     <string name="button_retry">Retry</string>
     <string name="button_connecting">Connecting…</string>
+    <string name="button_save">Save</string>
 
     <!-- Dialogs -->
     <string name="dialog_change_server_title">Change server</string>
