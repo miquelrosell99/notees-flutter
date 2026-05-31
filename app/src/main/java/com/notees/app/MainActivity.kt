@@ -52,6 +52,9 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
     /** Set to true once the first page finishes loading (dismisses splash screen). */
     private var pageLoaded: Boolean = false
 
+    /** Set to true after biometric authentication succeeds. Reset on pause. */
+    private var biometricAuthenticated: Boolean = false
+
     private val fileChooserLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -345,6 +348,7 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
                 webView.clearCache(true)
                 webView.clearHistory()
                 ServerPreferences.clearServerUrl(this)
+                AuthPreferences.clearAll(this)
                 goToSetup()
             }
             .setNegativeButton(R.string.dialog_cancel, null)
@@ -367,11 +371,33 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         super.onResume()
         webView.onResume()
         CookieManager.getInstance().flush()
+
+        if (BiometricHelper.isEnabled(this) && !biometricAuthenticated) {
+            if (BiometricHelper.canAuthenticate(this)) {
+                showBiometricPrompt()
+            } else {
+                // Biometric became unavailable — disable lock to avoid bricking the app
+                BiometricHelper.setEnabled(this, false)
+                biometricAuthenticated = true
+            }
+        }
+    }
+
+    private fun showBiometricPrompt() {
+        BiometricHelper.showPrompt(this) { success ->
+            if (success) {
+                biometricAuthenticated = true
+            } else {
+                // User cancelled or failed — finish the activity
+                finish()
+            }
+        }
     }
 
     override fun onPause() {
         webView.onPause()
         CookieManager.getInstance().flush()
+        biometricAuthenticated = false
         super.onPause()
     }
 

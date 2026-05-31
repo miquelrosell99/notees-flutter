@@ -63,4 +63,5 @@ dependencies {
     implementation("androidx.webkit:webkit:1.13.0")
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("androidx.biometric:biometric:1.1.0")
 }
