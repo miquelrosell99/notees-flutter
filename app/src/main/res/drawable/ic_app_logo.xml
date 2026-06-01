@@ -1,12 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Material Design "edit-note" icon used on the setup screen -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="64dp"
     android:height="64dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24"
+    android:viewportWidth="192"
+    android:viewportHeight="192"
     android:tint="?attr/colorPrimary">
+    <!-- Monochrome notepad icon -->
     <path
         android:fillColor="#000000"
-        android:pathData="M3,17.25V21h3.75L17.81,9.94l-3.75,-3.75L3,17.25zM20.71,7.04c0.39,-0.39 0.39,-1.02 0,-1.41l-2.34,-2.34c-0.39,-0.39 -1.02,-0.39 -1.41,0l-1.83,1.83 3.75,3.75 1.83,-1.83z" />
+        android:pathData="M48,36 L144,36 C148.4,36 152,39.6 152,44 L152,156 C152,160.4 148.4,164 144,164 L48,164 C43.6,164 40,160.4 40,156 L40,44 C40,39.6 43.6,36 48,36 Z" />
+    <path
+        android:fillColor="#000000"
+        android:pathData="M64,68 L128,68"
+        android:strokeWidth="5"
+        android:strokeColor="#000000"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#000000"
+        android:pathData="M64,88 L128,88"
+        android:strokeWidth="5"
+        android:strokeColor="#000000"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#000000"
+        android:pathData="M64,108 L104,108"
+        android:strokeWidth="5"
+        android:strokeColor="#000000"
+        android:strokeLineCap="round" />
+    <!-- Pencil -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M124,100 L140,116 L134,122 L118,106 Z" />
+    <path
+        android:fillColor="#000000"
+        android:pathData="M118,106 L114,122 L134,122 Z" />
 </vector>

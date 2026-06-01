@@ -47,7 +47,7 @@ object BiometricHelper {
             activity,
             executor,
             object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: AuthenticationResult) {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     onResult(true)
                 }
 

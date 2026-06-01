@@ -14,8 +14,8 @@
     <color name="setup_text_primary">#111111</color>
     <color name="setup_text_secondary">#555555</color>
 
-    <!-- Icon accent (from app SVG icons) -->
-    <color name="icon_background">#4263EB</color>
+    <!-- Icon accent (monochrome) -->
+    <color name="icon_background">#111111</color>
 
     <!-- Status bar -->
     <color name="status_bar">#FAFAFA</color>

@@ -4,30 +4,34 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Notepad icon (simplified) -->
+    <!-- White notepad body -->
     <path
         android:fillColor="#FFFFFF"
         android:pathData="M34,30 L74,30 C76.2,30 78,31.8 78,34 L78,74 C78,76.2 76.2,78 74,78 L34,78 C31.8,78 30,76.2 30,74 L30,34 C30,31.8 31.8,30 34,30 Z" />
+    <!-- Dark lines (contrast against white body) -->
     <path
-        android:fillColor="#4263EB"
+        android:fillColor="#111111"
         android:pathData="M40,44 L68,44"
         android:strokeWidth="2.5"
-        android:strokeColor="#4263EB" />
+        android:strokeColor="#111111"
+        android:strokeLineCap="round" />
     <path
-        android:fillColor="#4263EB"
+        android:fillColor="#111111"
         android:pathData="M40,52 L68,52"
         android:strokeWidth="2.5"
-        android:strokeColor="#4263EB" />
+        android:strokeColor="#111111"
+        android:strokeLineCap="round" />
     <path
-        android:fillColor="#4263EB"
+        android:fillColor="#111111"
         android:pathData="M40,60 L58,60"
         android:strokeWidth="2.5"
-        android:strokeColor="#4263EB" />
-    <!-- Pencil accent -->
+        android:strokeColor="#111111"
+        android:strokeLineCap="round" />
+    <!-- Dark pencil -->
     <path
-        android:fillColor="#4263EB"
+        android:fillColor="#111111"
         android:pathData="M66,58 L72,64 L68,68 L62,62 Z" />
     <path
-        android:fillColor="#333333"
+        android:fillColor="#111111"
         android:pathData="M62,62 L60,70 L68,68 Z" />
 </vector>
