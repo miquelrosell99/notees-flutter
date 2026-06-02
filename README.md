@@ -6,12 +6,17 @@ A lightweight Android wrapper that connects to your self-hosted Notees server. O
 
 - **Server URL setup** — enter your Notees instance URL on first launch
 - **Full WebView experience** — login, navigate, edit notes, manage assets
-- **File uploads** — attach images and files from your phone
-- **Swipe to refresh** — pull down to reload
+- **File uploads** — attach images and files from your phone, or capture a new photo with the camera
+- **Pull-to-refresh** — pull down to reload the current page
+- **Offline state awareness** — native network listener injects connectivity events into the web app so the offline banner appears immediately
 - **Back navigation** — Android back button navigates web history
 - **Cookie persistence** — stay logged in across sessions
 - **Dark mode** — follows system theme automatically
 - **Change server** — disconnect and connect to a different instance via the toolbar menu
+- **Biometric lock** — optional fingerprint / face unlock to secure the app
+- **Deep links** — open notes directly from `notees://note/…` links
+- **Share receiver** — send text from other apps straight into Notees as a quick note
+- **Encrypted preferences** — server URLs are stored encrypted on-device via `EncryptedSharedPreferences`
 
 ## Build with Docker (Easiest)
 
@@ -123,15 +128,19 @@ mobile/
 │       ├── java/com/notees/app/
 │       │   ├── SetupActivity.kt  # Server URL entry screen
 │       │   ├── MainActivity.kt   # WebView wrapper
-│       │   └── ServerPreferences.kt  # Encrypted URL storage
+│       │   ├── ShareActivity.kt  # Transparent share receiver
+│       │   ├── BiometricHelper.kt# Fingerprint / face unlock
+│       │   ├── AndroidBridge.kt  # JS ↔ native bridge
+│       │   ├── ServerPreferences.kt  # Encrypted URL storage
+│       │   └── NoteesWidget.kt   # Home-screen widget
 │       └── res/
 │           ├── layout/           # XML layouts
 │           ├── menu/             # Toolbar menu
 │           ├── values/           # Strings, colors, themes (light)
 │           ├── values-night/     # Dark theme overrides
 │           ├── drawable/         # Vector icons
-│           ├── mipmap-anydpi-v26/# Adaptive app icon
-│           └── xml/              # Network security config
+│           ├── mipmap-anydpi-26/ # Adaptive app icon
+│           └── xml/              # Network security config, FileProvider paths
 ```
 
 ## How It Works

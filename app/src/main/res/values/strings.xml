@@ -28,6 +28,9 @@
     <string name="dialog_http_warning_title">Insecure connection</string>
     <string name="dialog_http_warning_message">This URL uses HTTP instead of HTTPS. Your data will be sent unencrypted and could be intercepted.\n\nFor local or Tailscale servers this is usually fine. For public servers, use HTTPS instead.</string>
     <string name="dialog_http_warning_continue">Connect anyway</string>
+    <string name="dialog_choose_source">Choose source</string>
+    <string name="dialog_camera">Camera</string>
+    <string name="dialog_files">Files</string>
 
     <!-- App shortcuts (long-press launcher icon) -->
     <string name="shortcut_quick_note_short">New note</string>

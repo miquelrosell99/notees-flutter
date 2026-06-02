@@ -3,9 +3,14 @@ package com.notees.app
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.Uri
 import android.os.Bundle
 import android.os.Message
+import android.provider.MediaStore
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
@@ -21,12 +26,15 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnAttach
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.json.JSONObject
+import java.io.File
 
 class MainActivity : AppCompatActivity(), AndroidBridge.Host {
 
@@ -39,12 +47,14 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
     }
 
     private lateinit var webView: WebView
+    private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var progressBar: ProgressBar
     private lateinit var errorOverlay: View
     private lateinit var errorText: TextView
 
     private var serverUrl: String = ""
     private var fileUploadCallback: ValueCallback<Array<Uri>>? = null
+    private var cameraImageUri: Uri? = null
 
     /** Tracks whether the web-app drawer is open (kept in sync via bridge). */
     private var drawerOpen: Boolean = false
@@ -67,6 +77,33 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         } else null
         fileUploadCallback?.onReceiveValue(uris ?: emptyArray())
         fileUploadCallback = null
+        cameraImageUri = null
+    }
+
+    private val cameraLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && cameraImageUri != null) {
+            fileUploadCallback?.onReceiveValue(arrayOf(cameraImageUri!!))
+        } else {
+            fileUploadCallback?.onReceiveValue(emptyArray())
+        }
+        fileUploadCallback = null
+        cameraImageUri = null
+    }
+
+    private val connectivityManager by lazy {
+        getSystemService(ConnectivityManager::class.java)
+    }
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            evalJs("window.dispatchEvent(new CustomEvent('nativeOnline'))")
+        }
+
+        override fun onLost(network: Network) {
+            evalJs("window.dispatchEvent(new CustomEvent('nativeOffline'))")
+        }
     }
 
     // ── AndroidBridge.Host ────────────────────────────────────────────────────
@@ -99,6 +136,7 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             ?: run { goToSetup(); return }
 
         webView = findViewById(R.id.webView)
+        swipeRefresh = findViewById(R.id.swipeRefresh)
         progressBar = findViewById(R.id.progressBar)
         errorOverlay = findViewById(R.id.errorOverlay)
         errorText = findViewById(R.id.errorText)
@@ -126,6 +164,10 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         findViewById<View>(R.id.retryButton).setOnClickListener {
             errorOverlay.visibility = View.GONE
             webView.loadUrl(serverUrl)
+        }
+
+        swipeRefresh.setOnRefreshListener {
+            webView.reload()
         }
 
         setupWebView()
@@ -177,6 +219,11 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             userAgentString = "${userAgentString} NoteesAndroid/1.0"
         }
 
+        // Only allow swipe-to-refresh when the WebView is scrolled to the top
+        webView.viewTreeObserver.addOnScrollChangedListener {
+            swipeRefresh.isEnabled = webView.scrollY == 0
+        }
+
         // Register the JS bridge as window.Android
         webView.addJavascriptInterface(AndroidBridge(this, this), "Android")
 
@@ -202,6 +249,7 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 progressBar.visibility = View.GONE
+                swipeRefresh.isRefreshing = false
                 pageLoaded = true
 
                 // Inject any pending payload after initial load
@@ -215,6 +263,7 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             ) {
                 if (request.isForMainFrame) {
                     progressBar.visibility = View.GONE
+                    swipeRefresh.isRefreshing = false
                     errorOverlay.visibility = View.VISIBLE
                     errorText.text = getString(
                         R.string.error_connection,
@@ -241,7 +290,26 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             ): Boolean {
                 fileUploadCallback?.onReceiveValue(null)
                 fileUploadCallback = callback
-                fileChooserLauncher.launch(params.createIntent())
+
+                val options = arrayOf(
+                    getString(R.string.dialog_camera),
+                    getString(R.string.dialog_files),
+                )
+
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle(R.string.dialog_choose_source)
+                    .setItems(options) { _, which ->
+                        when (which) {
+                            0 -> launchCamera()
+                            1 -> fileChooserLauncher.launch(params.createIntent())
+                        }
+                    }
+                    .setOnCancelListener {
+                        fileUploadCallback?.onReceiveValue(null)
+                        fileUploadCallback = null
+                    }
+                    .show()
+
                 return true
             }
 
@@ -252,6 +320,24 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
                 resultMsg: Message?,
             ): Boolean = false
         }
+    }
+
+    private fun launchCamera() {
+        val photoFile = File.createTempFile(
+            "IMG_${System.currentTimeMillis()}_",
+            ".jpg",
+            cacheDir,
+        )
+        cameraImageUri = FileProvider.getUriForFile(
+            this,
+            "${packageName}.fileprovider",
+            photoFile,
+        )
+        val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+            putExtra(MediaStore.EXTRA_OUTPUT, cameraImageUri)
+            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        }
+        cameraLauncher.launch(intent)
     }
 
     // ── Back navigation ───────────────────────────────────────────────────────
@@ -390,6 +476,12 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         webView.onResume()
         CookieManager.getInstance().flush()
 
+        // Register network connectivity listener
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        connectivityManager.registerNetworkCallback(request, networkCallback)
+
         if (BiometricHelper.isEnabled(this) && !biometricAuthenticated) {
             if (BiometricHelper.canAuthenticate(this)) {
                 showBiometricPrompt()
@@ -416,6 +508,10 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         webView.onPause()
         CookieManager.getInstance().flush()
         biometricAuthenticated = false
+
+        // Unregister network connectivity listener
+        connectivityManager.unregisterNetworkCallback(networkCallback)
+
         super.onPause()
     }
 
@@ -424,4 +520,3 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         super.onDestroy()
     }
 }
-
