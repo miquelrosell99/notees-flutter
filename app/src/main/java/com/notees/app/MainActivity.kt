@@ -207,7 +207,10 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             @Suppress("DEPRECATION")
             databaseEnabled = true
             allowFileAccess = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            // Never allow mixed content. Since Notees is self-hosted, users should
+            // serve it entirely over HTTPS (or entirely over HTTP on a private LAN);
+            // mixed-scheme loads are a security risk and are not required.
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             cacheMode = WebSettings.LOAD_DEFAULT
             setSupportMultipleWindows(false)
             setSupportZoom(false)
@@ -229,7 +232,9 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
 
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
-            setAcceptThirdPartyCookies(webView, true)
+            // The WebView only loads the user's own Notees server, so third-party
+            // cookies are unnecessary and are disabled to reduce tracking surface.
+            setAcceptThirdPartyCookies(webView, false)
         }
 
         webView.webViewClient = object : WebViewClient() {
@@ -237,8 +242,7 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
                 view: WebView,
                 request: WebResourceRequest,
             ): Boolean {
-                val url = request.url.toString()
-                return if (url.startsWith(serverUrl)) {
+                return if (isSameOrigin(request.url, Uri.parse(serverUrl))) {
                     false // internal — let WebView navigate
                 } else {
                     startActivity(Intent(Intent.ACTION_VIEW, request.url))
@@ -425,10 +429,32 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
     /** Runs arbitrary JS on the main thread. */
     fun evalJs(js: String) = webView.post { webView.evaluateJavascript(js, null) }
 
+    /**
+     * Compares two URIs by origin (scheme, host, port).
+     * Ports are normalized to their protocol defaults when omitted,
+     * and hosts are compared case-insensitively.
+     */
+    private fun isSameOrigin(a: Uri, b: Uri): Boolean {
+        val aPort = if (a.port == -1) defaultPortForScheme(a.scheme) else a.port
+        val bPort = if (b.port == -1) defaultPortForScheme(b.scheme) else b.port
+        return a.scheme.equals(b.scheme, ignoreCase = true) &&
+            a.host.equals(b.host, ignoreCase = true) &&
+            aPort == bPort
+    }
+
+    private fun defaultPortForScheme(scheme: String?): Int = when (scheme?.lowercase()) {
+        "http" -> 80
+        "https" -> 443
+        else -> -1
+    }
+
     private fun showChangeServerDialog() {
         val servers = ServerPreferences.getServers(this)
         val activeId = ServerPreferences.getActiveServerId(this)
-        val items = servers.map { "${if (it.id == activeId) "● " else ""}${it.nickname}\n${it.url}" }.toTypedArray()
+        val items = servers.map {
+            val prefix = if (it.id == activeId) getString(R.string.server_list_active_prefix) else ""
+            "$prefix${it.nickname}\n${it.url}"
+        }.toTypedArray()
 
         if (servers.isEmpty()) {
             goToSetup()
@@ -436,14 +462,14 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         }
 
         AlertDialog.Builder(this)
-            .setTitle("Switch Server")
+            .setTitle(R.string.dialog_switch_server_title)
             .setItems(items) { _, which ->
                 val selected = servers[which]
                 if (selected.id != activeId) {
                     switchToServer(selected)
                 }
             }
-            .setNeutralButton("Manage") { _, _ ->
+            .setNeutralButton(R.string.button_manage) { _, _ ->
                 goToSetup()
             }
             .setNegativeButton(R.string.dialog_cancel, null)

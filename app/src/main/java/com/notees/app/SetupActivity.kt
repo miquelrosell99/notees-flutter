@@ -246,35 +246,35 @@ class SetupActivity : AppCompatActivity() {
 
     private fun showDeleteConfirm(server: ServerPreferences.ServerProfile) {
         AlertDialog.Builder(this)
-            .setTitle("Remove Server")
-            .setMessage("Remove '${server.nickname}'? This will delete saved credentials for this server.")
-            .setPositiveButton("Remove") { _, _ ->
+            .setTitle(R.string.dialog_remove_server_title)
+            .setMessage(getString(R.string.dialog_remove_server_message, server.nickname))
+            .setPositiveButton(R.string.button_remove) { _, _ ->
                 AuthPreferences.clearServerData(this, server.url)
                 ServerPreferences.removeServer(this, server.id)
                 refreshServerList()
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.dialog_cancel, null)
             .show()
     }
 
     private fun showEditDialog(server: ServerPreferences.ServerProfile) {
         val editText = TextInputEditText(this).apply {
             setText(server.nickname)
-            hint = "Server nickname"
+            hint = getString(R.string.hint_nickname)
         }
         val inputLayout = TextInputLayout(this).apply {
             addView(editText)
             setPadding(48, 24, 48, 0)
         }
         AlertDialog.Builder(this)
-            .setTitle("Edit Server")
+            .setTitle(R.string.dialog_edit_server_title)
             .setView(inputLayout)
-            .setPositiveButton("Save") { _, _ ->
+            .setPositiveButton(R.string.button_save) { _, _ ->
                 val newName = editText.text?.toString()?.trim() ?: server.nickname
                 ServerPreferences.updateServer(this, server.copy(nickname = newName))
                 refreshServerList()
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.dialog_cancel, null)
             .show()
     }
 
@@ -354,6 +354,11 @@ class SetupActivity : AppCompatActivity() {
                 urlView.text = server.url
                 connectBtn.setOnClickListener { onConnect(server) }
                 deleteBtn.setOnClickListener { onDelete(server) }
+                itemView.contentDescription = itemView.context.getString(
+                    R.string.server_row_content_description,
+                    server.nickname,
+                    server.url,
+                )
                 itemView.setOnLongClickListener {
                     onEdit(server)
                     true

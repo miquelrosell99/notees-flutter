@@ -23,7 +23,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Select a server"
+        android:text="@string/setup_select_server_title"
         android:textColor="@color/setup_text_secondary"
         android:textSize="16sp"
         android:layout_gravity="center_horizontal"
@@ -44,7 +44,7 @@
         android:id="@+id/emptyStateView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="No servers configured."
+        android:text="@string/setup_empty_state"
         android:textColor="@color/setup_text_secondary"
         android:layout_gravity="center"
         android:visibility="gone" />
@@ -63,7 +63,7 @@
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Nickname (optional)">
+            android:hint="@string/hint_nickname">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/nicknameInput"
@@ -108,7 +108,7 @@
                 android:layout_height="56dp"
                 android:layout_weight="1"
                 android:layout_marginEnd="8dp"
-                android:text="Cancel"
+                android:text="@string/dialog_cancel"
                 app:cornerRadius="12dp" />
 
             <com.google.android.material.button.MaterialButton
@@ -131,7 +131,7 @@
         android:layout_width="match_parent"
         android:layout_height="56dp"
         android:layout_marginTop="8dp"
-        android:text="Add Server"
+        android:text="@string/button_add_server"
         app:cornerRadius="12dp" />
 
 </LinearLayout>

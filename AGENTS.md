@@ -66,8 +66,23 @@ cd mobile
 
 ## Security Notes
 
-- Cleartext HTTP is allowed for local network servers via `network_security_config.xml`. Always use HTTPS for production.
+### Cleartext traffic (`HTTP`)
+
+`network_security_config.xml` sets `cleartextTrafficPermitted="true"`. This is an intentional trade-off for a self-hosted app:
+
+- **Why it is allowed**: Notees is designed to run on private networks where users may not have TLS certificates. Common legitimate deployments include:
+  - A LAN IP such as `http://192.168.1.100:8000`.
+  - A Tailscale machine such as `http://my-server.ts.net` or `http://100.x.x.x`.
+  - `localhost` / `127.0.0.1` development instances.
+- **When to use HTTPS instead**: Any Notees instance that is reachable from the public internet, an untrusted network, or any context where traffic could be intercepted should be served exclusively over HTTPS. The SetupActivity UI defaults to `https://` and shows a warning if the user explicitly enters `http://` for a public-looking hostname.
+- **What the app does to reduce risk**:
+  - The URL is the user’s own deliberate choice; the app does not ship with a default server.
+  - `MainActivity` disables third-party cookies (`setAcceptThirdPartyCookies(webView, false)`), uses `MIXED_CONTENT_NEVER_ALLOW`, and only treats navigation as internal when the request origin matches the configured server origin exactly (scheme + host + port).
+
+### Other hardening
+
 - Server URLs are encrypted at rest with `EncryptedSharedPreferences`.
+- `AndroidManifest.xml` sets `android:allowBackup="false"` so encrypted server credentials and cookies are not included in cloud backups.
 - The debug keystore in the repo is intentional and not a secret.
 
 ## Skill References

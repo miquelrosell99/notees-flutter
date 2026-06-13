@@ -44,7 +44,7 @@
         style="@style/Widget.Material3.Button.TextButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Connect"
+        android:text="@string/button_connect"
         android:textSize="13sp" />
 
     <com.google.android.material.button.MaterialButton
@@ -52,7 +52,7 @@
         style="@style/Widget.Material3.Button.TextButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Remove"
+        android:text="@string/button_remove"
         android:textColor="@android:color/holo_red_dark"
         android:textSize="13sp" />
 

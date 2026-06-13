@@ -4,9 +4,18 @@
 
     <!-- Setup screen -->
     <string name="setup_subtitle">Connect to your server</string>
+    <string name="setup_select_server_title">Select a server</string>
+    <string name="setup_empty_state">No servers configured.</string>
     <string name="hint_server_url">https://notees.example.com</string>
+    <string name="hint_nickname">Nickname (optional)</string>
     <string name="setup_helper">Enter the URL of your self-hosted Notees instance</string>
     <string name="button_connect">Connect</string>
+    <string name="button_add_server">Add Server</string>
+    <string name="button_save">Save</string>
+    <string name="button_remove">Remove</string>
+    <string name="button_manage">Manage</string>
+    <string name="default_server_nickname">Default Server</string>
+    <string name="server_list_active_prefix">● </string>
 
     <!-- Validation errors -->
     <string name="error_url_empty">Please enter a server URL</string>
@@ -18,7 +27,6 @@
     <!-- Main screen -->
     <string name="button_retry">Retry</string>
     <string name="button_connecting">Connecting…</string>
-    <string name="button_save">Save</string>
 
     <!-- Dialogs -->
     <string name="dialog_change_server_title">Change server</string>
@@ -31,6 +39,13 @@
     <string name="dialog_choose_source">Choose source</string>
     <string name="dialog_camera">Camera</string>
     <string name="dialog_files">Files</string>
+    <string name="dialog_remove_server_title">Remove Server</string>
+    <string name="dialog_remove_server_message">Remove "%1$s"? This will delete saved credentials for this server.</string>
+    <string name="dialog_edit_server_title">Edit Server</string>
+    <string name="dialog_switch_server_title">Switch Server</string>
+
+    <!-- Server list accessibility -->
+    <string name="server_row_content_description">%1$s (%2$s). Long-press to edit.</string>
 
     <!-- App shortcuts (long-press launcher icon) -->
     <string name="shortcut_quick_note_short">New note</string>

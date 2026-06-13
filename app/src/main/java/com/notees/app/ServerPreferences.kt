@@ -69,7 +69,7 @@ object ServerPreferences {
         if (legacyUrl != null && getServers(context).isEmpty()) {
             val profile = ServerProfile(
                 id = java.util.UUID.randomUUID().toString(),
-                nickname = "Default Server",
+                nickname = context.getString(R.string.default_server_nickname),
                 url = legacyUrl
             )
             addServer(context, profile)
