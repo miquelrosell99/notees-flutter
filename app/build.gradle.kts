@@ -29,10 +29,12 @@ android {
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("debug")
+            manifestPlaceholders["networkSecurityConfig"] = "@xml/network_security_config_debug"
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            manifestPlaceholders["networkSecurityConfig"] = "@xml/network_security_config"
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -1,17 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <!--
-      Cleartext (HTTP) is permitted because Notees is self-hosted: users may
-      connect to LAN IPs (192.168.x.x), Tailscale hosts (100.x.x.x or
-      *.ts.net), or other private endpoints that lack TLS certificates.
+      Release configuration: cleartext HTTP is denied by default and only
+      allowed for common private / self-hosted hostnames where users commonly
+      run Notees without a TLS certificate.
 
-      SetupActivity defaults to https:// and warns if the user explicitly
-      types http:// for a public-looking hostname.  The URL is the user's
-      own deliberate choice — they control the server.
+      This scopes cleartext as tightly as Android's static Network Security
+      Config allows. Exact IP ranges (e.g. all 192.168.x.x addresses) cannot be
+      expressed in NSC, so HTTP on arbitrary LAN IPs requires either HTTPS,
+      a private DNS name covered below, or a debug build.
     -->
-    <base-config cleartextTrafficPermitted="true">
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">::1</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">local</domain>
+        <domain includeSubdomains="true">ts.net</domain>
+        <domain includeSubdomains="true">lan</domain>
+        <domain includeSubdomains="true">home.arpa</domain>
+        <domain includeSubdomains="true">internal</domain>
+        <domain includeSubdomains="true">home</domain>
+        <domain includeSubdomains="true">loc</domain>
+    </domain-config>
 </network-security-config>

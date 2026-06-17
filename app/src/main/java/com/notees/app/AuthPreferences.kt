@@ -17,7 +17,6 @@ import java.security.MessageDigest
  */
 object AuthPreferences {
     private const val PREFS_NAME = "notees_auth"
-    private const val KEY_AUTH_TOKEN = "auth_token"
     private const val KEY_USER_DATA = "user_data"
     private const val KEY_BIOMETRIC_ENABLED = "biometric_enabled"
 
@@ -47,36 +46,12 @@ object AuthPreferences {
             .take(16)
     }
 
-    private fun tokenKey(serverUrl: String?): String {
-        return if (serverUrl.isNullOrBlank()) KEY_AUTH_TOKEN else "${KEY_AUTH_TOKEN}_${serverHash(serverUrl)}"
-    }
-
     private fun userDataKey(serverUrl: String?): String {
         return if (serverUrl.isNullOrBlank()) KEY_USER_DATA else "${KEY_USER_DATA}_${serverHash(serverUrl)}"
     }
 
     private fun getActiveServerUrl(context: Context): String? =
         ServerPreferences.getActiveServer(context)?.url
-
-    // ── Auth token ────────────────────────────────────────────────────────────
-
-    fun getAuthToken(context: Context): String? {
-        val prefs = getPrefs(context)
-        val serverUrl = getActiveServerUrl(context)
-        // Try server-specific key first, then legacy fallback
-        return prefs.getString(tokenKey(serverUrl), null)
-            ?: prefs.getString(KEY_AUTH_TOKEN, null)
-    }
-
-    fun setAuthToken(context: Context, token: String) {
-        val serverUrl = getActiveServerUrl(context)
-        getPrefs(context).edit().putString(tokenKey(serverUrl), token).apply()
-    }
-
-    fun clearAuthToken(context: Context) {
-        val serverUrl = getActiveServerUrl(context)
-        getPrefs(context).edit().remove(tokenKey(serverUrl)).apply()
-    }
 
     // ── User data (JSON string) ───────────────────────────────────────────────
 
@@ -113,7 +88,6 @@ object AuthPreferences {
 
     fun clearServerData(context: Context, serverUrl: String) {
         getPrefs(context).edit()
-            .remove(tokenKey(serverUrl))
             .remove(userDataKey(serverUrl))
             .apply()
     }

@@ -107,34 +107,6 @@ class AndroidBridge(
     @JavascriptInterface
     fun isNativeApp(): Boolean = true
 
-    // ── Auth token bridge ─────────────────────────────────────────────────────
-
-    /**
-     * Stores the JWT auth token in native encrypted storage.
-     * Called by the web app after login / register.
-     */
-    @JavascriptInterface
-    fun storeAuthToken(token: String) {
-        AuthPreferences.setAuthToken(context, token)
-    }
-
-    /**
-     * Retrieves the stored JWT auth token.
-     * Returns the token string, or an empty string if none is stored.
-     */
-    @JavascriptInterface
-    fun getAuthToken(): String =
-        AuthPreferences.getAuthToken(context) ?: ""
-
-    /**
-     * Clears the stored auth token.
-     * Called by the web app on logout.
-     */
-    @JavascriptInterface
-    fun clearAuthToken() {
-        AuthPreferences.clearAuthToken(context)
-    }
-
     // ── User data bridge ──────────────────────────────────────────────────────
 
     /**
