@@ -18,7 +18,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/app_name"
-            android:textColor="@android:color/white"
+            android:textColor="@color/on_surface"
             android:textSize="16sp"
             android:textStyle="bold" />
 
@@ -26,7 +26,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/widget_subtitle"
-            android:textColor="@android:color/white"
+            android:textColor="@color/on_surface"
             android:textSize="12sp"
             android:alpha="0.8" />
     </LinearLayout>
@@ -44,7 +44,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_quick_note"
             android:contentDescription="@string/widget_journal_today"
-            android:tint="@android:color/white" />
+            android:tint="@color/on_surface" />
 
         <ImageButton
             android:id="@+id/widgetQuickNote"
@@ -53,6 +53,6 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_app_logo"
             android:contentDescription="@string/widget_quick_note"
-            android:tint="@android:color/white" />
+            android:tint="@color/on_surface" />
     </LinearLayout>
 </LinearLayout>

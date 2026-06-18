@@ -11,11 +11,15 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -60,6 +64,7 @@ class SetupActivity : AppCompatActivity() {
         val connectButton: MaterialButton = findViewById(R.id.connectButton)
 
         connectButton.setOnClickListener { attemptConnect() }
+        findViewById<MaterialButton>(R.id.privacyButton).setOnClickListener { showPrivacyDialog() }
 
         urlInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO) {
@@ -101,8 +106,17 @@ class SetupActivity : AppCompatActivity() {
         addServerButton.setOnClickListener { showAddForm() }
         saveServerButton.setOnClickListener { saveNewServer() }
         cancelAddButton.setOnClickListener { hideAddForm() }
+        findViewById<MaterialButton>(R.id.privacyButton).setOnClickListener { showPrivacyDialog() }
 
         refreshServerList()
+    }
+
+    private fun showPrivacyDialog() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.privacy_policy_title)
+            .setMessage(R.string.privacy_policy_message)
+            .setPositiveButton(R.string.button_ok, null)
+            .show()
     }
 
     private fun refreshServerList() {
@@ -146,9 +160,9 @@ class SetupActivity : AppCompatActivity() {
         saveServerButton.isEnabled = false
         saveServerButton.text = getString(R.string.button_connecting)
 
-        Thread {
+        lifecycleScope.launch(Dispatchers.IO) {
             val reachable = pingServer(url)
-            runOnUiThread {
+            withContext(Dispatchers.Main) {
                 saveServerButton.isEnabled = true
                 saveServerButton.text = getString(R.string.button_save)
                 if (reachable) {
@@ -157,8 +171,8 @@ class SetupActivity : AppCompatActivity() {
                         nickname = finalNickname,
                         url = url
                     )
-                    ServerPreferences.addServer(this, profile)
-                    ServerPreferences.setActiveServerId(this, profile.id)
+                    ServerPreferences.addServer(this@SetupActivity, profile)
+                    ServerPreferences.setActiveServerId(this@SetupActivity, profile.id)
                     hideAddForm()
                     refreshServerList()
                     launchMain(url)
@@ -166,7 +180,7 @@ class SetupActivity : AppCompatActivity() {
                     urlInputLayout.error = getString(R.string.error_unreachable)
                 }
             }
-        }.start()
+        }
     }
 
     private fun attemptConnect() {
@@ -206,9 +220,9 @@ class SetupActivity : AppCompatActivity() {
         connectButton.text = getString(R.string.button_connecting)
         urlInputLayout.error = null
 
-        Thread {
+        lifecycleScope.launch(Dispatchers.IO) {
             val reachable = pingServer(url)
-            runOnUiThread {
+            withContext(Dispatchers.Main) {
                 connectButton.isEnabled = true
                 connectButton.text = getString(R.string.button_connect)
                 if (reachable) {
@@ -217,14 +231,14 @@ class SetupActivity : AppCompatActivity() {
                         nickname = Uri.parse(url).host ?: url,
                         url = url
                     )
-                    ServerPreferences.addServer(this, profile)
-                    ServerPreferences.setActiveServerId(this, profile.id)
+                    ServerPreferences.addServer(this@SetupActivity, profile)
+                    ServerPreferences.setActiveServerId(this@SetupActivity, profile.id)
                     launchMain(url)
                 } else {
                     urlInputLayout.error = getString(R.string.error_unreachable)
                 }
             }
-        }.start()
+        }
     }
 
     private fun pingServer(url: String): Boolean {
@@ -235,7 +249,7 @@ class SetupActivity : AppCompatActivity() {
             conn.requestMethod = "HEAD"
             conn.instanceFollowRedirects = true
             try {
-                conn.responseCode in 200..499
+                conn.responseCode in 200..299
             } finally {
                 conn.disconnect()
             }
@@ -347,13 +361,27 @@ class SetupActivity : AppCompatActivity() {
             private val nameView: TextView = itemView.findViewById(R.id.serverName)
             private val urlView: TextView = itemView.findViewById(R.id.serverUrl)
             private val connectBtn: MaterialButton = itemView.findViewById(R.id.serverConnectBtn)
+            private val editBtn: MaterialButton = itemView.findViewById(R.id.serverEditBtn)
             private val deleteBtn: MaterialButton = itemView.findViewById(R.id.serverDeleteBtn)
 
             fun bind(server: ServerPreferences.ServerProfile) {
                 nameView.text = server.nickname
                 urlView.text = server.url
                 connectBtn.setOnClickListener { onConnect(server) }
+                editBtn.setOnClickListener { onEdit(server) }
                 deleteBtn.setOnClickListener { onDelete(server) }
+                connectBtn.contentDescription = itemView.context.getString(
+                    R.string.content_description_connect_server,
+                    server.nickname,
+                )
+                editBtn.contentDescription = itemView.context.getString(
+                    R.string.content_description_edit_server,
+                    server.nickname,
+                )
+                deleteBtn.contentDescription = itemView.context.getString(
+                    R.string.content_description_delete_server,
+                    server.nickname,
+                )
                 itemView.contentDescription = itemView.context.getString(
                     R.string.server_row_content_description,
                     server.nickname,

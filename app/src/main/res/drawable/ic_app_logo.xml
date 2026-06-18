@@ -7,31 +7,31 @@
     android:tint="?attr/colorPrimary">
     <!-- Monochrome notepad icon -->
     <path
-        android:fillColor="#000000"
+        android:fillColor="@color/on_surface"
         android:pathData="M48,36 L144,36 C148.4,36 152,39.6 152,44 L152,156 C152,160.4 148.4,164 144,164 L48,164 C43.6,164 40,160.4 40,156 L40,44 C40,39.6 43.6,36 48,36 Z" />
     <path
-        android:fillColor="#000000"
+        android:fillColor="@color/on_surface"
         android:pathData="M64,68 L128,68"
         android:strokeWidth="5"
-        android:strokeColor="#000000"
+        android:strokeColor="@color/on_surface"
         android:strokeLineCap="round" />
     <path
-        android:fillColor="#000000"
+        android:fillColor="@color/on_surface"
         android:pathData="M64,88 L128,88"
         android:strokeWidth="5"
-        android:strokeColor="#000000"
+        android:strokeColor="@color/on_surface"
         android:strokeLineCap="round" />
     <path
-        android:fillColor="#000000"
+        android:fillColor="@color/on_surface"
         android:pathData="M64,108 L104,108"
         android:strokeWidth="5"
-        android:strokeColor="#000000"
+        android:strokeColor="@color/on_surface"
         android:strokeLineCap="round" />
     <!-- Pencil -->
     <path
-        android:fillColor="#000000"
+        android:fillColor="@color/on_surface"
         android:pathData="M124,100 L140,116 L134,122 L118,106 Z" />
     <path
-        android:fillColor="#000000"
+        android:fillColor="@color/on_surface"
         android:pathData="M118,106 L114,122 L134,122 Z" />
 </vector>

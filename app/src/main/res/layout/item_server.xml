@@ -45,6 +45,16 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/button_connect"
+        android:contentDescription="@string/content_description_connect_server"
+        android:textSize="13sp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/serverEditBtn"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/button_edit"
+        android:contentDescription="@string/content_description_edit_server"
         android:textSize="13sp" />
 
     <com.google.android.material.button.MaterialButton
@@ -53,7 +63,8 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/button_remove"
-        android:textColor="@android:color/holo_red_dark"
+        android:contentDescription="@string/content_description_delete_server"
+        android:textColor="@color/error"
         android:textSize="13sp" />
 
 </LinearLayout>

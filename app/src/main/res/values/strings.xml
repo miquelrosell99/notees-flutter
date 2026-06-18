@@ -13,7 +13,9 @@
     <string name="button_add_server">Add Server</string>
     <string name="button_save">Save</string>
     <string name="button_remove">Remove</string>
+    <string name="button_edit">Edit</string>
     <string name="button_manage">Manage</string>
+    <string name="button_ok">OK</string>
     <string name="default_server_nickname">Default Server</string>
     <string name="server_list_active_prefix">● </string>
 
@@ -45,7 +47,10 @@
     <string name="dialog_switch_server_title">Switch Server</string>
 
     <!-- Server list accessibility -->
-    <string name="server_row_content_description">%1$s (%2$s). Long-press to edit.</string>
+    <string name="server_row_content_description">Server %1$s at %2$s</string>
+    <string name="content_description_connect_server">Connect to %1$s</string>
+    <string name="content_description_edit_server">Edit %1$s</string>
+    <string name="content_description_delete_server">Remove %1$s</string>
 
     <!-- App shortcuts (long-press launcher icon) -->
     <string name="shortcut_quick_note_short">New note</string>
@@ -61,4 +66,12 @@
     <string name="widget_subtitle">Your knowledge, one tap away</string>
     <string name="widget_quick_note">Quick note</string>
     <string name="widget_journal_today">Today\'s journal</string>
+
+    <!-- Share -->
+    <string name="share_text_truncated">Shared text was very long and has been shortened to %1$d characters.</string>
+
+    <!-- Privacy -->
+    <string name="button_privacy">Privacy</string>
+    <string name="privacy_policy_title">Privacy</string>
+    <string name="privacy_policy_message">Notees is self-hosted. Your notes, credentials, and activity stay on the server you choose. This Android wrapper does not collect or transmit your data to any third party. Cookies are limited to your selected server, and biometric lock (if enabled) is handled only by your device.</string>
 </resources>

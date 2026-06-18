@@ -2,6 +2,7 @@ package com.notees.app
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 /**
@@ -23,12 +24,20 @@ class ShareActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val sharedText = when {
+        val rawText = when {
             intent.action == Intent.ACTION_SEND &&
             intent.type?.startsWith("text/") == true ->
                 intent.getStringExtra(Intent.EXTRA_TEXT)
-                    ?.take(100_000) // guard against absurdly large payloads
             else -> null
+        }
+
+        val sharedText = rawText?.take(100_000) // guard against absurdly large payloads
+        if (rawText != null && rawText.length > 100_000) {
+            Toast.makeText(
+                this,
+                getString(R.string.share_text_truncated, 100_000),
+                Toast.LENGTH_LONG,
+            ).show()
         }
 
         val serverUrl = ServerPreferences.getServerUrl(this)

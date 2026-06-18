@@ -23,6 +23,8 @@ import android.webkit.WebViewClient
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -220,6 +222,14 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
             useWideViewPort = false
             loadWithOverviewMode = false
             userAgentString = "${userAgentString} NoteesAndroid/1.0"
+        }
+
+        // Enable automatic dark mode for web content when the system theme is dark.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+            WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, true)
+        } else if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+            @Suppress("DEPRECATION")
+            WebSettingsCompat.setForceDark(webView.settings, WebSettingsCompat.FORCE_DARK_AUTO)
         }
 
         // Only allow swipe-to-refresh when the WebView is scrolled to the top
