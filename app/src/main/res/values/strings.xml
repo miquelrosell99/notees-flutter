@@ -70,8 +70,4 @@
     <!-- Share -->
     <string name="share_text_truncated">Shared text was very long and has been shortened to %1$d characters.</string>
 
-    <!-- Privacy -->
-    <string name="button_privacy">Privacy</string>
-    <string name="privacy_policy_title">Privacy</string>
-    <string name="privacy_policy_message">Notees is self-hosted. Your notes, credentials, and activity stay on the server you choose. This Android wrapper does not collect or transmit your data to any third party. Cookies are limited to your selected server, and biometric lock (if enabled) is handled only by your device.</string>
 </resources>

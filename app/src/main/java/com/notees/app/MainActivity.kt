@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Message
 import android.provider.MediaStore
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
@@ -164,6 +165,7 @@ class MainActivity : AppCompatActivity(), AndroidBridge.Host {
         rootLayout.doOnAttach { ViewCompat.requestApplyInsets(it) }
 
         findViewById<View>(R.id.retryButton).setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
             errorOverlay.visibility = View.GONE
             webView.loadUrl(serverUrl)
         }

@@ -6,11 +6,13 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.HapticFeedbackConstants
 import android.view.inputmethod.EditorInfo
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -40,6 +42,7 @@ class SetupActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         ServerPreferences.migrateLegacyServerUrl(this)
 
@@ -63,8 +66,10 @@ class SetupActivity : AppCompatActivity() {
         urlInput = findViewById(R.id.urlInput)
         val connectButton: MaterialButton = findViewById(R.id.connectButton)
 
-        connectButton.setOnClickListener { attemptConnect() }
-        findViewById<MaterialButton>(R.id.privacyButton).setOnClickListener { showPrivacyDialog() }
+        connectButton.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            attemptConnect()
+        }
 
         urlInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO) {
@@ -103,20 +108,17 @@ class SetupActivity : AppCompatActivity() {
         serverListView.layoutManager = LinearLayoutManager(this)
         serverListView.adapter = adapter
 
-        addServerButton.setOnClickListener { showAddForm() }
-        saveServerButton.setOnClickListener { saveNewServer() }
+        addServerButton.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            showAddForm()
+        }
+        saveServerButton.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            saveNewServer()
+        }
         cancelAddButton.setOnClickListener { hideAddForm() }
-        findViewById<MaterialButton>(R.id.privacyButton).setOnClickListener { showPrivacyDialog() }
 
         refreshServerList()
-    }
-
-    private fun showPrivacyDialog() {
-        AlertDialog.Builder(this)
-            .setTitle(R.string.privacy_policy_title)
-            .setMessage(R.string.privacy_policy_message)
-            .setPositiveButton(R.string.button_ok, null)
-            .show()
     }
 
     private fun refreshServerList() {
@@ -367,7 +369,10 @@ class SetupActivity : AppCompatActivity() {
             fun bind(server: ServerPreferences.ServerProfile) {
                 nameView.text = server.nickname
                 urlView.text = server.url
-                connectBtn.setOnClickListener { onConnect(server) }
+                connectBtn.setOnClickListener {
+                    it.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    onConnect(server)
+                }
                 editBtn.setOnClickListener { onEdit(server) }
                 deleteBtn.setOnClickListener { onDelete(server) }
                 connectBtn.contentDescription = itemView.context.getString(

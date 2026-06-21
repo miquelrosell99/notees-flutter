@@ -15,6 +15,7 @@
         android:indeterminate="false"
         android:max="100"
         android:visibility="gone"
+        android:importantForAccessibility="no"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
@@ -32,7 +33,8 @@
         <WebView
             android:id="@+id/webView"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent"
+            android:contentDescription="@string/app_name" />
 
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
@@ -71,6 +73,8 @@
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
             android:layout_marginTop="24dp"
             android:text="@string/button_retry" />
 
