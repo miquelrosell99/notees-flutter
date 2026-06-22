@@ -45,6 +45,7 @@ class AuthProvider extends ChangeNotifier {
         _dio = createApiClient(
           baseUrl: _activeServer!.url,
           secureStorage: secureStorage,
+          trustSelfSigned: _activeServer!.trustSelfSigned,
         );
         _pushService = PushNotificationService(dio: _dio!);
         _user = await AuthRepository(dio: _dio!, secureStorage: secureStorage).checkSession();
@@ -63,7 +64,11 @@ class AuthProvider extends ChangeNotifier {
   Future<void> selectServer(ServerProfile server) async {
     await serverRepository.setActiveServerId(server.id);
     _activeServer = server;
-    _dio = createApiClient(baseUrl: server.url, secureStorage: secureStorage);
+    _dio = createApiClient(
+      baseUrl: server.url,
+      secureStorage: secureStorage,
+      trustSelfSigned: server.trustSelfSigned,
+    );
     _pushService = PushNotificationService(dio: _dio!);
     _user = null;
     notifyListeners();

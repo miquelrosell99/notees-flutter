@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/models/server_profile.dart';
-import '../../data/repositories/server_repository.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/fleet_card.dart';
 
@@ -167,6 +166,7 @@ class _ServerFormSheet extends StatefulWidget {
 class _ServerFormSheetState extends State<_ServerFormSheet> {
   late final TextEditingController _urlController;
   late final TextEditingController _nicknameController;
+  late bool _trustSelfSigned;
   bool _testing = false;
   bool _saving = false;
   String? _error;
@@ -177,6 +177,7 @@ class _ServerFormSheetState extends State<_ServerFormSheet> {
     super.initState();
     _urlController = TextEditingController(text: widget.server?.url ?? '');
     _nicknameController = TextEditingController(text: widget.server?.nickname ?? '');
+    _trustSelfSigned = widget.server?.trustSelfSigned ?? false;
   }
 
   @override
@@ -195,7 +196,7 @@ class _ServerFormSheetState extends State<_ServerFormSheet> {
       _error = null;
     });
     final repo = context.read<AuthProvider>().serverRepository;
-    final result = await repo.pingServer(url);
+    final result = await repo.pingServer(url, trustSelfSigned: _trustSelfSigned);
     setState(() {
       _testing = false;
       _pingResult = result;
@@ -218,11 +219,13 @@ class _ServerFormSheetState extends State<_ServerFormSheet> {
         await repo.updateServer(existing.copyWith(
           url: url,
           nickname: nickname.isEmpty ? url : nickname,
+          trustSelfSigned: _trustSelfSigned,
         ));
       } else {
         await repo.addServer(
           url: url,
           nickname: nickname.isEmpty ? url : nickname,
+          trustSelfSigned: _trustSelfSigned,
         );
       }
       if (mounted) {
@@ -271,6 +274,13 @@ class _ServerFormSheetState extends State<_ServerFormSheet> {
               labelText: 'Nickname (optional)',
               prefixIcon: Icon(Icons.label_outline),
             ),
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile(
+            title: const Text('Trust self-signed certificate'),
+            subtitle: const Text('Only enable for servers you control.'),
+            value: _trustSelfSigned,
+            onChanged: (value) => setState(() => _trustSelfSigned = value),
           ),
           if (_pingResult != null)
             Padding(

@@ -7,18 +7,21 @@ class ServerProfile {
     required this.url,
     required this.nickname,
     this.apiKey,
+    this.trustSelfSigned = false,
   });
 
   final String id;
   final String url;
   final String nickname;
   final String? apiKey;
+  final bool trustSelfSigned;
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'url': url,
         'nickname': nickname,
         if (apiKey != null) 'apiKey': apiKey,
+        'trustSelfSigned': trustSelfSigned,
       };
 
   factory ServerProfile.fromJson(Map<String, dynamic> json) => ServerProfile(
@@ -26,6 +29,7 @@ class ServerProfile {
         url: json['url'] as String,
         nickname: json['nickname'] as String,
         apiKey: json['apiKey'] as String?,
+        trustSelfSigned: json['trustSelfSigned'] as bool? ?? false,
       );
 
   String toRaw() => jsonEncode(toJson());
@@ -38,11 +42,13 @@ class ServerProfile {
     String? url,
     String? nickname,
     String? apiKey,
+    bool? trustSelfSigned,
   }) =>
       ServerProfile(
         id: id ?? this.id,
         url: url ?? this.url,
         nickname: nickname ?? this.nickname,
         apiKey: apiKey ?? this.apiKey,
+        trustSelfSigned: trustSelfSigned ?? this.trustSelfSigned,
       );
 }

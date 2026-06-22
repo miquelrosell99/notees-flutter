@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/models/server_profile.dart';
-import '../../data/repositories/server_repository.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/section_title.dart';
@@ -21,6 +20,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
   final _nicknameController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _pinging = false;
+  bool _trustSelfSigned = false;
   String? _error;
   List<_ServerItem> _servers = [];
 
@@ -31,7 +31,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
   }
 
   Future<void> _loadServers() async {
-    final repo = context.read<ServerRepository>();
+    final repo = context.read<AuthProvider>().serverRepository;
     final servers = await repo.getServers();
     final activeId = await repo.getActiveServerId();
     setState(() {
@@ -51,8 +51,11 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
     });
 
     final url = _urlController.text.trim();
-    final repo = context.read<ServerRepository>();
-    final error = await repo.pingServer(url);
+    final repo = context.read<AuthProvider>().serverRepository;
+    final error = await repo.pingServer(
+      url,
+      trustSelfSigned: _trustSelfSigned,
+    );
 
     if (error != null) {
       setState(() {
@@ -65,6 +68,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
     final profile = await repo.addServer(
       url: url,
       nickname: _nicknameController.text.trim(),
+      trustSelfSigned: _trustSelfSigned,
     );
 
     if (!mounted) return;
@@ -77,7 +81,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
 
   Future<void> _selectServer(String id) async {
     HapticFeedback.lightImpact();
-    final repo = context.read<ServerRepository>();
+    final repo = context.read<AuthProvider>().serverRepository;
     final servers = await repo.getServers();
     final profile = servers.firstWhere((s) => s.id == id);
     await repo.setActiveServerId(id);
@@ -90,7 +94,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
 
   Future<void> _removeServer(String id) async {
     HapticFeedback.mediumImpact();
-    final repo = context.read<ServerRepository>();
+    final repo = context.read<AuthProvider>().serverRepository;
     await repo.removeServer(id);
     await _loadServers();
   }
@@ -133,8 +137,9 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                     validator: (value) {
                       final trimmed = value?.trim() ?? '';
                       if (trimmed.isEmpty) return 'Server URL is required';
-                      if (!trimmed.startsWith('http://') &&
-                          !trimmed.startsWith('https://')) {
+                      final lower = trimmed.toLowerCase();
+                      if (!lower.startsWith('http://') &&
+                          !lower.startsWith('https://')) {
                         return 'URL must start with http:// or https://';
                       }
                       return null;
@@ -150,6 +155,13 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                       prefixIcon: Icon(Icons.label_outline),
                     ),
                     onFieldSubmitted: (_) => _saveServer(),
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    title: const Text('Trust self-signed certificate'),
+                    subtitle: const Text('Only enable for servers you control.'),
+                    value: _trustSelfSigned,
+                    onChanged: (value) => setState(() => _trustSelfSigned = value),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 12),

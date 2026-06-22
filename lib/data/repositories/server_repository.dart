@@ -1,5 +1,7 @@
+import 'dart:async';
+import 'dart:developer';
 import 'dart:io';
-import 'dart:math';
+import 'dart:math' hide log;
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,9 +11,9 @@ import '../models/server_profile.dart';
 /// Stores and manages the user's Notees server profiles.
 class ServerRepository {
   ServerRepository({
-    SharedPreferences? prefs,
+    required SharedPreferences prefs,
     FlutterSecureStorage? secureStorage,
-  })  : _prefs = prefs ?? SharedPreferences.getInstance() as SharedPreferences,
+  })  : _prefs = prefs,
         _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   final SharedPreferences _prefs;
@@ -46,6 +48,7 @@ class ServerRepository {
     required String url,
     required String nickname,
     String? apiKey,
+    bool trustSelfSigned = false,
   }) async {
     final normalized = _normalizeUrl(url);
     final profile = ServerProfile(
@@ -53,6 +56,7 @@ class ServerRepository {
       url: normalized,
       nickname: nickname.isEmpty ? normalized : nickname,
       apiKey: apiKey,
+      trustSelfSigned: trustSelfSigned,
     );
     final servers = await getServers();
     servers.add(profile);
@@ -91,20 +95,45 @@ class ServerRepository {
   }
 
   /// Verifies that the server is reachable. Returns an error message or null.
-  Future<String?> pingServer(String url) async {
+  Future<String?> pingServer(String url, {bool trustSelfSigned = false}) async {
     final normalized = _normalizeUrl(url);
     final healthUri = Uri.parse('$normalized/api/health');
+    log('Pinging $healthUri (trustSelfSigned=$trustSelfSigned)');
+
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 8);
+    if (trustSelfSigned) {
+      client.badCertificateCallback =
+          (X509Certificate cert, String host, int port) => true;
+    }
+
     try {
       final request = await client.getUrl(healthUri);
       final response = await request.close().timeout(const Duration(seconds: 8));
       if (response.statusCode >= 400) {
+        log('Ping failed with status ${response.statusCode}');
         return 'Server returned ${response.statusCode}';
       }
       await response.drain<void>();
+      log('Ping succeeded');
       return null;
+    } on HandshakeException catch (e) {
+      log('Ping TLS handshake failed: $e');
+      return 'Could not verify the server HTTPS certificate. '
+          'If you use a self-signed certificate, enable "Trust self-signed certificate".';
+    } on SocketException catch (e) {
+      log('Ping socket error: $e');
+      final host = healthUri.host;
+      if (host == 'localhost' || host == '127.0.0.1' || host == '::1') {
+        return 'localhost/127.0.0.1 refers to the phone itself. '
+            'Use the computer local network IP (e.g. 192.168.x.x) or 10.0.2.2 for the Android emulator.';
+      }
+      return 'Could not reach server. Check the URL and that your phone and server are on the same network.';
+    } on TimeoutException catch (_) {
+      log('Ping timed out');
+      return 'Connection timed out. The server did not respond within 8 seconds.';
     } on Exception catch (e) {
+      log('Ping unexpected error: $e');
       return 'Could not reach server: $e';
     } finally {
       client.close();
@@ -113,7 +142,9 @@ class ServerRepository {
 
   String _normalizeUrl(String url) {
     var trimmed = url.trim();
-    if (trimmed.endsWith('/')) trimmed = trimmed.substring(0, trimmed.length - 1);
+    if (trimmed.endsWith('/')) {
+      trimmed = trimmed.substring(0, trimmed.length - 1);
+    }
     return trimmed;
   }
 
