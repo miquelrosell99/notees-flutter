@@ -35,7 +35,7 @@ class OfflineQueue {
               queryParameters: {'name': name},
             );
         }
-        await database.remove(item['id'] as int);
+        await database.remove((item['id'] as num).toInt());
       } on DioException catch (e) {
         errors.add('$method: ${e.message}');
       }

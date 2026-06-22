@@ -165,6 +165,6 @@ class ApiKey {
         name: json['name'] as String,
         scopes: (json['scopes'] as List<dynamic>?)?.cast<String>() ?? [],
         key: json['key'] as String?,
-        createDate: DateTime.parse(json['create_date'] as String),
+        createDate: DateTime.parse(json['created_at'] as String),
       );
 }
