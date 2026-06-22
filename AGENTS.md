@@ -1,101 +1,102 @@
 # AGENTS.md — Notees Mobile
 
-This file contains project-specific context for the Android Kotlin wrapper app in `mobile/`.
+This file contains project-specific context for the first-class Flutter mobile app in `mobile/`.
 
 ## Overview
 
-The mobile app is a **minimal Android WebView wrapper** around the Notees React frontend. It does not bundle the web app; it connects to a user-provided self-hosted Notees server.
+The mobile app is a **hybrid native shell** for Notees. It provides native Android and iOS experiences for the workflows users do most often on phones, while embedding the existing React web app in a WebView for the full editor, whiteboard, QueryAST views, and complex features.
 
-- **minSdk**: 26 (Android 8.0)
-- **targetSdk / compileSdk**: 36
-- **Language**: Kotlin
-- **Build tool**: Gradle (wrapped)
-- **Containerized build**: `mobile/build-apk.sh` uses Docker; no local Android SDK required.
+- **Package**: `com.notees.notees` (Android)
+- **Display name**: `Notees`
+- **Functional accent**: sage green `#5B7D5B`
+- **Architecture**: feature-first Flutter with Provider + ChangeNotifier, Dio, go_router, sqflite
+- **Native features**: biometric app lock, offline quick-capture queue, share receiver, push-notification prep, keyboard-snapped edit toolbar, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management
 
-## Project Structure
+## Key Files
 
 ```
 mobile/
-├── app/
-│   ├── build.gradle.kts          # App module config
-│   ├── proguard-rules.pro        # ProGuard rules for release
-│   └── src/main/
-│       ├── AndroidManifest.xml
-│       ├── java/com/notees/app/
-│       │   ├── SetupActivity.kt      # Server URL entry screen
-│       │   ├── MainActivity.kt       # WebView wrapper
-│       │   ├── ShareActivity.kt      # Transparent share receiver
-│       │   ├── BiometricHelper.kt    # Fingerprint / face unlock
-│       │   ├── AndroidBridge.kt      # JS ↔ native bridge
-│       │   ├── ServerPreferences.kt  # Encrypted URL storage
-│       │   └── NoteesWidget.kt       # Home-screen widget provider
-│       └── res/                    # Layouts, themes, icons, menus
-├── build-apk.sh                  # Docker-based debug APK build
-├── Dockerfile                    # Multi-stage Docker build for APK
-├── build.gradle.kts              # Root Gradle config
-└── settings.gradle.kts
+├── lib/
+│   ├── main.dart
+│   ├── app.dart
+│   ├── core/
+│   │   ├── api/              # Dio client + auth interceptor
+│   │   ├── routing/          # go_router deep-link config
+│   │   ├── secure/           # flutter_secure_storage wrapper
+│   │   └── theme/            # RosellRamos theme + accent picker
+│   ├── data/
+│   │   ├── models/           # ServerProfile, User, Node
+│   │   └── repositories/     # Auth, Server, Workspace, Node
+│   ├── presentation/
+│   │   ├── providers/        # AuthProvider
+│   │   ├── screens/          # Splash, ServerSetup, Login, Dashboard, Settings, ServerManagement, UserProfile, ApiKeys, etc.
+│   │   └── widgets/          # Fleet-styled cards, section titles
+│   └── native/               # WebView editor + JS bridge
+├── android/                  # Android platform project
+├── ios/                      # iOS platform project
+├── build-apk.sh             # Docker-based APK build
+├── Dockerfile               # Flutter build image
+└── AGENTS.md                # This file
 ```
 
-## Key Behaviors
+## Build
 
-- **First launch**: `SetupActivity` prompts for the server URL.
-- **URL storage**: Saved encrypted via `EncryptedSharedPreferences`.
-- **Subsequent launches**: `SetupActivity` detects the saved URL and forwards to `MainActivity`.
-- **WebView**: Loads the user’s Notees server; login page (or app if cookies persist) is shown.
-- **Back navigation**: Android back button navigates web history; exits when history is empty.
-- **Share receiver**: Other apps can send text to `ShareActivity`, which forwards it into Notees as a quick note.
-- **Deep links**: `notees://note/…` opens directly in the WebView.
-- **Biometric lock**: Optional fingerprint / face unlock via `BiometricHelper`.
-- **Cookie persistence**: Sessions survive app restarts.
-- **Offline awareness**: Native network listener injects connectivity events into the web app.
-
-## Build Commands
+**Prefer CI builds.** The Docker-based local build (`./build-apk.sh`) downloads the Flutter image, the Android SDK/NDK, and compiles Gradle on every run, which is heavy for an i3/16 GB server that runs other apps. Use GitHub Actions instead:
 
 ```bash
-# Easiest path: Docker-based build
+# Trigger a release APK build and print the run URL
+cd mobile
+./trigger-ci-build.sh
+```
+
+Then grab the artifact from the printed workflow run.
+
+For local emergencies only:
+
+```bash
 cd mobile
 ./build-apk.sh
-
-# Manual debug build (requires JDK 17 + Android SDK 35)
-cd mobile
-./gradlew assembleDebug
-
-# Release build (requires a signing keystore; see mobile/README.md)
-./gradlew assembleRelease
 ```
+
+This outputs `dist/notees.apk`.
+
+## Design System
+
+- Monochrome base layer dominates 90%+ of the UI.
+- Functional accent (sage `#5B7D5B`) is used only for selected states, badges, primary buttons, and status indicators.
+- Cards use `borderRadius: 20`, zero elevation, subtle outline at 10% opacity.
+- Bottom sheets use top radius of 28.
+- Dynamic color is supported via `dynamic_color` and can be enabled in Settings.
+
+## Push Notifications
+
+FCM plumbing is wired but requires operator configuration for each self-hosted instance:
+
+1. Create a Firebase project and add Android app `com.notees.notees`.
+2. Replace `android/app/google-services.json` with the downloaded config.
+3. Set `FCM_SERVER_KEY` on the Notees server (or swap the adapter for FCM HTTP v1).
+4. The app registers its token at `POST /api/auth/device-token` after login.
+
+`android/app/google-services.json` is tracked as a placeholder so CI builds succeed; it will not deliver notifications until replaced.
+
+## WebView Bridge Contract
+
+The embedded editor loads the user's self-hosted Notees server. A lightweight JS bridge coordinates native ↔ web:
+
+- **Native → Web**: `window.noteesMobileEditor.applyFormat(...)`, `insertLink()`, `insertDate()`
+- **Web → Native**: `window.FlutterBridge.openServerSettings()`, `shareText(text)`, `openUrl(url)`, `editorFocusChanged(focused)`
 
 ## Security Notes
 
-### Cleartext traffic (`HTTP`)
-
-The Network Security Config is now build-type specific:
-
-- **Release builds** (`network_security_config.xml`) deny cleartext by default and only allow it for common private / self-hosted hostnames (`localhost`, `*.local`, `*.ts.net`, `*.lan`, `*.home.arpa`, etc.).
-- **Debug builds** (`network_security_config_debug.xml`) permit cleartext to simplify development against arbitrary LAN IPs.
-
-- **Why release still allows some cleartext**: Notees is designed to run on private networks where users may not have TLS certificates. Common legitimate deployments include:
-  - A Tailscale machine such as `http://my-server.ts.net`.
-  - A `localhost` / `127.0.0.1` development instance.
-  - A private DNS name such as `http://notees.local`.
-- **Limitation**: Android's Network Security Config does not support IP ranges, so release builds cannot allow all `192.168.x.x` or `10.x.x.x` addresses generically. HTTP on arbitrary LAN IPs requires a debug build or HTTPS.
-- **When to use HTTPS instead**: Any Notees instance that is reachable from the public internet, an untrusted network, or any context where traffic could be intercepted should be served exclusively over HTTPS. The SetupActivity UI defaults to `https://` and shows a warning if the user explicitly enters `http://` for a public-looking hostname.
-- **What the app does to reduce risk**:
-  - The URL is the user’s own deliberate choice; the app does not ship with a default server.
-  - Release cleartext is scoped to private hostname patterns, not all destinations.
-  - `MainActivity` disables third-party cookies (`setAcceptThirdPartyCookies(webView, false)`), uses `MIXED_CONTENT_NEVER_ALLOW`, and only treats navigation as internal when the request origin matches the configured server origin exactly (scheme + host + port).
-
-### Other hardening
-
-- Server URLs are encrypted at rest with `EncryptedSharedPreferences`.
-- `AndroidManifest.xml` sets `android:allowBackup="false"` so encrypted server credentials and cookies are not included in cloud backups.
-- The debug keystore in the repo is intentional and not a secret.
+- Server credentials and tokens are stored in `flutter_secure_storage`.
+- The app only loads the user-configured server origin in the WebView.
+- External links from the WebView are rejected and left to the system browser.
+- Biometric lock is enabled in Settings and gates app resume.
 
 ## Skill References
 
-- `selfhost-release` — Docker-based builds, env files, deployment workflow.
-- `security-hardening` — Secure storage, HTTPS, native bridge input validation.
-- `accessibility-primer` — Touch targets, focus, motion, screen reader labels for native Android UI.
-
-## Full Documentation
-
-See `mobile/README.md` for detailed build instructions, release signing setup, and icon customization.
+- `rosellramos-app-creator` — scaffold and fleet design system
+- `flutter-ui-patterns` — cards, lists, empty states, bottom sheets
+- `flutter-play-store-release` — signing, AAB, Play Console
+- `security-hardening` — token storage, HTTPS, input validation
+- `accessibility-primer` — touch targets, focus, labels
