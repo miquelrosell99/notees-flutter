@@ -10,7 +10,7 @@ class User {
     required this.isActive,
   });
 
-  final int id;
+  final String id;
   final String uuid;
   final String email;
   final String? name;
@@ -27,7 +27,7 @@ class User {
   }
 
   factory User.fromJson(Map<String, dynamic> json) => User(
-        id: json['id'] as int,
+        id: json['id'] as String,
         uuid: json['uuid'] as String,
         email: json['email'] as String,
         name: json['name'] as String?,
