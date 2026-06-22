@@ -12,3 +12,6 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+# The debug keystore is intentionally tracked so CI and local builds share the
+# same signing certificate and consecutive APK installs do not conflict.
+!app/debug.keystore

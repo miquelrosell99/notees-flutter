@@ -50,46 +50,67 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
       _error = null;
     });
 
-    final url = _urlController.text.trim();
-    final repo = context.read<AuthProvider>().serverRepository;
-    final error = await repo.pingServer(
-      url,
-      trustSelfSigned: _trustSelfSigned,
-    );
+    try {
+      final url = _urlController.text.trim();
+      final repo = context.read<AuthProvider>().serverRepository;
+      final error = await repo.pingServer(
+        url,
+        trustSelfSigned: _trustSelfSigned,
+      );
 
-    if (error != null) {
-      setState(() {
-        _pinging = false;
-        _error = error;
-      });
-      return;
+      if (error != null) {
+        setState(() {
+          _pinging = false;
+          _error = error;
+        });
+        return;
+      }
+
+      final profile = await repo.addServer(
+        url: url,
+        nickname: _nicknameController.text.trim(),
+        trustSelfSigned: _trustSelfSigned,
+      );
+
+      if (!mounted) return;
+      await context.read<AuthProvider>().selectServer(profile);
+      await _loadServers();
+
+      if (!mounted) return;
+      context.go('/login');
+    } on Exception catch (e) {
+      if (mounted) {
+        setState(() => _error = 'Could not connect: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _pinging = false);
+      }
     }
-
-    final profile = await repo.addServer(
-      url: url,
-      nickname: _nicknameController.text.trim(),
-      trustSelfSigned: _trustSelfSigned,
-    );
-
-    if (!mounted) return;
-    await context.read<AuthProvider>().selectServer(profile);
-    await _loadServers();
-
-    if (!mounted) return;
-    context.go('/login');
   }
 
   Future<void> _selectServer(String id) async {
     HapticFeedback.lightImpact();
-    final repo = context.read<AuthProvider>().serverRepository;
-    final servers = await repo.getServers();
-    final profile = servers.firstWhere((s) => s.id == id);
-    await repo.setActiveServerId(id);
-    if (!mounted) return;
-    final auth = context.read<AuthProvider>();
-    await auth.selectServer(profile);
-    if (!mounted) return;
-    context.go('/login');
+    setState(() => _pinging = true);
+    try {
+      final repo = context.read<AuthProvider>().serverRepository;
+      final servers = await repo.getServers();
+      final profile = servers.firstWhere((s) => s.id == id);
+      await repo.setActiveServerId(id);
+      if (!mounted) return;
+      final auth = context.read<AuthProvider>();
+      await auth.selectServer(profile);
+      if (!mounted) return;
+      context.go('/login');
+    } on Exception catch (e) {
+      if (mounted) {
+        setState(() => _error = 'Could not select server: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _pinging = false);
+      }
+    }
   }
 
   Future<void> _removeServer(String id) async {
