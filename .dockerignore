@@ -1,7 +1,0 @@
-.gradle
-build
-app/build
-*.apk
-!debug.keystore
-.idea
-local.properties
