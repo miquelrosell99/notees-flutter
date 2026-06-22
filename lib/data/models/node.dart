@@ -7,7 +7,7 @@ class Node {
     this.color,
     this.parentId,
     this.pageId,
-    this.sequence = 0,
+    this.sequence = 0.0,
     this.isPage = false,
     this.isTask = false,
     this.isDaily = false,
@@ -26,14 +26,14 @@ class Node {
   final String? color;
   final int? parentId;
   final int? pageId;
-  final int sequence;
+  final double sequence;
   final bool isPage;
   final bool isTask;
   final bool isDaily;
   final bool isMonthly;
   final bool isYearly;
-  final List<String> classes;
-  final List<String> tags;
+  final List<int> classes;
+  final List<int> tags;
   final Map<String, dynamic> properties;
   final List<Node> children;
 
@@ -49,14 +49,14 @@ class Node {
       color: json['color'] as String?,
       parentId: json['parent_id'] as int?,
       pageId: json['page_id'] as int?,
-      sequence: json['sequence'] as int? ?? 0,
+      sequence: (json['sequence'] as num?)?.toDouble() ?? 0.0,
       isPage: json['is_page'] as bool? ?? false,
       isTask: json['is_task'] as bool? ?? false,
       isDaily: json['is_daily'] as bool? ?? false,
       isMonthly: json['is_monthly'] as bool? ?? false,
       isYearly: json['is_yearly'] as bool? ?? false,
-      classes: (json['classes'] as List<dynamic>?)?.cast<String>() ?? const [],
-      tags: (json['tags'] as List<dynamic>?)?.cast<String>() ?? const [],
+      classes: (json['classes'] as List<dynamic>?)?.cast<int>() ?? const [],
+      tags: (json['tags'] as List<dynamic>?)?.cast<int>() ?? const [],
       properties: (json['properties'] as Map<String, dynamic>?) ?? const {},
       children: childrenJson?.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList() ?? const [],
     );
