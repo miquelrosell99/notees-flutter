@@ -79,6 +79,30 @@ docker compose run --rm build-apk
 
 The Android workflow runs `flutter analyze` first so compile errors fail fast instead of after a full Gradle build.
 
+## Avoiding CI failures
+
+Run the local analyze command before every push that touches `mobile/`:
+
+```bash
+cd mobile
+docker compose run --rm flutter flutter analyze
+```
+
+Common issues that break the Android build:
+
+- **Map literal types**: deduplicating lists into a map must use `<int, Node>{...}`, not `<Node>{...}`. The latter creates a `Set<Node>` and `.values` is undefined.
+- **Parameter shadowing**: don't name a parameter the same as a static helper. For example, `String text` shadows `AstBuilder.text()`, causing `The method 'call' isn't defined for the type 'String'`.
+- **Async `BuildContext` use**: capture `context.read<...>()` before the first `await`, or guard post-async context use with `if (mounted)`.
+- **Unused private members**: the analyzer treats unused private methods/fields as warnings, and the workflow fails on them.
+- **Map null entries**: the Dart version in the pinned Flutter image does not accept `'key': value?` collection elements. Keep using `if (value != null) 'key': value` (with an optional `// ignore: use_null_aware_elements`).
+
+For major refactors, also run the full APK build locally before pushing:
+
+```bash
+cd mobile
+docker compose run --rm build-apk
+```
+
 ## Design System
 
 - Monochrome base layer dominates 90%+ of the UI.
