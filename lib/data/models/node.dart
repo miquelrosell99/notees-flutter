@@ -20,6 +20,8 @@ class Node {
     this.tags = const [],
     this.properties = const {},
     this.children = const [],
+    this.createDate,
+    this.writeDate,
   });
 
   final int id;
@@ -28,6 +30,8 @@ class Node {
   final String displayName;
   final String? icon;
   final String? color;
+  final String? createDate;
+  final String? writeDate;
   final int? parentId;
   final int? pageId;
   final double sequence;
@@ -64,6 +68,8 @@ class Node {
       tags: (json['tags'] as List<dynamic>?)?.cast<int>() ?? const [],
       properties: (json['properties'] as Map<String, dynamic>?) ?? const {},
       children: childrenJson?.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList() ?? const [],
+      createDate: json['create_date'] as String?,
+      writeDate: json['write_date'] as String?,
     );
   }
 
@@ -86,5 +92,7 @@ class Node {
         'tags': tags,
         'properties': properties,
         'children': children.map((e) => e.toJson()).toList(),
+        'create_date': createDate,
+        'write_date': writeDate,
       };
 }

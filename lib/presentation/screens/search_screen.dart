@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/routing/router.dart';
+import '../../core/utils/view_mode_store.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
 import '../../domain/models/search_filters.dart';
@@ -14,6 +15,7 @@ import '../views/node_collection.dart';
 import '../views/node_view_mode.dart';
 import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/filter_chip_bar.dart';
+import '../widgets/view_mode_sheet.dart';
 
 /// Live search across nodes with advanced filters.
 class SearchScreen extends StatefulWidget {
@@ -33,7 +35,25 @@ class _SearchScreenState extends State<SearchScreen> {
   String? _error;
   int _currentPage = 1;
   bool _hasMore = false;
+  NodeViewMode _viewMode = NodeViewMode.list;
+  final _viewModeStore = ViewModeStore();
   Timer? _debounceTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadViewMode();
+  }
+
+  Future<void> _loadViewMode() async {
+    final mode = await _viewModeStore.getMode('search', NodeViewMode.list);
+    if (mounted) setState(() => _viewMode = mode);
+  }
+
+  Future<void> _setViewMode(NodeViewMode mode) async {
+    await _viewModeStore.setMode('search', mode);
+    if (mounted) setState(() => _viewMode = mode);
+  }
 
   @override
   void dispose() {
@@ -147,6 +167,14 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
         actions: [
           IconButton(
+            icon: Icon(_viewMode.icon),
+            tooltip: 'Change view',
+            onPressed: () async {
+              final mode = await ViewModeSheet.show(context, _viewMode);
+              if (mode != null) await _setViewMode(mode);
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.tune),
             onPressed: () async {
               final updated = await FilterBottomSheet.show(context, _filters);
@@ -192,7 +220,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     return NodeCollection(
-      mode: NodeViewMode.list,
+      mode: _viewMode,
       nodes: _results,
       onNodeTap: _openNode,
       footer: _hasMore ? _buildLoadMoreButton() : null,

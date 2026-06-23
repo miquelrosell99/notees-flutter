@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/node.dart';
+import 'node_card_view.dart';
 import 'node_list_view.dart';
+import 'node_table_view.dart';
 import 'node_view_mode.dart';
 
 /// Dispatcher widget that renders a collection of nodes according to the
@@ -32,10 +34,9 @@ class NodeCollection extends StatelessWidget {
       case NodeViewMode.list:
         return NodeListView(nodes: nodes, onNodeTap: onNodeTap, footer: footer);
       case NodeViewMode.card:
+        return NodeCardView(nodes: nodes, onNodeTap: onNodeTap);
       case NodeViewMode.table:
-        // Card and table views are implemented in Phase 2.
-        // Fall back to list view until then so the UI never breaks.
-        return NodeListView(nodes: nodes, onNodeTap: onNodeTap, footer: footer);
+        return NodeTableView(nodes: nodes, onNodeTap: onNodeTap);
     }
   }
 }
