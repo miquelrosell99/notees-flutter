@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -102,6 +103,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         _deletedBlockIds.clear();
         _error = null;
       });
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final body = e.response?.data;
+      setState(() => _error = 'Server error ${status ?? ""}\n$body\n${e.message}');
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
