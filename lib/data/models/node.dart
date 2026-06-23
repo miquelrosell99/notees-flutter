@@ -1,3 +1,5 @@
+import '../../core/utils/ast_stringifier.dart';
+
 class Node {
   Node({
     required this.id,
@@ -47,7 +49,7 @@ class Node {
       id: json['id'] as int,
       uuid: json['uuid'] as String,
       name: json['name'] as String,
-      displayName: json['display_name'] as String? ?? (json['name'] as String),
+      displayName: json['display_name'] as String? ?? astToPlainText(json['name'] as String?),
       icon: json['icon'] as String?,
       color: json['color'] as String?,
       parentId: json['parent_id'] as int?,
