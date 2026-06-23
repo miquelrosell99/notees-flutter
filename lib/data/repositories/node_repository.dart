@@ -20,7 +20,7 @@ class NodeRepository {
 
   Future<List<Node>> fetchFavorites({int limit = 50}) async {
     final response = await dio.get<Map<String, dynamic>>(
-      '/favorites',
+      '/nodes/favorites',
       queryParameters: {'page': 1, 'page_size': limit},
     );
     final data = response.data;
@@ -31,7 +31,7 @@ class NodeRepository {
 
   Future<List<int>> fetchFavoriteIds() async {
     final response = await dio.get<Map<String, dynamic>>(
-      '/favorites',
+      '/nodes/favorites',
       queryParameters: {'page': 1, 'page_size': 500},
     );
     final data = response.data;
@@ -44,16 +44,16 @@ class NodeRepository {
   }
 
   Future<void> addFavorite(int nodeId) async {
-    await dio.post<Map<String, dynamic>>('/favorites/$nodeId');
+    await dio.post<Map<String, dynamic>>('/nodes/favorites/$nodeId');
   }
 
   Future<void> removeFavorite(int nodeId) async {
-    await dio.delete<Map<String, dynamic>>('/favorites/$nodeId');
+    await dio.delete<Map<String, dynamic>>('/nodes/favorites/$nodeId');
   }
 
   Future<void> reorderFavorites(int fromIndex, int toIndex) async {
     await dio.put<Map<String, dynamic>>(
-      '/favorites/reorder',
+      '/nodes/favorites/reorder',
       data: {'from_index': fromIndex, 'to_index': toIndex},
     );
   }
@@ -226,7 +226,7 @@ class NodeRepository {
 
   Future<List<Node>> fetchTrash({int page = 1, int pageSize = 50}) async {
     final response = await dio.get<Map<String, dynamic>>(
-      '/trash',
+      '/nodes/trash',
       queryParameters: {'page': page, 'page_size': pageSize},
     );
     final data = response.data;
@@ -240,11 +240,11 @@ class NodeRepository {
   }
 
   Future<void> emptyTrash() async {
-    await dio.post<Map<String, dynamic>>('/trash/empty');
+    await dio.post<Map<String, dynamic>>('/nodes/trash/empty');
   }
 
   Future<void> permanentlyDeleteNode(int id) async {
-    await dio.post<Map<String, dynamic>>('/nodes/$id/permanent');
+    await dio.delete('/nodes/$id/permanent');
   }
 
   // === Tags ===
