@@ -9,6 +9,8 @@ class SearchFilters {
     this.dateTo,
     this.sortBy = SortBy.relevance,
     this.order = SortOrder.desc,
+    this.limit = 50,
+    this.page = 1,
   });
 
   final String query;
@@ -19,6 +21,8 @@ class SearchFilters {
   final DateTime? dateTo;
   final SortBy sortBy;
   final SortOrder order;
+  final int limit;
+  final int page;
 
   bool get isEmpty =>
       query.isEmpty &&
@@ -37,6 +41,8 @@ class SearchFilters {
     DateTime? dateTo,
     SortBy? sortBy,
     SortOrder? order,
+    int? limit,
+    int? page,
   }) {
     return SearchFilters(
       query: query ?? this.query,
@@ -47,6 +53,8 @@ class SearchFilters {
       dateTo: dateTo ?? this.dateTo,
       sortBy: sortBy ?? this.sortBy,
       order: order ?? this.order,
+      limit: limit ?? this.limit,
+      page: page ?? this.page,
     );
   }
 
@@ -63,8 +71,8 @@ class SearchFilters {
       'date_to': dateTo?.toIso8601String().split('T').first,
       'sort_by': sortBy.value,
       'order': order.value,
-      'limit': 50,
-      'page': 1,
+      'limit': limit,
+      'page': page,
     }..removeWhere((key, value) => value == null);
   }
 }

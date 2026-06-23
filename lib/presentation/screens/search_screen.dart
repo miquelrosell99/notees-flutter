@@ -27,7 +27,10 @@ class _SearchScreenState extends State<SearchScreen> {
   SearchFilters _filters = const SearchFilters();
   List<Node> _results = [];
   bool _loading = false;
+  bool _loadingMore = false;
   String? _error;
+  int _currentPage = 1;
+  bool _hasMore = false;
   Timer? _debounceTimer;
 
   @override
@@ -43,19 +46,36 @@ class _SearchScreenState extends State<SearchScreen> {
     _debounceTimer = Timer(const Duration(milliseconds: 300), _search);
   }
 
-  Future<void> _search() async {
+  Future<void> _search({bool append = false}) async {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
 
-    setState(() => _loading = true);
+    final page = append ? _currentPage + 1 : 1;
+    final searchFilters = _filters.copyWith(
+      query: _controller.text.trim(),
+      page: page,
+    );
+
+    setState(() {
+      if (append) {
+        _loadingMore = true;
+      } else {
+        _loading = true;
+      }
+    });
     try {
       final repo = NodeRepository(dio: auth.dio!);
-      final results = await repo.searchWithFilters(
-        _filters.copyWith(query: _controller.text.trim()),
-      );
+      final results = await repo.searchWithFilters(searchFilters);
       if (mounted) {
         setState(() {
-          _results = results;
+          if (append) {
+            _results.addAll(results);
+            _currentPage = page;
+          } else {
+            _results = results;
+            _currentPage = 1;
+          }
+          _hasMore = results.length >= searchFilters.limit;
           _error = null;
         });
       }
@@ -65,10 +85,15 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     } finally {
       if (mounted) {
-        setState(() => _loading = false);
+        setState(() {
+          _loading = false;
+          _loadingMore = false;
+        });
       }
     }
   }
+
+  void _loadMore() => _search(append: true);
 
   void _onFiltersChanged(SearchFilters filters) {
     setState(() => _filters = filters);
@@ -166,8 +191,11 @@ class _SearchScreenState extends State<SearchScreen> {
 
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: _results.length,
+      itemCount: _results.length + (_hasMore ? 1 : 0),
       itemBuilder: (context, index) {
+        if (index == _results.length) {
+          return _buildLoadMoreButton();
+        }
         final node = _results[index];
         return ListTile(
           leading: Icon(
@@ -179,6 +207,25 @@ class _SearchScreenState extends State<SearchScreen> {
           onTap: () => _openNode(node),
         );
       },
+    );
+  }
+
+  Widget _buildLoadMoreButton() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Center(
+        child: _loadingMore
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              )
+            : TextButton.icon(
+                onPressed: _loadMore,
+                icon: const Icon(Icons.expand_more),
+                label: const Text('Load more results'),
+              ),
+      ),
     );
   }
 
