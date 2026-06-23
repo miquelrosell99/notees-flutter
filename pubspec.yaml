@@ -32,7 +32,6 @@ dependencies:
   path_provider: ^2.1.5
 
   # Platform integration
-  webview_flutter: ^4.10.0
   local_auth: ^2.3.0
   connectivity_plus: ^6.1.0
   share_plus: ^10.1.0

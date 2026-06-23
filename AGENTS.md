@@ -4,13 +4,13 @@ This file contains project-specific context for the first-class Flutter mobile a
 
 ## Overview
 
-The mobile app is a **hybrid native shell** for Notees. It provides native Android and iOS experiences for the workflows users do most often on phones, while embedding the existing React web app in a WebView for the full editor, whiteboard, QueryAST views, and complex features.
+The mobile app is a **first-class native Flutter app** for Notees. It provides native Android and iOS experiences for the workflows users do most often on phones.
 
 - **Package**: `com.notees.notees` (Android)
 - **Display name**: `Notees`
 - **Functional accent**: sage green `#5B7D5B`
 - **Architecture**: feature-first Flutter with Provider + ChangeNotifier, Dio, go_router, sqflite
-- **Native features**: biometric app lock, offline quick-capture queue, share receiver, keyboard-snapped edit toolbar, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management
+- **Native features**: biometric app lock, offline quick-capture queue, share receiver, native editor, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management
 
 ## Key Files
 
@@ -31,7 +31,7 @@ mobile/
 │   │   ├── providers/        # AuthProvider
 │   │   ├── screens/          # Splash, ServerSetup, Login, Dashboard, Settings, ServerManagement, UserProfile, ApiKeys, etc.
 │   │   └── widgets/          # Fleet-styled cards, section titles
-│   └── native/               # WebView editor + JS bridge
+│   └── native/               # Platform-specific native helpers
 ├── android/                  # Android platform project
 ├── ios/                      # iOS platform project
 ├── build-apk.sh             # Docker-based APK build
@@ -68,18 +68,9 @@ This outputs `dist/notees.apk`.
 - Bottom sheets use top radius of 28.
 - Dynamic color is supported via `dynamic_color` and can be enabled in Settings.
 
-## WebView Bridge Contract
-
-The embedded editor loads the user's self-hosted Notees server. A lightweight JS bridge coordinates native ↔ web:
-
-- **Native → Web**: `window.noteesMobileEditor.applyFormat(...)`, `insertLink()`, `insertDate()`
-- **Web → Native**: `window.FlutterBridge.openServerSettings()`, `shareText(text)`, `openUrl(url)`, `editorFocusChanged(focused)`
-
 ## Security Notes
 
 - Server credentials and tokens are stored in `flutter_secure_storage`.
-- The app only loads the user-configured server origin in the WebView.
-- External links from the WebView are rejected and left to the system browser.
 - Biometric lock is enabled in Settings and gates app resume.
 
 ## Skill References

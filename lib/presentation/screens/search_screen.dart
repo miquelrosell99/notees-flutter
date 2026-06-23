@@ -10,6 +10,8 @@ import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
 import '../../domain/models/search_filters.dart';
 import '../providers/auth_provider.dart';
+import '../views/node_collection.dart';
+import '../views/node_view_mode.dart';
 import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/filter_chip_bar.dart';
 
@@ -189,24 +191,11 @@ class _SearchScreenState extends State<SearchScreen> {
       return const Center(child: Text('No results'));
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: _results.length + (_hasMore ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index == _results.length) {
-          return _buildLoadMoreButton();
-        }
-        final node = _results[index];
-        return ListTile(
-          leading: Icon(
-            _iconForNode(node),
-            color: colors.onSurfaceVariant,
-          ),
-          title: Text(node.displayName),
-          trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
-          onTap: () => _openNode(node),
-        );
-      },
+    return NodeCollection(
+      mode: NodeViewMode.list,
+      nodes: _results,
+      onNodeTap: _openNode,
+      footer: _hasMore ? _buildLoadMoreButton() : null,
     );
   }
 
@@ -229,9 +218,4 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  IconData _iconForNode(Node node) {
-    if (node.isJournal) return Icons.calendar_today_outlined;
-    if (node.isTask) return Icons.check_circle_outline;
-    return Icons.description_outlined;
-  }
 }

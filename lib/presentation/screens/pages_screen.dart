@@ -7,6 +7,7 @@ import '../../core/routing/router.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
+import '../views/node_list_view.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/section_title.dart';
 
@@ -99,7 +100,11 @@ class _PagesScreenState extends State<PagesScreen> {
           const SectionTitle(icon: Icons.folder_outlined, label: 'Root pages'),
           const SizedBox(height: 8),
           FleetCard(
-            child: _buildNodeList(_rootPages),
+            child: NodeListView(
+              nodes: _rootPages,
+              onNodeTap: _openNode,
+              shrinkWrap: true,
+            ),
           ),
           const SizedBox(height: 28),
         ],
@@ -108,32 +113,13 @@ class _PagesScreenState extends State<PagesScreen> {
         FleetCard(
           child: _recents.isEmpty
               ? _buildEmptyTile('No recent pages')
-              : _buildNodeList(_recents),
+              : NodeListView(
+                  nodes: _recents,
+                  onNodeTap: _openNode,
+                  shrinkWrap: true,
+                ),
         ),
       ],
-    );
-  }
-
-  Widget _buildNodeList(List<Node> nodes) {
-    return Column(
-      children: nodes.asMap().entries.map((entry) {
-        final node = entry.value;
-        final isLast = entry.key == nodes.length - 1;
-        return Column(
-          children: [
-            ListTile(
-              leading: Icon(
-                Icons.description_outlined,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-              title: Text(node.displayName),
-              trailing: Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurfaceVariant),
-              onTap: () => _openNode(node),
-            ),
-            if (!isLast) const Divider(height: 1),
-          ],
-        );
-      }).toList(),
     );
   }
 
