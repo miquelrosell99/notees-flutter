@@ -41,24 +41,19 @@ mobile/
 
 ## Build
 
-**Prefer CI builds.** The Docker-based local build (`./build-apk.sh`) downloads the Flutter image, the Android SDK/NDK, and compiles Gradle on every run, which is heavy for an i3/16 GB server that runs other apps. Use GitHub Actions instead:
+**Release APK builds must run in GitHub Actions only.** Do not build release APKs locally. The Android workflow (`.github/workflows/android.yml`) builds, signs, and uploads the APK on every push or pull request that touches `mobile/**`.
+
+To request a CI build manually:
 
 ```bash
-# Trigger a release APK build and print the run URL
+# Trigger a workflow dispatch and print the run URL
 cd mobile
 ./trigger-ci-build.sh
 ```
 
-Then grab the artifact from the printed workflow run.
+Then download the artifact from the printed workflow run.
 
-For local emergencies only:
-
-```bash
-cd mobile
-./build-apk.sh
-```
-
-This outputs `dist/notees.apk`.
+The local Docker-based build (`./build-apk.sh` / `docker compose run --rm build-apk`) exists only for CI debugging or validating the build image. It is not a routine developer command.
 
 ## Local development with Docker Compose
 
@@ -96,12 +91,7 @@ Common issues that break the Android build:
 - **Unused private members**: the analyzer treats unused private methods/fields as warnings, and the workflow fails on them.
 - **Map null entries**: the Dart version in the pinned Flutter image does not accept `'key': value?` collection elements. Keep using `if (value != null) 'key': value` (with an optional `// ignore: use_null_aware_elements`).
 
-For major refactors, also run the full APK build locally before pushing:
-
-```bash
-cd mobile
-docker compose run --rm build-apk
-```
+For major refactors, trigger a CI build via `./trigger-ci-build.sh` rather than running the full APK build locally. Use `docker compose run --rm build-apk` only when debugging a CI-specific build failure.
 
 ## Design System
 
