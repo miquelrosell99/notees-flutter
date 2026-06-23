@@ -26,6 +26,7 @@ class PagesScreen extends StatefulWidget {
 class _PagesScreenState extends State<PagesScreen> {
   List<Node> _rootPages = [];
   List<Node> _recents = [];
+  Set<int> _favoriteIds = {};
   bool _loading = true;
   String? _error;
   NodeViewMode _viewMode = NodeViewMode.list;
@@ -58,10 +59,12 @@ class _PagesScreenState extends State<PagesScreen> {
       final results = await Future.wait([
         repo.fetchRootPages(),
         repo.fetchRecentPages(limit: 10),
+        repo.fetchFavoriteIds(),
       ]);
       setState(() {
-        _rootPages = results[0];
-        _recents = results[1];
+        _rootPages = results[0] as List<Node>;
+        _recents = results[1] as List<Node>;
+        _favoriteIds = (results[2] as List<int>).toSet();
         _error = null;
       });
     } catch (e) {
@@ -74,6 +77,93 @@ class _PagesScreenState extends State<PagesScreen> {
   void _openNode(Node node) {
     HapticFeedback.lightImpact();
     context.push('${Routes.editor}/${node.id}');
+  }
+
+  Future<void> _toggleFavorite(Node node) async {
+    HapticFeedback.lightImpact();
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    final isFavorite = _favoriteIds.contains(node.id);
+    setState(() {
+      if (isFavorite) {
+        _favoriteIds.remove(node.id);
+      } else {
+        _favoriteIds.add(node.id);
+      }
+    });
+
+    try {
+      final repo = NodeRepository(dio: auth.dio!);
+      if (isFavorite) {
+        await repo.removeFavorite(node.id);
+      } else {
+        await repo.addFavorite(node.id);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          if (isFavorite) {
+            _favoriteIds.add(node.id);
+          } else {
+            _favoriteIds.remove(node.id);
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update favorite: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _createPage(BuildContext context) async {
+    HapticFeedback.lightImpact();
+    final auth = context.read<AuthProvider>();
+    final router = GoRouter.of(context);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        final controller = TextEditingController();
+        return AlertDialog(
+          title: const Text('New page'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(hintText: 'Page name'),
+            onSubmitted: (value) => Navigator.of(ctx).pop(value.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (name == null || name.isEmpty) return;
+    if (auth.dio == null) return;
+
+    setState(() => _loading = true);
+    try {
+      final repo = NodeRepository(dio: auth.dio!);
+      final page = await repo.createQuickNote(name: name);
+      if (mounted) {
+        router.push('${Routes.editor}/${page.id}');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = e.toString());
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -130,12 +220,31 @@ class _PagesScreenState extends State<PagesScreen> {
         nodes: allPages,
         onNodeTap: _openNode,
         emptyMessage: 'No pages',
+        favoriteIds: _favoriteIds,
+        onFavoriteToggle: _toggleFavorite,
       );
     }
 
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
+        const SectionTitle(icon: Icons.widgets_outlined, label: 'Templates'),
+        const SizedBox(height: 8),
+        FleetCard(
+          child: ListTile(
+            leading: Icon(
+              Icons.widgets_outlined,
+              color: colors.onSurfaceVariant,
+            ),
+            title: const Text('Templates'),
+            trailing: Icon(
+              Icons.chevron_right,
+              color: colors.onSurfaceVariant,
+            ),
+            onTap: () => context.push(Routes.templates),
+          ),
+        ),
+        const SizedBox(height: 28),
         if (_rootPages.isNotEmpty) ...[
           const SectionTitle(icon: Icons.folder_outlined, label: 'Root pages'),
           const SizedBox(height: 8),
@@ -144,6 +253,8 @@ class _PagesScreenState extends State<PagesScreen> {
               nodes: _rootPages,
               onNodeTap: _openNode,
               shrinkWrap: true,
+              favoriteIds: _favoriteIds,
+              onFavoriteToggle: _toggleFavorite,
             ),
           ),
           const SizedBox(height: 28),
@@ -157,6 +268,8 @@ class _PagesScreenState extends State<PagesScreen> {
                   nodes: _recents,
                   onNodeTap: _openNode,
                   shrinkWrap: true,
+                  favoriteIds: _favoriteIds,
+                  onFavoriteToggle: _toggleFavorite,
                 ),
         ),
       ],
@@ -170,8 +283,4 @@ class _PagesScreenState extends State<PagesScreen> {
     );
   }
 
-  void _createPage(BuildContext context) {
-    HapticFeedback.lightImpact();
-    // TODO: open a native quick-create page dialog.
-  }
 }

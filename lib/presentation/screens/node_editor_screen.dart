@@ -8,18 +8,24 @@ import 'package:provider/provider.dart';
 import '../../core/utils/ast_builder.dart';
 import '../../data/models/node.dart';
 import '../../data/models/property.dart';
+import '../../data/repositories/comment_repository.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/comments_bottom_sheet.dart';
 import '../widgets/editor_inline_toolbar.dart';
+import '../widgets/find_in_page_sheet.dart';
 import '../widgets/fleet_card.dart';
+import '../widgets/mention_picker.dart';
 import '../widgets/node_picker.dart';
 import '../widgets/property_value_cell.dart';
+import '../widgets/shares_bottom_sheet.dart';
+import '../widgets/slash_command_palette.dart';
 
 /// Native page editor with lightweight Markdown-like block editing.
 ///
-/// Supports inline styles (bold, italic, etc.), node/class/tag links, and a
-/// read-only properties panel. System classes (code, asset, table, callouts)
-/// are rendered with distinct chrome but edited as plain text.
+/// Supports inline styles (bold, italic, etc.), node/class/tag links, slash
+/// commands, @ mentions, and find-in-page. System classes (code, asset, table,
+/// callouts) are rendered with distinct chrome but edited as plain text.
 class NodeEditorScreen extends StatefulWidget {
   const NodeEditorScreen({super.key, required this.nodeId});
 
@@ -40,6 +46,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   final _titleController = TextEditingController();
   final _scrollController = ScrollController();
   final List<_BlockEditor> _blocks = [];
+  final _findState = ValueNotifier(FindState());
 
   List<NodePropertyValue> _properties = [];
   Map<int, String> _classNames = {};
@@ -48,6 +55,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   bool _saving = false;
   String? _error;
   int? _focusedBlockIndex;
+  PersistentBottomSheetController? _findController;
+  List<int> _findMatches = [];
+  int _findMatchIndex = -1;
+  int _commentCount = 0;
 
   @override
   void initState() {
@@ -59,6 +70,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   void dispose() {
     _titleController.dispose();
     _scrollController.dispose();
+    _findController?.close();
+    _findState.dispose();
     for (final b in _blocks) {
       b.controller.dispose();
     }
@@ -72,7 +85,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     setState(() => _loading = true);
     try {
       final repo = NodeRepository(dio: auth.dio!);
-      final page = await repo.fetchPageContent(widget.nodeId);
+      final pageContent = await repo.fetchPageContent(widget.nodeId);
+      final page = pageContent.node;
       final blocks = page.children.where((b) => !b.isPage).toList();
 
       for (final b in _blocks) {
@@ -97,12 +111,15 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       };
 
       setState(() {
-        _titleController.text = page.displayName;
+        _titleController.text = page.displayName.isNotEmpty ? page.displayName : 'Untitled';
         _properties = properties;
         _classNames = classNames;
         _deletedBlockIds.clear();
         _error = null;
       });
+      if (mounted) {
+        await _loadCommentCount();
+      }
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       final body = e.response?.data;
@@ -112,6 +129,28 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     } finally {
       setState(() => _loading = false);
     }
+  }
+
+  Future<void> _loadCommentCount() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    try {
+      final repo = CommentRepository(dio: auth.dio!);
+      final count = await repo.fetchCommentCount(widget.nodeId);
+      if (mounted) setState(() => _commentCount = count);
+    } catch (_) {
+      if (mounted) setState(() => _commentCount = 0);
+    }
+  }
+
+  Future<void> _openComments() async {
+    await CommentsBottomSheet.show(context, nodeId: widget.nodeId);
+    if (mounted) await _loadCommentCount();
+  }
+
+  void _openShareSheet() {
+    SharesBottomSheet.show(context, nodeId: widget.nodeId);
   }
 
   List<Map<String, dynamic>> _tryParseAst(String name) {
@@ -211,11 +250,26 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     });
   }
 
-  void _onToolbarAction(EditorAction action) async {
+  Future<void> _onToolbarAction(EditorAction action) async {
+    switch (action) {
+      case EditorAction.slash:
+        await _onSlashTriggered();
+        return;
+      case EditorAction.mention:
+        await _onMentionTriggered();
+        return;
+      default:
+        break;
+    }
+
     final index = _focusedBlockIndex;
     if (index == null || index >= _blocks.length) return;
 
-    final controller = _blocks[index].controller;
+    await _applyEditorAction(_blocks[index], action);
+  }
+
+  Future<void> _applyEditorAction(_BlockEditor editor, EditorAction action) async {
+    final controller = editor.controller;
     final text = controller.text;
     final selection = controller.selection;
 
@@ -237,31 +291,203 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         wrap('**');
       case EditorAction.italic:
         wrap('*');
+      case EditorAction.underline:
+        wrap('__');
       case EditorAction.strikethrough:
         wrap('~~');
       case EditorAction.code:
         wrap('`');
       case EditorAction.highlight:
         wrap('==');
+      case EditorAction.heading1:
+        _applyHeading(controller, 1);
+      case EditorAction.heading2:
+        _applyHeading(controller, 2);
+      case EditorAction.heading3:
+        _applyHeading(controller, 3);
       case EditorAction.link:
       case EditorAction.classLink:
       case EditorAction.tagLink:
-        final mode = action == EditorAction.classLink
-            ? NodePickerMode.classNode
-            : action == EditorAction.tagLink
-                ? NodePickerMode.tag
-                : NodePickerMode.any;
-        final node = await NodePicker.show(context, mode: mode);
-        if (node == null) return;
-        final open = action == EditorAction.classLink ? '{{' : '[[';
-        final close = action == EditorAction.classLink ? '}}' : ']]';
-        final replacement = '$open${node.uuid}|${node.displayName}$close';
-        final newText = text.replaceRange(selection.start, selection.end, replacement);
-        final newOffset = selection.start + replacement.length;
+      case EditorAction.image:
+      case EditorAction.property:
+      case EditorAction.template:
+        await _insertNodeLink(editor, action);
+      case EditorAction.task:
+        final cursor = selection.isValid ? selection.start : 0;
+        const replacement = '- [ ] ';
+        final newText = text.replaceRange(cursor, cursor, replacement);
         controller
           ..text = newText
-          ..selection = TextSelection.collapsed(offset: newOffset);
+          ..selection = TextSelection.collapsed(offset: cursor + replacement.length);
+      case EditorAction.table:
+        final cursor = selection.isValid ? selection.start : 0;
+        const replacement = '| Header | Header |\n| --- | --- |\n| Cell | Cell |';
+        final newText = text.replaceRange(cursor, cursor, replacement);
+        controller
+          ..text = newText
+          ..selection = TextSelection.collapsed(offset: cursor + replacement.length);
+      case EditorAction.slash:
+      case EditorAction.mention:
+      case EditorAction.audio:
+        // Handled before this method is called.
+        return;
     }
+  }
+
+  void _applyHeading(TextEditingController controller, int level) {
+    final text = controller.text;
+    final selection = controller.selection;
+    final prefix = '${'#' * level} ';
+    final cursor = selection.isValid ? selection.start : 0;
+    var lineStart = text.lastIndexOf('\n', cursor == 0 ? 0 : cursor - 1);
+    lineStart = lineStart == -1 ? 0 : lineStart + 1;
+    final afterLineStart = text.substring(lineStart);
+    final existing = RegExp(r'^#{1,6}\s*').firstMatch(afterLineStart);
+    String newText;
+    int newOffset;
+    if (existing != null) {
+      newText = text.replaceRange(lineStart, lineStart + existing.end, prefix);
+      newOffset = cursor - existing.end + prefix.length;
+    } else {
+      newText = text.replaceRange(lineStart, lineStart, prefix);
+      newOffset = cursor + prefix.length;
+    }
+    controller
+      ..text = newText
+      ..selection = TextSelection.collapsed(offset: newOffset.clamp(0, newText.length));
+  }
+
+  Future<void> _insertNodeLink(_BlockEditor editor, EditorAction action) async {
+    final mode = action == EditorAction.classLink
+        ? NodePickerMode.classNode
+        : action == EditorAction.tagLink
+            ? NodePickerMode.tag
+            : NodePickerMode.any;
+    if (!mounted) return;
+    final node = await NodePicker.show(context, mode: mode);
+    if (node == null) return;
+
+    final controller = editor.controller;
+    final text = controller.text;
+    final selection = controller.selection;
+    final open = action == EditorAction.classLink ? '{{' : '[[';
+    final close = action == EditorAction.classLink ? '}}' : ']]';
+    final replacement = '$open${node.uuid}|${node.displayName}$close';
+    final newText = text.replaceRange(selection.start, selection.end, replacement);
+    final newOffset = selection.start + replacement.length;
+    controller
+      ..text = newText
+      ..selection = TextSelection.collapsed(offset: newOffset);
+  }
+
+  Future<void> _onSlashTriggered([int? triggeredIndex]) async {
+    final index = triggeredIndex ?? _focusedBlockIndex;
+    if (index == null || index >= _blocks.length) return;
+
+    setState(() => _focusedBlockIndex = index);
+    final action = await SlashCommandPalette.show(context);
+    if (!mounted || action == null) return;
+
+    final editor = _blocks[index];
+    final controller = editor.controller;
+    final text = controller.text;
+    final selection = controller.selection;
+    final cursor = selection.isValid ? selection.start : 0;
+    if (cursor > 0 && text.substring(cursor - 1, cursor) == '/') {
+      final newText = text.replaceRange(cursor - 1, cursor, '');
+      controller
+        ..text = newText
+        ..selection = TextSelection.collapsed(offset: (cursor - 1).clamp(0, newText.length));
+    }
+
+    await _applyEditorAction(editor, action);
+  }
+
+  Future<void> _onMentionTriggered([int? triggeredIndex]) async {
+    final index = triggeredIndex ?? _focusedBlockIndex;
+    if (index == null || index >= _blocks.length) return;
+
+    setState(() => _focusedBlockIndex = index);
+    final result = await MentionPicker.show(context);
+    if (!mounted || result == null) return;
+
+    final editor = _blocks[index];
+    final controller = editor.controller;
+    final text = controller.text;
+    final selection = controller.selection;
+    final cursor = selection.isValid ? selection.start : 0;
+
+    final replacement = result.isUser
+        ? '@${result.displayName}'
+        : '[[${result.target}|${result.displayName}]]';
+
+    final String newText;
+    final int newOffset;
+    if (cursor > 0 && text.substring(cursor - 1, cursor) == '@') {
+      newText = text.replaceRange(cursor - 1, cursor, replacement);
+      newOffset = cursor - 1 + replacement.length;
+    } else {
+      newText = text.replaceRange(selection.start, selection.end, replacement);
+      newOffset = selection.start + replacement.length;
+    }
+    controller
+      ..text = newText
+      ..selection = TextSelection.collapsed(offset: newOffset.clamp(0, newText.length));
+  }
+
+  void _openFindSheet() {
+    _findController?.close();
+    _findController = FindInPageSheet.show(
+      context: context,
+      stateNotifier: _findState,
+      onQueryChanged: _updateFindQuery,
+      onPrevious: _findPrevious,
+      onNext: _findNext,
+    );
+  }
+
+  void _updateFindQuery(String query) {
+    final lower = query.toLowerCase();
+    final matches = lower.isEmpty
+        ? <int>[]
+        : _blocks
+            .asMap()
+            .entries
+            .where((e) => e.value.controller.text.toLowerCase().contains(lower))
+            .map((e) => e.key)
+            .toList();
+    _findMatchIndex = matches.isEmpty ? -1 : 0;
+    _findMatches = matches;
+    _findState.value = FindState(query: query, matchCount: matches.length, currentIndex: _findMatchIndex);
+    setState(() {});
+    _jumpToCurrentMatch();
+  }
+
+  void _findNext() {
+    if (_findMatches.isEmpty) return;
+    _findMatchIndex = (_findMatchIndex + 1) % _findMatches.length;
+    _findState.value = _findState.value.copyWith(currentIndex: _findMatchIndex);
+    setState(() {});
+    _jumpToCurrentMatch();
+  }
+
+  void _findPrevious() {
+    if (_findMatches.isEmpty) return;
+    _findMatchIndex = (_findMatchIndex - 1 + _findMatches.length) % _findMatches.length;
+    _findState.value = _findState.value.copyWith(currentIndex: _findMatchIndex);
+    setState(() {});
+    _jumpToCurrentMatch();
+  }
+
+  void _jumpToCurrentMatch() {
+    if (_findMatchIndex < 0 || _findMatchIndex >= _findMatches.length) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollController.animateTo(
+        _scrollController.offset,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+      );
+    });
   }
 
   @override
@@ -273,6 +499,39 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       appBar: AppBar(
         title: const Text('Edit page'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            tooltip: 'Find in page',
+            onPressed: _openFindSheet,
+          ),
+          IconButton(
+            icon: Badge(
+              isLabelVisible: _commentCount > 0,
+              label: Text('$_commentCount'),
+              child: const Icon(Icons.chat_bubble_outline),
+            ),
+            tooltip: 'Comments',
+            onPressed: _openComments,
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'More options',
+            onSelected: (value) {
+              if (value == 'share') _openShareSheet();
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem<String>(
+                value: 'share',
+                child: Row(
+                  children: [
+                    Icon(Icons.share_outlined),
+                    SizedBox(width: 12),
+                    Text('Share'),
+                  ],
+                ),
+              ),
+            ],
+          ),
           if (_saving)
             const Center(
               child: SizedBox(
@@ -319,13 +578,20 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                         ..._blocks.asMap().entries.map((entry) {
                           final index = entry.key;
                           final editor = entry.value;
+                          final isMatch = _findState.value.query.isNotEmpty &&
+                              editor.controller.text.toLowerCase().contains(_findState.value.query.toLowerCase());
+                          final isCurrent = isMatch && _findMatches.isNotEmpty && _findMatches[_findMatchIndex] == index;
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 8),
                             child: _BlockEditorTile(
                               editor: editor,
                               classNames: _classNames,
+                              isFindMatch: isMatch,
+                              isCurrentFindMatch: isCurrent,
                               onFocus: () => setState(() => _focusedBlockIndex = index),
                               onDelete: () => _deleteBlock(index),
+                              onSlashTrigger: () => _onSlashTriggered(index),
+                              onMentionTrigger: () => _onMentionTriggered(index),
                             ),
                           );
                         }),
@@ -339,7 +605,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                         const SizedBox(height: 24),
                         Center(
                           child: Text(
-                            'Native editor — use **bold**, *italic*, [[uuid|name]] links, etc.',
+                            'Native editor — use **bold**, *italic*, [[uuid|name]] links, / for commands, @ to mention.',
                             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                   color: colors.onSurfaceVariant,
                                 ),
@@ -414,12 +680,20 @@ class _BlockEditorTile extends StatelessWidget {
     required this.classNames,
     required this.onFocus,
     required this.onDelete,
+    this.isFindMatch = false,
+    this.isCurrentFindMatch = false,
+    this.onSlashTrigger,
+    this.onMentionTrigger,
   });
 
   final _BlockEditor editor;
   final Map<int, String> classNames;
   final VoidCallback onFocus;
   final VoidCallback onDelete;
+  final bool isFindMatch;
+  final bool isCurrentFindMatch;
+  final VoidCallback? onSlashTrigger;
+  final VoidCallback? onMentionTrigger;
 
   @override
   Widget build(BuildContext context) {
@@ -446,6 +720,7 @@ class _BlockEditorTile extends StatelessWidget {
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
       onTap: onFocus,
+      onChanged: _onChanged,
     );
 
     if (calloutColor != null) {
@@ -459,7 +734,7 @@ class _BlockEditorTile extends StatelessWidget {
       );
     }
 
-    return FleetCard(
+    Widget card = FleetCard(
       child: Row(
         children: [
           Expanded(child: field),
@@ -489,6 +764,37 @@ class _BlockEditorTile extends StatelessWidget {
         ],
       ),
     );
+
+    if (isFindMatch) {
+      card = Container(
+        decoration: BoxDecoration(
+          color: isCurrentFindMatch
+              ? colors.primaryContainer.withAlpha((0.45 * 255).round())
+              : colors.tertiaryContainer.withAlpha((0.35 * 255).round()),
+          borderRadius: BorderRadius.circular(12),
+          border: isCurrentFindMatch ? Border.all(color: colors.primary, width: 1.5) : null,
+        ),
+        child: card,
+      );
+    }
+
+    return card;
+  }
+
+  void _onChanged(String value) {
+    final controller = editor.controller;
+    final selection = controller.selection;
+    if (!selection.isValid || !selection.isCollapsed) return;
+    final cursor = selection.baseOffset.clamp(0, value.length);
+    if (cursor == 1 && value == '/') {
+      onSlashTrigger?.call();
+      return;
+    }
+    if (cursor > 0 && value.substring(cursor - 1, cursor) == '@') {
+      if (cursor == 1 || RegExp(r'\s').hasMatch(value[cursor - 2])) {
+        onMentionTrigger?.call();
+      }
+    }
   }
 
   String _hintForBlock(Node node) {

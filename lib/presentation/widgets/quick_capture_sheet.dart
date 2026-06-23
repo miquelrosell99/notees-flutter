@@ -1,10 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/repositories/asset_repository.dart';
+import '../../data/repositories/node_repository.dart';
 import '../../domain/services/quick_capture.dart';
 import '../providers/auth_provider.dart';
 import '../providers/connectivity_provider.dart';
+import 'audio_recorder_sheet.dart';
 
 /// Bottom sheet for creating a quick note. Saves immediately if online, or
 /// queues for sync if offline.
@@ -34,6 +39,34 @@ class QuickCaptureSheet extends StatelessWidget {
       if (context.mounted) {
         Navigator.of(context).pop();
         onSaved?.call();
+      }
+    }
+
+    Future<void> recordAudio() async {
+      if (auth.dio == null) return;
+      final file = await showModalBottomSheet<File>(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        builder: (ctx) => const AudioRecorderSheet(),
+      );
+      if (file == null) return;
+
+      try {
+        final journal = await NodeRepository(dio: auth.dio!).getOrCreateDailyJournal(DateTime.now());
+        await AssetRepository(dio: auth.dio!).uploadFile(file, parentId: journal.id);
+        if (context.mounted) {
+          Navigator.of(context).pop();
+          onSaved?.call();
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Audio upload failed: $e')),
+          );
+        }
       }
     }
 
@@ -79,10 +112,22 @@ class QuickCaptureSheet extends StatelessWidget {
                   ),
             ),
           const SizedBox(height: 20),
-          FilledButton.icon(
-            onPressed: save,
-            icon: const Icon(Icons.save_outlined),
-            label: const Text('Save'),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: save,
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('Save'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              IconButton.filledTonal(
+                onPressed: recordAudio,
+                icon: const Icon(Icons.mic),
+                tooltip: 'Record audio note',
+              ),
+            ],
           ),
           const SizedBox(height: 24),
         ],

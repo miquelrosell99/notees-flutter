@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/localization/material_localizations_override.dart';
 import '../../core/routing/router.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
+import '../providers/settings_provider.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/quick_capture_sheet.dart';
 import '../widgets/section_title.dart';
@@ -22,6 +25,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Node> _favorites = [];
   List<Node> _recents = [];
   Node? _todayJournal;
+  Set<int> _favoriteIds = {};
   bool _loading = true;
   String? _error;
 
@@ -42,11 +46,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         repo.fetchFavorites(limit: 50),
         repo.fetchRecentPages(limit: 5),
         repo.getOrCreateDailyJournal(DateTime.now()),
+        repo.fetchFavoriteIds(),
       ]);
       setState(() {
         _favorites = results[0] as List<Node>;
         _recents = results[1] as List<Node>;
         _todayJournal = results[2] as Node;
+        _favoriteIds = (results[3] as List<int>).toSet();
         _error = null;
       });
     } catch (e) {
@@ -67,6 +73,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
     context.push('${Routes.editor}/${node.id}');
   }
 
+  Future<void> _toggleFavorite(Node node) async {
+    HapticFeedback.lightImpact();
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    final isFavorite = _favoriteIds.contains(node.id);
+    setState(() {
+      if (isFavorite) {
+        _favoriteIds.remove(node.id);
+        _favorites.removeWhere((n) => n.id == node.id);
+      } else {
+        _favoriteIds.add(node.id);
+      }
+    });
+
+    try {
+      final repo = NodeRepository(dio: auth.dio!);
+      if (isFavorite) {
+        await repo.removeFavorite(node.id);
+      } else {
+        await repo.addFavorite(node.id);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          if (isFavorite) {
+            _favoriteIds.add(node.id);
+            _favorites.add(node);
+          } else {
+            _favoriteIds.remove(node.id);
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update favorite: $e')),
+        );
+      }
+    }
+  }
+
   void _openJournal({Node? journal}) {
     final target = journal ?? _todayJournal;
     if (target == null) return;
@@ -83,49 +128,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Jump to journal',
-                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.of(ctx).pop(),
-                  ),
-                ],
+      builder: (ctx) {
+        final settings = ctx.read<SettingsProvider>();
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Jump to journal',
+                      style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            CalendarDatePicker(
-              initialDate: now,
-              firstDate: DateTime(2000),
-              lastDate: DateTime(2100),
-              onDateChanged: (date) async {
-                Navigator.of(ctx).pop();
-                setState(() => _loading = true);
-                try {
-                  final journal = await _getOrCreateJournal(date);
-                  _openJournal(journal: journal);
-                } catch (e) {
-                  setState(() => _error = e.toString());
-                } finally {
-                  setState(() => _loading = false);
-                }
-              },
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
+              Localizations.override(
+                context: ctx,
+                delegates: [
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                  FirstDayOfWeekLocalizationsDelegate(settings.firstDayOfWeek),
+                ],
+                child: CalendarDatePicker(
+                  initialDate: now,
+                  firstDate: DateTime(2000),
+                  lastDate: DateTime(2100),
+                  onDateChanged: (date) async {
+                    Navigator.of(ctx).pop();
+                    setState(() => _loading = true);
+                    try {
+                      final journal = await _getOrCreateJournal(date);
+                      _openJournal(journal: journal);
+                    } catch (e) {
+                      setState(() => _error = e.toString());
+                    } finally {
+                      setState(() => _loading = false);
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -147,10 +204,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final settings = context.watch<SettingsProvider>();
+    final todayLabel = formatDateWithSettings(DateTime.now(), settings.dateFormat);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Notees'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Notees'),
+            Text(
+              todayLabel,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.calendar_today_outlined),
@@ -164,7 +234,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
             onPressed: () => context.push(Routes.settings),
+          ),
+          _AdvancedViewsMenu(
+            onSelected: (route) => context.push(route),
           ),
         ],
       ),
@@ -183,7 +257,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         style: TextStyle(color: colors.error),
                       ),
                     ),
-                  if (_favorites.isNotEmpty) ...[
+                  if (settings.showSidebarFavorites && _favorites.isNotEmpty) ...[
                     const SectionTitle(icon: Icons.star_outline, label: 'Favorites'),
                     const SizedBox(height: 8),
                     FleetCard(
@@ -199,7 +273,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   color: colors.onSurfaceVariant,
                                 ),
                                 title: Text(node.displayName),
-                                trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+                                trailing: _favoriteTrailing(node),
                                 onTap: () => _openNode(node),
                               ),
                               if (!isLast) const Divider(height: 1),
@@ -210,32 +284,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     const SizedBox(height: 28),
                   ],
-                  const SectionTitle(icon: Icons.access_time, label: 'Recent pages'),
-                  const SizedBox(height: 8),
-                  FleetCard(
-                    child: _recents.isEmpty
-                        ? _buildEmptyTile(context, 'No recent pages')
-                        : Column(
-                            children: _recents.asMap().entries.map((entry) {
-                              final node = entry.value;
-                              final isLast = entry.key == _recents.length - 1;
-                              return Column(
-                                children: [
-                                  ListTile(
-                                    leading: Icon(
-                                      _iconForNode(node),
-                                      color: colors.onSurfaceVariant,
+                  if (settings.showSidebarRecents) ...[
+                    const SectionTitle(icon: Icons.access_time, label: 'Recent pages'),
+                    const SizedBox(height: 8),
+                    FleetCard(
+                      child: _recents.isEmpty
+                          ? _buildEmptyTile(context, 'No recent pages')
+                          : Column(
+                              children: _recents.asMap().entries.map((entry) {
+                                final node = entry.value;
+                                final isLast = entry.key == _recents.length - 1;
+                                return Column(
+                                  children: [
+                                    ListTile(
+                                      leading: Icon(
+                                        _iconForNode(node),
+                                        color: colors.onSurfaceVariant,
+                                      ),
+                                      title: Text(node.displayName),
+                                      trailing: _favoriteTrailing(node),
+                                      onTap: () => _openNode(node),
                                     ),
-                                    title: Text(node.displayName),
-                                    trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
-                                    onTap: () => _openNode(node),
-                                  ),
-                                  if (!isLast) const Divider(height: 1),
-                                ],
-                              );
-                            }).toList(),
-                          ),
-                  ),
+                                    if (!isLast) const Divider(height: 1),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
+                    ),
+                  ],
                 ],
               ),
       ),
@@ -244,6 +320,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
         icon: const Icon(Icons.add),
         label: const Text('Note'),
       ),
+    );
+  }
+
+  Widget _favoriteTrailing(Node node) {
+    final colors = Theme.of(context).colorScheme;
+    final isFavorite = _favoriteIds.contains(node.id);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(
+            isFavorite ? Icons.star : Icons.star_border,
+            color: isFavorite ? colors.primary : colors.onSurfaceVariant,
+          ),
+          tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
+          onPressed: () => _toggleFavorite(node),
+        ),
+        Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+      ],
     );
   }
 
@@ -266,4 +361,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (node.isTask) return Icons.check_circle_outline;
     return node.icon?.isNotEmpty == true ? Icons.description_outlined : Icons.description_outlined;
   }
+}
+
+/// Popup menu that opens the advanced React-based views.
+class _AdvancedViewsMenu extends StatelessWidget {
+  const _AdvancedViewsMenu({required this.onSelected});
+
+  final ValueChanged<String> onSelected;
+
+  static const _items = <({_AdvancedView view, String route})>[
+    (view: _AdvancedView.graph, route: Routes.graph),
+    (view: _AdvancedView.timeline, route: Routes.timeline),
+    (view: _AdvancedView.gantt, route: Routes.gantt),
+    (view: _AdvancedView.chart, route: Routes.chart),
+    (view: _AdvancedView.pivot, route: Routes.pivot),
+    (view: _AdvancedView.whiteboard, route: Routes.whiteboard),
+    (view: _AdvancedView.query, route: Routes.query),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Advanced views',
+      icon: const Icon(Icons.more_vert),
+      onSelected: (route) {
+        HapticFeedback.lightImpact();
+        onSelected(route);
+      },
+      itemBuilder: (context) => _items
+          .map(
+            (item) => PopupMenuItem<String>(
+              value: item.route,
+              child: ListTile(
+                leading: Icon(item.view.icon),
+                title: Text(item.view.label),
+                contentPadding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+enum _AdvancedView {
+  graph(label: 'Graph', icon: Icons.hub_outlined),
+  whiteboard(label: 'Whiteboard', icon: Icons.draw_outlined),
+  timeline(label: 'Timeline', icon: Icons.timeline_outlined),
+  gantt(label: 'Gantt', icon: Icons.view_week_outlined),
+  chart(label: 'Chart', icon: Icons.bar_chart_outlined),
+  pivot(label: 'Pivot', icon: Icons.pivot_table_chart_outlined),
+  query(label: 'Query builder', icon: Icons.account_tree_outlined);
+
+  const _AdvancedView({required this.label, required this.icon});
+
+  final String label;
+  final IconData icon;
 }

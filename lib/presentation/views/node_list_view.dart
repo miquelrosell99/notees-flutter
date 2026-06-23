@@ -10,12 +10,16 @@ class NodeListView extends StatelessWidget {
     required this.onNodeTap,
     this.footer,
     this.shrinkWrap = false,
+    this.favoriteIds,
+    this.onFavoriteToggle,
   });
 
   final List<Node> nodes;
   final ValueChanged<Node> onNodeTap;
   final Widget? footer;
   final bool shrinkWrap;
+  final Set<int>? favoriteIds;
+  final ValueChanged<Node>? onFavoriteToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -31,16 +35,36 @@ class NodeListView extends StatelessWidget {
           return footer!;
         }
         final node = nodes[index];
+        final isFavorite = favoriteIds?.contains(node.id) ?? false;
         return ListTile(
           leading: Icon(
             _iconForNode(node),
             color: colors.onSurfaceVariant,
           ),
           title: Text(node.displayName),
-          trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+          trailing: _buildTrailing(context, node, isFavorite, colors),
           onTap: () => onNodeTap(node),
         );
       },
+    );
+  }
+
+  Widget _buildTrailing(BuildContext context, Node node, bool isFavorite, ColorScheme colors) {
+    final toggle = onFavoriteToggle;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (toggle != null)
+          IconButton(
+            icon: Icon(
+              isFavorite ? Icons.star : Icons.star_border,
+              color: isFavorite ? colors.primary : colors.onSurfaceVariant,
+            ),
+            tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
+            onPressed: () => toggle(node),
+          ),
+        Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+      ],
     );
   }
 

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/node.dart';
+import 'node_calendar_view.dart';
 import 'node_card_view.dart';
+import 'node_kanban_view.dart';
 import 'node_list_view.dart';
 import 'node_table_view.dart';
 import 'node_view_mode.dart';
@@ -16,6 +18,8 @@ class NodeCollection extends StatelessWidget {
     required this.onNodeTap,
     this.emptyMessage = 'No items',
     this.footer,
+    this.favoriteIds,
+    this.onFavoriteToggle,
   });
 
   final NodeViewMode mode;
@@ -23,6 +27,8 @@ class NodeCollection extends StatelessWidget {
   final ValueChanged<Node> onNodeTap;
   final String emptyMessage;
   final Widget? footer;
+  final Set<int>? favoriteIds;
+  final ValueChanged<Node>? onFavoriteToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -32,11 +38,41 @@ class NodeCollection extends StatelessWidget {
 
     switch (mode) {
       case NodeViewMode.list:
-        return NodeListView(nodes: nodes, onNodeTap: onNodeTap, footer: footer);
+        return NodeListView(
+          nodes: nodes,
+          onNodeTap: onNodeTap,
+          footer: footer,
+          favoriteIds: favoriteIds,
+          onFavoriteToggle: onFavoriteToggle,
+        );
       case NodeViewMode.card:
-        return NodeCardView(nodes: nodes, onNodeTap: onNodeTap);
+        return NodeCardView(
+          nodes: nodes,
+          onNodeTap: onNodeTap,
+          favoriteIds: favoriteIds,
+          onFavoriteToggle: onFavoriteToggle,
+        );
       case NodeViewMode.table:
-        return NodeTableView(nodes: nodes, onNodeTap: onNodeTap);
+        return NodeTableView(
+          nodes: nodes,
+          onNodeTap: onNodeTap,
+          favoriteIds: favoriteIds,
+          onFavoriteToggle: onFavoriteToggle,
+        );
+      case NodeViewMode.kanban:
+        return NodeKanbanView(
+          nodes: nodes,
+          onNodeTap: onNodeTap,
+          favoriteIds: favoriteIds,
+          onFavoriteToggle: onFavoriteToggle,
+        );
+      case NodeViewMode.calendar:
+        return NodeCalendarView(
+          nodes: nodes,
+          onNodeTap: onNodeTap,
+          favoriteIds: favoriteIds,
+          onFavoriteToggle: onFavoriteToggle,
+        );
     }
   }
 }

@@ -49,6 +49,23 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Notees needs photo library access to let you attach images to notes.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Notees needs camera access to let you capture photos for notes.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Notees needs microphone access to let you record audio notes.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.notees.notees</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>notees</string>
+			</array>
+		</dict>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

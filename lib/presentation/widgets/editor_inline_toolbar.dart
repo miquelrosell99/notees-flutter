@@ -4,12 +4,24 @@ import 'package:flutter/material.dart';
 enum EditorAction {
   bold,
   italic,
+  underline,
   strikethrough,
   code,
   highlight,
+  heading1,
+  heading2,
+  heading3,
   link,
   classLink,
   tagLink,
+  image,
+  audio,
+  task,
+  property,
+  table,
+  template,
+  slash,
+  mention,
 }
 
 /// A keyboard-snapped toolbar for the native editor.
@@ -45,6 +57,11 @@ class EditorInlineToolbar extends StatelessWidget {
                 onPressed: () => onAction(EditorAction.italic),
               ),
               _ToolbarButton(
+                icon: Icons.format_underlined,
+                tooltip: 'Underline',
+                onPressed: () => onAction(EditorAction.underline),
+              ),
+              _ToolbarButton(
                 icon: Icons.format_strikethrough,
                 tooltip: 'Strikethrough',
                 onPressed: () => onAction(EditorAction.strikethrough),
@@ -58,6 +75,21 @@ class EditorInlineToolbar extends StatelessWidget {
                 icon: Icons.highlight,
                 tooltip: 'Highlight',
                 onPressed: () => onAction(EditorAction.highlight),
+              ),
+              _ToolbarButton(
+                icon: Icons.looks_one,
+                tooltip: 'Heading 1',
+                onPressed: () => onAction(EditorAction.heading1),
+              ),
+              _ToolbarButton(
+                icon: Icons.looks_two,
+                tooltip: 'Heading 2',
+                onPressed: () => onAction(EditorAction.heading2),
+              ),
+              _ToolbarButton(
+                icon: Icons.looks_3,
+                tooltip: 'Heading 3',
+                onPressed: () => onAction(EditorAction.heading3),
               ),
               const VerticalDivider(width: 16),
               _ToolbarButton(
@@ -74,6 +106,28 @@ class EditorInlineToolbar extends StatelessWidget {
                 icon: Icons.tag,
                 tooltip: 'Link to tag',
                 onPressed: () => onAction(EditorAction.tagLink),
+              ),
+              const VerticalDivider(width: 16),
+              _ToolbarButton(
+                icon: Icons.image,
+                tooltip: 'Insert image',
+                onPressed: () => onAction(EditorAction.image),
+              ),
+              _ToolbarButton(
+                icon: Icons.mic,
+                tooltip: 'Insert audio',
+                onPressed: () => onAction(EditorAction.audio),
+              ),
+              const VerticalDivider(width: 16),
+              _ToolbarButton(
+                icon: Icons.format_list_bulleted,
+                tooltip: 'Slash command',
+                onPressed: () => onAction(EditorAction.slash),
+              ),
+              _ToolbarButton(
+                icon: Icons.alternate_email,
+                tooltip: 'Mention',
+                onPressed: () => onAction(EditorAction.mention),
               ),
             ],
           ),

@@ -5,28 +5,28 @@ enum NodeViewMode {
   list,
   card,
   table,
+  kanban,
+  calendar,
 }
 
 extension NodeViewModeExt on NodeViewMode {
   String get label {
-    switch (this) {
-      case NodeViewMode.list:
-        return 'List';
-      case NodeViewMode.card:
-        return 'Cards';
-      case NodeViewMode.table:
-        return 'Table';
-    }
+    return switch (this) {
+      NodeViewMode.list => 'List',
+      NodeViewMode.card => 'Cards',
+      NodeViewMode.table => 'Table',
+      NodeViewMode.kanban => 'Kanban',
+      NodeViewMode.calendar => 'Calendar',
+    };
   }
 
   IconData get icon {
-    switch (this) {
-      case NodeViewMode.list:
-        return Icons.list;
-      case NodeViewMode.card:
-        return Icons.grid_view;
-      case NodeViewMode.table:
-        return Icons.table_rows;
-    }
+    return switch (this) {
+      NodeViewMode.list => Icons.list,
+      NodeViewMode.card => Icons.grid_view,
+      NodeViewMode.table => Icons.table_rows,
+      NodeViewMode.kanban => Icons.view_kanban,
+      NodeViewMode.calendar => Icons.calendar_month,
+    };
   }
 }

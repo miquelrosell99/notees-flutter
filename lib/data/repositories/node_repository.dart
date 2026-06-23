@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../../domain/models/search_filters.dart';
 import '../models/node.dart';
+import '../models/page_content.dart';
 import '../models/property.dart';
 
 class NodeRepository {
@@ -19,13 +20,42 @@ class NodeRepository {
 
   Future<List<Node>> fetchFavorites({int limit = 50}) async {
     final response = await dio.get<Map<String, dynamic>>(
-      '/nodes/favorites',
+      '/favorites',
       queryParameters: {'page': 1, 'page_size': limit},
     );
     final data = response.data;
     if (data == null) return [];
     final items = (data['items'] ?? data['nodes']) as List<dynamic>? ?? [];
     return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<List<int>> fetchFavoriteIds() async {
+    final response = await dio.get<Map<String, dynamic>>(
+      '/favorites',
+      queryParameters: {'page': 1, 'page_size': 500},
+    );
+    final data = response.data;
+    if (data == null) return [];
+    final items = (data['items'] ?? data['nodes']) as List<dynamic>? ?? [];
+    return items.map((e) {
+      final json = e as Map<String, dynamic>;
+      return json['id'] as int? ?? 0;
+    }).where((id) => id > 0).toList();
+  }
+
+  Future<void> addFavorite(int nodeId) async {
+    await dio.post<Map<String, dynamic>>('/favorites/$nodeId');
+  }
+
+  Future<void> removeFavorite(int nodeId) async {
+    await dio.delete<Map<String, dynamic>>('/favorites/$nodeId');
+  }
+
+  Future<void> reorderFavorites(int fromIndex, int toIndex) async {
+    await dio.put<Map<String, dynamic>>(
+      '/favorites/reorder',
+      data: {'from_index': fromIndex, 'to_index': toIndex},
+    );
   }
 
   Future<List<Node>> fetchRootPages() async {
@@ -55,9 +85,14 @@ class NodeRepository {
     return Node.fromJson(response.data!);
   }
 
-  Future<Node> fetchPageContent(int id) async {
-    final response = await dio.get<Map<String, dynamic>>('/nodes/page/$id/content');
+  Future<Node> fetchNodeByUuid(String uuid) async {
+    final response = await dio.get<Map<String, dynamic>>('/nodes/uuid/$uuid');
     return Node.fromJson(response.data!);
+  }
+
+  Future<PageContent> fetchPageContent(int id) async {
+    final response = await dio.get<Map<String, dynamic>>('/nodes/page/$id/content');
+    return PageContent.fromJson(response.data!);
   }
 
   Future<Node> createQuickNote({
@@ -75,6 +110,10 @@ class NodeRepository {
       },
     );
     return Node.fromJson(response.data!);
+  }
+
+  Future<Node> createTask(String name) async {
+    return createQuickNote(name: name, additionalTypes: const ['task']);
   }
 
   Future<Node> getOrCreateDailyJournal(DateTime date) async {
@@ -104,11 +143,19 @@ class NodeRepository {
   }
 
   Future<List<Node>> fetchClasses() async {
-    final response = await dio.get<Map<String, dynamic>>('/classes');
+    final response = await dio.get<Map<String, dynamic>>('/nodes/classes');
     final data = response.data;
     if (data == null) return [];
     final items = data['nodes'] as List<dynamic>? ?? [];
     return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<Node?> findClassByUuid(String uuid) async {
+    final classes = await fetchClasses();
+    for (final c in classes) {
+      if (c.uuid == uuid) return c;
+    }
+    return null;
   }
 
   Future<List<Node>> searchWithFilters(SearchFilters filters) async {
@@ -127,16 +174,17 @@ class NodeRepository {
     String? name,
     String? icon,
     String? color,
+    List<int>? classes,
+    List<int>? tags,
   }) async {
     final response = await dio.put<Map<String, dynamic>>(
       '/nodes/$id',
       data: {
-        // ignore: use_null_aware_elements
-        if (name != null) 'name': name,
-        // ignore: use_null_aware_elements
-        if (icon != null) 'icon': icon,
-        // ignore: use_null_aware_elements
-        if (color != null) 'color': color,
+        'name': ?name,
+        'icon': ?icon,
+        'color': ?color,
+        'classes': ?classes,
+        'tags': ?tags,
       },
     );
     return Node.fromJson(response.data!);
@@ -173,6 +221,46 @@ class NodeRepository {
   Future<void> deleteNode(int id) async {
     await dio.delete('/nodes/$id');
   }
+
+  // === Trash ===
+
+  Future<List<Node>> fetchTrash({int page = 1, int pageSize = 50}) async {
+    final response = await dio.get<Map<String, dynamic>>(
+      '/trash',
+      queryParameters: {'page': page, 'page_size': pageSize},
+    );
+    final data = response.data;
+    if (data == null) return [];
+    final items = (data['items'] ?? data['nodes']) as List<dynamic>? ?? [];
+    return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> restoreNode(int id) async {
+    await dio.post<Map<String, dynamic>>('/nodes/$id/restore');
+  }
+
+  Future<void> emptyTrash() async {
+    await dio.post<Map<String, dynamic>>('/trash/empty');
+  }
+
+  Future<void> permanentlyDeleteNode(int id) async {
+    await dio.post<Map<String, dynamic>>('/nodes/$id/permanent');
+  }
+
+  // === Tags ===
+
+  Future<void> addTag(int nodeId, int tagId) async {
+    await dio.post<Map<String, dynamic>>(
+      '/nodes/$nodeId/tag-links',
+      data: {'target_node_id': tagId},
+    );
+  }
+
+  Future<void> removeTag(int nodeId, int tagId) async {
+    await dio.delete<Map<String, dynamic>>('/nodes/$nodeId/tag-links/$tagId');
+  }
+
+  // === Properties ===
 
   Future<List<Property>> fetchAvailableProperties(int nodeId) async {
     final response = await dio.get<Map<String, dynamic>>(

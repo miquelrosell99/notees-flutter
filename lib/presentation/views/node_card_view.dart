@@ -9,10 +9,14 @@ class NodeCardView extends StatelessWidget {
     super.key,
     required this.nodes,
     required this.onNodeTap,
+    this.favoriteIds,
+    this.onFavoriteToggle,
   });
 
   final List<Node> nodes;
   final ValueChanged<Node> onNodeTap;
+  final Set<int>? favoriteIds;
+  final ValueChanged<Node>? onFavoriteToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -29,6 +33,7 @@ class NodeCardView extends StatelessWidget {
       itemCount: nodes.length,
       itemBuilder: (context, index) {
         final node = nodes[index];
+        final isFavorite = favoriteIds?.contains(node.id) ?? false;
         return FleetCard(
           onTap: () => onNodeTap(node),
           child: Padding(
@@ -36,10 +41,24 @@ class NodeCardView extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  _iconForNode(node),
-                  color: colors.onSurfaceVariant,
-                  size: 28,
+                Row(
+                  children: [
+                    Icon(
+                      _iconForNode(node),
+                      color: colors.onSurfaceVariant,
+                      size: 28,
+                    ),
+                    const Spacer(),
+                    if (onFavoriteToggle != null)
+                      IconButton(
+                        icon: Icon(
+                          isFavorite ? Icons.star : Icons.star_border,
+                          color: isFavorite ? colors.primary : colors.onSurfaceVariant,
+                        ),
+                        tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
+                        onPressed: () => onFavoriteToggle!(node),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 Expanded(

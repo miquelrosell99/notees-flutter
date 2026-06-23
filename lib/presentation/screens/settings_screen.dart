@@ -4,10 +4,14 @@ import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/routing/router.dart';
 import '../../core/theme/theme_builder.dart';
 import '../../core/theme/theme_provider.dart';
+import '../../data/repositories/workspace_repository.dart';
 import '../providers/auth_provider.dart';
 import '../providers/biometric_provider.dart';
+import '../providers/settings_provider.dart';
+import '../views/node_view_mode.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/section_title.dart';
 
@@ -20,16 +24,63 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String _version = '';
+  List<Workspace> _workspaces = [];
+  bool _loadingWorkspaces = true;
 
   @override
   void initState() {
     super.initState();
     _loadVersion();
+    _loadWorkspaces();
   }
 
   Future<void> _loadVersion() async {
     final info = await PackageInfo.fromPlatform();
     if (mounted) setState(() => _version = '${info.version}+${info.buildNumber}');
+  }
+
+  Future<void> _loadWorkspaces() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    setState(() => _loadingWorkspaces = true);
+    try {
+      final repo = WorkspaceRepository(dio: auth.dio!);
+      final workspaces = await repo.listWorkspaces();
+      if (mounted) {
+        setState(() {
+          _workspaces = workspaces;
+          _loadingWorkspaces = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _workspaces = [];
+          _loadingWorkspaces = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _switchWorkspace(Workspace workspace) async {
+    HapticFeedback.lightImpact();
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    try {
+      final repo = WorkspaceRepository(dio: auth.dio!);
+      await repo.switchWorkspace(workspace.uuid);
+      if (mounted) {
+        context.go('/dashboard');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not switch workspace: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _logout() async {
@@ -44,6 +95,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final theme = context.watch<ThemeProvider>();
     final auth = context.watch<AuthProvider>();
     final biometric = context.watch<BiometricProvider>();
+    final settings = context.watch<SettingsProvider>();
     final colors = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -74,6 +126,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 28),
+          const SectionTitle(icon: Icons.edit_note_outlined, label: 'Editor'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.view_list_outlined),
+                  title: const Text('Default view mode'),
+                  trailing: Text(
+                    settings.defaultViewMode.label,
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showViewModePicker(context, settings),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.format_indent_increase_outlined),
+                  title: const Text('Linked refs collapse level'),
+                  trailing: Text(
+                    settings.linkedRefsCollapseLevel == 0
+                        ? 'Off'
+                        : 'Level ${settings.linkedRefsCollapseLevel}',
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showCollapseLevelPicker(context, settings),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.calendar_view_week_outlined),
+                  title: const Text('First day of week'),
+                  trailing: Text(
+                    firstDayOfWeekLabel(settings.firstDayOfWeek),
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showFirstDayOfWeekPicker(context, settings),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.calendar_today_outlined),
+                  title: const Text('Date format'),
+                  trailing: Text(
+                    settings.dateFormat,
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showDateFormatPicker(context, settings),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
           const SectionTitle(icon: Icons.dns_outlined, label: 'Server'),
           const SizedBox(height: 8),
           FleetCard(
@@ -87,6 +189,101 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : const Text('No active server'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => context.push('/settings/servers'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          const SectionTitle(icon: Icons.workspaces_outlined, label: 'Workspace'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: _loadingWorkspaces
+                ? const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                : Column(
+                    children: _workspaces.asMap().entries.map((entry) {
+                      final workspace = entry.value;
+                      final isLast = entry.key == _workspaces.length - 1;
+                      return Column(
+                        children: [
+                          ListTile(
+                            leading: Icon(
+                              workspace.isActive ? Icons.check_circle : Icons.circle_outlined,
+                              color: workspace.isActive ? colors.primary : colors.onSurfaceVariant,
+                            ),
+                            title: Text(workspace.name),
+                            subtitle: workspace.isActive ? const Text('Active') : null,
+                            trailing: workspace.isActive
+                                ? Icon(Icons.check, color: colors.primary)
+                                : const Icon(Icons.chevron_right),
+                            onTap: workspace.isActive
+                                ? null
+                                : () => _switchWorkspace(workspace),
+                          ),
+                          if (!isLast) const Divider(height: 1),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+          ),
+          const SizedBox(height: 28),
+          const SectionTitle(icon: Icons.dashboard_outlined, label: 'Graph & sidebar'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: Column(
+              children: [
+                _ToggleTile(
+                  icon: Icons.star_outline,
+                  label: 'Show favorites',
+                  value: settings.showSidebarFavorites,
+                  onChanged: settings.setShowSidebarFavorites,
+                ),
+                const Divider(height: 1),
+                _ToggleTile(
+                  icon: Icons.access_time,
+                  label: 'Show recents',
+                  value: settings.showSidebarRecents,
+                  onChanged: settings.setShowSidebarRecents,
+                ),
+                const Divider(height: 1),
+                _ToggleTile(
+                  icon: Icons.calendar_today_outlined,
+                  label: 'Show journals',
+                  value: settings.showSidebarJournals,
+                  onChanged: settings.setShowSidebarJournals,
+                ),
+                const Divider(height: 1),
+                _ToggleTile(
+                  icon: Icons.check_circle_outline,
+                  label: 'Show tasks',
+                  value: settings.showSidebarTasks,
+                  onChanged: settings.setShowSidebarTasks,
+                ),
+                const Divider(height: 1),
+                _ToggleTile(
+                  icon: Icons.description_outlined,
+                  label: 'Show pages',
+                  value: settings.showSidebarPages,
+                  onChanged: settings.setShowSidebarPages,
+                ),
+                const Divider(height: 1),
+                _ToggleTile(
+                  icon: Icons.hub_outlined,
+                  label: 'Show graph',
+                  value: settings.showSidebarGraph,
+                  onChanged: settings.setShowSidebarGraph,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.auto_delete_outlined),
+                  title: const Text('Trash retention days'),
+                  trailing: Text(
+                    '${settings.trashRetentionDays} days',
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showTrashRetentionPicker(context, settings),
                 ),
               ],
             ),
@@ -135,9 +332,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: const Text('Trash'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/trash'),
+                ),
+                const Divider(height: 1),
+                ListTile(
                   leading: Icon(Icons.logout, color: colors.error),
                   title: Text('Sign out', style: TextStyle(color: colors.error)),
                   onTap: _logout,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          const SectionTitle(icon: Icons.layers_outlined, label: 'Advanced views'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.hub_outlined),
+                  title: const Text('Graph'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(Routes.graph),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.draw_outlined),
+                  title: const Text('Whiteboard'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(Routes.whiteboard),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.timeline_outlined),
+                  title: const Text('Timeline'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(Routes.timeline),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.view_week_outlined),
+                  title: const Text('Gantt'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(Routes.gantt),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.bar_chart_outlined),
+                  title: const Text('Chart'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(Routes.chart),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.pivot_table_chart_outlined),
+                  title: const Text('Pivot'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(Routes.pivot),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.account_tree_outlined),
+                  title: const Text('Query builder'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(Routes.query),
                 ),
               ],
             ),
@@ -156,6 +417,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 ListTile(
+                  leading: const Icon(Icons.keyboard_outlined),
+                  title: const Text('Keyboard shortcuts'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/settings/keyboard-shortcuts'),
+                ),
+                const Divider(height: 1),
+                ListTile(
                   leading: const Icon(Icons.numbers),
                   title: const Text('Version'),
                   trailing: Text(_version, style: TextStyle(color: colors.onSurfaceVariant)),
@@ -164,6 +432,216 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showViewModePicker(BuildContext context, SettingsProvider settings) async {
+    final mode = await _showEnumPicker<NodeViewMode>(
+      context: context,
+      title: 'Default view mode',
+      values: NodeViewMode.values,
+      selected: settings.defaultViewMode,
+      labelBuilder: (m) => m.label,
+    );
+    if (mode != null) await settings.setDefaultViewMode(mode);
+  }
+
+  Future<void> _showCollapseLevelPicker(BuildContext context, SettingsProvider settings) async {
+    final level = await _showIntPicker(
+      context: context,
+      title: 'Linked refs collapse level',
+      values: const [0, 1, 2, 3],
+      selected: settings.linkedRefsCollapseLevel,
+      labelBuilder: (v) => v == 0 ? 'Off' : 'Level $v',
+    );
+    if (level != null) await settings.setLinkedRefsCollapseLevel(level);
+  }
+
+  Future<void> _showFirstDayOfWeekPicker(BuildContext context, SettingsProvider settings) async {
+    const values = [0, 1, 6];
+    final day = await _showIntPicker(
+      context: context,
+      title: 'First day of week',
+      values: values,
+      selected: settings.firstDayOfWeek,
+      labelBuilder: firstDayOfWeekLabel,
+    );
+    if (day != null) await settings.setFirstDayOfWeek(day);
+  }
+
+  Future<void> _showDateFormatPicker(BuildContext context, SettingsProvider settings) async {
+    final format = await _showStringPicker(
+      context: context,
+      title: 'Date format',
+      values: kDateFormatOptions,
+      selected: settings.dateFormat,
+      labelBuilder: (v) => v,
+    );
+    if (format != null) await settings.setDateFormat(format);
+  }
+
+  Future<void> _showTrashRetentionPicker(BuildContext context, SettingsProvider settings) async {
+    const values = [7, 14, 30, 60, 90];
+    final days = await _showIntPicker(
+      context: context,
+      title: 'Trash retention days',
+      values: values,
+      selected: settings.trashRetentionDays,
+      labelBuilder: (v) => '$v days',
+    );
+    if (days != null) await settings.setTrashRetentionDays(days);
+  }
+
+  Future<T?> _showEnumPicker<T>({
+    required BuildContext context,
+    required String title,
+    required List<T> values,
+    required T selected,
+    required String Function(T) labelBuilder,
+  }) async {
+    return showModalBottomSheet<T>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+            ),
+            ...values.map((value) => ListTile(
+                  title: Text(labelBuilder(value)),
+                  trailing: value == selected
+                      ? Icon(Icons.check, color: Theme.of(ctx).colorScheme.primary)
+                      : null,
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.of(ctx).pop(value);
+                  },
+                )),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<int?> _showIntPicker({
+    required BuildContext context,
+    required String title,
+    required List<int> values,
+    required int selected,
+    required String Function(int) labelBuilder,
+  }) async {
+    return showModalBottomSheet<int>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+            ),
+            ...values.map((value) => ListTile(
+                  title: Text(labelBuilder(value)),
+                  trailing: value == selected
+                      ? Icon(Icons.check, color: Theme.of(ctx).colorScheme.primary)
+                      : null,
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.of(ctx).pop(value);
+                  },
+                )),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<String?> _showStringPicker({
+    required BuildContext context,
+    required String title,
+    required List<String> values,
+    required String selected,
+    required String Function(String) labelBuilder,
+  }) async {
+    return showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+            ),
+            ...values.map((value) => ListTile(
+                  title: Text(labelBuilder(value)),
+                  trailing: value == selected
+                      ? Icon(Icons.check, color: Theme.of(ctx).colorScheme.primary)
+                      : null,
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.of(ctx).pop(value);
+                  },
+                )),
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
   }
@@ -383,6 +861,35 @@ class _PureBlackRow extends StatelessWidget {
             } : null,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ToggleTile extends StatelessWidget {
+  const _ToggleTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      trailing: Switch(
+        value: value,
+        onChanged: (v) {
+          HapticFeedback.lightImpact();
+          onChanged(v);
+        },
       ),
     );
   }

@@ -7,8 +7,10 @@ import 'dart:convert';
 /// web app can render links and inline styles correctly.
 ///
 /// Supported syntax:
+/// - `# `, `## `, `### ` at line start → heading
 /// - `**bold**` → strong
 /// - `*italic*` → em
+/// - `__underline__` → underline
 /// - `~~strike~~` → strikethrough
 /// - `==highlight==` → highlight
 /// - `` `code` `` → code
@@ -17,13 +19,29 @@ import 'dart:convert';
 class AstBuilder {
   AstBuilder._();
 
-  /// Parses [text] into a one-paragraph AST document.
+  /// Parses [text] into a one-paragraph or heading AST document.
   static List<Map<String, dynamic>> parseInline(String text) {
+    final heading = _parseHeading(text);
+    if (heading != null) return [heading];
     final children = _parseInlineChildren(text);
     if (children.isEmpty) return [];
     return [
       {'type': 'paragraph', 'children': children},
     ];
+  }
+
+  static Map<String, dynamic>? _parseHeading(String text) {
+    for (var level = 3; level >= 1; level--) {
+      final prefix = '${'#' * level} ';
+      if (text.startsWith(prefix)) {
+        return {
+          'type': 'heading',
+          'level': level,
+          'children': _parseInlineChildren(text.substring(prefix.length)),
+        };
+      }
+    }
+    return null;
   }
 
   /// Serializes an AST document to JSON.
@@ -46,7 +64,12 @@ class AstBuilder {
     String inner;
     switch (type) {
       case 'paragraph':
+        for (final child in (node['children'] as List? ?? [])) {
+          _writeMarkdown(child, buffer);
+        }
       case 'heading':
+        final level = (node['level'] as int?)?.clamp(1, 6) ?? 1;
+        buffer.write('${'#' * level} ');
         for (final child in (node['children'] as List? ?? [])) {
           _writeMarkdown(child, buffer);
         }
@@ -60,6 +83,9 @@ class AstBuilder {
       case 'em':
         inner = _collectMarkdown(node['children']);
         buffer.write('*$inner*');
+      case 'underline':
+        inner = _collectMarkdown(node['children']);
+        buffer.write('__${inner}__');
       case 'strikethrough':
         inner = _collectMarkdown(node['children']);
         buffer.write('~~$inner~~');
@@ -145,6 +171,7 @@ class AstBuilder {
     r'|(?<bolditalic>\*\*\*(?!\s)[^*]+(?<!\s)\*\*\*)'
     r'|(?<bold>\*\*(?!\s)[^*]+(?<!\s)\*\*)'
     r'|(?<italic>\*(?!\s)[^*]+(?<!\s)\*)'
+    r'|(?<underline>__(?!\s)[^_]+(?<!\s)__)'
     r'|(?<strike>~~(?!\s)[^~]+(?<!\s)~~)'
     r'|(?<highlight>==(?!\s)[^=]+(?<!\s)==)'
     r'|(?<nodelink>\[\[[^\]]+\]\])'
@@ -199,6 +226,10 @@ class AstBuilder {
     if (match.namedGroup('italic') != null) {
       final inner = raw.substring(1, raw.length - 1);
       return {'type': 'em', 'children': _parseInlineChildren(inner)};
+    }
+    if (match.namedGroup('underline') != null) {
+      final inner = raw.substring(2, raw.length - 2);
+      return {'type': 'underline', 'children': _parseInlineChildren(inner)};
     }
     if (match.namedGroup('strike') != null) {
       final inner = raw.substring(2, raw.length - 2);
