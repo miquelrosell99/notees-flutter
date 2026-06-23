@@ -112,4 +112,53 @@ class NodeRepository {
     final items = data['nodes'] as List<dynamic>? ?? [];
     return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
   }
+
+  Future<Node> updateNode(
+    int id, {
+    String? name,
+    String? icon,
+    String? color,
+  }) async {
+    final response = await dio.put<Map<String, dynamic>>(
+      '/nodes/$id',
+      data: {
+        if (name != null) 'name': name,
+        if (icon != null) 'icon': icon,
+        if (color != null) 'color': color,
+      }..removeWhere((key, value) => value == null),
+    );
+    return Node.fromJson(response.data!);
+  }
+
+  Future<List<Node>> batchUpdateNodes(List<Map<String, dynamic>> nodes) async {
+    final response = await dio.put<Map<String, dynamic>>(
+      '/nodes/batch',
+      data: {'nodes': nodes},
+    );
+    final data = response.data;
+    if (data == null) return [];
+    final results = data['results'] as List<dynamic>? ?? [];
+    return results
+        .where((r) => r['success'] == true && r['node'] != null)
+        .map((r) => Node.fromJson(r['node'] as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<List<Node>> batchCreateNodes(List<Map<String, dynamic>> nodes) async {
+    final response = await dio.post<Map<String, dynamic>>(
+      '/nodes/batch',
+      data: {'nodes': nodes},
+    );
+    final data = response.data;
+    if (data == null) return [];
+    final results = data['results'] as List<dynamic>? ?? [];
+    return results
+        .where((r) => r['success'] == true && r['node'] != null)
+        .map((r) => Node.fromJson(r['node'] as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> deleteNode(int id) async {
+    await dio.delete('/nodes/$id');
+  }
 }

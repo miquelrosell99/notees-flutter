@@ -10,6 +10,7 @@ import '../../presentation/screens/server_setup_screen.dart';
 import '../../presentation/screens/settings_screen.dart';
 import '../../presentation/screens/splash_screen.dart';
 import '../../presentation/screens/user_profile_screen.dart';
+import '../../presentation/screens/node_editor_screen.dart';
 import '../../presentation/screens/webview_editor_screen.dart';
 
 /// Route names.
@@ -90,6 +91,16 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       ),
       GoRoute(
         path: '${Routes.editor}/:nodeId',
+        builder: (context, state) {
+          final nodeId = int.tryParse(state.pathParameters['nodeId'] ?? '');
+          if (nodeId == null) {
+            return const WebviewEditorScreen();
+          }
+          return NodeEditorScreen(nodeId: nodeId);
+        },
+      ),
+      GoRoute(
+        path: '${Routes.editor}/web/:nodeId',
         builder: (context, state) {
           final nodeId = int.tryParse(state.pathParameters['nodeId'] ?? '');
           final initialPath = state.uri.queryParameters['path'];
