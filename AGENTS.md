@@ -10,7 +10,7 @@ The mobile app is a **first-class native Flutter app** for Notees. It provides n
 - **Display name**: `Notees`
 - **Functional accent**: sage green `#5B7D5B`
 - **Architecture**: feature-first Flutter with Provider + ChangeNotifier, Dio, go_router, sqflite
-- **Native features**: biometric app lock, offline quick-capture queue, share receiver, native editor, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management
+- **Native features**: biometric app lock, offline quick-capture queue, share receiver, native block editor with inline styles and node/class/tag links, native list/card/table views, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management
 
 ## Key Files
 

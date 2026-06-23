@@ -16,6 +16,9 @@ class Node {
     this.isDaily = false,
     this.isMonthly = false,
     this.isYearly = false,
+    this.isTable = false,
+    this.isAsset = false,
+    this.isComment = false,
     this.classes = const [],
     this.tags = const [],
     this.properties = const {},
@@ -40,6 +43,9 @@ class Node {
   final bool isDaily;
   final bool isMonthly;
   final bool isYearly;
+  final bool isTable;
+  final bool isAsset;
+  final bool isComment;
   final List<int> classes;
   final List<int> tags;
   final Map<String, dynamic> properties;
@@ -64,6 +70,9 @@ class Node {
       isDaily: json['is_daily'] as bool? ?? false,
       isMonthly: json['is_monthly'] as bool? ?? false,
       isYearly: json['is_yearly'] as bool? ?? false,
+      isTable: json['is_table'] as bool? ?? false,
+      isAsset: json['is_asset'] as bool? ?? false,
+      isComment: json['is_comment'] as bool? ?? false,
       classes: (json['classes'] as List<dynamic>?)?.cast<int>() ?? const [],
       tags: (json['tags'] as List<dynamic>?)?.cast<int>() ?? const [],
       properties: (json['properties'] as Map<String, dynamic>?) ?? const {},
@@ -88,6 +97,9 @@ class Node {
         'is_daily': isDaily,
         'is_monthly': isMonthly,
         'is_yearly': isYearly,
+        'is_table': isTable,
+        'is_asset': isAsset,
+        'is_comment': isComment,
         'classes': classes,
         'tags': tags,
         'properties': properties,

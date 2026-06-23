@@ -8,10 +8,11 @@ A first-class Flutter companion app for [Notees](https://github.com/notees/notee
 - **Biometric lock**: protect the app with fingerprint/face unlock.
 - **Quick capture**: jot down notes or receive shared text from other apps.
 - **Offline queue**: save quick notes locally and sync when connectivity returns.
-- **Native editor**: edit pages with a native title and content editor.
+- **Native editor**: edit pages with a native block-based editor. Inline styles (bold, italic, strikethrough, code, highlight), node/class/tag links via a bottom-sheet picker, and a read-only properties panel are supported.
+- **View modes**: browse nodes as a list, cards, or table. Toggle from Search and Pages; the choice is persisted locally.
 - **Bottom navigation**: Home, Tasks, Pages, and Search tabs.
 - **Advanced search**: plain text search plus an Immich-style bottom-sheet filter for node type, task state, date range, and sort order.
-- **Reusable node picker**: the same search/filter UI is available as a bottom-sheet picker for inserting links and selecting pages anywhere in the app.
+- **Reusable node picker**: the same search UI is available as a bottom sheet for inserting links and selecting pages anywhere in the app.
 
 ## Build
 

@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../../domain/models/search_filters.dart';
 import '../models/node.dart';
+import '../models/property.dart';
 
 class NodeRepository {
   NodeRepository({required this.dio});
@@ -102,6 +103,14 @@ class NodeRepository {
     return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
   }
 
+  Future<List<Node>> fetchClasses() async {
+    final response = await dio.get<Map<String, dynamic>>('/classes');
+    final data = response.data;
+    if (data == null) return [];
+    final items = data['nodes'] as List<dynamic>? ?? [];
+    return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
   Future<List<Node>> searchWithFilters(SearchFilters filters) async {
     final response = await dio.post<Map<String, dynamic>>(
       '/nodes/search',
@@ -160,5 +169,31 @@ class NodeRepository {
 
   Future<void> deleteNode(int id) async {
     await dio.delete('/nodes/$id');
+  }
+
+  Future<List<Property>> fetchAvailableProperties(int nodeId) async {
+    final response = await dio.get<Map<String, dynamic>>(
+      '/properties/available',
+      queryParameters: {'context_node_id': nodeId},
+    );
+    final data = response.data;
+    if (data == null) return [];
+    final items = data['properties'] as List<dynamic>? ?? [];
+    return items.map((e) => Property.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<List<NodePropertyValue>> fetchNodeProperties(int nodeId) async {
+    final response = await dio.get<Map<String, dynamic>>('/nodes/$nodeId/properties');
+    final data = response.data;
+    if (data == null) return [];
+    final items = data['properties'] as List<dynamic>? ?? [];
+    return items.map((e) => NodePropertyValue.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> setNodeProperty(int nodeId, int propertyId, dynamic value) async {
+    await dio.post<Map<String, dynamic>>(
+      '/nodes/$nodeId/properties',
+      data: {'property_id': propertyId, 'value': value},
+    );
   }
 }
