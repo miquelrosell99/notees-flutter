@@ -3,6 +3,7 @@ class Node {
     required this.id,
     required this.uuid,
     required this.name,
+    required this.displayName,
     this.icon,
     this.color,
     this.parentId,
@@ -22,6 +23,7 @@ class Node {
   final int id;
   final String uuid;
   final String name;
+  final String displayName;
   final String? icon;
   final String? color;
   final int? parentId;
@@ -45,6 +47,7 @@ class Node {
       id: json['id'] as int,
       uuid: json['uuid'] as String,
       name: json['name'] as String,
+      displayName: json['display_name'] as String? ?? (json['name'] as String),
       icon: json['icon'] as String?,
       color: json['color'] as String?,
       parentId: json['parent_id'] as int?,
@@ -66,6 +69,7 @@ class Node {
         'id': id,
         'uuid': uuid,
         'name': name,
+        'display_name': displayName,
         'icon': icon,
         'color': color,
         'parent_id': parentId,

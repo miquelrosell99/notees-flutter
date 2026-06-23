@@ -141,7 +141,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       ),
                                 ),
                                 Text(
-                                  _todayJournal?.name ?? 'Open daily note',
+                                  _todayJournal?.displayName ?? 'Open daily note',
                                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                         color: colors.onSurfaceVariant,
                                       ),
@@ -173,7 +173,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       _iconForNode(node),
                                       color: colors.onSurfaceVariant,
                                     ),
-                                    title: Text(node.name),
+                                    title: Text(node.displayName),
                                     trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
                                     onTap: () => _openNode(node),
                                   ),
@@ -200,7 +200,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       Icons.radio_button_unchecked,
                                       color: colors.primary,
                                     ),
-                                    title: Text(task.name),
+                                    title: Text(task.displayName),
                                     trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
                                     onTap: () => _openNode(task),
                                   ),

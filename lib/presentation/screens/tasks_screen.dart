@@ -106,7 +106,7 @@ class _TasksScreenState extends State<TasksScreen> {
                       Icons.radio_button_unchecked,
                       color: colors.primary,
                     ),
-                    title: Text(task.name),
+                    title: Text(task.displayName),
                     trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
                     onTap: () => _openNode(task),
                   ),

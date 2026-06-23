@@ -153,7 +153,7 @@ class _SearchScreenState extends State<SearchScreen> {
             _iconForNode(node),
             color: colors.onSurfaceVariant,
           ),
-          title: Text(node.name),
+          title: Text(node.displayName),
           trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
           onTap: () => _openNode(node),
         );

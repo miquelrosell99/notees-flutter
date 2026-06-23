@@ -26,18 +26,40 @@ class WebviewEditorScreen extends StatefulWidget {
 }
 
 class _WebviewEditorScreenState extends State<WebviewEditorScreen> {
-  late final WebViewController _controller;
+  WebViewController? _controller;
   bool _loading = true;
   bool _editorFocused = false;
 
   @override
   void initState() {
     super.initState();
+    _initWebView();
+  }
+
+  Future<void> _initWebView() async {
     final auth = context.read<AuthProvider>();
     final serverUrl = auth.activeServer?.url ?? '';
     final path = _buildPath();
 
-    _controller = WebViewController()
+    // Copy the access token into the WebView cookie jar so the web app is
+    // authenticated the same way the native API client is.
+    final token = await auth.secureStorage.readAccessToken();
+    if (token != null && token.isNotEmpty) {
+      final uri = Uri.tryParse(serverUrl);
+      if (uri != null && uri.host.isNotEmpty) {
+        final cookieManager = WebViewCookieManager();
+        await cookieManager.setCookie(
+          WebViewCookie(
+            name: 'access_token',
+            value: token,
+            domain: uri.host,
+            path: '/api',
+          ),
+        );
+      }
+    }
+
+    final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
@@ -68,6 +90,10 @@ class _WebviewEditorScreenState extends State<WebviewEditorScreen> {
         onMessageReceived: _onBridgeMessage,
       )
       ..loadRequest(Uri.parse('$serverUrl$path'));
+
+    if (mounted) {
+      setState(() => _controller = controller);
+    }
   }
 
   String _buildPath() {
@@ -112,7 +138,7 @@ class _WebviewEditorScreenState extends State<WebviewEditorScreen> {
 
   Future<void> _injectFocusListener() async {
     try {
-      await _controller.runJavaScript('''
+      await _controller?.runJavaScript('''
         (function() {
           if (window.__noteesFocusListenerInstalled) return;
           window.__noteesFocusListenerInstalled = true;
@@ -133,7 +159,7 @@ class _WebviewEditorScreenState extends State<WebviewEditorScreen> {
 
   Future<void> _sendEditorCommand(String command) async {
     try {
-      await _controller.runJavaScript('window.noteesMobileEditor.$command');
+      await _controller?.runJavaScript('window.noteesMobileEditor.$command');
     } catch (e) {
       // Ignore command failures when the bridge is not ready.
     }
@@ -150,7 +176,7 @@ class _WebviewEditorScreenState extends State<WebviewEditorScreen> {
     );
     if (node == null || !mounted) return;
 
-    final escaped = node.name.replaceAll('"', '\\"').replaceAll('\n', ' ');
+    final escaped = node.displayName.replaceAll('"', '\\"').replaceAll('\n', ' ');
     await _sendEditorCommand('insertLinkWithText("$escaped")');
   }
 
@@ -170,8 +196,8 @@ class _WebviewEditorScreenState extends State<WebviewEditorScreen> {
   }
 
   Future<void> _onBackPressed() async {
-    if (await _controller.canGoBack()) {
-      await _controller.goBack();
+    if (await _controller?.canGoBack() == true) {
+      await _controller?.goBack();
       return;
     }
     if (mounted) {
@@ -196,7 +222,10 @@ class _WebviewEditorScreenState extends State<WebviewEditorScreen> {
           Expanded(
             child: Stack(
               children: [
-                WebViewWidget(controller: _controller),
+                if (_controller != null)
+                  WebViewWidget(controller: _controller!)
+                else
+                  const Center(child: CircularProgressIndicator()),
                 if (_loading)
                   const Center(child: CircularProgressIndicator()),
               ],

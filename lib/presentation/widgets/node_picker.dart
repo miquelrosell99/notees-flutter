@@ -228,7 +228,7 @@ class _NodePickerState extends State<NodePicker> {
             _iconForNode(node),
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
-          title: Text(node.name),
+          title: Text(node.displayName),
           onTap: () => _select(node),
         );
       },

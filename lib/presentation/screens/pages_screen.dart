@@ -126,7 +126,7 @@ class _PagesScreenState extends State<PagesScreen> {
                 Icons.description_outlined,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
-              title: Text(node.name),
+              title: Text(node.displayName),
               trailing: Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurfaceVariant),
               onTap: () => _openNode(node),
             ),
