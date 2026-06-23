@@ -10,7 +10,7 @@ The mobile app is a **hybrid native shell** for Notees. It provides native Andro
 - **Display name**: `Notees`
 - **Functional accent**: sage green `#5B7D5B`
 - **Architecture**: feature-first Flutter with Provider + ChangeNotifier, Dio, go_router, sqflite
-- **Native features**: biometric app lock, offline quick-capture queue, share receiver, push-notification prep, keyboard-snapped edit toolbar, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management
+- **Native features**: biometric app lock, offline quick-capture queue, share receiver, keyboard-snapped edit toolbar, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management
 
 ## Key Files
 
@@ -67,17 +67,6 @@ This outputs `dist/notees.apk`.
 - Cards use `borderRadius: 20`, zero elevation, subtle outline at 10% opacity.
 - Bottom sheets use top radius of 28.
 - Dynamic color is supported via `dynamic_color` and can be enabled in Settings.
-
-## Push Notifications
-
-FCM plumbing is wired but requires operator configuration for each self-hosted instance:
-
-1. Create a Firebase project and add Android app `com.notees.notees`.
-2. Replace `android/app/google-services.json` with the downloaded config.
-3. Set `FCM_SERVER_KEY` on the Notees server (or swap the adapter for FCM HTTP v1).
-4. The app registers its token at `POST /api/auth/device-token` after login.
-
-`android/app/google-services.json` is tracked as a placeholder so CI builds succeed; it will not deliver notifications until replaced.
 
 ## WebView Bridge Contract
 

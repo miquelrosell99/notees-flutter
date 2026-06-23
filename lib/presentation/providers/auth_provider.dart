@@ -8,7 +8,6 @@ import '../../data/models/user.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/server_repository.dart';
 import '../../data/repositories/workspace_repository.dart';
-import '../../domain/services/push_notification_service.dart';
 
 /// Exposes the current server, authenticated user, and auth operations.
 class AuthProvider extends ChangeNotifier {
@@ -23,7 +22,6 @@ class AuthProvider extends ChangeNotifier {
   ServerProfile? _activeServer;
   User? _user;
   Dio? _dio;
-  PushNotificationService? _pushService;
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -47,11 +45,7 @@ class AuthProvider extends ChangeNotifier {
           secureStorage: secureStorage,
           trustSelfSigned: _activeServer!.trustSelfSigned,
         );
-        _pushService = PushNotificationService(dio: _dio!);
         _user = await AuthRepository(dio: _dio!, secureStorage: secureStorage).checkSession();
-        if (_user != null) {
-          await _pushService?.initialize();
-        }
       }
     } catch (e) {
       _error = e.toString();
@@ -69,7 +63,6 @@ class AuthProvider extends ChangeNotifier {
       secureStorage: secureStorage,
       trustSelfSigned: server.trustSelfSigned,
     );
-    _pushService = PushNotificationService(dio: _dio!);
     _user = null;
     notifyListeners();
   }
@@ -83,9 +76,6 @@ class AuthProvider extends ChangeNotifier {
       final repo = AuthRepository(dio: _dio!, secureStorage: secureStorage);
       _user = await repo.login(email: email, password: password, rememberMe: rememberMe);
       await _switchToDefaultWorkspace();
-      if (_user != null) {
-        await _pushService?.initialize();
-      }
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -103,9 +93,6 @@ class AuthProvider extends ChangeNotifier {
       final repo = AuthRepository(dio: _dio!, secureStorage: secureStorage);
       _user = await repo.register(email: email, password: password, name: name, surnames: surnames);
       await _switchToDefaultWorkspace();
-      if (_user != null) {
-        await _pushService?.initialize();
-      }
     } catch (e) {
       _error = e.toString();
     } finally {

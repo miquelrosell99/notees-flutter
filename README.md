@@ -8,7 +8,6 @@ A first-class Flutter companion app for [Notees](https://github.com/notees/notee
 - **Biometric lock**: protect the app with fingerprint/face unlock.
 - **Quick capture**: jot down notes or receive shared text from other apps.
 - **Offline queue**: save quick notes locally and sync when connectivity returns.
-- **Push notifications**: opt-in Firebase Cloud Messaging preparation for server-sent alerts.
 - **WebView editor**: open the full Notees web app with a native bridge and a keyboard-snapped edit toolbar.
 - **Bottom navigation**: Home, Tasks, Pages, and Search tabs.
 - **Advanced search**: plain text search plus an Immich-style bottom-sheet filter for node type, task state, date range, and sort order.
@@ -21,18 +20,6 @@ cd mobile
 flutter pub get
 flutter build apk --release
 ```
-
-## Push notification setup (optional)
-
-The app includes Firebase Cloud Messaging (FCM) plumbing. To actually receive pushes:
-
-1. Create a Firebase project at https://console.firebase.google.com/.
-2. Add an Android app with package name `com.notees.notees`.
-3. Download `google-services.json` and replace `android/app/google-services.json`.
-4. On the server, set `FCM_SERVER_KEY` to your Firebase project's legacy server key (or replace the adapter with HTTP v1 credentials).
-5. Rebuild the app.
-
-The included `google-services.json` is a placeholder with dummy values so the app compiles out of the box, but it will not deliver notifications.
 
 ## Edit toolbar
 
