@@ -16,6 +16,17 @@ class NodeRepository {
     return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
   }
 
+  Future<List<Node>> fetchFavorites({int limit = 50}) async {
+    final response = await dio.get<Map<String, dynamic>>(
+      '/nodes/favorites',
+      queryParameters: {'page': 1, 'page_size': limit},
+    );
+    final data = response.data;
+    if (data == null) return [];
+    final items = (data['items'] ?? data['nodes']) as List<dynamic>? ?? [];
+    return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
   Future<List<Node>> fetchRootPages() async {
     final response = await dio.get<Map<String, dynamic>>(
       '/nodes/',

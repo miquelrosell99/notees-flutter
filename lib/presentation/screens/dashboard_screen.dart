@@ -19,8 +19,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  List<Node> _favorites = [];
   List<Node> _recents = [];
-  List<Node> _tasks = [];
   Node? _todayJournal;
   bool _loading = true;
   String? _error;
@@ -39,13 +39,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _loading = true);
     try {
       final results = await Future.wait([
+        repo.fetchFavorites(limit: 50),
         repo.fetchRecentPages(limit: 5),
-        repo.fetchTasks(includeComplete: false, pageSize: 5),
         repo.getOrCreateDailyJournal(DateTime.now()),
       ]);
       setState(() {
-        _recents = results[0] as List<Node>;
-        _tasks = results[1] as List<Node>;
+        _favorites = results[0] as List<Node>;
+        _recents = results[1] as List<Node>;
         _todayJournal = results[2] as Node;
         _error = null;
       });
@@ -56,15 +56,77 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<Node> _getOrCreateJournal(DateTime date) async {
+    final auth = context.read<AuthProvider>();
+    final repo = NodeRepository(dio: auth.dio!);
+    return repo.getOrCreateDailyJournal(date);
+  }
+
   void _openNode(Node node) {
     HapticFeedback.lightImpact();
     context.push('${Routes.editor}/${node.id}');
   }
 
-  void _openJournal() {
-    if (_todayJournal == null) return;
+  void _openJournal({Node? journal}) {
+    final target = journal ?? _todayJournal;
+    if (target == null) return;
     HapticFeedback.lightImpact();
-    context.push('${Routes.editor}/${_todayJournal!.id}');
+    context.push('${Routes.editor}/${target.id}');
+  }
+
+  void _openCalendar() {
+    HapticFeedback.lightImpact();
+    final now = DateTime.now();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Jump to journal',
+                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+            ),
+            CalendarDatePicker(
+              initialDate: now,
+              firstDate: DateTime(2000),
+              lastDate: DateTime(2100),
+              onDateChanged: (date) async {
+                Navigator.of(ctx).pop();
+                setState(() => _loading = true);
+                try {
+                  final journal = await _getOrCreateJournal(date);
+                  _openJournal(journal: journal);
+                } catch (e) {
+                  setState(() => _error = e.toString());
+                } finally {
+                  setState(() => _loading = false);
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
   }
 
   void _openQuickNote() {
@@ -91,6 +153,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: const Text('Notees'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.calendar_today_outlined),
+            tooltip: 'Jump to journal',
+            onPressed: _openCalendar,
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit_calendar_outlined),
+            tooltip: "Today's journal",
+            onPressed: _openJournal,
+          ),
+          IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => context.push(Routes.settings),
           ),
@@ -111,52 +183,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         style: TextStyle(color: colors.error),
                       ),
                     ),
-                  FleetCard(
-                    onTap: _openJournal,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: colors.primaryContainer,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: Icon(
-                              Icons.calendar_today_outlined,
-                              color: colors.onPrimaryContainer,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  "Today's journal",
-                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                  if (_favorites.isNotEmpty) ...[
+                    const SectionTitle(icon: Icons.star_outline, label: 'Favorites'),
+                    const SizedBox(height: 8),
+                    FleetCard(
+                      child: Column(
+                        children: _favorites.asMap().entries.map((entry) {
+                          final node = entry.value;
+                          final isLast = entry.key == _favorites.length - 1;
+                          return Column(
+                            children: [
+                              ListTile(
+                                leading: Icon(
+                                  _iconForNode(node),
+                                  color: colors.onSurfaceVariant,
                                 ),
-                                Text(
-                                  _todayJournal?.displayName ?? 'Open daily note',
-                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                        color: colors.onSurfaceVariant,
-                                      ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
-                        ],
+                                title: Text(node.displayName),
+                                trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+                                onTap: () => _openNode(node),
+                              ),
+                              if (!isLast) const Divider(height: 1),
+                            ],
+                          );
+                        }).toList(),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 28),
+                    const SizedBox(height: 28),
+                  ],
                   const SectionTitle(icon: Icons.access_time, label: 'Recent pages'),
                   const SizedBox(height: 8),
                   FleetCard(
@@ -176,33 +229,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     title: Text(node.displayName),
                                     trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
                                     onTap: () => _openNode(node),
-                                  ),
-                                  if (!isLast) const Divider(height: 1),
-                                ],
-                              );
-                            }).toList(),
-                          ),
-                  ),
-                  const SizedBox(height: 28),
-                  const SectionTitle(icon: Icons.check_circle_outline, label: 'Open tasks'),
-                  const SizedBox(height: 8),
-                  FleetCard(
-                    child: _tasks.isEmpty
-                        ? _buildEmptyTile(context, 'No open tasks')
-                        : Column(
-                            children: _tasks.asMap().entries.map((entry) {
-                              final task = entry.value;
-                              final isLast = entry.key == _tasks.length - 1;
-                              return Column(
-                                children: [
-                                  ListTile(
-                                    leading: Icon(
-                                      Icons.radio_button_unchecked,
-                                      color: colors.primary,
-                                    ),
-                                    title: Text(task.displayName),
-                                    trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
-                                    onTap: () => _openNode(task),
                                   ),
                                   if (!isLast) const Divider(height: 1),
                                 ],
