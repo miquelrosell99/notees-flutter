@@ -91,9 +91,30 @@ class _SearchScreenState extends State<SearchScreen> {
           controller: _controller,
           focusNode: _focusNode,
           autofocus: true,
-          decoration: const InputDecoration(
+          textAlignVertical: TextAlignVertical.center,
+          decoration: InputDecoration(
             hintText: 'Search notes, tasks, pages...',
-            border: InputBorder.none,
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _controller,
+              builder: (context, value, child) {
+                if (value.text.isEmpty) return const SizedBox.shrink();
+                return IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _controller.clear();
+                    _search();
+                  },
+                );
+              },
+            ),
+            filled: true,
+            fillColor: colors.surfaceContainerHighest,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(28),
+              borderSide: BorderSide.none,
+            ),
+            contentPadding: const EdgeInsets.symmetric(vertical: 10),
           ),
           onChanged: _onQueryChanged,
         ),
