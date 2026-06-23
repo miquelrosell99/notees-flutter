@@ -40,7 +40,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   final _scrollController = ScrollController();
   final List<_BlockEditor> _blocks = [];
 
-  Node? _page;
   List<NodePropertyValue> _properties = [];
   Map<int, String> _classNames = {};
   final Set<int> _deletedBlockIds = {};
@@ -97,7 +96,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       };
 
       setState(() {
-        _page = page;
         _titleController.text = page.displayName;
         _properties = properties;
         _classNames = classNames;
@@ -405,6 +403,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 }
 
 class _BlockEditorTile extends StatelessWidget {
+  // ignore: prefer_const_constructors_in_immutables
   _BlockEditorTile({
     required this.editor,
     required this.classNames,

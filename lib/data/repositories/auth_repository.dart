@@ -80,7 +80,9 @@ class AuthRepository {
     final response = await dio.put<Map<String, dynamic>>(
       '/auth/me',
       data: {
+        // ignore: use_null_aware_elements
         if (name != null) 'name': name,
+        // ignore: use_null_aware_elements
         if (surnames != null) 'surnames': surnames,
       },
     );

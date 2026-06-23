@@ -131,10 +131,13 @@ class NodeRepository {
     final response = await dio.put<Map<String, dynamic>>(
       '/nodes/$id',
       data: {
+        // ignore: use_null_aware_elements
         if (name != null) 'name': name,
+        // ignore: use_null_aware_elements
         if (icon != null) 'icon': icon,
+        // ignore: use_null_aware_elements
         if (color != null) 'color': color,
-      }..removeWhere((key, value) => value == null),
+      },
     );
     return Node.fromJson(response.data!);
   }

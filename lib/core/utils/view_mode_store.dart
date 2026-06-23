@@ -4,7 +4,7 @@ import '../../presentation/views/node_view_mode.dart';
 
 /// Persists the preferred node collection view mode per screen.
 class ViewModeStore {
-  ViewModeStore({SharedPreferences? prefs}) : _prefs = prefs;
+  ViewModeStore({this._prefs});
 
   SharedPreferences? _prefs;
 

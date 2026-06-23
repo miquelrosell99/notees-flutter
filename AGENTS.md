@@ -60,6 +60,25 @@ cd mobile
 
 This outputs `dist/notees.apk`.
 
+## Local development with Docker Compose
+
+A `compose.yaml` is provided for lightweight local Flutter checks without installing the Flutter SDK. It uses the same `ghcr.io/cirruslabs/flutter:stable` image as CI and persists `pub-cache` and Gradle caches in Docker volumes.
+
+```bash
+cd mobile
+
+# Run static analysis (fast; catches compile errors before a full build)
+docker compose run --rm flutter flutter analyze
+
+# Run tests
+docker compose run --rm flutter flutter test
+
+# Build a release APK
+docker compose run --rm build-apk
+```
+
+The Android workflow runs `flutter analyze` first so compile errors fail fast instead of after a full Gradle build.
+
 ## Design System
 
 - Monochrome base layer dominates 90%+ of the UI.

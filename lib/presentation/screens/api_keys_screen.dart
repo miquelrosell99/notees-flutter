@@ -42,6 +42,7 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
   }
 
   Future<void> _createKey() async {
+    final auth = context.read<AuthProvider>();
     final name = await showDialog<String>(
       context: context,
       builder: (context) => const _CreateKeyDialog(),
@@ -51,7 +52,6 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
     HapticFeedback.lightImpact();
     setState(() => _loading = true);
     try {
-      final auth = context.read<AuthProvider>();
       final repo = AuthRepository(dio: auth.dio!, secureStorage: auth.secureStorage);
       _justCreated = await repo.createApiKey(name: name.trim());
       await _loadKeys();
@@ -61,6 +61,7 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
   }
 
   Future<void> _revokeKey(ApiKey key) async {
+    final auth = context.read<AuthProvider>();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -83,7 +84,6 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
     HapticFeedback.mediumImpact();
     setState(() => _loading = true);
     try {
-      final auth = context.read<AuthProvider>();
       final repo = AuthRepository(dio: auth.dio!, secureStorage: auth.secureStorage);
       await repo.revokeApiKey(key.id);
       await _loadKeys();

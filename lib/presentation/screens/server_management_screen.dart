@@ -50,32 +50,6 @@ class _ServerManagementScreenState extends State<ServerManagementScreen> {
     }
   }
 
-  Future<void> _deleteServer(ServerProfile server) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remove server?'),
-        content: Text('Remove ${server.nickname} from this device?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    HapticFeedback.mediumImpact();
-    final repo = context.read<AuthProvider>().serverRepository;
-    await repo.removeServer(server.id);
-    await _loadServers();
-  }
-
   Future<void> _showServerSheet({ServerProfile? server}) async {
     await showModalBottomSheet(
       context: context,

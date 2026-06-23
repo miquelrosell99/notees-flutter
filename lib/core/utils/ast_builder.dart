@@ -39,7 +39,7 @@ class AstBuilder {
     return buffer.toString();
   }
 
-  static void _writeMarkdown(dynamic node, StringBuffer buffer, {String? wrapper}) {
+  static void _writeMarkdown(dynamic node, StringBuffer buffer) {
     if (node is! Map<String, dynamic>) return;
     final type = node['type'] as String?;
 
@@ -135,6 +135,7 @@ class AstBuilder {
       'type': 'node_link',
       'link_id': linkUuid == null ? targetId : '$targetId:$linkUuid',
       'ref_type': refType,
+      // ignore: use_null_aware_elements
       if (label != null) 'label': label,
     };
   }

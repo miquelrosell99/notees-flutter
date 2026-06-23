@@ -11,10 +11,9 @@ import '../models/server_profile.dart';
 /// Stores and manages the user's Notees server profiles.
 class ServerRepository {
   ServerRepository({
-    required SharedPreferences prefs,
+    required this._prefs,
     FlutterSecureStorage? secureStorage,
-  })  : _prefs = prefs,
-        _secureStorage = secureStorage ?? const FlutterSecureStorage();
+  }) : _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   final SharedPreferences _prefs;
   final FlutterSecureStorage _secureStorage;
