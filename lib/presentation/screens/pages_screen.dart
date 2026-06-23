@@ -121,7 +121,7 @@ class _PagesScreenState extends State<PagesScreen> {
     }
 
     if (_viewMode != NodeViewMode.list) {
-      final allPages = <Node>{
+      final allPages = <int, Node>{
         for (final n in _rootPages) n.id: n,
         for (final n in _recents) n.id: n,
       }.values.toList();

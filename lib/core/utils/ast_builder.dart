@@ -159,7 +159,7 @@ class AstBuilder {
       final end = match.end;
 
       if (start > pos) {
-        nodes.add(text(text.substring(pos, start)));
+        nodes.add(AstBuilder.text(text.substring(pos, start)));
       }
 
       final raw = match.group(0)!;
@@ -172,7 +172,7 @@ class AstBuilder {
     }
 
     if (pos < text.length) {
-      nodes.add(text(text.substring(pos)));
+      nodes.add(AstBuilder.text(text.substring(pos)));
     }
 
     return nodes;
