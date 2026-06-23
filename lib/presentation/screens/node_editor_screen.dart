@@ -3,14 +3,18 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/routing/router.dart';
 import '../../core/utils/ast_builder.dart';
+import '../../data/models/breadcrumb_item.dart';
 import '../../data/models/node.dart';
 import '../../data/models/property.dart';
 import '../../data/repositories/comment_repository.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/block_tree_editor.dart';
 import '../widgets/comments_bottom_sheet.dart';
 import '../widgets/editor_inline_toolbar.dart';
 import '../widgets/find_in_page_sheet.dart';
@@ -21,11 +25,12 @@ import '../widgets/property_value_cell.dart';
 import '../widgets/shares_bottom_sheet.dart';
 import '../widgets/slash_command_palette.dart';
 
-/// Native page editor with lightweight Markdown-like block editing.
+/// Native page editor with a web-app-like bullet tree and breadcrumbs.
 ///
-/// Supports inline styles (bold, italic, etc.), node/class/tag links, slash
-/// commands, @ mentions, and find-in-page. System classes (code, asset, table,
-/// callouts) are rendered with distinct chrome but edited as plain text.
+/// Child blocks are rendered as a nested, collapsible bullet list (via
+/// [BlockTreeEditor]). The title sits above the tree, and breadcrumbs sit
+/// below the app bar. Inline styles, node/class/tag links, slash commands and
+/// @ mentions are supported.
 class NodeEditorScreen extends StatefulWidget {
   const NodeEditorScreen({super.key, required this.nodeId});
 
@@ -35,28 +40,23 @@ class NodeEditorScreen extends StatefulWidget {
   State<NodeEditorScreen> createState() => _NodeEditorScreenState();
 }
 
-class _BlockEditor {
-  _BlockEditor({required this.node, required this.controller});
-
-  final Node node;
-  final TextEditingController controller;
-}
-
 class _NodeEditorScreenState extends State<NodeEditorScreen> {
   final _titleController = TextEditingController();
   final _scrollController = ScrollController();
-  final List<_BlockEditor> _blocks = [];
+  final _blockTreeKey = GlobalKey<BlockTreeEditorState>();
+  final List<BlockNode> _roots = [];
   final _findState = ValueNotifier(FindState());
 
+  List<BreadcrumbItem> _breadcrumbs = [];
   List<NodePropertyValue> _properties = [];
   Map<int, String> _classNames = {};
   final Set<int> _deletedBlockIds = {};
   bool _loading = true;
   bool _saving = false;
   String? _error;
-  int? _focusedBlockIndex;
+  BlockNode? _focusedBlock;
   PersistentBottomSheetController? _findController;
-  List<int> _findMatches = [];
+  List<BlockNode> _findMatches = [];
   int _findMatchIndex = -1;
   int _commentCount = 0;
 
@@ -72,8 +72,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     _scrollController.dispose();
     _findController?.close();
     _findState.dispose();
-    for (final b in _blocks) {
-      b.controller.dispose();
+    for (final block in _allBlocks()) {
+      block.controller.dispose();
     }
     super.dispose();
   }
@@ -87,24 +87,16 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       final repo = NodeRepository(dio: auth.dio!);
       final pageContent = await repo.fetchPageContent(widget.nodeId);
       final page = pageContent.node;
-      final blocks = page.children.where((b) => !b.isPage).toList();
 
-      for (final b in _blocks) {
-        b.controller.dispose();
+      for (final block in _allBlocks()) {
+        block.controller.dispose();
       }
-      _blocks.clear();
-
-      for (final block in blocks) {
-        final ast = _tryParseAst(block.name);
-        final markdown = AstBuilder.toMarkdown(ast);
-        _blocks.add(_BlockEditor(
-          node: block,
-          controller: TextEditingController(text: markdown),
-        ));
-      }
+      _roots.clear();
+      _roots.addAll(_nodesToBlockTree(page.children.where((b) => !b.isPage).toList()));
 
       final properties = await repo.fetchNodeProperties(widget.nodeId);
       final classes = await repo.fetchClasses();
+      final breadcrumbs = await repo.fetchBreadcrumbs(widget.nodeId);
       final classNames = {
         for (final c in classes)
           if (c.id > 0) c.id: c.displayName.toLowerCase(),
@@ -114,8 +106,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         _titleController.text = page.displayName.isNotEmpty ? page.displayName : 'Untitled';
         _properties = properties;
         _classNames = classNames;
+        _breadcrumbs = breadcrumbs;
         _deletedBlockIds.clear();
         _error = null;
+        _focusedBlock = null;
       });
       if (mounted) {
         await _loadCommentCount();
@@ -153,6 +147,22 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     SharesBottomSheet.show(context, nodeId: widget.nodeId);
   }
 
+  List<BlockNode> _nodesToBlockTree(List<Node> nodes, {BlockNode? parent}) {
+    final sorted = List<Node>.from(nodes)..sort((a, b) => a.sequence.compareTo(b.sequence));
+    return sorted.map((node) {
+      final ast = _tryParseAst(node.name);
+      final markdown = AstBuilder.toMarkdown(ast);
+      final block = BlockNode(
+        node: node,
+        controller: TextEditingController(text: markdown),
+        parent: parent,
+        collapsed: false,
+      );
+      block.children.addAll(_nodesToBlockTree(node.children, parent: block));
+      return block;
+    }).toList();
+  }
+
   List<Map<String, dynamic>> _tryParseAst(String name) {
     try {
       final parsed = jsonDecode(name);
@@ -176,35 +186,21 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       final titleAst = AstBuilder.serialize(AstBuilder.parseInline(title));
       await repo.updateNode(widget.nodeId, name: titleAst);
 
+      // Ensure every focused block's AST is synced before serializing.
+      _syncAllBlockNames();
+
       final updates = <Map<String, dynamic>>[];
       final creates = <Map<String, dynamic>>[];
 
-      for (var i = 0; i < _blocks.length; i++) {
-        final editor = _blocks[i];
-        final text = editor.controller.text;
-        final ast = AstBuilder.parseInline(text);
-        final astJson = AstBuilder.serialize(ast);
-
-        if (editor.node.id > 0) {
-          updates.add({
-            'id': editor.node.id,
-            'name': astJson,
-            'sequence': i.toDouble(),
-          });
-        } else {
-          creates.add({
-            'parent_id': widget.nodeId,
-            'name': astJson,
-            'sequence': i.toDouble(),
-          });
-        }
-      }
+      _assignSequences(_roots, 0);
+      _collectWrites(_roots, updates, creates);
 
       if (updates.isNotEmpty) {
         await repo.batchUpdateNodes(updates);
       }
       if (creates.isNotEmpty) {
-        await repo.batchCreateNodes(creates);
+        final created = await repo.batchCreateNodes(creates);
+        _assignCreatedIds(_roots, created);
       }
       for (final id in _deletedBlockIds) {
         await repo.deleteNode(id);
@@ -224,30 +220,288 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     }
   }
 
+  void _syncAllBlockNames() {
+    for (final block in _allBlocks()) {
+      final ast = AstBuilder.parseInline(block.controller.text);
+      block.node = _copyNodeWithName(block.node, AstBuilder.serialize(ast));
+    }
+  }
+
+  double _assignSequences(List<BlockNode> nodes, double start) {
+    var sequence = start;
+    for (final node in nodes) {
+      node.node = _copyNodeWithSequence(node.node, sequence);
+      sequence += 1.0;
+      if (node.children.isNotEmpty) {
+        sequence = _assignSequences(node.children, sequence);
+      }
+    }
+    return sequence;
+  }
+
+  void _collectWrites(
+    List<BlockNode> nodes,
+    List<Map<String, dynamic>> updates,
+    List<Map<String, dynamic>> creates,
+  ) {
+    for (final block in nodes) {
+      final parentId = block.parent?.id ?? widget.nodeId;
+      final astJson = block.node.name;
+      if (block.id > 0) {
+        updates.add({
+          'id': block.id,
+          'name': astJson,
+          'sequence': block.node.sequence,
+          'parent_id': parentId,
+          'collapsed': block.collapsed,
+        });
+      } else {
+        creates.add({
+          'parent_id': parentId,
+          'name': astJson,
+          'sequence': block.node.sequence,
+        });
+      }
+      _collectWrites(block.children, updates, creates);
+    }
+  }
+
+  void _assignCreatedIds(List<BlockNode> nodes, List<Node> created) {
+    var index = 0;
+    void visit(List<BlockNode> list) {
+      for (final node in list) {
+        if (node.id == 0 && index < created.length) {
+          node.node = _copyNodeWithId(node.node, created[index].id, created[index].uuid);
+          index++;
+        }
+        visit(node.children);
+      }
+    }
+    visit(nodes);
+  }
+
+  Node _copyNodeWithId(Node node, int id, String uuid) {
+    return Node(
+      id: id,
+      uuid: uuid,
+      name: node.name,
+      displayName: node.displayName,
+      icon: node.icon,
+      color: node.color,
+      parentId: node.parentId,
+      pageId: node.pageId,
+      sequence: node.sequence,
+      isPage: node.isPage,
+      isTask: node.isTask,
+      isDaily: node.isDaily,
+      isMonthly: node.isMonthly,
+      isYearly: node.isYearly,
+      isTable: node.isTable,
+      isAsset: node.isAsset,
+      isComment: node.isComment,
+      classes: node.classes,
+      tags: node.tags,
+      properties: node.properties,
+      children: node.children,
+      createDate: node.createDate,
+      writeDate: node.writeDate,
+    );
+  }
+
+  Node _copyNodeWithName(Node node, String name) {
+    return Node(
+      id: node.id,
+      uuid: node.uuid,
+      name: name,
+      displayName: node.displayName,
+      icon: node.icon,
+      color: node.color,
+      parentId: node.parentId,
+      pageId: node.pageId,
+      sequence: node.sequence,
+      isPage: node.isPage,
+      isTask: node.isTask,
+      isDaily: node.isDaily,
+      isMonthly: node.isMonthly,
+      isYearly: node.isYearly,
+      isTable: node.isTable,
+      isAsset: node.isAsset,
+      isComment: node.isComment,
+      classes: node.classes,
+      tags: node.tags,
+      properties: node.properties,
+      children: node.children,
+      createDate: node.createDate,
+      writeDate: node.writeDate,
+    );
+  }
+
+  Node _copyNodeWithSequence(Node node, double sequence) {
+    return Node(
+      id: node.id,
+      uuid: node.uuid,
+      name: node.name,
+      displayName: node.displayName,
+      icon: node.icon,
+      color: node.color,
+      parentId: node.parentId,
+      pageId: node.pageId,
+      sequence: sequence,
+      isPage: node.isPage,
+      isTask: node.isTask,
+      isDaily: node.isDaily,
+      isMonthly: node.isMonthly,
+      isYearly: node.isYearly,
+      isTable: node.isTable,
+      isAsset: node.isAsset,
+      isComment: node.isComment,
+      classes: node.classes,
+      tags: node.tags,
+      properties: node.properties,
+      children: node.children,
+      createDate: node.createDate,
+      writeDate: node.writeDate,
+    );
+  }
+
   void _addBlock() {
     HapticFeedback.lightImpact();
+    final newBlock = BlockNode(
+      node: Node(id: 0, uuid: '', name: '', displayName: ''),
+      controller: TextEditingController(),
+      parent: null,
+      isNew: true,
+    );
     setState(() {
-      _blocks.add(_BlockEditor(
-        node: Node(
-          id: 0,
-          uuid: '',
-          name: '',
-          displayName: '',
-        ),
-        controller: TextEditingController(),
-      ));
+      _roots.add(newBlock);
+      _focusedBlock = newBlock;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _blockTreeKey.currentState?.requestFocusFor(newBlock);
     });
   }
 
-  void _deleteBlock(int index) {
+  void _onAddChild(BlockNode parent) {
+    if (parent.id == 0) return;
+    HapticFeedback.lightImpact();
+    final newBlock = BlockNode(
+      node: Node(id: 0, uuid: '', name: '', displayName: ''),
+      controller: TextEditingController(),
+      parent: parent,
+      isNew: true,
+    );
+    setState(() {
+      parent.collapsed = false;
+      parent.children.add(newBlock);
+      _focusedBlock = newBlock;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _blockTreeKey.currentState?.requestFocusFor(newBlock);
+    });
+  }
+
+  void _onDelete(BlockNode block) {
     HapticFeedback.lightImpact();
     setState(() {
-      final editor = _blocks.removeAt(index);
-      if (editor.node.id > 0) {
-        _deletedBlockIds.add(editor.node.id);
+      if (block.id > 0) {
+        _deletedBlockIds.add(block.id);
       }
-      editor.controller.dispose();
+      _removeBlockFromTree(block);
+      if (_focusedBlock == block) {
+        _focusedBlock = null;
+      }
+      block.controller.dispose();
     });
+  }
+
+  void _removeBlockFromTree(BlockNode block) {
+    if (block.parent == null) {
+      _roots.remove(block);
+    } else {
+      block.parent!.children.remove(block);
+    }
+  }
+
+  void _onIndent(BlockNode block) {
+    HapticFeedback.lightImpact();
+    final siblings = block.parent?.children ?? _roots;
+    final index = siblings.indexOf(block);
+    if (index <= 0) return;
+
+    final newParent = siblings[index - 1];
+    setState(() {
+      siblings.removeAt(index);
+      block.parent = newParent;
+      newParent.children.add(block);
+      newParent.collapsed = false;
+    });
+  }
+
+  void _onOutdent(BlockNode block) {
+    HapticFeedback.lightImpact();
+    final parent = block.parent;
+    if (parent == null) return;
+
+    final grandparent = parent.parent;
+    final siblings = grandparent?.children ?? _roots;
+    final parentIndex = siblings.indexOf(parent);
+    if (parentIndex < 0) return;
+
+    setState(() {
+      parent.children.remove(block);
+      block.parent = grandparent;
+      siblings.insert(parentIndex + 1, block);
+    });
+  }
+
+  void _onMove(BlockNode moved, BlockNode target, DropPosition position) {
+    HapticFeedback.lightImpact();
+    setState(() {
+      _removeBlockFromTree(moved);
+      switch (position) {
+        case DropPosition.before:
+          moved.parent = target.parent;
+          final siblings = target.parent?.children ?? _roots;
+          siblings.insert(siblings.indexOf(target), moved);
+        case DropPosition.after:
+          moved.parent = target.parent;
+          final siblings = target.parent?.children ?? _roots;
+          siblings.insert(siblings.indexOf(target) + 1, moved);
+        case DropPosition.child:
+          moved.parent = target;
+          target.children.add(moved);
+          target.collapsed = false;
+      }
+    });
+  }
+
+  void _onToggleCollapse(BlockNode block) {
+    HapticFeedback.lightImpact();
+    setState(() => block.collapsed = !block.collapsed);
+  }
+
+  void _onFocus(BlockNode? block) {
+    setState(() => _focusedBlock = block);
+  }
+
+  void _onNodeLinkTap(String target) {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+    final repo = NodeRepository(dio: auth.dio!);
+    if (_looksLikeUuid(target)) {
+      repo.fetchNodeByUuid(target).then((node) {
+        if (mounted) context.push('${Routes.editor}/${node.id}');
+      }).catchError((_) {});
+    } else {
+      final id = int.tryParse(target);
+      if (id != null && mounted) {
+        context.push('${Routes.editor}/$id');
+      }
+    }
+  }
+
+  bool _looksLikeUuid(String value) {
+    return RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(value);
   }
 
   Future<void> _onToolbarAction(EditorAction action) async {
@@ -262,14 +516,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         break;
     }
 
-    final index = _focusedBlockIndex;
-    if (index == null || index >= _blocks.length) return;
+    final block = _focusedBlock;
+    if (block == null) return;
 
-    await _applyEditorAction(_blocks[index], action);
+    await _applyEditorAction(block, action);
   }
 
-  Future<void> _applyEditorAction(_BlockEditor editor, EditorAction action) async {
-    final controller = editor.controller;
+  Future<void> _applyEditorAction(BlockNode block, EditorAction action) async {
+    final controller = block.controller;
     final text = controller.text;
     final selection = controller.selection;
 
@@ -311,7 +565,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       case EditorAction.image:
       case EditorAction.property:
       case EditorAction.template:
-        await _insertNodeLink(editor, action);
+        await _insertNodeLink(block, action);
       case EditorAction.task:
         final cursor = selection.isValid ? selection.start : 0;
         const replacement = '- [ ] ';
@@ -329,7 +583,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       case EditorAction.slash:
       case EditorAction.mention:
       case EditorAction.audio:
-        // Handled before this method is called.
         return;
     }
   }
@@ -357,7 +610,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       ..selection = TextSelection.collapsed(offset: newOffset.clamp(0, newText.length));
   }
 
-  Future<void> _insertNodeLink(_BlockEditor editor, EditorAction action) async {
+  Future<void> _insertNodeLink(BlockNode block, EditorAction action) async {
     final mode = action == EditorAction.classLink
         ? NodePickerMode.classNode
         : action == EditorAction.tagLink
@@ -367,7 +620,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     final node = await NodePicker.show(context, mode: mode);
     if (node == null) return;
 
-    final controller = editor.controller;
+    final controller = block.controller;
     final text = controller.text;
     final selection = controller.selection;
     final open = action == EditorAction.classLink ? '{{' : '[[';
@@ -380,16 +633,15 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       ..selection = TextSelection.collapsed(offset: newOffset);
   }
 
-  Future<void> _onSlashTriggered([int? triggeredIndex]) async {
-    final index = triggeredIndex ?? _focusedBlockIndex;
-    if (index == null || index >= _blocks.length) return;
+  Future<void> _onSlashTriggered([BlockNode? triggeredBlock]) async {
+    final block = triggeredBlock ?? _focusedBlock;
+    if (block == null) return;
 
-    setState(() => _focusedBlockIndex = index);
+    setState(() => _focusedBlock = block);
     final action = await SlashCommandPalette.show(context);
     if (!mounted || action == null) return;
 
-    final editor = _blocks[index];
-    final controller = editor.controller;
+    final controller = block.controller;
     final text = controller.text;
     final selection = controller.selection;
     final cursor = selection.isValid ? selection.start : 0;
@@ -400,19 +652,18 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         ..selection = TextSelection.collapsed(offset: (cursor - 1).clamp(0, newText.length));
     }
 
-    await _applyEditorAction(editor, action);
+    await _applyEditorAction(block, action);
   }
 
-  Future<void> _onMentionTriggered([int? triggeredIndex]) async {
-    final index = triggeredIndex ?? _focusedBlockIndex;
-    if (index == null || index >= _blocks.length) return;
+  Future<void> _onMentionTriggered([BlockNode? triggeredBlock]) async {
+    final block = triggeredBlock ?? _focusedBlock;
+    if (block == null) return;
 
-    setState(() => _focusedBlockIndex = index);
+    setState(() => _focusedBlock = block);
     final result = await MentionPicker.show(context);
     if (!mounted || result == null) return;
 
-    final editor = _blocks[index];
-    final controller = editor.controller;
+    final controller = block.controller;
     final text = controller.text;
     final selection = controller.selection;
     final cursor = selection.isValid ? selection.start : 0;
@@ -448,14 +699,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
   void _updateFindQuery(String query) {
     final lower = query.toLowerCase();
+    final all = _allBlocks();
     final matches = lower.isEmpty
-        ? <int>[]
-        : _blocks
-            .asMap()
-            .entries
-            .where((e) => e.value.controller.text.toLowerCase().contains(lower))
-            .map((e) => e.key)
-            .toList();
+        ? <BlockNode>[]
+        : all.where((b) => b.controller.text.toLowerCase().contains(lower)).toList();
     _findMatchIndex = matches.isEmpty ? -1 : 0;
     _findMatches = matches;
     _findState.value = FindState(query: query, matchCount: matches.length, currentIndex: _findMatchIndex);
@@ -481,13 +728,26 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
   void _jumpToCurrentMatch() {
     if (_findMatchIndex < 0 || _findMatchIndex >= _findMatches.length) return;
+    final block = _findMatches[_findMatchIndex];
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollController.animateTo(
-        _scrollController.offset,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeInOut,
-      );
+      _blockTreeKey.currentState?.scrollToBlock(block);
     });
+  }
+
+  List<BlockNode> _allBlocks() {
+    final result = <BlockNode>[];
+    void visit(List<BlockNode> nodes) {
+      for (final node in nodes) {
+        result.add(node);
+        visit(node.children);
+      }
+    }
+    visit(_roots);
+    return result;
+  }
+
+  void _openBreadcrumbNode(BreadcrumbItem item) {
+    context.push('${Routes.editor}/${item.id}');
   }
 
   @override
@@ -553,6 +813,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
+                _buildBreadcrumbs(),
                 Expanded(
                   child: RefreshIndicator(
                     onRefresh: _loadPage,
@@ -575,26 +836,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                           ),
                         _buildTitleField(),
                         const SizedBox(height: 20),
-                        ..._blocks.asMap().entries.map((entry) {
-                          final index = entry.key;
-                          final editor = entry.value;
-                          final isMatch = _findState.value.query.isNotEmpty &&
-                              editor.controller.text.toLowerCase().contains(_findState.value.query.toLowerCase());
-                          final isCurrent = isMatch && _findMatches.isNotEmpty && _findMatches[_findMatchIndex] == index;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: _BlockEditorTile(
-                              editor: editor,
-                              classNames: _classNames,
-                              isFindMatch: isMatch,
-                              isCurrentFindMatch: isCurrent,
-                              onFocus: () => setState(() => _focusedBlockIndex = index),
-                              onDelete: () => _deleteBlock(index),
-                              onSlashTrigger: () => _onSlashTriggered(index),
-                              onMentionTrigger: () => _onMentionTriggered(index),
-                            ),
-                          );
-                        }),
+                        _buildBlockTree(colors),
                         TextButton.icon(
                           onPressed: _addBlock,
                           icon: const Icon(Icons.add),
@@ -602,15 +844,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                         ),
                         const SizedBox(height: 20),
                         _buildPropertiesSection(colors),
-                        const SizedBox(height: 24),
-                        Center(
-                          child: Text(
-                            'Native editor — use **bold**, *italic*, [[uuid|name]] links, / for commands, @ to mention.',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: colors.onSurfaceVariant,
-                                ),
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -620,6 +853,72 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
               ],
             ),
     );
+  }
+
+  Widget _buildBreadcrumbs() {
+    if (_breadcrumbs.isEmpty) return const SizedBox.shrink();
+
+    final colors = Theme.of(context).colorScheme;
+    final items = <Widget>[];
+
+    for (var i = 0; i < _breadcrumbs.length; i++) {
+      final item = _breadcrumbs[i];
+      final isLast = i == _breadcrumbs.length - 1;
+      final label = item.displayName.isNotEmpty ? item.displayName : 'Untitled';
+
+      Widget chip = Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: isLast ? null : () => _openBreadcrumbNode(item),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (item.icon?.isNotEmpty == true) ...[
+                  Icon(_iconForName(item.icon!), size: 16, color: colors.onSurfaceVariant),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: isLast ? colors.onSurface : colors.onSurfaceVariant,
+                        fontWeight: isLast ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      items.add(chip);
+      if (!isLast) {
+        items.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Icon(Icons.chevron_right, size: 16, color: colors.outline),
+          ),
+        );
+      }
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: colors.outlineVariant)),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: items),
+      ),
+    );
+  }
+
+  IconData _iconForName(String name) {
+    return Icons.description_outlined;
   }
 
   Widget _buildTitleField() {
@@ -636,6 +935,33 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             border: InputBorder.none,
             contentPadding: EdgeInsets.symmetric(vertical: 16),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBlockTree(ColorScheme colors) {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return const SizedBox.shrink();
+
+    return FleetCard(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: BlockTreeEditor(
+          key: _blockTreeKey,
+          roots: _roots,
+          classNames: _classNames,
+          dio: auth.dio!,
+          focusedNode: _focusedBlock,
+          onFocus: _onFocus,
+          onDelete: _onDelete,
+          onMove: _onMove,
+          onAddSibling: _addBlock,
+          onAddChild: _onAddChild,
+          onIndent: _onIndent,
+          onOutdent: _onOutdent,
+          onToggleCollapse: _onToggleCollapse,
+          onNodeLinkTap: _onNodeLinkTap,
         ),
       ),
     );
@@ -670,155 +996,5 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         ),
       ),
     );
-  }
-}
-
-class _BlockEditorTile extends StatelessWidget {
-  // ignore: prefer_const_constructors_in_immutables
-  _BlockEditorTile({
-    required this.editor,
-    required this.classNames,
-    required this.onFocus,
-    required this.onDelete,
-    this.isFindMatch = false,
-    this.isCurrentFindMatch = false,
-    this.onSlashTrigger,
-    this.onMentionTrigger,
-  });
-
-  final _BlockEditor editor;
-  final Map<int, String> classNames;
-  final VoidCallback onFocus;
-  final VoidCallback onDelete;
-  final bool isFindMatch;
-  final bool isCurrentFindMatch;
-  final VoidCallback? onSlashTrigger;
-  final VoidCallback? onMentionTrigger;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final isCode = editor.node.isTable || _hasSystemClass(editor.node, 'code');
-    final calloutColor = _calloutColor(editor.node, colors);
-
-    Widget field = TextField(
-      controller: editor.controller,
-      maxLines: null,
-      minLines: 1,
-      keyboardType: TextInputType.multiline,
-      textInputAction: TextInputAction.newline,
-      style: isCode
-          ? TextStyle(
-              fontFamily: 'monospace',
-              fontFamilyFallback: const ['monospace'],
-              color: colors.onSurface,
-            )
-          : null,
-      decoration: InputDecoration(
-        hintText: _hintForBlock(editor.node),
-        border: InputBorder.none,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      ),
-      onTap: onFocus,
-      onChanged: _onChanged,
-    );
-
-    if (calloutColor != null) {
-      field = Container(
-        decoration: BoxDecoration(
-          border: Border(left: BorderSide(color: calloutColor, width: 4)),
-          color: calloutColor.withAlpha((0.08 * 255).round()),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: field,
-      );
-    }
-
-    Widget card = FleetCard(
-      child: Row(
-        children: [
-          Expanded(child: field),
-          IconButton(
-            icon: const Icon(Icons.more_vert),
-            onPressed: () {
-              showModalBottomSheet(
-                context: context,
-                builder: (ctx) => SafeArea(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ListTile(
-                        leading: const Icon(Icons.delete_outline),
-                        title: const Text('Delete block'),
-                        onTap: () {
-                          Navigator.of(ctx).pop();
-                          onDelete();
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-
-    if (isFindMatch) {
-      card = Container(
-        decoration: BoxDecoration(
-          color: isCurrentFindMatch
-              ? colors.primaryContainer.withAlpha((0.45 * 255).round())
-              : colors.tertiaryContainer.withAlpha((0.35 * 255).round()),
-          borderRadius: BorderRadius.circular(12),
-          border: isCurrentFindMatch ? Border.all(color: colors.primary, width: 1.5) : null,
-        ),
-        child: card,
-      );
-    }
-
-    return card;
-  }
-
-  void _onChanged(String value) {
-    final controller = editor.controller;
-    final selection = controller.selection;
-    if (!selection.isValid || !selection.isCollapsed) return;
-    final cursor = selection.baseOffset.clamp(0, value.length);
-    if (cursor == 1 && value == '/') {
-      onSlashTrigger?.call();
-      return;
-    }
-    if (cursor > 0 && value.substring(cursor - 1, cursor) == '@') {
-      if (cursor == 1 || RegExp(r'\s').hasMatch(value[cursor - 2])) {
-        onMentionTrigger?.call();
-      }
-    }
-  }
-
-  String _hintForBlock(Node node) {
-    if (node.isTable) return 'Table block';
-    if (node.isAsset) return 'Asset block';
-    if (_hasSystemClass(node, 'code')) return 'Code block';
-    return 'Start writing...';
-  }
-
-  Color? _calloutColor(Node node, ColorScheme colors) {
-    if (_hasSystemClass(node, 'warning')) return Colors.orange;
-    if (_hasSystemClass(node, 'danger')) return colors.error;
-    if (_hasSystemClass(node, 'success')) return Colors.green;
-    if (_hasSystemClass(node, 'info')) return Colors.blue;
-    if (_hasSystemClass(node, 'tip')) return Colors.teal;
-    if (_hasSystemClass(node, 'quote')) return colors.outline;
-    return null;
-  }
-
-  bool _hasSystemClass(Node node, String name) {
-    final needle = name.toLowerCase();
-    for (final classId in node.classes) {
-      if (classNames[classId] == needle) return true;
-    }
-    return false;
   }
 }

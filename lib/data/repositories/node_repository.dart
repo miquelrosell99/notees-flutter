@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../../domain/models/search_filters.dart';
+import '../models/breadcrumb_item.dart';
 import '../models/node.dart';
 import '../models/page_content.dart';
 import '../models/property.dart';
@@ -88,6 +89,14 @@ class NodeRepository {
   Future<Node> fetchNodeByUuid(String uuid) async {
     final response = await dio.get<Map<String, dynamic>>('/nodes/uuid/$uuid');
     return Node.fromJson(response.data!);
+  }
+
+  Future<List<BreadcrumbItem>> fetchBreadcrumbs(int id) async {
+    final response = await dio.get<Map<String, dynamic>>('/nodes/$id/breadcrumbs');
+    final data = response.data;
+    if (data == null) return [];
+    final items = data['breadcrumbs'] as List<dynamic>? ?? [];
+    return items.map((e) => BreadcrumbItem.fromJson(e as Map<String, dynamic>)).toList();
   }
 
   Future<PageContent> fetchPageContent(int id) async {

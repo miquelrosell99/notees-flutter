@@ -31,6 +31,7 @@ abstract class Routes {
   static const editor = '/editor';
   static const trash = '/trash';
   static const journal = '/journal';
+  static const journals = '/journals';
   static const notifications = '/notifications';
   static const pages = '/pages';
   static const tasks = '/tasks';
@@ -129,12 +130,16 @@ GoRouter createRouter({required AuthProvider authProvider}) {
         builder: (context, state) => const _JournalRedirect(),
       ),
       GoRoute(
+        path: Routes.journals,
+        builder: (context, state) => const MainShellScreen(initialIndex: 1),
+      ),
+      GoRoute(
         path: Routes.pages,
-        builder: (context, state) => const MainShellScreen(initialIndex: 2),
+        builder: (context, state) => const MainShellScreen(initialIndex: 3),
       ),
       GoRoute(
         path: Routes.tasks,
-        builder: (context, state) => const MainShellScreen(initialIndex: 1),
+        builder: (context, state) => const MainShellScreen(initialIndex: 2),
       ),
       GoRoute(
         path: Routes.graph,

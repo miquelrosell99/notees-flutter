@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/utils/ast_builder.dart';
 import '../../data/models/node.dart';
 import 'asset_block_widget.dart';
+import 'ast_rich_text.dart';
 
 /// A single editable block in the outliner tree.
 class BlockNode {
@@ -56,6 +58,8 @@ class BlockTreeEditor extends StatefulWidget {
     required this.onToggleCollapse,
     this.onInsertImage,
     this.onInsertAudio,
+    this.onNodeLinkTap,
+    this.onExternalLinkTap,
   });
 
   final List<BlockNode> roots;
@@ -72,6 +76,8 @@ class BlockTreeEditor extends StatefulWidget {
   final ValueChanged<BlockNode> onToggleCollapse;
   final VoidCallback? onInsertImage;
   final VoidCallback? onInsertAudio;
+  final ValueChanged<String>? onNodeLinkTap;
+  final ValueChanged<String>? onExternalLinkTap;
 
   @override
   BlockTreeEditorState createState() => BlockTreeEditorState();
@@ -149,7 +155,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
           filename: node.controller.text.isNotEmpty ? node.controller.text : null,
         ),
       );
-    } else {
+    } else if (isFocused) {
       field = TextField(
         controller: node.controller,
         focusNode: _focusFor(node),
@@ -189,6 +195,25 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
           child: field,
         );
       }
+    } else {
+      field = GestureDetector(
+        onTap: () => widget.onFocus(node),
+        behavior: HitTestBehavior.translucent,
+        child: AstRichText(
+          source: node.node.name,
+          onNodeLinkTap: widget.onNodeLinkTap,
+          onExternalLinkTap: widget.onExternalLinkTap,
+          style: _isCode(node)
+              ? TextStyle(
+                  fontFamily: 'monospace',
+                  fontFamilyFallback: const ['monospace'],
+                  color: colors.onSurface,
+                )
+              : null,
+          maxLines: 100,
+          overflow: TextOverflow.ellipsis,
+        ),
+      );
     }
 
     Widget content = Row(
@@ -217,11 +242,12 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
             tooltip: 'Outdent',
             onPressed: () => widget.onOutdent(node),
           ),
-          _BlockToolbarButton(
-            icon: Icons.add,
-            tooltip: 'Add child',
-            onPressed: () => widget.onAddChild(node),
-          ),
+          if (node.id > 0)
+            _BlockToolbarButton(
+              icon: Icons.add,
+              tooltip: 'Add child',
+              onPressed: () => widget.onAddChild(node),
+            ),
           _BlockToolbarButton(
             icon: Icons.more_vert,
             tooltip: 'Block options',
@@ -315,10 +341,43 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       focusNode.addListener(() {
         if (focusNode.hasFocus) {
           widget.onFocus(node);
+        } else {
+          // Sync the canonical AST with the edited Markdown text so the
+          // read-only rich-text view shows the latest content.
+          final ast = AstBuilder.parseInline(node.controller.text);
+          node.node = _copyNodeWithName(node.node, AstBuilder.serialize(ast));
         }
       });
       return focusNode;
     });
+  }
+
+  Node _copyNodeWithName(Node node, String name) {
+    return Node(
+      id: node.id,
+      uuid: node.uuid,
+      name: name,
+      displayName: node.displayName,
+      icon: node.icon,
+      color: node.color,
+      parentId: node.parentId,
+      pageId: node.pageId,
+      sequence: node.sequence,
+      isPage: node.isPage,
+      isTask: node.isTask,
+      isDaily: node.isDaily,
+      isMonthly: node.isMonthly,
+      isYearly: node.isYearly,
+      isTable: node.isTable,
+      isAsset: node.isAsset,
+      isComment: node.isComment,
+      classes: node.classes,
+      tags: node.tags,
+      properties: node.properties,
+      children: node.children,
+      createDate: node.createDate,
+      writeDate: node.writeDate,
+    );
   }
 
   bool _isDescendant(BlockNode ancestor, BlockNode candidate) {
@@ -364,14 +423,15 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.add),
-              title: const Text('Add child'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                widget.onAddChild(node);
-              },
-            ),
+            if (node.id > 0)
+              ListTile(
+                leading: const Icon(Icons.add),
+                title: const Text('Add child'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  widget.onAddChild(node);
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.format_indent_increase),
               title: const Text('Indent'),

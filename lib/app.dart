@@ -224,6 +224,8 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
             router.push('${Routes.editor}/${journal.id}');
           }
         } catch (_) {}
+      case 'journals':
+        router.push(Routes.journals);
       case 'pages':
         router.push(Routes.pages);
       case 'tasks':

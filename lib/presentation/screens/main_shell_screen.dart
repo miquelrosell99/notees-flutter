@@ -8,6 +8,7 @@ import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/command_palette.dart';
 import 'dashboard_screen.dart';
+import 'journal_screen.dart';
 import 'pages_screen.dart';
 import 'search_screen.dart';
 import 'tasks_screen.dart';
@@ -35,6 +36,11 @@ class _MainShellScreenState extends State<MainShellScreen> {
       label: 'Home',
       icon: Icons.home_outlined,
       selectedIcon: Icons.home,
+    ),
+    _NavDestination(
+      label: 'Journal',
+      icon: Icons.calendar_today_outlined,
+      selectedIcon: Icons.calendar_today,
     ),
     _NavDestination(
       label: 'Tasks',
@@ -90,12 +96,14 @@ class _MainShellScreenState extends State<MainShellScreen> {
     switch (result) {
       case StaticCommand(action: CommandPaletteAction.dashboard):
         setState(() => _currentIndex = 0);
-      case StaticCommand(action: CommandPaletteAction.tasks):
+      case StaticCommand(action: CommandPaletteAction.journal):
         setState(() => _currentIndex = 1);
-      case StaticCommand(action: CommandPaletteAction.pages):
+      case StaticCommand(action: CommandPaletteAction.tasks):
         setState(() => _currentIndex = 2);
-      case StaticCommand(action: CommandPaletteAction.search):
+      case StaticCommand(action: CommandPaletteAction.pages):
         setState(() => _currentIndex = 3);
+      case StaticCommand(action: CommandPaletteAction.search):
+        setState(() => _currentIndex = 4);
       case StaticCommand(action: CommandPaletteAction.journalToday):
         context.push(Routes.journal);
       case StaticCommand(action: CommandPaletteAction.settings):
@@ -134,10 +142,12 @@ class _MainShellScreenState extends State<MainShellScreen> {
       case 0:
         return const DashboardScreen();
       case 1:
-        return const TasksScreen();
+        return const JournalScreen();
       case 2:
-        return const PagesScreen();
+        return const TasksScreen();
       case 3:
+        return const PagesScreen();
+      case 4:
         return const SearchScreen();
       default:
         return const DashboardScreen();
