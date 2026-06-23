@@ -41,21 +41,35 @@ class _WebviewEditorScreenState extends State<WebviewEditorScreen> {
     final serverUrl = auth.activeServer?.url ?? '';
     final path = _buildPath();
 
-    // Copy the access token into the WebView cookie jar so the web app is
-    // authenticated the same way the native API client is.
-    final token = await auth.secureStorage.readAccessToken();
-    if (token != null && token.isNotEmpty) {
-      final uri = Uri.tryParse(serverUrl);
-      if (uri != null && uri.host.isNotEmpty) {
-        final cookieManager = WebViewCookieManager();
+    // Copy the auth cookies into the WebView cookie jar so the web app is
+    // authenticated the same way the native API client is. Both tokens are
+    // required: the web app relies on the HTTPOnly access_token cookie for API
+    // calls and falls back to /api/auth/refresh when it expires.
+    final uri = Uri.tryParse(serverUrl);
+    if (uri != null && uri.host.isNotEmpty) {
+      final cookieManager = WebViewCookieManager();
+      final isSecure = uri.scheme == 'https';
+
+      Future<void> setAuthCookie(String name, String value, String path) async {
         await cookieManager.setCookie(
           WebViewCookie(
-            name: 'access_token',
-            value: token,
+            name: name,
+            value: value,
             domain: uri.host,
-            path: '/api',
+            path: path,
+            isSecure: isSecure,
           ),
         );
+      }
+
+      final accessToken = await auth.secureStorage.readAccessToken();
+      if (accessToken != null && accessToken.isNotEmpty) {
+        await setAuthCookie('access_token', accessToken, '/api');
+      }
+
+      final refreshToken = await auth.secureStorage.readRefreshToken();
+      if (refreshToken != null && refreshToken.isNotEmpty) {
+        await setAuthCookie('refresh_token', refreshToken, '/api/auth/refresh');
       }
     }
 
