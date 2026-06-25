@@ -10,7 +10,7 @@ class NodeListView extends StatelessWidget {
     required this.onNodeTap,
     this.footer,
     this.shrinkWrap = false,
-    this.favoriteIds,
+    this.favoriteUuids,
     this.onFavoriteToggle,
   });
 
@@ -18,7 +18,7 @@ class NodeListView extends StatelessWidget {
   final ValueChanged<Node> onNodeTap;
   final Widget? footer;
   final bool shrinkWrap;
-  final Set<int>? favoriteIds;
+  final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
 
   @override
@@ -35,7 +35,7 @@ class NodeListView extends StatelessWidget {
           return footer!;
         }
         final node = nodes[index];
-        final isFavorite = favoriteIds?.contains(node.id) ?? false;
+        final isFavorite = favoriteUuids?.contains(node.uuid) ?? false;
         return ListTile(
           leading: Icon(
             _iconForNode(node),

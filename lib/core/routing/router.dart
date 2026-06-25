@@ -119,10 +119,10 @@ GoRouter createRouter({required AuthProvider authProvider}) {
         builder: (context, state) => const TrashScreen(),
       ),
       GoRoute(
-        path: '${Routes.editor}/:nodeId',
+        path: '${Routes.editor}/:nodeUuid',
         builder: (context, state) {
-          final nodeId = int.tryParse(state.pathParameters['nodeId'] ?? '');
-          return NodeEditorScreen(nodeId: nodeId ?? 0);
+          final nodeUuid = state.pathParameters['nodeUuid'] ?? '';
+          return NodeEditorScreen(nodeUuid: nodeUuid);
         },
       ),
       GoRoute(
@@ -244,7 +244,7 @@ class _JournalRedirectState extends State<_JournalRedirect> {
     try {
       final journal = await NodeRepository(dio: auth.dio!).getOrCreateDailyJournal(DateTime.now());
       if (mounted) {
-        context.go('${Routes.editor}/${journal.id}');
+        context.go('${Routes.editor}/${journal.uuid}');
       }
     } catch (_) {
       if (mounted) {

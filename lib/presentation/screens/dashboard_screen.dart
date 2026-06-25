@@ -25,7 +25,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Node> _favorites = [];
   List<Node> _recents = [];
   Node? _todayJournal;
-  Set<int> _favoriteIds = {};
+  Set<String> _favoriteUuids = {};
   bool _loading = true;
   String? _error;
 
@@ -46,13 +46,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         repo.fetchFavorites(limit: 50),
         repo.fetchRecentPages(limit: 5),
         repo.getOrCreateDailyJournal(DateTime.now()),
-        repo.fetchFavoriteIds(),
+        repo.fetchFavoriteUuids(),
       ]);
       setState(() {
         _favorites = results[0] as List<Node>;
         _recents = results[1] as List<Node>;
         _todayJournal = results[2] as Node;
-        _favoriteIds = (results[3] as List<int>).toSet();
+        _favoriteUuids = (results[3] as List<String>).toSet();
         _error = null;
       });
     } catch (e) {
@@ -70,7 +70,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _openNode(Node node) {
     HapticFeedback.lightImpact();
-    context.push('${Routes.editor}/${node.id}');
+    context.push('${Routes.editor}/${node.uuid}');
   }
 
   Future<void> _toggleFavorite(Node node) async {
@@ -78,31 +78,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
 
-    final isFavorite = _favoriteIds.contains(node.id);
+    final isFavorite = _favoriteUuids.contains(node.uuid);
     setState(() {
       if (isFavorite) {
-        _favoriteIds.remove(node.id);
-        _favorites.removeWhere((n) => n.id == node.id);
+        _favoriteUuids.remove(node.uuid);
+        _favorites.removeWhere((n) => n.uuid == node.uuid);
       } else {
-        _favoriteIds.add(node.id);
+        _favoriteUuids.add(node.uuid);
       }
     });
 
     try {
       final repo = NodeRepository(dio: auth.dio!);
       if (isFavorite) {
-        await repo.removeFavorite(node.id);
+        await repo.removeFavorite(node.uuid);
       } else {
-        await repo.addFavorite(node.id);
+        await repo.addFavorite(node.uuid);
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           if (isFavorite) {
-            _favoriteIds.add(node.id);
+            _favoriteUuids.add(node.uuid);
             _favorites.add(node);
           } else {
-            _favoriteIds.remove(node.id);
+            _favoriteUuids.remove(node.uuid);
           }
         });
         ScaffoldMessenger.of(context).showSnackBar(
@@ -116,7 +116,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final target = journal ?? _todayJournal;
     if (target == null) return;
     HapticFeedback.lightImpact();
-    context.push('${Routes.editor}/${target.id}');
+    context.push('${Routes.editor}/${target.uuid}');
   }
 
   void _openCalendar() {
@@ -325,7 +325,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _favoriteTrailing(Node node) {
     final colors = Theme.of(context).colorScheme;
-    final isFavorite = _favoriteIds.contains(node.id);
+    final isFavorite = _favoriteUuids.contains(node.uuid);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

@@ -56,7 +56,7 @@ class QuickCaptureSheet extends StatelessWidget {
 
       try {
         final journal = await NodeRepository(dio: auth.dio!).getOrCreateDailyJournal(DateTime.now());
-        await AssetRepository(dio: auth.dio!).uploadFile(file, parentId: journal.id);
+        await AssetRepository(dio: auth.dio!).uploadFile(file, parentUuid: journal.uuid);
         if (context.mounted) {
           Navigator.of(context).pop();
           onSaved?.call();

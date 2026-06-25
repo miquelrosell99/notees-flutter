@@ -26,7 +26,7 @@ class PagesScreen extends StatefulWidget {
 class _PagesScreenState extends State<PagesScreen> {
   List<Node> _rootPages = [];
   List<Node> _recents = [];
-  Set<int> _favoriteIds = {};
+  Set<String> _favoriteUuids = {};
   bool _loading = true;
   String? _error;
   NodeViewMode _viewMode = NodeViewMode.list;
@@ -59,12 +59,12 @@ class _PagesScreenState extends State<PagesScreen> {
       final results = await Future.wait([
         repo.fetchRootPages(),
         repo.fetchRecentPages(limit: 10),
-        repo.fetchFavoriteIds(),
+        repo.fetchFavoriteUuids(),
       ]);
       setState(() {
         _rootPages = results[0] as List<Node>;
         _recents = results[1] as List<Node>;
-        _favoriteIds = (results[2] as List<int>).toSet();
+        _favoriteUuids = (results[2] as List<String>).toSet();
         _error = null;
       });
     } catch (e) {
@@ -76,7 +76,7 @@ class _PagesScreenState extends State<PagesScreen> {
 
   void _openNode(Node node) {
     HapticFeedback.lightImpact();
-    context.push('${Routes.editor}/${node.id}');
+    context.push('${Routes.editor}/${node.uuid}');
   }
 
   Future<void> _toggleFavorite(Node node) async {
@@ -84,29 +84,29 @@ class _PagesScreenState extends State<PagesScreen> {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
 
-    final isFavorite = _favoriteIds.contains(node.id);
+    final isFavorite = _favoriteUuids.contains(node.uuid);
     setState(() {
       if (isFavorite) {
-        _favoriteIds.remove(node.id);
+        _favoriteUuids.remove(node.uuid);
       } else {
-        _favoriteIds.add(node.id);
+        _favoriteUuids.add(node.uuid);
       }
     });
 
     try {
       final repo = NodeRepository(dio: auth.dio!);
       if (isFavorite) {
-        await repo.removeFavorite(node.id);
+        await repo.removeFavorite(node.uuid);
       } else {
-        await repo.addFavorite(node.id);
+        await repo.addFavorite(node.uuid);
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           if (isFavorite) {
-            _favoriteIds.add(node.id);
+            _favoriteUuids.add(node.uuid);
           } else {
-            _favoriteIds.remove(node.id);
+            _favoriteUuids.remove(node.uuid);
           }
         });
         ScaffoldMessenger.of(context).showSnackBar(
@@ -155,7 +155,7 @@ class _PagesScreenState extends State<PagesScreen> {
       final repo = NodeRepository(dio: auth.dio!);
       final page = await repo.createQuickNote(name: name);
       if (mounted) {
-        router.push('${Routes.editor}/${page.id}');
+        router.push('${Routes.editor}/${page.uuid}');
       }
     } catch (e) {
       if (mounted) {
@@ -211,16 +211,16 @@ class _PagesScreenState extends State<PagesScreen> {
     }
 
     if (_viewMode != NodeViewMode.list) {
-      final allPages = <int, Node>{
-        for (final n in _rootPages) n.id: n,
-        for (final n in _recents) n.id: n,
+      final allPages = <String, Node>{
+        for (final n in _rootPages) n.uuid: n,
+        for (final n in _recents) n.uuid: n,
       }.values.toList();
       return NodeCollection(
         mode: _viewMode,
         nodes: allPages,
         onNodeTap: _openNode,
         emptyMessage: 'No pages',
-        favoriteIds: _favoriteIds,
+        favoriteUuids: _favoriteUuids,
         onFavoriteToggle: _toggleFavorite,
       );
     }
@@ -253,7 +253,7 @@ class _PagesScreenState extends State<PagesScreen> {
               nodes: _rootPages,
               onNodeTap: _openNode,
               shrinkWrap: true,
-              favoriteIds: _favoriteIds,
+              favoriteUuids: _favoriteUuids,
               onFavoriteToggle: _toggleFavorite,
             ),
           ),
@@ -268,7 +268,7 @@ class _PagesScreenState extends State<PagesScreen> {
                   nodes: _recents,
                   onNodeTap: _openNode,
                   shrinkWrap: true,
-                  favoriteIds: _favoriteIds,
+                  favoriteUuids: _favoriteUuids,
                   onFavoriteToggle: _toggleFavorite,
                 ),
         ),

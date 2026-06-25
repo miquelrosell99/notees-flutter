@@ -25,7 +25,7 @@ class Property {
     final optionsJson = json['options'] as List<dynamic>?;
     return Property(
       id: json['id'] as int,
-      uuid: json['uuid'] as String,
+      uuid: (json['property_uuid'] as String?) ?? (json['uuid'] as String? ?? ''),
       name: json['name'] as String,
       type: json['type'] as String,
       icon: json['icon'] as String?,
@@ -40,17 +40,20 @@ class Property {
 class SelectionOption {
   const SelectionOption({
     required this.id,
+    required this.uuid,
     required this.name,
     this.color,
   });
 
   final int id;
+  final String uuid;
   final String name;
   final String? color;
 
   factory SelectionOption.fromJson(Map<String, dynamic> json) {
     return SelectionOption(
       id: json['id'] as int,
+      uuid: (json['selection_line_uuid'] as String?) ?? (json['uuid'] as String? ?? ''),
       name: json['name'] as String,
       color: json['color'] as String?,
     );

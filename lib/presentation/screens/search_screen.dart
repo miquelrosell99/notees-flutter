@@ -91,7 +91,7 @@ class _SearchScreenState extends State<SearchScreen> {
       final pages = await nodeRepo.searchWithFilters(
         SearchFilters(
           nodeType: NodeType.page,
-          classIds: [queryClass.id],
+          classUuids: [queryClass.uuid],
           limit: 50,
         ),
       );
@@ -100,7 +100,7 @@ class _SearchScreenState extends State<SearchScreen> {
       await Future.wait(
         pages.map((page) async {
           try {
-            final pageViews = await viewRepo.fetchViews(page.id);
+            final pageViews = await viewRepo.fetchViews(page.uuid);
             views.addAll(
               pageViews.where(
                 (v) => v.viewType == 'list' || v.viewType == 'table',
@@ -209,7 +209,7 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
-      final nodes = await repo.executeView(view.id);
+      final nodes = await repo.executeView(view.uuid);
       if (mounted) {
         setState(() {
           _results = nodes;
@@ -237,7 +237,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _openNode(Node node) {
     HapticFeedback.lightImpact();
-    context.push('${Routes.editor}/${node.id}');
+    context.push('${Routes.editor}/${node.uuid}');
   }
 
   @override

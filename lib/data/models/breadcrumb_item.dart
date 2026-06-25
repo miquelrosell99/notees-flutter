@@ -1,13 +1,13 @@
 class BreadcrumbItem {
   const BreadcrumbItem({
-    required this.id,
+    required this.uuid,
     required this.name,
     required this.displayName,
     this.icon,
     this.isPage = false,
   });
 
-  final int id;
+  final String uuid;
   final String name;
   final String displayName;
   final String? icon;
@@ -15,7 +15,7 @@ class BreadcrumbItem {
 
   factory BreadcrumbItem.fromJson(Map<String, dynamic> json) {
     return BreadcrumbItem(
-      id: json['id'] as int,
+      uuid: json['node_uuid'] as String? ?? json['uuid'] as String? ?? '',
       name: json['name'] as String,
       displayName: json['display_name'] as String? ?? '',
       icon: json['icon'] as String?,

@@ -56,7 +56,7 @@ class _TrashScreenState extends State<TrashScreen> {
 
     try {
       final repo = NodeRepository(dio: auth.dio!);
-      await repo.restoreNode(node.id);
+      await repo.restoreNode(node.uuid);
       await _loadTrash();
     } catch (e) {
       if (mounted) {
@@ -97,7 +97,7 @@ class _TrashScreenState extends State<TrashScreen> {
 
     try {
       final repo = NodeRepository(dio: auth.dio!);
-      await repo.permanentlyDeleteNode(node.id);
+      await repo.permanentlyDeleteNode(node.uuid);
       await _loadTrash();
     } catch (e) {
       if (mounted) {

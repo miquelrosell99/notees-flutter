@@ -53,7 +53,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
   void _openNode(Node node) {
     HapticFeedback.lightImpact();
-    context.push('${Routes.editor}/${node.id}');
+    context.push('${Routes.editor}/${node.uuid}');
   }
 
   Future<void> _createTask() async {
@@ -108,7 +108,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
     final repo = NodeRepository(dio: auth.dio!);
     try {
-      final properties = await repo.fetchNodeProperties(task.id);
+      final properties = await repo.fetchNodeProperties(task.uuid);
       final statusValue = properties.cast<NodePropertyValue?>().firstWhere(
             (p) => p?.property.uuid == _taskStatusUuid,
             orElse: () => null,
@@ -123,11 +123,11 @@ class _TasksScreenState extends State<TasksScreen> {
         return;
       }
 
-      final currentOptionId = statusValue.values.isNotEmpty
-          ? statusValue.values.first as int?
+      final currentOptionUuid = statusValue.values.isNotEmpty
+          ? statusValue.values.first as String?
           : null;
       final currentOption = statusValue.property.options.firstWhere(
-        (o) => o.id == currentOptionId,
+        (o) => o.uuid == currentOptionUuid,
         orElse: () => statusValue.property.options.first,
       );
       final isClosed = _closedStatuses.contains(currentOption.name);
@@ -137,7 +137,7 @@ class _TasksScreenState extends State<TasksScreen> {
         orElse: () => throw StateError('Option "$targetName" not found'),
       );
 
-      await repo.setNodeProperty(task.id, statusValue.property.id, targetOption.id);
+      await repo.setNodeProperty(task.uuid, statusValue.property.uuid, targetOption.uuid);
       await _loadTasks();
     } catch (e) {
       if (mounted) {

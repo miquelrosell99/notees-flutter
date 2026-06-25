@@ -8,11 +8,11 @@ import '../providers/auth_provider.dart';
 
 /// Bottom sheet for viewing and managing comments on a node.
 class CommentsBottomSheet extends StatefulWidget {
-  const CommentsBottomSheet({super.key, required this.nodeId});
+  const CommentsBottomSheet({super.key, required this.nodeUuid});
 
-  final int nodeId;
+  final String nodeUuid;
 
-  static Future<void> show(BuildContext context, {required int nodeId}) {
+  static Future<void> show(BuildContext context, {required String nodeUuid}) {
     HapticFeedback.lightImpact();
     return showModalBottomSheet(
       context: context,
@@ -20,7 +20,7 @@ class CommentsBottomSheet extends StatefulWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (_) => CommentsBottomSheet(nodeId: nodeId),
+      builder: (_) => CommentsBottomSheet(nodeUuid: nodeUuid),
     );
   }
 
@@ -53,7 +53,7 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
     setState(() => _loading = true);
     try {
       final repo = CommentRepository(dio: auth.dio!);
-      final comments = await repo.fetchComments(widget.nodeId);
+      final comments = await repo.fetchComments(widget.nodeUuid);
       if (mounted) {
         setState(() {
           _comments = comments;
@@ -77,7 +77,7 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
     setState(() => _loading = true);
     try {
       final repo = CommentRepository(dio: auth.dio!);
-      await repo.createComment(widget.nodeId, name: text);
+      await repo.createComment(widget.nodeUuid, name: text);
       _controller.clear();
       await _loadComments();
     } catch (e) {
@@ -94,7 +94,7 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
     setState(() => _loading = true);
     try {
       final repo = CommentRepository(dio: auth.dio!);
-      await repo.deleteComment(widget.nodeId, comment.id);
+      await repo.deleteComment(widget.nodeUuid, comment.uuid);
       await _loadComments();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());

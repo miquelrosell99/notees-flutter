@@ -13,13 +13,13 @@ class NodeKanbanView extends StatefulWidget {
     super.key,
     required this.nodes,
     required this.onNodeTap,
-    this.favoriteIds,
+    this.favoriteUuids,
     this.onFavoriteToggle,
   });
 
   final List<Node> nodes;
   final ValueChanged<Node> onNodeTap;
-  final Set<int>? favoriteIds;
+  final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
 
   @override
@@ -167,7 +167,7 @@ class _NodeKanbanViewState extends State<NodeKanbanView> {
                 count: nodes.length,
                 nodes: nodes,
                 onNodeTap: widget.onNodeTap,
-                favoriteIds: widget.favoriteIds,
+                favoriteUuids: widget.favoriteUuids,
                 onFavoriteToggle: widget.onFavoriteToggle,
               );
             },
@@ -184,7 +184,7 @@ class _KanbanColumn extends StatelessWidget {
     required this.count,
     required this.nodes,
     required this.onNodeTap,
-    this.favoriteIds,
+    this.favoriteUuids,
     this.onFavoriteToggle,
   });
 
@@ -192,7 +192,7 @@ class _KanbanColumn extends StatelessWidget {
   final int count;
   final List<Node> nodes;
   final ValueChanged<Node> onNodeTap;
-  final Set<int>? favoriteIds;
+  final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
 
   @override
@@ -250,7 +250,7 @@ class _KanbanColumn extends StatelessWidget {
                   child: _KanbanCard(
                     node: node,
                     onTap: () => onNodeTap(node),
-                    isFavorite: favoriteIds?.contains(node.id) ?? false,
+                    isFavorite: favoriteUuids?.contains(node.uuid) ?? false,
                     onFavoriteToggle: onFavoriteToggle == null
                         ? null
                         : () => onFavoriteToggle!(node),

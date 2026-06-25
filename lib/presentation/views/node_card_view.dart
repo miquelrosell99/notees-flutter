@@ -9,13 +9,13 @@ class NodeCardView extends StatelessWidget {
     super.key,
     required this.nodes,
     required this.onNodeTap,
-    this.favoriteIds,
+    this.favoriteUuids,
     this.onFavoriteToggle,
   });
 
   final List<Node> nodes;
   final ValueChanged<Node> onNodeTap;
-  final Set<int>? favoriteIds;
+  final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
 
   @override
@@ -33,7 +33,7 @@ class NodeCardView extends StatelessWidget {
       itemCount: nodes.length,
       itemBuilder: (context, index) {
         final node = nodes[index];
-        final isFavorite = favoriteIds?.contains(node.id) ?? false;
+        final isFavorite = favoriteUuids?.contains(node.uuid) ?? false;
         return FleetCard(
           onTap: () => onNodeTap(node),
           child: Padding(

@@ -192,26 +192,18 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
     final host = uri.host;
     final pathSegments = uri.pathSegments;
 
-    // notees://editor/:nodeId
+    // notees://editor/:nodeUuid
     if (host == 'editor' && pathSegments.isNotEmpty) {
-      final nodeId = int.tryParse(pathSegments.first);
-      if (nodeId != null) {
-        router.push('${Routes.editor}/$nodeId');
+      final nodeUuid = pathSegments.first;
+      if (nodeUuid.isNotEmpty) {
+        router.push('${Routes.editor}/$nodeUuid');
       }
       return;
     }
 
-    // notees://:uuid — resolve the UUID to a node id and open the editor.
+    // notees://:uuid — open the editor for the node UUID directly.
     if (host.isNotEmpty && _looksLikeUuid(host)) {
-      try {
-        final repo = NodeRepository(dio: auth.dio!);
-        final node = await repo.fetchNodeByUuid(host);
-        if (mounted) {
-          router.push('${Routes.editor}/${node.id}');
-        }
-      } catch (_) {
-        // Ignore unresolvable deep links.
-      }
+      router.push('${Routes.editor}/$host');
       return;
     }
 
@@ -221,7 +213,7 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
           final repo = NodeRepository(dio: auth.dio!);
           final journal = await repo.getOrCreateDailyJournal(DateTime.now());
           if (mounted) {
-            router.push('${Routes.editor}/${journal.id}');
+            router.push('${Routes.editor}/${journal.uuid}');
           }
         } catch (_) {}
       case 'journals':
@@ -244,8 +236,8 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
       case 'pivot':
         router.push(Routes.pivot);
       case 'query':
-        final nodeId = int.tryParse(uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '');
-        if (nodeId != null) router.push('${Routes.query}/$nodeId');
+        final nodeUuid = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '';
+        if (nodeUuid.isNotEmpty) router.push('${Routes.query}/$nodeUuid');
     }
   }
 

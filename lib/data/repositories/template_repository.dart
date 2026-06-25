@@ -20,8 +20,8 @@ class TemplateRepository {
     return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
   }
 
-  Future<List<String>> fetchTemplateVariables(int nodeId) async {
-    final response = await dio.get<Map<String, dynamic>>('/nodes/$nodeId/template-variables');
+  Future<List<String>> fetchTemplateVariables(String nodeUuid) async {
+    final response = await dio.get<Map<String, dynamic>>('/nodes/$nodeUuid/template-variables');
     final data = response.data;
     if (data == null) return [];
     final items = data['variables'] as List<dynamic>? ?? [];
@@ -29,23 +29,23 @@ class TemplateRepository {
   }
 
   Future<Node> instantiateTemplate(
-    int nodeId, {
-    int? parentId,
+    String nodeUuid, {
+    String? parentUuid,
     String? name,
     Map<String, String> variables = const {},
     Map<String, String> dynamicContext = const {},
     bool asBlocks = false,
-    int? afterId,
+    String? afterUuid,
   }) async {
     final response = await dio.post<Map<String, dynamic>>(
-      '/nodes/$nodeId/instantiate',
+      '/nodes/$nodeUuid/instantiate',
       data: {
-        if (parentId != null) 'parent_id': parentId,
+        if (parentUuid != null) 'parent_uuid': parentUuid,
         if (name != null) 'name': name,
         'variables': variables,
         'dynamic_context': dynamicContext,
         'as_blocks': asBlocks,
-        if (afterId != null) 'after_id': afterId,
+        if (afterUuid != null) 'after_uuid': afterUuid,
       },
     );
     final data = response.data!;

@@ -9,9 +9,9 @@ class CommentRepository {
 
   final Dio dio;
 
-  Future<List<Node>> fetchComments(int nodeId, {int page = 1, int pageSize = 50}) async {
+  Future<List<Node>> fetchComments(String nodeUuid, {int page = 1, int pageSize = 50}) async {
     final response = await dio.get<Map<String, dynamic>>(
-      '/nodes/$nodeId/comments',
+      '/nodes/$nodeUuid/comments',
       queryParameters: {'page': page, 'page_size': pageSize},
     );
     final data = response.data;
@@ -21,26 +21,26 @@ class CommentRepository {
   }
 
   Future<Node> createComment(
-    int nodeId, {
+    String nodeUuid, {
     required String name,
-    int? parentCommentId,
+    String? parentCommentUuid,
   }) async {
     final response = await dio.post<Map<String, dynamic>>(
-      '/nodes/$nodeId/comments',
+      '/nodes/$nodeUuid/comments',
       data: {
         'name': name,
-        if (parentCommentId != null) 'parent_comment_id': parentCommentId,
+        if (parentCommentUuid != null) 'parent_comment_uuid': parentCommentUuid,
       },
     );
     return Node.fromJson(response.data!);
   }
 
-  Future<void> deleteComment(int nodeId, int commentId) async {
-    await dio.delete<Map<String, dynamic>>('/nodes/$nodeId/comments/$commentId');
+  Future<void> deleteComment(String nodeUuid, String commentUuid) async {
+    await dio.delete<Map<String, dynamic>>('/nodes/$nodeUuid/comments/$commentUuid');
   }
 
-  Future<int> fetchCommentCount(int nodeId) async {
-    final response = await dio.get<Map<String, dynamic>>('/nodes/$nodeId/comment-count');
+  Future<int> fetchCommentCount(String nodeUuid) async {
+    final response = await dio.get<Map<String, dynamic>>('/nodes/$nodeUuid/comment-count');
     return response.data?['count'] as int? ?? 0;
   }
 }

@@ -32,9 +32,9 @@ import '../widgets/slash_command_palette.dart';
 /// below the app bar. Inline styles, node/class/tag links, slash commands and
 /// @ mentions are supported.
 class NodeEditorScreen extends StatefulWidget {
-  const NodeEditorScreen({super.key, required this.nodeId});
+  const NodeEditorScreen({super.key, required this.nodeUuid});
 
-  final int nodeId;
+  final String nodeUuid;
 
   @override
   State<NodeEditorScreen> createState() => _NodeEditorScreenState();
@@ -49,8 +49,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
   List<BreadcrumbItem> _breadcrumbs = [];
   List<NodePropertyValue> _properties = [];
-  Map<int, String> _classNames = {};
-  final Set<int> _deletedBlockIds = {};
+  Map<String, String> _classNames = {};
+  final Set<String> _deletedBlockUuids = {};
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -85,7 +85,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     setState(() => _loading = true);
     try {
       final repo = NodeRepository(dio: auth.dio!);
-      final pageContent = await repo.fetchPageContent(widget.nodeId);
+      final pageContent = await repo.fetchPageContent(widget.nodeUuid);
       final page = pageContent.node;
 
       for (final block in _allBlocks()) {
@@ -94,12 +94,12 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       _roots.clear();
       _roots.addAll(_nodesToBlockTree(page.children.where((b) => !b.isPage).toList()));
 
-      final properties = await repo.fetchNodeProperties(widget.nodeId);
+      final properties = await repo.fetchNodeProperties(widget.nodeUuid);
       final classes = await repo.fetchClasses();
-      final breadcrumbs = await repo.fetchBreadcrumbs(widget.nodeId);
+      final breadcrumbs = await repo.fetchBreadcrumbs(widget.nodeUuid);
       final classNames = {
         for (final c in classes)
-          if (c.id > 0) c.id: c.displayName.toLowerCase(),
+          if (c.uuid.isNotEmpty) c.uuid: c.displayName.toLowerCase(),
       };
 
       setState(() {
@@ -107,7 +107,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         _properties = properties;
         _classNames = classNames;
         _breadcrumbs = breadcrumbs;
-        _deletedBlockIds.clear();
+        _deletedBlockUuids.clear();
         _error = null;
         _focusedBlock = null;
       });
@@ -131,7 +131,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
     try {
       final repo = CommentRepository(dio: auth.dio!);
-      final count = await repo.fetchCommentCount(widget.nodeId);
+      final count = await repo.fetchCommentCount(widget.nodeUuid);
       if (mounted) setState(() => _commentCount = count);
     } catch (_) {
       if (mounted) setState(() => _commentCount = 0);
@@ -139,12 +139,12 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   }
 
   Future<void> _openComments() async {
-    await CommentsBottomSheet.show(context, nodeId: widget.nodeId);
+    await CommentsBottomSheet.show(context, nodeUuid: widget.nodeUuid);
     if (mounted) await _loadCommentCount();
   }
 
   void _openShareSheet() {
-    SharesBottomSheet.show(context, nodeId: widget.nodeId);
+    SharesBottomSheet.show(context, nodeUuid: widget.nodeUuid);
   }
 
   List<BlockNode> _nodesToBlockTree(List<Node> nodes, {BlockNode? parent}) {
@@ -184,7 +184,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       final repo = NodeRepository(dio: auth.dio!);
 
       final titleAst = AstBuilder.serialize(AstBuilder.parseInline(title));
-      await repo.updateNode(widget.nodeId, name: titleAst);
+      await repo.updateNode(widget.nodeUuid, name: titleAst);
 
       // Ensure every focused block's AST is synced before serializing.
       _syncAllBlockNames();
@@ -200,12 +200,12 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       }
       if (creates.isNotEmpty) {
         final created = await repo.batchCreateNodes(creates);
-        _assignCreatedIds(_roots, created);
+        _assignCreatedUuids(_roots, created);
       }
-      for (final id in _deletedBlockIds) {
-        await repo.deleteNode(id);
+      for (final uuid in _deletedBlockUuids) {
+        await repo.deleteNode(uuid);
       }
-      _deletedBlockIds.clear();
+      _deletedBlockUuids.clear();
 
       await _loadPage();
       if (mounted) {
@@ -245,19 +245,19 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     List<Map<String, dynamic>> creates,
   ) {
     for (final block in nodes) {
-      final parentId = block.parent?.id ?? widget.nodeId;
+      final parentUuid = block.parent?.node.uuid ?? widget.nodeUuid;
       final astJson = block.node.name;
-      if (block.id > 0) {
+      if (block.node.uuid.isNotEmpty) {
         updates.add({
-          'id': block.id,
+          'uuid': block.node.uuid,
           'name': astJson,
           'sequence': block.node.sequence,
-          'parent_id': parentId,
+          'parent_uuid': parentUuid,
           'collapsed': block.collapsed,
         });
       } else {
         creates.add({
-          'parent_id': parentId,
+          'parent_uuid': parentUuid,
           'name': astJson,
           'sequence': block.node.sequence,
         });
@@ -266,11 +266,11 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     }
   }
 
-  void _assignCreatedIds(List<BlockNode> nodes, List<Node> created) {
+  void _assignCreatedUuids(List<BlockNode> nodes, List<Node> created) {
     var index = 0;
     void visit(List<BlockNode> list) {
       for (final node in list) {
-        if (node.id == 0 && index < created.length) {
+        if (node.node.uuid.isEmpty && index < created.length) {
           node.node = _copyNodeWithId(node.node, created[index].id, created[index].uuid);
           index++;
         }
@@ -288,8 +288,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       displayName: node.displayName,
       icon: node.icon,
       color: node.color,
-      parentId: node.parentId,
-      pageId: node.pageId,
+      parentUuid: node.parentUuid,
+      pageUuid: node.pageUuid,
       sequence: node.sequence,
       isPage: node.isPage,
       isTask: node.isTask,
@@ -316,8 +316,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       displayName: node.displayName,
       icon: node.icon,
       color: node.color,
-      parentId: node.parentId,
-      pageId: node.pageId,
+      parentUuid: node.parentUuid,
+      pageUuid: node.pageUuid,
       sequence: node.sequence,
       isPage: node.isPage,
       isTask: node.isTask,
@@ -344,8 +344,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       displayName: node.displayName,
       icon: node.icon,
       color: node.color,
-      parentId: node.parentId,
-      pageId: node.pageId,
+      parentUuid: node.parentUuid,
+      pageUuid: node.pageUuid,
       sequence: sequence,
       isPage: node.isPage,
       isTask: node.isTask,
@@ -382,7 +382,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   }
 
   void _onAddChild(BlockNode parent) {
-    if (parent.id == 0) return;
+    if (parent.node.uuid.isEmpty) return;
     HapticFeedback.lightImpact();
     final newBlock = BlockNode(
       node: Node(id: 0, uuid: '', name: '', displayName: ''),
@@ -403,8 +403,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   void _onDelete(BlockNode block) {
     HapticFeedback.lightImpact();
     setState(() {
-      if (block.id > 0) {
-        _deletedBlockIds.add(block.id);
+      if (block.node.uuid.isNotEmpty) {
+        _deletedBlockUuids.add(block.node.uuid);
       }
       _removeBlockFromTree(block);
       if (_focusedBlock == block) {
@@ -490,7 +490,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     final repo = NodeRepository(dio: auth.dio!);
     if (_looksLikeUuid(target)) {
       repo.fetchNodeByUuid(target).then((node) {
-        if (mounted) context.push('${Routes.editor}/${node.id}');
+        if (mounted) context.push('${Routes.editor}/${node.uuid}');
       }).catchError((_) {});
     } else {
       final id = int.tryParse(target);
@@ -747,7 +747,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   }
 
   void _openBreadcrumbNode(BreadcrumbItem item) {
-    context.push('${Routes.editor}/${item.id}');
+    context.push('${Routes.editor}/${item.uuid}');
   }
 
   @override

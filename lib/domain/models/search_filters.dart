@@ -3,7 +3,7 @@ class SearchFilters {
   const SearchFilters({
     this.query = '',
     this.nodeType = NodeType.any,
-    this.classIds = const [],
+    this.classUuids = const [],
     this.taskState = TaskState.any,
     this.dateFrom,
     this.dateTo,
@@ -15,7 +15,7 @@ class SearchFilters {
 
   final String query;
   final NodeType nodeType;
-  final List<int> classIds;
+  final List<String> classUuids;
   final TaskState taskState;
   final DateTime? dateFrom;
   final DateTime? dateTo;
@@ -27,7 +27,7 @@ class SearchFilters {
   bool get isEmpty =>
       query.isEmpty &&
       nodeType == NodeType.any &&
-      classIds.isEmpty &&
+      classUuids.isEmpty &&
       taskState == TaskState.any &&
       dateFrom == null &&
       dateTo == null;
@@ -35,7 +35,7 @@ class SearchFilters {
   SearchFilters copyWith({
     String? query,
     NodeType? nodeType,
-    List<int>? classIds,
+    List<String>? classUuids,
     TaskState? taskState,
     DateTime? dateFrom,
     DateTime? dateTo,
@@ -47,7 +47,7 @@ class SearchFilters {
     return SearchFilters(
       query: query ?? this.query,
       nodeType: nodeType ?? this.nodeType,
-      classIds: classIds ?? this.classIds,
+      classUuids: classUuids ?? this.classUuids,
       taskState: taskState ?? this.taskState,
       dateFrom: dateFrom ?? this.dateFrom,
       dateTo: dateTo ?? this.dateTo,
@@ -65,7 +65,7 @@ class SearchFilters {
       'is_page': nodeType == NodeType.page ? true : null,
       'is_task': nodeType == NodeType.task ? true : null,
       'is_daily': nodeType == NodeType.journal ? true : null,
-      'class_ids': classIds,
+      'class_uuids': classUuids,
       'task_state': taskState.value,
       'date_from': dateFrom?.toIso8601String().split('T').first,
       'date_to': dateTo?.toIso8601String().split('T').first,

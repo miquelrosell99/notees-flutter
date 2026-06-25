@@ -7,7 +7,7 @@ import 'package:dio/dio.dart';
 class Asset {
   Asset({
     required this.uuid,
-    required this.nodeId,
+    required this.nodeUuid,
     required this.filename,
     required this.contentType,
     required this.category,
@@ -16,7 +16,7 @@ class Asset {
   });
 
   final String uuid;
-  final int nodeId;
+  final String nodeUuid;
   final String filename;
   final String contentType;
   final String category;
@@ -25,7 +25,7 @@ class Asset {
 
   factory Asset.fromJson(Map<String, dynamic> json) => Asset(
         uuid: json['uuid'] as String,
-        nodeId: json['node_id'] as int,
+        nodeUuid: json['node_uuid'] as String? ?? json['node_id'].toString(),
         filename: json['filename'] as String,
         contentType: json['content_type'] as String,
         category: json['category'] as String,
@@ -41,14 +41,14 @@ class AssetRepository {
 
   Future<Asset> uploadFile(
     File file, {
-    int? parentId,
-    int? existingNodeId,
+    String? parentUuid,
+    String? existingNodeUuid,
     String? content,
   }) async {
     final formData = FormData.fromMap({
       'file': await MultipartFile.fromFile(file.path),
-      if (parentId != null) 'parent_id': parentId,
-      if (existingNodeId != null) 'existing_node_id': existingNodeId,
+      if (parentUuid != null) 'parent_uuid': parentUuid,
+      if (existingNodeUuid != null) 'existing_node_uuid': existingNodeUuid,
       if (content != null) 'content': content,
     });
     final response = await dio.post<Map<String, dynamic>>(

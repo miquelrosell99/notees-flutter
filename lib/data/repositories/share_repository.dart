@@ -5,30 +5,27 @@ import 'package:dio/dio.dart';
 class Share {
   Share({
     required this.shareUuid,
-    required this.nodeId,
+    required this.nodeUuid,
     required this.createdAt,
     this.expiryDate,
     this.url,
     this.nodeName,
-    this.nodeUuid,
   });
 
   final String shareUuid;
-  final int nodeId;
+  final String nodeUuid;
   final String createdAt;
   final String? expiryDate;
   final String? url;
   final String? nodeName;
-  final String? nodeUuid;
 
   factory Share.fromJson(Map<String, dynamic> json) => Share(
         shareUuid: json['share_uuid'] as String,
-        nodeId: json['node_id'] as int,
+        nodeUuid: json['node_uuid'] as String,
         createdAt: json['created_at'] as String,
         expiryDate: json['expiry_date'] as String?,
         url: json['url'] as String?,
         nodeName: json['node_name'] as String?,
-        nodeUuid: json['node_uuid'] as String?,
       );
 }
 
@@ -46,12 +43,12 @@ class ShareRepository {
   }
 
   Future<Share> createShare(
-    int nodeId, {
+    String nodeUuid, {
     String? expiryDate,
     String? password,
   }) async {
     final response = await dio.post<Map<String, dynamic>>(
-      '/nodes/$nodeId/shares',
+      '/nodes/$nodeUuid/shares',
       data: {
         if (expiryDate != null) 'expiry_date': expiryDate,
         if (password != null) 'password': password,
@@ -60,8 +57,8 @@ class ShareRepository {
     return Share.fromJson(response.data!);
   }
 
-  Future<List<Share>> fetchNodeShares(int nodeId) async {
-    final response = await dio.get<Map<String, dynamic>>('/nodes/$nodeId/shares');
+  Future<List<Share>> fetchNodeShares(String nodeUuid) async {
+    final response = await dio.get<Map<String, dynamic>>('/nodes/$nodeUuid/shares');
     final data = response.data;
     if (data == null) return [];
     final items = (data['shares'] ?? data['items']) as List<dynamic>? ?? [];

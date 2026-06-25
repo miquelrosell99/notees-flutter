@@ -9,11 +9,11 @@ import '../widgets/fleet_card.dart';
 
 /// Bottom sheet for creating and revoking public share links for a node.
 class SharesBottomSheet extends StatefulWidget {
-  const SharesBottomSheet({super.key, required this.nodeId});
+  const SharesBottomSheet({super.key, required this.nodeUuid});
 
-  final int nodeId;
+  final String nodeUuid;
 
-  static Future<void> show(BuildContext context, {required int nodeId}) {
+  static Future<void> show(BuildContext context, {required String nodeUuid}) {
     HapticFeedback.lightImpact();
     return showModalBottomSheet(
       context: context,
@@ -21,7 +21,7 @@ class SharesBottomSheet extends StatefulWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (_) => SharesBottomSheet(nodeId: nodeId),
+      builder: (_) => SharesBottomSheet(nodeUuid: nodeUuid),
     );
   }
 
@@ -49,7 +49,7 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
     setState(() => _loading = true);
     try {
       final repo = ShareRepository(dio: auth.dio!);
-      final shares = await repo.fetchNodeShares(widget.nodeId);
+      final shares = await repo.fetchNodeShares(widget.nodeUuid);
       if (mounted) {
         setState(() {
           _shares = shares;
@@ -74,7 +74,7 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
           ? _expiry!.toUtc().toIso8601String()
           : null;
       final share = await repo.createShare(
-        widget.nodeId,
+        widget.nodeUuid,
         expiryDate: expiryDate,
       );
       if (share.url != null && share.url!.isNotEmpty) {

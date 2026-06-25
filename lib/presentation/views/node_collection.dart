@@ -18,7 +18,7 @@ class NodeCollection extends StatelessWidget {
     required this.onNodeTap,
     this.emptyMessage = 'No items',
     this.footer,
-    this.favoriteIds,
+    this.favoriteUuids,
     this.onFavoriteToggle,
   });
 
@@ -27,7 +27,7 @@ class NodeCollection extends StatelessWidget {
   final ValueChanged<Node> onNodeTap;
   final String emptyMessage;
   final Widget? footer;
-  final Set<int>? favoriteIds;
+  final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
 
   @override
@@ -42,35 +42,35 @@ class NodeCollection extends StatelessWidget {
           nodes: nodes,
           onNodeTap: onNodeTap,
           footer: footer,
-          favoriteIds: favoriteIds,
+          favoriteUuids: favoriteUuids,
           onFavoriteToggle: onFavoriteToggle,
         );
       case NodeViewMode.card:
         return NodeCardView(
           nodes: nodes,
           onNodeTap: onNodeTap,
-          favoriteIds: favoriteIds,
+          favoriteUuids: favoriteUuids,
           onFavoriteToggle: onFavoriteToggle,
         );
       case NodeViewMode.table:
         return NodeTableView(
           nodes: nodes,
           onNodeTap: onNodeTap,
-          favoriteIds: favoriteIds,
+          favoriteUuids: favoriteUuids,
           onFavoriteToggle: onFavoriteToggle,
         );
       case NodeViewMode.kanban:
         return NodeKanbanView(
           nodes: nodes,
           onNodeTap: onNodeTap,
-          favoriteIds: favoriteIds,
+          favoriteUuids: favoriteUuids,
           onFavoriteToggle: onFavoriteToggle,
         );
       case NodeViewMode.calendar:
         return NodeCalendarView(
           nodes: nodes,
           onNodeTap: onNodeTap,
-          favoriteIds: favoriteIds,
+          favoriteUuids: favoriteUuids,
           onFavoriteToggle: onFavoriteToggle,
         );
     }

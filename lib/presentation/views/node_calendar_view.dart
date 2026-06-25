@@ -14,13 +14,13 @@ class NodeCalendarView extends StatefulWidget {
     super.key,
     required this.nodes,
     required this.onNodeTap,
-    this.favoriteIds,
+    this.favoriteUuids,
     this.onFavoriteToggle,
   });
 
   final List<Node> nodes;
   final ValueChanged<Node> onNodeTap;
-  final Set<int>? favoriteIds;
+  final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
 
   @override
@@ -177,7 +177,7 @@ class _NodeCalendarViewState extends State<NodeCalendarView> {
                     widget.onNodeTap(node);
                   },
                   shrinkWrap: true,
-                  favoriteIds: widget.favoriteIds,
+                  favoriteUuids: widget.favoriteUuids,
                   onFavoriteToggle: widget.onFavoriteToggle,
                 ),
               ),

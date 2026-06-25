@@ -150,8 +150,8 @@ class _NoteesWebViewScreenState extends State<NoteesWebViewScreen> {
 
     switch (uri.host) {
       case 'editor':
-        final nodeId = int.tryParse(firstSegment ?? '');
-        if (nodeId != null) router.push('${Routes.editor}/$nodeId');
+        final nodeUuid = firstSegment ?? '';
+        if (nodeUuid.isNotEmpty) router.push('${Routes.editor}/$nodeUuid');
       case 'graph':
         router.push(Routes.graph);
       case 'whiteboard':
@@ -169,8 +169,8 @@ class _NoteesWebViewScreenState extends State<NoteesWebViewScreen> {
       case 'pivot':
         router.push(Routes.pivot);
       case 'query':
-        final nodeId = int.tryParse(firstSegment ?? '');
-        if (nodeId != null) router.push('${Routes.query}/$nodeId');
+        final nodeUuid = firstSegment ?? '';
+        if (nodeUuid.isNotEmpty) router.push('${Routes.query}/$nodeUuid');
       case 'dashboard':
         router.push(Routes.dashboard);
       case 'pages':

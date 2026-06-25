@@ -27,16 +27,16 @@ class OfflineQueue {
   /// Older pending editor saves for the same [pageId] are removed so the queue
   /// only replays the most recent state for that page.
   Future<void> enqueueEditorSave(
-    int pageId,
+    String pageUuid,
     String title,
     List<EditorBlockSnapshot> roots,
-    List<int> deletedIds,
+    List<String> deletedUuids,
   ) async {
     final pending = await database.pending();
     for (final item in pending) {
       if (item['method'] != 'editor_save') continue;
       final existingPayload = jsonDecode(item['payload'] as String) as Map<String, dynamic>;
-      if ((existingPayload['page_id'] as num?)?.toInt() == pageId) {
+      if ((existingPayload['page_uuid'] as String?) == pageUuid) {
         await database.remove((item['id'] as num).toInt());
       }
     }
@@ -44,10 +44,10 @@ class OfflineQueue {
     await database.enqueue(
       'editor_save',
       jsonEncode({
-        'page_id': pageId,
+        'page_uuid': pageUuid,
         'title': title,
         'roots': roots.map((r) => r.toJson()).toList(),
-        'deleted_ids': deletedIds,
+        'deleted_uuids': deletedUuids,
       }),
     );
   }
@@ -67,20 +67,20 @@ class OfflineQueue {
               queryParameters: {'name': name},
             );
           case 'editor_save':
-            final pageId = (payload['page_id'] as num).toInt();
+            final pageUuid = payload['page_uuid'] as String;
             final title = payload['title'] as String;
             final roots = ((payload['roots'] as List<dynamic>?) ?? [])
                 .map((e) => EditorBlockSnapshot.fromJson(e as Map<String, dynamic>))
                 .toList();
-            final deletedIds = ((payload['deleted_ids'] as List<dynamic>?) ?? [])
-                .map((e) => (e as num).toInt())
+            final deletedUuids = ((payload['deleted_uuids'] as List<dynamic>?) ?? [])
+                .map((e) => e as String)
                 .toList();
             final service = EditorSaveService(dio: dio);
             await service.savePage(
-              pageId: pageId,
+              pageUuid: pageUuid,
               title: title,
               roots: roots,
-              deletedIds: deletedIds,
+              deletedUuids: deletedUuids,
             );
         }
         await database.remove((item['id'] as num).toInt());

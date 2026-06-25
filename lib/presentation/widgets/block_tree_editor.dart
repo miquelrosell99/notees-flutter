@@ -63,7 +63,7 @@ class BlockTreeEditor extends StatefulWidget {
   });
 
   final List<BlockNode> roots;
-  final Map<int, String> classNames;
+  final Map<String, String> classNames;
   final Dio dio;
   final BlockNode? focusedNode;
   final ValueChanged<BlockNode?> onFocus;
@@ -360,8 +360,8 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       displayName: node.displayName,
       icon: node.icon,
       color: node.color,
-      parentId: node.parentId,
-      pageId: node.pageId,
+      parentUuid: node.parentUuid,
+      pageUuid: node.pageUuid,
       sequence: node.sequence,
       isPage: node.isPage,
       isTask: node.isTask,
@@ -410,8 +410,8 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
 
   bool _hasSystemClass(BlockNode node, String name) {
     final needle = name.toLowerCase();
-    for (final classId in node.node.classes) {
-      if (widget.classNames[classId] == needle) return true;
+    for (final classUuid in node.node.classesUuid) {
+      if (widget.classNames[classUuid] == needle) return true;
     }
     return false;
   }

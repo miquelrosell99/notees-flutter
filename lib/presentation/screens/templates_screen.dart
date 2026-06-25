@@ -57,7 +57,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
     final repo = TemplateRepository(dio: auth.dio!);
     late final List<String> variables;
     try {
-      variables = await repo.fetchTemplateVariables(template.id);
+      variables = await repo.fetchTemplateVariables(template.uuid);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -81,12 +81,12 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
     setState(() => _loading = true);
     try {
       final node = await repo.instantiateTemplate(
-        template.id,
+        template.uuid,
         variables: values,
       );
       if (mounted) {
         HapticFeedback.lightImpact();
-        context.push('${Routes.editor}/${node.id}');
+        context.push('${Routes.editor}/${node.uuid}');
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());

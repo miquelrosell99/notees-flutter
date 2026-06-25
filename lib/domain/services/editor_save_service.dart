@@ -12,77 +12,77 @@ class EditorSaveService {
   final Dio dio;
 
   Future<void> savePage({
-    required int pageId,
+    required String pageUuid,
     required String title,
     required List<EditorBlockSnapshot> roots,
-    required List<int> deletedIds,
+    required List<String> deletedUuids,
   }) async {
     final repo = NodeRepository(dio: dio);
 
     final titleAst = AstBuilder.serialize(AstBuilder.parseInline(title));
-    await repo.updateNode(pageId, name: titleAst);
+    await repo.updateNode(pageUuid, name: titleAst);
 
     final updates = <Map<String, dynamic>>[];
-    _collectUpdates(roots, pageId, updates, parentId: null);
+    _collectUpdates(roots, pageUuid, updates, parentUuid: null);
     if (updates.isNotEmpty) {
       await repo.batchUpdateNodes(updates);
     }
 
-    await _createNewNodesLevelByLevel(repo, pageId, roots);
+    await _createNewNodesLevelByLevel(repo, pageUuid, roots);
 
-    for (final id in deletedIds) {
-      await repo.deleteNode(id);
+    for (final uuid in deletedUuids) {
+      await repo.deleteNode(uuid);
     }
   }
 
   void _collectUpdates(
     List<EditorBlockSnapshot> nodes,
-    int pageId,
+    String pageUuid,
     List<Map<String, dynamic>> updates, {
-    required int? parentId,
+    required String? parentUuid,
   }) {
     for (var i = 0; i < nodes.length; i++) {
       final node = nodes[i];
-      if (node.id > 0) {
+      if (node.uuid.isNotEmpty) {
         updates.add({
-          'id': node.id,
+          'uuid': node.uuid,
           'name': AstBuilder.serialize(AstBuilder.parseInline(node.text)),
           'sequence': i.toDouble(),
-          'parent_id': parentId ?? pageId,
+          'parent_uuid': parentUuid ?? pageUuid,
         });
       }
 
       _collectUpdates(
         node.children,
-        pageId,
+        pageUuid,
         updates,
-        parentId: node.id > 0 ? node.id : parentId,
+        parentUuid: node.uuid.isNotEmpty ? node.uuid : parentUuid,
       );
     }
   }
 
   Future<void> _createNewNodesLevelByLevel(
     NodeRepository repo,
-    int pageId,
+    String pageUuid,
     List<EditorBlockSnapshot> roots,
   ) async {
-    final idMap = <EditorBlockSnapshot, int>{};
+    final uuidMap = <EditorBlockSnapshot, String>{};
 
-    var currentLevel = roots.where((n) => n.id == 0).toList();
+    var currentLevel = roots.where((n) => n.uuid.isEmpty).toList();
     while (currentLevel.isNotEmpty) {
       final nextLevel = <EditorBlockSnapshot>[];
       final creates = <Map<String, dynamic>>[];
 
       for (final node in currentLevel) {
         final parent = _parentOf(node, roots);
-        final parentId = parent == null
-            ? pageId
-            : (idMap[parent] ?? pageId);
+        final parentUuid = parent == null
+            ? pageUuid
+            : (uuidMap[parent] ?? pageUuid);
         final siblings = parent?.children ?? roots;
         final index = siblings.indexOf(node);
 
         creates.add({
-          'parent_id': parentId,
+          'parent_uuid': parentUuid,
           'name': AstBuilder.serialize(AstBuilder.parseInline(node.text)),
           'sequence': index.toDouble(),
         });
@@ -92,9 +92,9 @@ class EditorSaveService {
       for (var i = 0; i < currentLevel.length; i++) {
         final node = currentLevel[i];
         if (i < results.length) {
-          idMap[node] = results[i].id;
+          uuidMap[node] = results[i].uuid;
         }
-        nextLevel.addAll(node.children.where((c) => c.id == 0));
+        nextLevel.addAll(node.children.where((c) => c.uuid.isEmpty));
       }
 
       currentLevel = nextLevel;
