@@ -395,6 +395,17 @@ class NodeRepository {
   }
 
   Future<void> setNodeProperty(String nodeUuid, String propertyUuid, dynamic value) async {
+    if (syncService != null) {
+      await syncService!.enqueue(
+        type: 'set_property',
+        nodeUuid: nodeUuid,
+        propertyUuid: propertyUuid,
+        propertyValue: value,
+      );
+      await syncService!.flush();
+      return;
+    }
+
     await dio.post<Map<String, dynamic>>(
       '/nodes/$nodeUuid/properties',
       data: {'property_uuid': propertyUuid, 'value': value},

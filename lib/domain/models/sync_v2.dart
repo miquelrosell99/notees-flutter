@@ -21,6 +21,8 @@ class OperationIntent {
     this.tagUuids,
     this.isDeleted,
     this.properties,
+    this.propertyUuid,
+    this.propertyValue,
     this.isPage = false,
     this.isTask = false,
     this.isDaily = false,
@@ -42,6 +44,8 @@ class OperationIntent {
   final List<String>? tagUuids;
   final bool? isDeleted;
   final Map<String, dynamic>? properties;
+  final String? propertyUuid;
+  final dynamic propertyValue;
   final bool isPage;
   final bool isTask;
   final bool isDaily;
@@ -63,6 +67,8 @@ class OperationIntent {
         if (tagUuids != null) 'tag_uuids': tagUuids,
         if (isDeleted != null) 'is_deleted': isDeleted,
         if (properties != null) 'properties': properties,
+        if (propertyUuid != null) 'property_uuid': propertyUuid,
+        if (propertyValue != null) 'property_value': propertyValue,
         'is_page': isPage,
         'is_task': isTask,
         'is_daily': isDaily,
@@ -92,6 +98,8 @@ class OperationIntent {
             : null,
         isDeleted: json['is_deleted'] as bool?,
         properties: json['properties'] as Map<String, dynamic>?,
+        propertyUuid: json['property_uuid'] as String?,
+        propertyValue: json['property_value'],
         isPage: json['is_page'] as bool? ?? false,
         isTask: json['is_task'] as bool? ?? false,
         isDaily: json['is_daily'] as bool? ?? false,
