@@ -70,7 +70,7 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
-    final nodeRepo = NodeRepository(dio: auth.dio!);
+    final nodeRepo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
     final viewRepo = NodeViewRepository(dio: auth.dio!);
 
     try {
@@ -158,7 +158,7 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     });
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final results = await repo.searchWithFilters(searchFilters);
       if (mounted) {
         setState(() {

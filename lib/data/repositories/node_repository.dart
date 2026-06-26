@@ -1,15 +1,24 @@
-import 'package:dio/dio.dart';
+import 'dart:convert';
 
+import 'package:dio/dio.dart';
+import 'package:uuid/uuid.dart';
+
+import '../../core/utils/ast_builder.dart';
 import '../../domain/models/search_filters.dart';
+import '../../domain/services/sync_v2_service.dart';
 import '../models/breadcrumb_item.dart';
 import '../models/node.dart';
 import '../models/page_content.dart';
 import '../models/property.dart';
 
 class NodeRepository {
-  NodeRepository({required this.dio});
+  NodeRepository({
+    required this.dio,
+    this.syncService,
+  });
 
   final Dio dio;
+  final SyncV2Service? syncService;
 
   Future<List<Node>> fetchRecentPages({int limit = 10}) async {
     final response = await dio.get<Map<String, dynamic>>('/nodes/recents', queryParameters: {'limit': limit});
@@ -109,6 +118,28 @@ class NodeRepository {
     String? icon,
     List<String> additionalTypes = const [],
   }) async {
+    if (syncService != null) {
+      final nodeUuid = const Uuid().v7();
+      final isTask = additionalTypes.contains('task');
+      await syncService!.enqueue(
+        type: 'create',
+        nodeUuid: nodeUuid,
+        contentAst: AstBuilder.parseInline(name),
+        isPage: true,
+        isTask: isTask,
+      );
+      await syncService!.flush();
+      return Node(
+        id: 0,
+        uuid: nodeUuid,
+        name: AstBuilder.serialize(AstBuilder.parseInline(name)),
+        displayName: name,
+        icon: icon,
+        isPage: true,
+        isTask: isTask,
+      );
+    }
+
     final response = await dio.post<Map<String, dynamic>>(
       '/nodes/page',
       queryParameters: {
@@ -186,14 +217,59 @@ class NodeRepository {
     List<String>? classes,
     List<String>? tags,
   }) async {
+    // Class/tag list changes are not yet modelled as v2 ops, so fall back to
+    // the REST endpoint when they are present.
+    final canUseSync = syncService != null && classes == null && tags == null;
+
+    if (canUseSync) {
+      if (name != null) {
+        try {
+          final ast = jsonDecode(name) as List<dynamic>;
+          await syncService!.enqueue(
+            type: 'update_content',
+            nodeUuid: uuid,
+            contentAst: ast.cast<Map<String, dynamic>>(),
+          );
+        } catch (_) {
+          await syncService!.enqueue(
+            type: 'update_node',
+            nodeUuid: uuid,
+            name: name,
+          );
+        }
+      }
+
+      final properties = <String, dynamic>{};
+      if (icon != null) properties['icon'] = icon;
+      if (color != null) properties['color'] = color;
+      if (properties.isNotEmpty) {
+        await syncService!.enqueue(
+          type: 'update_node',
+          nodeUuid: uuid,
+          properties: properties,
+        );
+      }
+
+      await syncService!.flush();
+      // Return a best-effort local projection.
+      return Node(
+        id: 0,
+        uuid: uuid,
+        name: name ?? '',
+        displayName: name ?? '',
+        icon: icon,
+        color: color,
+      );
+    }
+
     final response = await dio.put<Map<String, dynamic>>(
       '/nodes/$uuid',
       data: {
-        'name': ?name,
-        'icon': ?icon,
-        'color': ?color,
-        'class_uuids': ?classes,
-        'tag_uuids': ?tags,
+        'name': name,
+        'icon': icon,
+        'color': color,
+        'class_uuids': classes,
+        'tag_uuids': tags,
       },
     );
     return Node.fromJson(response.data!);
@@ -228,6 +304,11 @@ class NodeRepository {
   }
 
   Future<void> deleteNode(String uuid) async {
+    if (syncService != null) {
+      await syncService!.enqueue(type: 'delete', nodeUuid: uuid);
+      await syncService!.flush();
+      return;
+    }
     await dio.delete('/nodes/$uuid');
   }
 
@@ -245,6 +326,11 @@ class NodeRepository {
   }
 
   Future<void> restoreNode(String uuid) async {
+    if (syncService != null) {
+      await syncService!.enqueue(type: 'restore', nodeUuid: uuid);
+      await syncService!.flush();
+      return;
+    }
     await dio.post<Map<String, dynamic>>('/nodes/$uuid/restore');
   }
 
@@ -259,6 +345,15 @@ class NodeRepository {
   // === Tags ===
 
   Future<void> addTag(String nodeUuid, String tagUuid) async {
+    if (syncService != null) {
+      await syncService!.enqueue(
+        type: 'add_tag',
+        nodeUuid: nodeUuid,
+        tagUuid: tagUuid,
+      );
+      await syncService!.flush();
+      return;
+    }
     await dio.post<Map<String, dynamic>>(
       '/nodes/$nodeUuid/tag-links',
       data: {'target_node_uuid': tagUuid},
@@ -266,6 +361,15 @@ class NodeRepository {
   }
 
   Future<void> removeTag(String nodeUuid, String tagUuid) async {
+    if (syncService != null) {
+      await syncService!.enqueue(
+        type: 'remove_tag',
+        nodeUuid: nodeUuid,
+        tagUuid: tagUuid,
+      );
+      await syncService!.flush();
+      return;
+    }
     await dio.delete<Map<String, dynamic>>('/nodes/$nodeUuid/tag-links/$tagUuid');
   }
 

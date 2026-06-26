@@ -68,7 +68,7 @@ class _NodePickerState extends State<NodePicker> {
 
     setState(() => _loading = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final query = _controller.text.trim();
       List<Node> results;
 

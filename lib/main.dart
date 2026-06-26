@@ -5,9 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app.dart';
 import 'core/secure/secure_storage.dart';
 import 'data/repositories/server_repository.dart';
+import 'native/background_sync.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await BackgroundSync.initialize();
 
   // Lock to portrait on phones for the first release.
   await SystemChrome.setPreferredOrientations([

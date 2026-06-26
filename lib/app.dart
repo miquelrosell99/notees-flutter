@@ -7,12 +7,14 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/routing/router.dart';
+import 'core/secure/encryption_provider.dart';
 import 'core/secure/secure_storage.dart';
 import 'core/theme/theme_builder.dart';
 import 'core/theme/theme_provider.dart';
 import 'data/repositories/node_repository.dart';
 import 'data/repositories/server_repository.dart';
 import 'native/app_locker.dart';
+import 'native/background_sync.dart';
 import 'native/intent_receiver.dart';
 import 'native/offline_sync.dart';
 import 'presentation/providers/auth_provider.dart';
@@ -43,6 +45,7 @@ class NoteesApp extends StatelessWidget {
           create: (_) => AuthProvider(
             serverRepository: serverRepository,
             secureStorage: secureStorage,
+            prefs: prefs,
           ),
         ),
         ChangeNotifierProvider(
@@ -50,6 +53,7 @@ class NoteesApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider(prefs)),
+        ChangeNotifierProvider(create: (_) => EncryptionProvider(prefs: prefs)..initialize()),
       ],
       child: const _NoteesAppBody(),
     );
@@ -69,9 +73,16 @@ class _NoteesAppBodyState extends State<_NoteesAppBody> {
   @override
   void initState() {
     super.initState();
+    final encryption = context.read<EncryptionProvider>();
     final auth = context.read<AuthProvider>();
     _router = createRouter(authProvider: auth);
-    auth.initialize();
+    encryption.initialize().then((_) {
+      auth.initialize().then((_) {
+        if (auth.activeServer != null) {
+          BackgroundSync.registerPeriodic();
+        }
+      });
+    });
     IntentReceiver.instance.initialize();
   }
 
@@ -89,6 +100,7 @@ class _NoteesAppBodyState extends State<_NoteesAppBody> {
               child: OfflineBanner(
                 child: OfflineSync(
                   dio: auth.dio ?? Dio(),
+                  syncService: auth.syncService,
                   child: MaterialApp.router(
                     title: 'Notees',
                     debugShowCheckedModeBanner: false,
@@ -210,7 +222,7 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
     switch (host) {
       case 'journal':
         try {
-          final repo = NodeRepository(dio: auth.dio!);
+          final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
           final journal = await repo.getOrCreateDailyJournal(DateTime.now());
           if (mounted) {
             router.push('${Routes.editor}/${journal.uuid}');

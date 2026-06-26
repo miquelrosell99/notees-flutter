@@ -88,7 +88,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
 
-    final repo = NodeRepository(dio: auth.dio!);
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
     final result = await CommandPalette.show(context, repo);
 
     if (!mounted || result == null) return;

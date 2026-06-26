@@ -38,7 +38,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
     setState(() => _loading = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final tasks = await repo.fetchTasks(includeComplete: false, pageSize: 100);
       setState(() {
         _tasks = tasks;
@@ -91,7 +91,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
     setState(() => _loading = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.createTask(name);
       await _loadTasks();
     } catch (e) {
@@ -106,7 +106,7 @@ class _TasksScreenState extends State<TasksScreen> {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
 
-    final repo = NodeRepository(dio: auth.dio!);
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
     try {
       final properties = await repo.fetchNodeProperties(task.uuid);
       final statusValue = properties.cast<NodePropertyValue?>().firstWhere(

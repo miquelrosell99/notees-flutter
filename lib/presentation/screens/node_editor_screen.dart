@@ -84,7 +84,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
     setState(() => _loading = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final pageContent = await repo.fetchPageContent(widget.nodeUuid);
       final page = pageContent.node;
 
@@ -181,7 +181,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
     setState(() => _saving = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
 
       final titleAst = AstBuilder.serialize(AstBuilder.parseInline(title));
       await repo.updateNode(widget.nodeUuid, name: titleAst);
@@ -487,7 +487,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   void _onNodeLinkTap(String target) {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
-    final repo = NodeRepository(dio: auth.dio!);
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
     if (_looksLikeUuid(target)) {
       repo.fetchNodeByUuid(target).then((node) {
         if (mounted) context.push('${Routes.editor}/${node.uuid}');

@@ -1,27 +1,34 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/secure/secure_storage.dart';
+import '../../core/utils/client_id.dart';
+import '../../data/local/app_database.dart';
 import '../../data/models/server_profile.dart';
 import '../../data/models/user.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/server_repository.dart';
 import '../../data/repositories/workspace_repository.dart';
+import '../../domain/services/sync_v2_service.dart';
 
 /// Exposes the current server, authenticated user, and auth operations.
 class AuthProvider extends ChangeNotifier {
   AuthProvider({
     required this.serverRepository,
     required this.secureStorage,
+    required this.prefs,
   });
 
   final ServerRepository serverRepository;
   final SecureStorage secureStorage;
+  final SharedPreferences prefs;
 
   ServerProfile? _activeServer;
   User? _user;
   Dio? _dio;
+  SyncV2Service? _syncService;
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -33,6 +40,7 @@ class AuthProvider extends ChangeNotifier {
   bool get busy => _busy;
   String? get error => _error;
   Dio? get dio => _dio;
+  SyncV2Service? get syncService => _syncService;
 
   Future<void> initialize() async {
     _loading = true;
@@ -45,6 +53,7 @@ class AuthProvider extends ChangeNotifier {
           secureStorage: secureStorage,
           trustSelfSigned: _activeServer!.trustSelfSigned,
         );
+        _syncService = await _buildSyncService(_dio!);
         _user = await AuthRepository(dio: _dio!, secureStorage: secureStorage).checkSession();
       }
     } catch (e) {
@@ -55,6 +64,15 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  Future<SyncV2Service> _buildSyncService(Dio dio) async {
+    final clientId = await getClientId(prefs);
+    return SyncV2Service(
+      database: AppDatabase(),
+      dio: dio,
+      clientId: clientId,
+    );
+  }
+
   Future<void> selectServer(ServerProfile server) async {
     await serverRepository.setActiveServerId(server.id);
     _activeServer = server;
@@ -63,6 +81,7 @@ class AuthProvider extends ChangeNotifier {
       secureStorage: secureStorage,
       trustSelfSigned: server.trustSelfSigned,
     );
+    _syncService = await _buildSyncService(_dio!);
     _user = null;
     notifyListeners();
   }

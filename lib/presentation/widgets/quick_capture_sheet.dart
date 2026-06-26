@@ -34,7 +34,10 @@ class QuickCaptureSheet extends StatelessWidget {
       if (text.isEmpty) return;
       HapticFeedback.lightImpact();
       if (auth.dio != null) {
-        await QuickCaptureService(dio: auth.dio!).save(text);
+        await QuickCaptureService(
+          dio: auth.dio!,
+          syncService: auth.syncService,
+        ).save(text);
       }
       if (context.mounted) {
         Navigator.of(context).pop();
@@ -55,7 +58,7 @@ class QuickCaptureSheet extends StatelessWidget {
       if (file == null) return;
 
       try {
-        final journal = await NodeRepository(dio: auth.dio!).getOrCreateDailyJournal(DateTime.now());
+        final journal = await NodeRepository(dio: auth.dio!, syncService: auth.syncService).getOrCreateDailyJournal(DateTime.now());
         await AssetRepository(dio: auth.dio!).uploadFile(file, parentUuid: journal.uuid);
         if (context.mounted) {
           Navigator.of(context).pop();

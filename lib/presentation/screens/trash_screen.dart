@@ -34,7 +34,7 @@ class _TrashScreenState extends State<TrashScreen> {
 
     setState(() => _loading = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final nodes = await repo.fetchTrash(pageSize: 100);
       if (mounted) {
         setState(() {
@@ -55,7 +55,7 @@ class _TrashScreenState extends State<TrashScreen> {
     if (auth.dio == null) return;
 
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.restoreNode(node.uuid);
       await _loadTrash();
     } catch (e) {
@@ -96,7 +96,7 @@ class _TrashScreenState extends State<TrashScreen> {
     if (auth.dio == null) return;
 
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.permanentlyDeleteNode(node.uuid);
       await _loadTrash();
     } catch (e) {
@@ -167,7 +167,7 @@ class _TrashScreenState extends State<TrashScreen> {
     if (auth.dio == null) return;
 
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.emptyTrash();
       await _loadTrash();
     } catch (e) {

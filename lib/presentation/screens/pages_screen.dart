@@ -55,7 +55,7 @@ class _PagesScreenState extends State<PagesScreen> {
 
     setState(() => _loading = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final results = await Future.wait([
         repo.fetchRootPages(),
         repo.fetchRecentPages(limit: 10),
@@ -94,7 +94,7 @@ class _PagesScreenState extends State<PagesScreen> {
     });
 
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       if (isFavorite) {
         await repo.removeFavorite(node.uuid);
       } else {
@@ -152,7 +152,7 @@ class _PagesScreenState extends State<PagesScreen> {
 
     setState(() => _loading = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final page = await repo.createQuickNote(name: name);
       if (mounted) {
         router.push('${Routes.editor}/${page.uuid}');

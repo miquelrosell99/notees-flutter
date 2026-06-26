@@ -8,6 +8,7 @@ import '../../core/routing/router.dart';
 import '../../core/theme/theme_builder.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../data/repositories/workspace_repository.dart';
+import '../../core/secure/encryption_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/biometric_provider.dart';
 import '../providers/settings_provider.dart';
@@ -88,6 +89,142 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final auth = context.read<AuthProvider>();
     await auth.logout();
     if (mounted) context.go('/login');
+  }
+
+  Future<void> _showEncryptionDialog(BuildContext context) async {
+    final encryption = context.read<EncryptionProvider>();
+    final passwordController = TextEditingController();
+    final confirmController = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) {
+          String? error;
+          bool busy = false;
+
+          Future<void> submit() async {
+            final password = passwordController.text;
+            setState(() => error = null);
+            try {
+              if (!encryption.isEnabled) {
+                if (password.length < 8) {
+                  setState(() => error = 'Password must be at least 8 characters');
+                  return;
+                }
+                if (password != confirmController.text) {
+                  setState(() => error = 'Passwords do not match');
+                  return;
+                }
+                setState(() => busy = true);
+                await encryption.enable(password);
+              } else if (!encryption.isUnlocked) {
+                setState(() => busy = true);
+                await encryption.unlock(password);
+              }
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            } on EncryptionException catch (e) {
+              setState(() => error = e.message);
+            } catch (e) {
+              setState(() => error = e.toString());
+            } finally {
+              setState(() => busy = false);
+            }
+          }
+
+          return AlertDialog(
+            title: Text(
+              !encryption.isEnabled
+                  ? 'Enable local encryption'
+                  : !encryption.isUnlocked
+                      ? 'Unlock local encryption'
+                      : 'Local encryption active',
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!encryption.isEnabled) ...[
+                    const Text(
+                      'This will encrypt your local database with SQLCipher. '
+                      'The local cache will be cleared and re-synced from the server.',
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  if (encryption.isEnabled && !encryption.isUnlocked)
+                    const Text(
+                      'Your local database is encrypted. Enter your password to unlock this session.',
+                    ),
+                  if (encryption.isEnabled && encryption.isUnlocked)
+                    const Text(
+                      'Your local database is encrypted and unlocked for this session.',
+                    ),
+                  if (!encryption.isEnabled || !encryption.isUnlocked) ...[
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: passwordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Password',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                  if (!encryption.isEnabled) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirmController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Confirm password',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                  if (error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: busy ? null : () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+              if (!encryption.isEnabled || !encryption.isUnlocked)
+                TextButton(
+                  onPressed: busy ? null : submit,
+                  child: busy ? const CircularProgressIndicator() : const Text('Confirm'),
+                ),
+              if (encryption.isEnabled && encryption.isUnlocked) ...[
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          setState(() => busy = true);
+                          await encryption.lock();
+                          if (ctx.mounted) Navigator.of(ctx).pop();
+                        },
+                  child: const Text('Lock now'),
+                ),
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          setState(() => busy = true);
+                          await encryption.disable();
+                          if (ctx.mounted) Navigator.of(ctx).pop();
+                        },
+                  child: const Text('Disable'),
+                ),
+              ],
+            ],
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -344,6 +481,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onTap: _logout,
                 ),
               ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          const SectionTitle(icon: Icons.security_outlined, label: 'Security'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: _EncryptionSection(
+              onConfigure: () => _showEncryptionDialog(context),
             ),
           ),
           const SizedBox(height: 28),
@@ -643,6 +788,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _EncryptionSection extends StatelessWidget {
+  const _EncryptionSection({required this.onConfigure});
+
+  final VoidCallback onConfigure;
+
+  @override
+  Widget build(BuildContext context) {
+    final encryption = context.watch<EncryptionProvider>();
+    final colors = Theme.of(context).colorScheme;
+
+    if (!encryption.isEnabled) {
+      return ListTile(
+        leading: const Icon(Icons.lock_outline),
+        title: const Text('Local encryption'),
+        subtitle: const Text('Encrypt the local database with a password'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onConfigure,
+      );
+    }
+
+    if (!encryption.isUnlocked) {
+      return ListTile(
+        leading: Icon(Icons.lock, color: colors.primary),
+        title: const Text('Local encryption locked'),
+        subtitle: const Text('Tap to unlock the local database'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onConfigure,
+      );
+    }
+
+    return ListTile(
+      leading: Icon(Icons.lock_open, color: colors.primary),
+      title: const Text('Local encryption active'),
+      subtitle: const Text('Tap to lock or disable encryption'),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: onConfigure,
     );
   }
 }

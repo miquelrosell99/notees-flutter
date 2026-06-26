@@ -21,6 +21,7 @@ class Node {
     this.isTable = false,
     this.isAsset = false,
     this.isComment = false,
+    this.isDeleted = false,
     this.classes = const [],
     this.classesUuid = const [],
     this.tags = const [],
@@ -52,6 +53,7 @@ class Node {
   final bool isTable;
   final bool isAsset;
   final bool isComment;
+  final bool isDeleted;
   final List<int> classes;
   final List<String> classesUuid;
   final List<int> tags;
@@ -83,6 +85,7 @@ class Node {
       isTable: json['is_table'] as bool? ?? false,
       isAsset: json['is_asset'] as bool? ?? false,
       isComment: json['is_comment'] as bool? ?? false,
+      isDeleted: json['is_deleted'] as bool? ?? false,
       classes: (json['classes'] as List<dynamic>?)?.cast<int>() ?? const [],
       classesUuid: (json['classes_uuid'] as List<dynamic>?)?.cast<String>() ?? const [],
       tags: (json['tags'] as List<dynamic>?)?.cast<int>() ?? const [],
@@ -114,6 +117,7 @@ class Node {
         'is_table': isTable,
         'is_asset': isAsset,
         'is_comment': isComment,
+        'is_deleted': isDeleted,
         'classes': classes,
         'classes_uuid': classesUuid,
         'tags': tags,

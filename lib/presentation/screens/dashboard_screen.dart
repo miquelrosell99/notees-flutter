@@ -38,7 +38,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _loadDashboard() async {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
-    final repo = NodeRepository(dio: auth.dio!);
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
 
     setState(() => _loading = true);
     try {
@@ -64,7 +64,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<Node> _getOrCreateJournal(DateTime date) async {
     final auth = context.read<AuthProvider>();
-    final repo = NodeRepository(dio: auth.dio!);
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
     return repo.getOrCreateDailyJournal(date);
   }
 
@@ -89,7 +89,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
 
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       if (isFavorite) {
         await repo.removeFavorite(node.uuid);
       } else {

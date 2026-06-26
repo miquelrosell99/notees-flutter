@@ -38,7 +38,7 @@ class _JournalScreenState extends State<JournalScreen> {
 
     setState(() => _loading = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final journals = await repo.searchWithFilters(
         const SearchFilters(
           nodeType: NodeType.journal,
@@ -64,7 +64,7 @@ class _JournalScreenState extends State<JournalScreen> {
 
     setState(() => _loading = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final journal = await repo.getOrCreateDailyJournal(DateTime.now());
       if (mounted) {
         context.push('${Routes.editor}/${journal.id}');
@@ -82,7 +82,7 @@ class _JournalScreenState extends State<JournalScreen> {
 
     setState(() => _loading = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!);
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final journal = await repo.getOrCreateDailyJournal(date);
       if (mounted) {
         context.push('${Routes.editor}/${journal.id}');

@@ -2,21 +2,30 @@ import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
+import 'package:uuid/uuid.dart';
 
+import '../../core/utils/ast_builder.dart';
 import '../../data/local/app_database.dart';
 import '../models/editor_block_snapshot.dart';
 import 'editor_save_service.dart';
+import 'sync_v2_service.dart';
 
 /// Stores API mutations while offline and replays them when connectivity
 /// returns. Supports quick-note creation and editor page saves.
+///
+/// When a [SyncV2Service] is available, legacy queued items are translated into
+/// v2 sync operations so they participate in the same outbox and conflict
+/// resolution path.
 class OfflineQueue {
   OfflineQueue({
     required this.database,
     required this.dio,
+    this.syncService,
   });
 
   final AppDatabase database;
   final Dio dio;
+  final SyncV2Service? syncService;
 
   Future<void> enqueueQuickNote(String name) async {
     await database.enqueue('quick_note', jsonEncode({'name': name}));
@@ -62,10 +71,21 @@ class OfflineQueue {
         switch (method) {
           case 'quick_note':
             final name = payload['name'] as String;
-            await dio.post<Map<String, dynamic>>(
-              '/nodes/page',
-              queryParameters: {'name': name},
-            );
+            if (syncService != null) {
+              final nodeUuid = const Uuid().v7();
+              await syncService!.enqueue(
+                type: 'create',
+                nodeUuid: nodeUuid,
+                contentAst: AstBuilder.parseInline(name),
+                isPage: true,
+              );
+              await syncService!.flush();
+            } else {
+              await dio.post<Map<String, dynamic>>(
+                '/nodes/page',
+                queryParameters: {'name': name},
+              );
+            }
           case 'editor_save':
             final pageUuid = payload['page_uuid'] as String;
             final title = payload['title'] as String;
@@ -75,7 +95,7 @@ class OfflineQueue {
             final deletedUuids = ((payload['deleted_uuids'] as List<dynamic>?) ?? [])
                 .map((e) => e as String)
                 .toList();
-            final service = EditorSaveService(dio: dio);
+            final service = EditorSaveService(dio: dio, syncService: syncService);
             await service.savePage(
               pageUuid: pageUuid,
               title: title,
@@ -86,6 +106,8 @@ class OfflineQueue {
         await database.remove((item['id'] as num).toInt());
       } on DioException catch (e) {
         errors.add('$method: ${e.message}');
+      } catch (e) {
+        errors.add('$method: $e');
       }
     }
     return errors;

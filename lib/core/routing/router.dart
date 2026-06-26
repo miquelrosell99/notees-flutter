@@ -242,7 +242,7 @@ class _JournalRedirectState extends State<_JournalRedirect> {
     if (auth.dio == null) return;
 
     try {
-      final journal = await NodeRepository(dio: auth.dio!).getOrCreateDailyJournal(DateTime.now());
+      final journal = await NodeRepository(dio: auth.dio!, syncService: auth.syncService).getOrCreateDailyJournal(DateTime.now());
       if (mounted) {
         context.go('${Routes.editor}/${journal.uuid}');
       }
