@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build a debug APK for the Notees Flutter app inside Docker.
+# Build a release APK for the Notees Flutter app inside Docker.
 # Outputs: dist/notees.apk
 
 cd "$(dirname "$0")"

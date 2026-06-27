@@ -11,6 +11,8 @@ import 'package:sqflite_sqlcipher/sqflite.dart';
 /// encryption password. Encryption is opt-in; when enabled the database file is
 /// recreated with a SQLCipher password.
 class AppDatabase {
+  // Kept configurable for tests that need an isolated database file.
+  // ignore: unused_element_parameter
   AppDatabase._internal([this._dbName = 'notees_mobile.db']);
 
   static AppDatabase? _instance;
@@ -22,21 +24,15 @@ class AppDatabase {
   static void reset() {
     _instance?._db = null;
     _instance = null;
-    _encryptionPassword = null;
+    encryptionPassword = null;
   }
 
   final String _dbName;
   Database? _db;
 
-  static String? _encryptionPassword;
-
-  /// Sets the SQLCipher password used when opening the database.
-  /// Pass `null` to use an unencrypted database.
-  static set encryptionPassword(String? password) {
-    _encryptionPassword = password;
-  }
-
-  static String? get encryptionPassword => _encryptionPassword;
+  /// The SQLCipher password used when opening the database.
+  /// Set to `null` to use an unencrypted database.
+  static String? encryptionPassword;
 
   Future<Database> get database async => _db ??= await _open();
 
@@ -50,7 +46,7 @@ class AppDatabase {
     return openDatabase(
       path,
       version: 3,
-      password: _encryptionPassword,
+      password: encryptionPassword,
       onCreate: (db, version) async {
         await _createOfflineQueue(db);
         await _createSyncOutbox(db);

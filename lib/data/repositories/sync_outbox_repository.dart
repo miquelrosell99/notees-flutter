@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:sqflite_sqlcipher/sqflite.dart';
+
 import '../../domain/models/sync_v2.dart';
 import '../local/app_database.dart';
 
@@ -86,7 +88,6 @@ class SyncOutboxRepository {
 
   Future<void> removeByNodeUuids(List<String> nodeUuids) async {
     if (nodeUuids.isEmpty) return;
-    final db = await _database.database;
     final all = await pending();
     final idsToRemove = all
         .where((op) => nodeUuids.contains(op.operation.nodeUuid))

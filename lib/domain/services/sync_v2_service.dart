@@ -47,11 +47,10 @@ class SyncV2Service {
   SyncV2Service({
     required AppDatabase database,
     required this.dio,
-    required String clientId,
+    required this._clientId,
   })  : _outbox = SyncOutboxRepository(database),
         _vectorStore = VectorClockStore(database),
-        _cache = NodeCacheRepository(database),
-        _clientId = clientId;
+        _cache = NodeCacheRepository(database);
 
   final SyncOutboxRepository _outbox;
   final VectorClockStore _vectorStore;

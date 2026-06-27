@@ -183,7 +183,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                   if (error != null) ...[
                     const SizedBox(height: 12),
-                    Text(error, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+                    Text(error!, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
                   ],
                 ],
               ),
