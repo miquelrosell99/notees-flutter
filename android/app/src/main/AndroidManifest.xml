@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.BIND_QUICK_SETTINGS_TILE" />
 
     <application
         android:label="Notees"
@@ -46,6 +47,28 @@
                 <data android:scheme="notees"/>
             </intent-filter>
         </activity>
+        <service
+            android:name=".QuickNoteTileService"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true"
+            android:label="@string/quick_note_tile_label"
+            android:icon="@drawable/ic_tile_quick_note">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".AudioNoteTileService"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true"
+            android:label="@string/audio_note_tile_label"
+            android:icon="@drawable/ic_tile_audio_note">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

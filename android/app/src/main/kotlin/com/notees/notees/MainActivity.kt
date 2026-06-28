@@ -11,6 +11,8 @@ class MainActivity : FlutterActivity() {
         const val CHANNEL = "com.notees.notees/intents"
         private var pendingShareText: String? = null
         private var pendingDeepLink: String? = null
+        private var pendingQuickNoteTile: Boolean = false
+        private var pendingAudioNoteTile: Boolean = false
     }
 
     private var methodChannel: MethodChannel? = null
@@ -40,6 +42,16 @@ class MainActivity : FlutterActivity() {
                     pendingDeepLink = null
                     result.success(link)
                 }
+                "getPendingQuickNoteTile" -> {
+                    val pending = pendingQuickNoteTile
+                    pendingQuickNoteTile = false
+                    result.success(pending)
+                }
+                "getPendingAudioNoteTile" -> {
+                    val pending = pendingAudioNoteTile
+                    pendingAudioNoteTile = false
+                    result.success(pending)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -64,6 +76,14 @@ class MainActivity : FlutterActivity() {
                     flushPendingEvents()
                 }
             }
+            QuickNoteTileService.ACTION_QUICK_NOTE -> {
+                pendingQuickNoteTile = true
+                flushPendingEvents()
+            }
+            AudioNoteTileService.ACTION_AUDIO_NOTE -> {
+                pendingAudioNoteTile = true
+                flushPendingEvents()
+            }
         }
     }
 
@@ -74,6 +94,14 @@ class MainActivity : FlutterActivity() {
         }
         if (pendingDeepLink != null) {
             methodChannel?.invokeMethod("onDeepLink", pendingDeepLink)
+        }
+        if (pendingQuickNoteTile) {
+            pendingQuickNoteTile = false
+            methodChannel?.invokeMethod("onQuickNoteTile", null)
+        }
+        if (pendingAudioNoteTile) {
+            pendingAudioNoteTile = false
+            methodChannel?.invokeMethod("onAudioNoteTile", null)
         }
     }
 }

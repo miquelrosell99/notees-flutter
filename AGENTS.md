@@ -85,6 +85,13 @@ cd mobile
 docker compose run --rm flutter flutter analyze
 ```
 
+The Android workflow and `mobile/Dockerfile` run `scripts/patch_kgp_plugins.py`
+after `flutter pub get`. This removes legacy Kotlin Gradle Plugin application
+from the few remaining plugins that have not yet migrated to AGP 9+ built-in
+Kotlin (`cryptography_flutter`, `dynamic_color`, `workmanager_android`).
+`share_plus`, `package_info_plus`, and `record` were upgraded to KGP-free major
+versions instead. The patch is idempotent and only touches the pub cache.
+
 Common issues that break the Android build:
 
 - **Map literal types**: deduplicating lists into a map must use `<int, Node>{...}`, not `<Node>{...}`. The latter creates a `Set<Node>` and `.values` is undefined.

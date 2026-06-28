@@ -309,6 +309,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   onTap: () => _showDateFormatPicker(context, settings),
                 ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.add_circle_outline),
+                  title: const Text('Quick capture destination'),
+                  trailing: Text(
+                    quickCaptureDestinationLabel(settings.quickCaptureDestination),
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showQuickCaptureDestinationPicker(context, settings),
+                ),
               ],
             ),
           ),
@@ -642,6 +652,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       labelBuilder: (v) => '$v days',
     );
     if (days != null) await settings.setTrashRetentionDays(days);
+  }
+
+  Future<void> _showQuickCaptureDestinationPicker(BuildContext context, SettingsProvider settings) async {
+    final destination = await _showEnumPicker<QuickCaptureDestination>(
+      context: context,
+      title: 'Quick capture destination',
+      values: QuickCaptureDestination.values,
+      selected: settings.quickCaptureDestination,
+      labelBuilder: quickCaptureDestinationLabel,
+    );
+    if (destination != null) await settings.setQuickCaptureDestination(destination);
   }
 
   Future<T?> _showEnumPicker<T>({

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import 'core/theme/theme_builder.dart';
 import 'core/theme/theme_provider.dart';
 import 'data/repositories/node_repository.dart';
 import 'data/repositories/server_repository.dart';
+import 'domain/services/quick_capture.dart';
 import 'native/app_locker.dart';
 import 'native/background_sync.dart';
 import 'native/intent_receiver.dart';
@@ -21,6 +23,7 @@ import 'presentation/providers/auth_provider.dart';
 import 'presentation/providers/biometric_provider.dart';
 import 'presentation/providers/connectivity_provider.dart';
 import 'presentation/providers/settings_provider.dart';
+import 'presentation/widgets/audio_recorder_sheet.dart';
 import 'presentation/widgets/offline_banner.dart';
 import 'presentation/widgets/quick_capture_sheet.dart';
 
@@ -97,17 +100,21 @@ class _NoteesAppBodyState extends State<_NoteesAppBody> {
         return AppLocker(
           child: ShareListener(
             child: DeepLinkListener(
-              child: OfflineBanner(
-                child: OfflineSync(
-                  dio: auth.dio ?? Dio(),
-                  syncService: auth.syncService,
-                  child: MaterialApp.router(
-                    title: 'Notees',
-                    debugShowCheckedModeBanner: false,
-                    theme: light,
-                    darkTheme: dark,
-                    themeMode: _flutterThemeMode(themeProvider.themeMode),
-                    routerConfig: _router,
+              child: QuickNoteTileListener(
+                child: AudioNoteTileListener(
+                  child: OfflineBanner(
+                    child: OfflineSync(
+                      dio: auth.dio ?? Dio(),
+                      syncService: auth.syncService,
+                      child: MaterialApp.router(
+                        title: 'Notees',
+                        debugShowCheckedModeBanner: false,
+                        theme: light,
+                        darkTheme: dark,
+                        themeMode: _flutterThemeMode(themeProvider.themeMode),
+                        routerConfig: _router,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -255,6 +262,128 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
 
   bool _looksLikeUuid(String value) {
     return RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(value);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+/// Listens for the Android Quick Settings "Quick note" tile and opens the
+/// quick-capture bottom sheet.
+class QuickNoteTileListener extends StatefulWidget {
+  const QuickNoteTileListener({super.key, required this.child});
+  final Widget child;
+
+  @override
+  State<QuickNoteTileListener> createState() => _QuickNoteTileListenerState();
+}
+
+class _QuickNoteTileListenerState extends State<QuickNoteTileListener> {
+  StreamSubscription<void>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = IntentReceiver.instance.onQuickNoteTile.listen(_onTile);
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  void _onTile(void _) {
+    final ctx = context;
+    if (!ctx.mounted) return;
+    final auth = ctx.read<AuthProvider>();
+    if (!auth.isAuthenticated) return;
+    showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      builder: (_) => const QuickCaptureSheet(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+/// Listens for the Android Quick Settings "Audio note" tile and opens the
+/// audio recorder sheet. When a recording is confirmed it is uploaded as an
+/// asset block to the user's configured quick-capture destination.
+class AudioNoteTileListener extends StatefulWidget {
+  const AudioNoteTileListener({super.key, required this.child});
+  final Widget child;
+
+  @override
+  State<AudioNoteTileListener> createState() => _AudioNoteTileListenerState();
+}
+
+class _AudioNoteTileListenerState extends State<AudioNoteTileListener> {
+  StreamSubscription<void>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = IntentReceiver.instance.onAudioNoteTile.listen(_onTile);
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _onTile(void _) async {
+    final ctx = context;
+    if (!ctx.mounted) return;
+    final auth = ctx.read<AuthProvider>();
+    if (!auth.isAuthenticated || auth.dio == null) return;
+
+    final file = await showModalBottomSheet<File>(
+      context: ctx,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (_) => const AudioRecorderSheet(),
+    );
+    if (file == null || !ctx.mounted) return;
+
+    final settings = ctx.read<SettingsProvider>();
+    final destination = settings.quickCaptureDestination;
+    final parentUuid = await _resolveParentUuid(auth, destination);
+    if (!ctx.mounted) return;
+
+    try {
+      await QuickCaptureService(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      ).uploadAsset(file, parentUuid: parentUuid);
+      if (ctx.mounted) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          const SnackBar(content: Text('Audio note saved')),
+        );
+      }
+    } catch (e) {
+      if (ctx.mounted) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(content: Text('Audio upload failed: $e')),
+        );
+      }
+    }
+  }
+
+  Future<String> _resolveParentUuid(
+    AuthProvider auth,
+    QuickCaptureDestination destination,
+  ) async {
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+    return resolveQuickCaptureParentUuid(
+      repository: repo,
+      destination: destination,
+    );
   }
 
   @override

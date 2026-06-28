@@ -4,6 +4,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../presentation/views/node_view_mode.dart';
 
+/// Where quick-captured notes and audio recordings are saved.
+enum QuickCaptureDestination {
+  inbox,
+  today,
+}
+
 /// Persists user settings that are not handled by [ThemeProvider].
 class SettingsProvider extends ChangeNotifier {
   SettingsProvider(this._prefs);
@@ -28,6 +34,14 @@ class SettingsProvider extends ChangeNotifier {
 
   String get dateFormat => _prefs.getString(_dateFormatKey) ?? 'YYYY/MM/DD';
 
+  QuickCaptureDestination get quickCaptureDestination {
+    final raw = _prefs.getString(_quickCaptureDestinationKey);
+    return QuickCaptureDestination.values.firstWhere(
+      (d) => d.name == raw,
+      orElse: () => QuickCaptureDestination.inbox,
+    );
+  }
+
   Future<void> setDefaultViewMode(NodeViewMode value) async {
     await _prefs.setString(_defaultViewModeKey, value.name);
     HapticFeedback.lightImpact();
@@ -48,6 +62,12 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> setDateFormat(String value) async {
     await _prefs.setString(_dateFormatKey, value);
+    HapticFeedback.lightImpact();
+    notifyListeners();
+  }
+
+  Future<void> setQuickCaptureDestination(QuickCaptureDestination value) async {
+    await _prefs.setString(_quickCaptureDestinationKey, value.name);
     HapticFeedback.lightImpact();
     notifyListeners();
   }
@@ -130,6 +150,15 @@ class SettingsProvider extends ChangeNotifier {
   static const _showSidebarPagesKey = 'show_sidebar_pages';
   static const _showSidebarGraphKey = 'show_sidebar_graph';
   static const _trashRetentionDaysKey = 'trash_retention_days';
+  static const _quickCaptureDestinationKey = 'quick_capture_destination';
+}
+
+/// Human-readable label for a [QuickCaptureDestination].
+String quickCaptureDestinationLabel(QuickCaptureDestination destination) {
+  return switch (destination) {
+    QuickCaptureDestination.inbox => 'Inbox',
+    QuickCaptureDestination.today => "Today's note",
+  };
 }
 
 /// Supported date format patterns.

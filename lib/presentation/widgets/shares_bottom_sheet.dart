@@ -78,7 +78,9 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
         expiryDate: expiryDate,
       );
       if (share.url != null && share.url!.isNotEmpty) {
-        await share_plus.Share.share(share.url!);
+        await share_plus.SharePlus.instance.share(
+          share_plus.ShareParams(uri: Uri.parse(share.url!)),
+        );
       }
       await _loadShares();
     } catch (e) {

@@ -136,12 +136,12 @@ class _NoteesWebViewScreenState extends State<NoteesWebViewScreen> {
     return NavigationDecision.navigate;
   }
 
-  void _handleNativeDeepLink(Uri uri) {
+  Future<void> _handleNativeDeepLink(Uri uri) async {
     HapticFeedback.lightImpact();
 
     if (uri.host == 'share') {
       final text = uri.queryParameters['text'] ?? '';
-      if (text.isNotEmpty) Share.share(text);
+      if (text.isNotEmpty) await SharePlus.instance.share(ShareParams(text: text));
       return;
     }
 
@@ -180,14 +180,14 @@ class _NoteesWebViewScreenState extends State<NoteesWebViewScreen> {
     }
   }
 
-  void _onNativeMessage(JavaScriptMessage message) {
+  Future<void> _onNativeMessage(JavaScriptMessage message) async {
     try {
       final data = jsonDecode(message.message) as Map<String, dynamic>;
       final action = data['action'] as String?;
       switch (action) {
         case 'share':
           final text = data['text'] as String? ?? '';
-          if (text.isNotEmpty) Share.share(text);
+          if (text.isNotEmpty) await SharePlus.instance.share(ShareParams(text: text));
         case 'openExternal':
           final url = data['url'] as String?;
           if (url != null) _openExternal(url);

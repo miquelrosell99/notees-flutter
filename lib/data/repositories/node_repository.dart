@@ -161,8 +161,10 @@ class NodeRepository {
     required String name,
     bool isTask = false,
     String? color,
+    String? parentUuid,
   }) async {
     final classUuids = isTask ? [SystemClassUuids.task] : <String>[];
+    final targetParent = parentUuid ?? SystemPageUuids.inbox;
 
     if (syncService != null) {
       final nodeUuid = const Uuid().v7();
@@ -170,7 +172,7 @@ class NodeRepository {
         type: 'create',
         nodeUuid: nodeUuid,
         contentAst: AstBuilder.parseInline(name),
-        parentUuid: SystemPageUuids.inbox,
+        parentUuid: targetParent,
         isPage: false,
         isTask: isTask,
         properties: color != null ? {'color': color} : null,
@@ -191,7 +193,7 @@ class NodeRepository {
       '/nodes/',
       data: {
         'name': AstBuilder.serialize(AstBuilder.parseInline(name)),
-        'parent_uuid': SystemPageUuids.inbox,
+        'parent_uuid': targetParent,
         'class_uuids': classUuids,
         'color': color,
       },

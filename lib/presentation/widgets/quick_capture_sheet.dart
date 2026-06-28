@@ -5,12 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/constants/system.dart';
 import '../../core/utils/color_presets.dart';
 import '../../data/repositories/asset_repository.dart';
 import '../../data/repositories/node_repository.dart';
 import '../../domain/services/quick_capture.dart';
 import '../providers/auth_provider.dart';
 import '../providers/connectivity_provider.dart';
+import '../providers/settings_provider.dart';
 import 'audio_recorder_sheet.dart';
 
 /// Bottom sheet for creating a quick note. Saves immediately if online, or
@@ -51,15 +53,34 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
     if (text.isEmpty) return;
     HapticFeedback.lightImpact();
     if (auth.dio != null) {
+      final settings = context.read<SettingsProvider>();
+      final destination = settings.quickCaptureDestination;
+      final parentUuid = await _resolveParentUuid(auth, destination);
       await QuickCaptureService(
         dio: auth.dio!,
         syncService: auth.syncService,
-      ).save(text, color: _selectedColor);
+      ).save(
+        text,
+        color: _selectedColor,
+        parentUuid: parentUuid,
+      );
     }
     if (mounted) {
       Navigator.of(context).pop();
       widget.onSaved?.call();
     }
+  }
+
+  Future<String?> _resolveParentUuid(
+    AuthProvider auth,
+    QuickCaptureDestination destination,
+  ) async {
+    if (auth.dio == null) return null;
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+    return resolveQuickCaptureParentUuid(
+      repository: repo,
+      destination: destination,
+    );
   }
 
   Future<void> _capturePhoto(AuthProvider auth, ImageSource source) async {
@@ -101,6 +122,9 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
 
   Future<void> _recordAudio(AuthProvider auth) async {
     if (auth.dio == null) return;
+    final settings = context.read<SettingsProvider>();
+    final destination = settings.quickCaptureDestination;
+
     final file = await showModalBottomSheet<File>(
       context: context,
       isScrollControlled: true,
@@ -109,11 +133,15 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
       ),
       builder: (ctx) => const AudioRecorderSheet(),
     );
-    if (file == null) return;
+    if (file == null || !mounted) return;
 
     try {
-      final journal = await NodeRepository(dio: auth.dio!, syncService: auth.syncService).getOrCreateDailyJournal(DateTime.now());
-      await AssetRepository(dio: auth.dio!).uploadFile(file, parentUuid: journal.uuid);
+      final parentUuid = await _resolveParentUuid(auth, destination);
+      if (!mounted) return;
+      await QuickCaptureService(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      ).uploadAsset(file, parentUuid: parentUuid ?? SystemPageUuids.inbox);
       if (mounted) {
         Navigator.of(context).pop();
         widget.onSaved?.call();
@@ -189,11 +217,13 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
           ),
           Text('Quick note', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 4),
-          Text(
-            'Saved to Inbox',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+          Consumer<SettingsProvider>(
+            builder: (context, settings, _) => Text(
+              'Saved to ${quickCaptureDestinationLabel(settings.quickCaptureDestination)}',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
           ),
           const SizedBox(height: 16),
           TextField(

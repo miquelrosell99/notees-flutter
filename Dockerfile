@@ -14,6 +14,12 @@ ARG BUILD_FLAVOR=release
 COPY pubspec.yaml pubspec.lock ./
 RUN flutter pub get
 
+# Patch plugins that still apply the Kotlin Gradle Plugin so the Flutter
+# Gradle Plugin stops emitting built-in Kotlin migration warnings.
+# This is a temporary workaround until upstream plugins migrate.
+COPY scripts/patch_kgp_plugins.py ./scripts/patch_kgp_plugins.py
+RUN python3 ./scripts/patch_kgp_plugins.py
+
 # Copy the rest of the source.
 COPY . .
 
