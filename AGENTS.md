@@ -43,6 +43,8 @@ mobile/
 
 **Release APK builds must run in GitHub Actions only.** Do not build release APKs locally. The Android workflow (`.github/workflows/android.yml`) builds, signs, and uploads the APK on every push or pull request that touches `mobile/**`.
 
+CI uses directly-installed tooling (`actions/setup-java`, `subosito/flutter-action`, `android-actions/setup-android`) with cached `~/.pub-cache` and Gradle homes, following the same pattern as Logseq's Android workflow. It builds an unsigned release APK and then signs it with `apksigner` using the production keystore.
+
 To request a CI build manually:
 
 ```bash
@@ -53,11 +55,11 @@ cd mobile
 
 Then download the artifact from the printed workflow run.
 
-The local Docker-based build (`./build-apk.sh` / `docker compose run --rm build-apk`) exists only for CI debugging or validating the build image. It is not a routine developer command.
+The local Docker-based build (`./build-apk.sh` / `docker compose run --rm build-apk`) exists only for local debugging without a host Flutter SDK. It produces an unsigned release APK; it is not a routine developer command and does not match the CI environment exactly.
 
 ## Local development with Docker Compose
 
-A `compose.yaml` is provided for lightweight local Flutter checks without installing the Flutter SDK. It uses the same `ghcr.io/cirruslabs/flutter:stable` image as CI and persists `pub-cache` and Gradle caches in Docker volumes.
+A `compose.yaml` is provided for lightweight local Flutter checks without installing the Flutter SDK. It uses the `ghcr.io/cirruslabs/flutter:stable` image and persists `pub-cache` and Gradle caches in Docker volumes.
 
 ```bash
 cd mobile
@@ -68,7 +70,7 @@ docker compose run --rm flutter flutter analyze
 # Run tests
 docker compose run --rm flutter flutter test
 
-# Build a release APK
+# Build an unsigned release APK (for debugging only)
 docker compose run --rm build-apk
 ```
 

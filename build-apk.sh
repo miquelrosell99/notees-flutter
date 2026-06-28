@@ -2,6 +2,7 @@
 set -euo pipefail
 
 # Build a release APK for the Notees Flutter app inside Docker.
+# Release builds are unsigned by default; sign them separately with apksigner.
 # Outputs: dist/notees.apk
 
 cd "$(dirname "$0")"
