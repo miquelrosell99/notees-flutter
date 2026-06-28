@@ -17,6 +17,8 @@ import '../views/node_collection.dart';
 import '../views/node_view_mode.dart';
 import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/filter_chip_bar.dart';
+import '../widgets/fleet_card.dart';
+import '../widgets/section_title.dart';
 import '../widgets/view_mode_sheet.dart';
 
 /// Live search across nodes with advanced filters.
@@ -46,11 +48,19 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _loadingSavedViews = true;
   NodeView? _activeSavedView;
 
+  // Recents and favorites shown when the search box is empty (like the web
+  // command palette).
+  List<Node> _recents = [];
+  List<Node> _favorites = [];
+  Set<String> _favoriteUuids = {};
+  bool _loadingSuggestions = true;
+
   @override
   void initState() {
     super.initState();
     _loadViewMode();
     _loadSavedSearches();
+    _loadSuggestions();
   }
 
   Future<void> _loadViewMode() async {
@@ -121,6 +131,74 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     } catch (_) {
       if (mounted) setState(() => _loadingSavedViews = false);
+    }
+  }
+
+  Future<void> _loadSuggestions() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) {
+      if (mounted) setState(() => _loadingSuggestions = false);
+      return;
+    }
+
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+    try {
+      final results = await Future.wait([
+        repo.fetchRecentPages(limit: 10),
+        repo.fetchFavorites(limit: 50),
+        repo.fetchFavoriteUuids(),
+      ]);
+      if (mounted) {
+        setState(() {
+          _recents = results[0] as List<Node>;
+          _favorites = results[1] as List<Node>;
+          _favoriteUuids = (results[2] as List<String>).toSet();
+          _loadingSuggestions = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingSuggestions = false);
+    }
+  }
+
+  Future<void> _toggleFavorite(Node node) async {
+    HapticFeedback.lightImpact();
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    final isFavorite = _favoriteUuids.contains(node.uuid);
+    setState(() {
+      if (isFavorite) {
+        _favoriteUuids.remove(node.uuid);
+        _favorites.removeWhere((n) => n.uuid == node.uuid);
+      } else {
+        _favoriteUuids.add(node.uuid);
+        _favorites.add(node);
+      }
+    });
+
+    try {
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      if (isFavorite) {
+        await repo.removeFavorite(node.uuid);
+      } else {
+        await repo.addFavorite(node.uuid);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          if (isFavorite) {
+            _favoriteUuids.add(node.uuid);
+            _favorites.add(node);
+          } else {
+            _favoriteUuids.remove(node.uuid);
+            _favorites.removeWhere((n) => n.uuid == node.uuid);
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update favorite: $e')),
+        );
+      }
     }
   }
 
@@ -384,7 +462,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     if (_controller.text.trim().isEmpty && _filters.isEmpty && _activeSavedView == null) {
-      return const Center(child: Text('Start typing to search'));
+      return _buildSuggestions(colors);
     }
 
     if (_results.isEmpty) {
@@ -397,6 +475,109 @@ class _SearchScreenState extends State<SearchScreen> {
       onNodeTap: _openNode,
       footer: _hasMore ? _buildLoadMoreButton() : null,
     );
+  }
+
+  Widget _buildSuggestions(ColorScheme colors) {
+    if (_loadingSuggestions) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        if (_favorites.isNotEmpty) ...[
+          const SectionTitle(icon: Icons.star_outline, label: 'Favorites'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: Column(
+              children: _favorites.asMap().entries.map((entry) {
+                final node = entry.value;
+                final isLast = entry.key == _favorites.length - 1;
+                return Column(
+                  children: [
+                    ListTile(
+                      leading: Icon(
+                        _iconForNode(node),
+                        color: colors.onSurfaceVariant,
+                      ),
+                      title: Text(node.displayName),
+                      trailing: _favoriteTrailing(node),
+                      onTap: () => _openNode(node),
+                    ),
+                    if (!isLast) const Divider(height: 1),
+                  ],
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 28),
+        ],
+        const SectionTitle(icon: Icons.access_time, label: 'Recent pages'),
+        const SizedBox(height: 8),
+        FleetCard(
+          child: _recents.isEmpty
+              ? _buildEmptyTile('No recent pages')
+              : Column(
+                  children: _recents.asMap().entries.map((entry) {
+                    final node = entry.value;
+                    final isLast = entry.key == _recents.length - 1;
+                    return Column(
+                      children: [
+                        ListTile(
+                          leading: Icon(
+                            _iconForNode(node),
+                            color: colors.onSurfaceVariant,
+                          ),
+                          title: Text(node.displayName),
+                          trailing: _favoriteTrailing(node),
+                          onTap: () => _openNode(node),
+                        ),
+                        if (!isLast) const Divider(height: 1),
+                      ],
+                    );
+                  }).toList(),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _favoriteTrailing(Node node) {
+    final isFavorite = _favoriteUuids.contains(node.uuid);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(
+            isFavorite ? Icons.star : Icons.star_border,
+            color: isFavorite ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+          tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
+          onPressed: () => _toggleFavorite(node),
+        ),
+        Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurfaceVariant),
+      ],
+    );
+  }
+
+  Widget _buildEmptyTile(String message) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Center(
+        child: Text(
+          message,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+      ),
+    );
+  }
+
+  IconData _iconForNode(Node node) {
+    if (node.isJournal) return Icons.calendar_today_outlined;
+    if (node.isTask) return Icons.check_circle_outline;
+    return Icons.description_outlined;
   }
 
   Widget _buildLoadMoreButton() {

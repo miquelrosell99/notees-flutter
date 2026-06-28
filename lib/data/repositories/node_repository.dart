@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/constants/system.dart';
 import '../../core/utils/ast_builder.dart';
 import '../../domain/models/search_filters.dart';
 import '../../domain/services/sync_v2_service.dart';
@@ -113,6 +114,10 @@ class NodeRepository {
     return PageContent.fromJson(response.data!);
   }
 
+  Future<PageContent> fetchInboxContent() async {
+    return fetchPageContent(SystemPageUuids.inbox);
+  }
+
   Future<Node> createQuickNote({
     required String name,
     String? icon,
@@ -147,6 +152,48 @@ class NodeRepository {
         // ignore: use_null_aware_elements
         if (icon != null) 'icon': icon,
         if (additionalTypes.isNotEmpty) 'additional_types': additionalTypes,
+      },
+    );
+    return Node.fromJson(response.data!);
+  }
+
+  Future<Node> createInboxBlock({
+    required String name,
+    bool isTask = false,
+    String? color,
+  }) async {
+    final classUuids = isTask ? [SystemClassUuids.task] : <String>[];
+
+    if (syncService != null) {
+      final nodeUuid = const Uuid().v7();
+      await syncService!.enqueue(
+        type: 'create',
+        nodeUuid: nodeUuid,
+        contentAst: AstBuilder.parseInline(name),
+        parentUuid: SystemPageUuids.inbox,
+        isPage: false,
+        isTask: isTask,
+        properties: color != null ? {'color': color} : null,
+      );
+      await syncService!.flush();
+      return Node(
+        id: 0,
+        uuid: nodeUuid,
+        name: AstBuilder.serialize(AstBuilder.parseInline(name)),
+        displayName: name,
+        isPage: false,
+        isTask: isTask,
+        color: color,
+      );
+    }
+
+    final response = await dio.post<Map<String, dynamic>>(
+      '/nodes/',
+      data: {
+        'name': AstBuilder.serialize(AstBuilder.parseInline(name)),
+        'parent_uuid': SystemPageUuids.inbox,
+        'class_uuids': classUuids,
+        'color': color,
       },
     );
     return Node.fromJson(response.data!);
@@ -301,6 +348,39 @@ class NodeRepository {
         .where((r) => r['success'] == true && r['node'] != null)
         .map((r) => Node.fromJson(r['node'] as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<void> archiveNode(String uuid) async {
+    await dio.post<Map<String, dynamic>>('/nodes/$uuid/archive');
+  }
+
+  Future<void> unarchiveNode(String uuid) async {
+    await dio.post<Map<String, dynamic>>('/nodes/$uuid/unarchive');
+  }
+
+  Future<List<Node>> fetchArchived({int page = 1, int pageSize = 50}) async {
+    final response = await dio.get<Map<String, dynamic>>(
+      '/nodes/archived',
+      queryParameters: {'page': page, 'page_size': pageSize},
+    );
+    final data = response.data;
+    if (data == null) return [];
+    final items = (data['items'] ?? data['nodes']) as List<dynamic>? ?? [];
+    return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> moveNode({
+    required String nodeUuid,
+    String? parentUuid,
+    int? position,
+  }) async {
+    await dio.put<Map<String, dynamic>>(
+      '/nodes/$nodeUuid/move',
+      data: {
+        'parent_uuid': parentUuid,
+        'position': position,
+      },
+    );
   }
 
   Future<void> deleteNode(String uuid) async {

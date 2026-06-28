@@ -6,6 +6,7 @@ import '../../data/repositories/node_repository.dart';
 import '../../presentation/providers/auth_provider.dart';
 import '../../presentation/screens/about_screen.dart';
 import '../../presentation/screens/api_keys_screen.dart';
+import '../../presentation/screens/archived_screen.dart';
 import '../../presentation/screens/login_screen.dart';
 import '../../presentation/screens/main_shell_screen.dart';
 import '../../presentation/screens/notifications_screen.dart';
@@ -28,6 +29,7 @@ abstract class Routes {
   static const dashboard = '/dashboard';
   static const settings = '/settings';
   static const about = '/about';
+  static const archived = '/archived';
   static const editor = '/editor';
   static const trash = '/trash';
   static const journal = '/journal';
@@ -97,6 +99,10 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       GoRoute(
         path: Routes.about,
         builder: (context, state) => const AboutScreen(),
+      ),
+      GoRoute(
+        path: Routes.archived,
+        builder: (context, state) => const ArchivedScreen(),
       ),
       GoRoute(
         path: '${Routes.settings}/servers',

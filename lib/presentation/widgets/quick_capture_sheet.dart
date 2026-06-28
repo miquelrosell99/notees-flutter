@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/utils/color_presets.dart';
 import '../../data/repositories/asset_repository.dart';
 import '../../data/repositories/node_repository.dart';
 import '../../domain/services/quick_capture.dart';
@@ -13,7 +15,7 @@ import 'audio_recorder_sheet.dart';
 
 /// Bottom sheet for creating a quick note. Saves immediately if online, or
 /// queues for sync if offline.
-class QuickCaptureSheet extends StatelessWidget {
+class QuickCaptureSheet extends StatefulWidget {
   const QuickCaptureSheet({
     super.key,
     this.initialText = '',
@@ -24,54 +26,144 @@ class QuickCaptureSheet extends StatelessWidget {
   final VoidCallback? onSaved;
 
   @override
+  State<QuickCaptureSheet> createState() => _QuickCaptureSheetState();
+}
+
+class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
+  late final TextEditingController _controller;
+  String _selectedColor = ColorPresets.defaultHex;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save(AuthProvider auth) async {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    HapticFeedback.lightImpact();
+    if (auth.dio != null) {
+      await QuickCaptureService(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      ).save(text, color: _selectedColor);
+    }
+    if (mounted) {
+      Navigator.of(context).pop();
+      widget.onSaved?.call();
+    }
+  }
+
+  Future<void> _capturePhoto(AuthProvider auth, ImageSource source) async {
+    if (auth.dio == null) return;
+
+    final picker = ImagePicker();
+    final image = await picker.pickImage(source: source);
+    if (image == null) return;
+
+    setState(() => _isSaving = true);
+    try {
+      final text = _controller.text.trim();
+      final noteName = text.isEmpty ? 'Photo note' : text;
+
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      final block = await repo.createInboxBlock(
+        name: noteName,
+        color: _selectedColor,
+      );
+
+      await AssetRepository(dio: auth.dio!).uploadFile(
+        File(image.path),
+        parentUuid: block.uuid,
+      );
+
+      if (mounted) {
+        Navigator.of(context).pop();
+        widget.onSaved?.call();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Photo note failed: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _recordAudio(AuthProvider auth) async {
+    if (auth.dio == null) return;
+    final file = await showModalBottomSheet<File>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => const AudioRecorderSheet(),
+    );
+    if (file == null) return;
+
+    try {
+      final journal = await NodeRepository(dio: auth.dio!, syncService: auth.syncService).getOrCreateDailyJournal(DateTime.now());
+      await AssetRepository(dio: auth.dio!).uploadFile(file, parentUuid: journal.uuid);
+      if (mounted) {
+        Navigator.of(context).pop();
+        widget.onSaved?.call();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Audio upload failed: $e')),
+        );
+      }
+    }
+  }
+
+  void _showImageSourcePicker(AuthProvider auth) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('Take a photo'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _capturePhoto(auth, ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _capturePhoto(auth, ImageSource.gallery);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final controller = TextEditingController(text: initialText);
     final auth = context.read<AuthProvider>();
     final isOnline = context.watch<ConnectivityProvider>().online;
-
-    Future<void> save() async {
-      final text = controller.text.trim();
-      if (text.isEmpty) return;
-      HapticFeedback.lightImpact();
-      if (auth.dio != null) {
-        await QuickCaptureService(
-          dio: auth.dio!,
-          syncService: auth.syncService,
-        ).save(text);
-      }
-      if (context.mounted) {
-        Navigator.of(context).pop();
-        onSaved?.call();
-      }
-    }
-
-    Future<void> recordAudio() async {
-      if (auth.dio == null) return;
-      final file = await showModalBottomSheet<File>(
-        context: context,
-        isScrollControlled: true,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        builder: (ctx) => const AudioRecorderSheet(),
-      );
-      if (file == null) return;
-
-      try {
-        final journal = await NodeRepository(dio: auth.dio!, syncService: auth.syncService).getOrCreateDailyJournal(DateTime.now());
-        await AssetRepository(dio: auth.dio!).uploadFile(file, parentUuid: journal.uuid);
-        if (context.mounted) {
-          Navigator.of(context).pop();
-          onSaved?.call();
-        }
-      } catch (e) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Audio upload failed: $e')),
-          );
-        }
-      }
-    }
 
     return Padding(
       padding: EdgeInsets.only(
@@ -96,15 +188,27 @@ class QuickCaptureSheet extends StatelessWidget {
             ),
           ),
           Text('Quick note', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 4),
+          Text(
+            'Saved to Inbox',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
           const SizedBox(height: 16),
           TextField(
-            controller: controller,
+            controller: _controller,
             autofocus: true,
             textInputAction: TextInputAction.done,
             maxLines: 4,
             minLines: 1,
             decoration: const InputDecoration(hintText: 'What is on your mind?'),
-            onSubmitted: (_) => save(),
+            onSubmitted: (_) => _save(auth),
+          ),
+          const SizedBox(height: 12),
+          _ColorPicker(
+            selectedColor: _selectedColor,
+            onColorSelected: (color) => setState(() => _selectedColor = color),
           ),
           const SizedBox(height: 8),
           if (!isOnline)
@@ -115,25 +219,115 @@ class QuickCaptureSheet extends StatelessWidget {
                   ),
             ),
           const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: save,
-                  icon: const Icon(Icons.save_outlined),
-                  label: const Text('Save'),
+          if (_isSaving)
+            const Center(child: CircularProgressIndicator())
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _save(auth),
+                    icon: const Icon(Icons.save_outlined),
+                    label: const Text('Save'),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              IconButton.filledTonal(
-                onPressed: recordAudio,
-                icon: const Icon(Icons.mic),
-                tooltip: 'Record audio note',
-              ),
-            ],
-          ),
+                const SizedBox(width: 12),
+                IconButton.filledTonal(
+                  onPressed: isOnline ? () => _showImageSourcePicker(auth) : null,
+                  icon: const Icon(Icons.camera_alt_outlined),
+                  tooltip: 'Add photo',
+                ),
+                const SizedBox(width: 12),
+                IconButton.filledTonal(
+                  onPressed: () => _recordAudio(auth),
+                  icon: const Icon(Icons.mic),
+                  tooltip: 'Record audio note',
+                ),
+              ],
+            ),
           const SizedBox(height: 24),
         ],
+      ),
+    );
+  }
+}
+
+class _ColorPicker extends StatelessWidget {
+  const _ColorPicker({
+    required this.selectedColor,
+    required this.onColorSelected,
+  });
+
+  final String selectedColor;
+  final ValueChanged<String> onColorSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _ColorButton(
+            color: ColorPresets.fromHex(ColorPresets.defaultHex),
+            label: 'Default',
+            isSelected: selectedColor == ColorPresets.defaultHex,
+            onTap: () => onColorSelected(ColorPresets.defaultHex),
+          ),
+          ...ColorPresets.entries.map((entry) {
+            final (hex, label) = entry;
+            return _ColorButton(
+              color: ColorPresets.fromHex(hex),
+              label: label,
+              isSelected: selectedColor == hex,
+              onTap: () => onColorSelected(hex),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+class _ColorButton extends StatelessWidget {
+  const _ColorButton({
+    required this.color,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final Color color;
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: Tooltip(
+        message: label,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            onTap();
+          },
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: isSelected
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.outline.withAlpha((0.2 * 255).round()),
+                width: isSelected ? 3 : 1,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

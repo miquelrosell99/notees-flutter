@@ -469,6 +469,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 ListTile(
+                  leading: const Icon(Icons.archive_outlined),
+                  title: const Text('Archived'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(Routes.archived),
+                ),
+                ListTile(
                   leading: const Icon(Icons.delete_outline),
                   title: const Text('Trash'),
                   trailing: const Icon(Icons.chevron_right),

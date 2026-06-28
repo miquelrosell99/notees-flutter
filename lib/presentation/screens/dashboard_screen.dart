@@ -6,14 +6,26 @@ import 'package:provider/provider.dart';
 
 import '../../core/localization/material_localizations_override.dart';
 import '../../core/routing/router.dart';
+import '../../core/utils/color_presets.dart';
+import '../../core/utils/view_mode_store.dart';
 import '../../data/models/node.dart';
+import '../../data/models/page_content.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
+import '../views/inbox_card_view.dart';
+import '../views/node_view_mode.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/fleet_card.dart';
+import '../widgets/node_picker.dart';
 import '../widgets/quick_capture_sheet.dart';
-import '../widgets/section_title.dart';
+import '../widgets/view_mode_sheet.dart';
 
+/// The Home tab is the workspace Inbox.
+///
+/// It shows uncaptured blocks in a Google Keep–style card grid by default.
+/// Notes created via quick capture land here; users can open, move, or delete
+/// them, and relocate them from the web app later.
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -22,17 +34,29 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  List<Node> _favorites = [];
-  List<Node> _recents = [];
+  List<Node> _inboxBlocks = [];
   Node? _todayJournal;
-  Set<String> _favoriteUuids = {};
+  Map<String, String> _classNames = {};
   bool _loading = true;
   String? _error;
+  NodeViewMode _viewMode = NodeViewMode.card;
+  final _viewModeStore = ViewModeStore();
 
   @override
   void initState() {
     super.initState();
     _loadDashboard();
+    _loadViewMode();
+  }
+
+  Future<void> _loadViewMode() async {
+    final mode = await _viewModeStore.getMode('inbox', NodeViewMode.card);
+    if (mounted) setState(() => _viewMode = mode);
+  }
+
+  Future<void> _setViewMode(NodeViewMode mode) async {
+    await _viewModeStore.setMode('inbox', mode);
+    if (mounted) setState(() => _viewMode = mode);
   }
 
   Future<void> _loadDashboard() async {
@@ -43,16 +67,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _loading = true);
     try {
       final results = await Future.wait([
-        repo.fetchFavorites(limit: 50),
-        repo.fetchRecentPages(limit: 5),
+        repo.fetchInboxContent(),
         repo.getOrCreateDailyJournal(DateTime.now()),
-        repo.fetchFavoriteUuids(),
+        repo.fetchClasses(),
       ]);
+      final inboxContent = results[0] as PageContent;
+      final classes = results[2] as List<Node>;
       setState(() {
-        _favorites = results[0] as List<Node>;
-        _recents = results[1] as List<Node>;
-        _todayJournal = results[2] as Node;
-        _favoriteUuids = (results[3] as List<String>).toSet();
+        _inboxBlocks = inboxContent.node.children;
+        _todayJournal = results[1] as Node;
+        _classNames = {for (final c in classes) c.uuid: c.displayName};
         _error = null;
       });
     } catch (e) {
@@ -73,43 +97,158 @@ class _DashboardScreenState extends State<DashboardScreen> {
     context.push('${Routes.editor}/${node.uuid}');
   }
 
-  Future<void> _toggleFavorite(Node node) async {
-    HapticFeedback.lightImpact();
+  Future<void> _moveBlock(Node block) async {
     final auth = context.read<AuthProvider>();
+    final destination = await NodePicker.show(context, mode: NodePickerMode.page);
+    if (destination == null) return;
     if (auth.dio == null) return;
 
-    final isFavorite = _favoriteUuids.contains(node.uuid);
-    setState(() {
-      if (isFavorite) {
-        _favoriteUuids.remove(node.uuid);
-        _favorites.removeWhere((n) => n.uuid == node.uuid);
-      } else {
-        _favoriteUuids.add(node.uuid);
-      }
-    });
-
+    setState(() => _loading = true);
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
-      if (isFavorite) {
-        await repo.removeFavorite(node.uuid);
-      } else {
-        await repo.addFavorite(node.uuid);
-      }
+      await repo.moveNode(nodeUuid: block.uuid, parentUuid: destination.uuid);
+      await _loadDashboard();
     } catch (e) {
       if (mounted) {
-        setState(() {
-          if (isFavorite) {
-            _favoriteUuids.add(node.uuid);
-            _favorites.add(node);
-          } else {
-            _favoriteUuids.remove(node.uuid);
-          }
-        });
+        setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not update favorite: $e')),
+          SnackBar(content: Text('Could not move block: $e')),
         );
       }
     }
+  }
+
+  Future<void> _archiveBlock(Node block) async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    setState(() => _loading = true);
+    try {
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      await repo.archiveNode(block.uuid);
+      await _loadDashboard();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not archive block: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteBlock(Node block) async {
+    final auth = context.read<AuthProvider>();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete note?'),
+        content: const Text('This note will be moved to trash.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (auth.dio == null) return;
+
+    setState(() => _loading = true);
+    try {
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      await repo.deleteNode(block.uuid);
+      await _loadDashboard();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete block: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _changeColor(Node block) async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    final color = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => _ColorPickerSheet(selectedColor: block.color),
+    );
+    if (color == null) return;
+
+    setState(() => _loading = true);
+    try {
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      await repo.updateNode(block.uuid, color: color);
+      await _loadDashboard();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not change color: $e')),
+        );
+      }
+    }
+  }
+
+  void _showBlockActions(Node block) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.color_lens_outlined),
+              title: const Text('Change color'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _changeColor(block);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.archive_outlined),
+              title: const Text('Archive'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _archiveBlock(block);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.drive_file_move_outline),
+              title: const Text('Move to page'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _moveBlock(block);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.delete_outline, color: Theme.of(ctx).colorScheme.error),
+              title: Text('Delete', style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _deleteBlock(block);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _openJournal({Node? journal}) {
@@ -212,7 +351,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Notees'),
+            const Text('Inbox'),
             Text(
               todayLabel,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -223,22 +362,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.calendar_today_outlined),
-            tooltip: 'Jump to journal',
-            onPressed: _openCalendar,
+            icon: Icon(_viewMode.icon),
+            tooltip: 'Change view',
+            onPressed: () async {
+              final mode = await ViewModeSheet.show(context, _viewMode);
+              if (mode != null) await _setViewMode(mode);
+            },
           ),
-          IconButton(
-            icon: const Icon(Icons.edit_calendar_outlined),
-            tooltip: "Today's journal",
-            onPressed: _openJournal,
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Settings',
-            onPressed: () => context.push(Routes.settings),
-          ),
-          _AdvancedViewsMenu(
-            onSelected: (route) => context.push(route),
+          _HomeOverflowMenu(
+            onOpenJournal: _openCalendar,
+            onOpenTodayJournal: _openJournal,
+            onOpenSettings: () => context.push(Routes.settings),
+            onOpenArchived: () => context.push(Routes.archived),
+            onOpenAdvancedView: (route) => context.push(route),
           ),
         ],
       ),
@@ -246,74 +382,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onRefresh: _loadDashboard,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.all(20),
-                children: [
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Text(
-                        _error!,
-                        style: TextStyle(color: colors.error),
-                      ),
-                    ),
-                  if (settings.showSidebarFavorites && _favorites.isNotEmpty) ...[
-                    const SectionTitle(icon: Icons.star_outline, label: 'Favorites'),
-                    const SizedBox(height: 8),
-                    FleetCard(
-                      child: Column(
-                        children: _favorites.asMap().entries.map((entry) {
-                          final node = entry.value;
-                          final isLast = entry.key == _favorites.length - 1;
-                          return Column(
-                            children: [
-                              ListTile(
-                                leading: Icon(
-                                  _iconForNode(node),
-                                  color: colors.onSurfaceVariant,
-                                ),
-                                title: Text(node.displayName),
-                                trailing: _favoriteTrailing(node),
-                                onTap: () => _openNode(node),
-                              ),
-                              if (!isLast) const Divider(height: 1),
-                            ],
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                  ],
-                  if (settings.showSidebarRecents) ...[
-                    const SectionTitle(icon: Icons.access_time, label: 'Recent pages'),
-                    const SizedBox(height: 8),
-                    FleetCard(
-                      child: _recents.isEmpty
-                          ? _buildEmptyTile(context, 'No recent pages')
-                          : Column(
-                              children: _recents.asMap().entries.map((entry) {
-                                final node = entry.value;
-                                final isLast = entry.key == _recents.length - 1;
-                                return Column(
-                                  children: [
-                                    ListTile(
-                                      leading: Icon(
-                                        _iconForNode(node),
-                                        color: colors.onSurfaceVariant,
-                                      ),
-                                      title: Text(node.displayName),
-                                      trailing: _favoriteTrailing(node),
-                                      onTap: () => _openNode(node),
-                                    ),
-                                    if (!isLast) const Divider(height: 1),
-                                  ],
-                                );
-                              }).toList(),
-                            ),
-                    ),
-                  ],
-                ],
-              ),
+            : _buildBody(colors),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openQuickNote,
@@ -323,84 +392,370 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _favoriteTrailing(Node node) {
-    final colors = Theme.of(context).colorScheme;
-    final isFavorite = _favoriteUuids.contains(node.uuid);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          icon: Icon(
-            isFavorite ? Icons.star : Icons.star_border,
-            color: isFavorite ? colors.primary : colors.onSurfaceVariant,
+  Widget _buildBody(ColorScheme colors) {
+    if (_error != null) {
+      return ListView(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(_error!, style: TextStyle(color: colors.error)),
           ),
-          tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
-          onPressed: () => _toggleFavorite(node),
-        ),
-        Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
-      ],
+        ],
+      );
+    }
+
+    if (_inboxBlocks.isEmpty) {
+      return ListView(
+        children: [
+          EmptyState(
+            icon: Icons.lightbulb_outline,
+            title: 'Inbox is empty',
+            subtitle: 'Tap + to capture a note, photo, or voice memo.',
+          ),
+        ],
+      );
+    }
+
+    if (_viewMode == NodeViewMode.card) {
+      return InboxCardView(
+        blocks: _inboxBlocks,
+        classNames: _classNames,
+        onBlockTap: _openNode,
+        onBlockLongPress: _showBlockActions,
+        onBlockArchive: _archiveBlock,
+        onBlockDelete: _deleteBlock,
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: _inboxBlocks.length,
+      separatorBuilder: (context, index) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final block = _inboxBlocks[index];
+        return Dismissible(
+          key: ValueKey(block.uuid),
+          direction: DismissDirection.horizontal,
+          confirmDismiss: (direction) async {
+            if (direction == DismissDirection.startToEnd) {
+              _archiveBlock(block);
+              return false;
+            }
+            return await _confirmDelete(block);
+          },
+          background: _SwipeBackground(
+            alignment: Alignment.centerLeft,
+            icon: Icons.archive_outlined,
+            label: 'Archive',
+            color: colors.secondaryContainer,
+            foregroundColor: colors.onSecondaryContainer,
+          ),
+          secondaryBackground: _SwipeBackground(
+            alignment: Alignment.centerRight,
+            icon: Icons.delete_outline,
+            label: 'Delete',
+            color: colors.errorContainer,
+            foregroundColor: colors.onErrorContainer,
+          ),
+          child: FleetCard(
+            child: InkWell(
+              onTap: () => _openNode(block),
+              onLongPress: () => _showBlockActions(block),
+              borderRadius: BorderRadius.circular(20),
+              child: _InboxListTile(
+                block: block,
+                classNames: _classNames,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildEmptyTile(BuildContext context, String message) {
+  Future<bool> _confirmDelete(Node block) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete note?'),
+        content: const Text('This note will be moved to trash.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (result == true) {
+      _deleteBlock(block);
+    }
+    return false;
+  }
+}
+
+/// List tile for an Inbox block in list view.
+class _InboxListTile extends StatelessWidget {
+  const _InboxListTile({
+    required this.block,
+    required this.classNames,
+  });
+
+  final Node block;
+  final Map<String, String> classNames;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final chipColor = colors.primaryContainer;
+    final chipFg = colors.onPrimaryContainer;
+
+    final classLabels = block.classesUuid
+        .map((uuid) => classNames[uuid])
+        .whereType<String>()
+        .where((name) => name.isNotEmpty)
+        .take(3)
+        .toList();
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Center(
-        child: Text(
-          message,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: ColorPresets.fromHex(block.color),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: colors.outline.withAlpha((0.2 * 255).round()),
+                width: 1,
               ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  block.displayName,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (classLabels.isNotEmpty || block.isTask)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        if (block.isTask)
+                          _ListChip(label: 'Task', backgroundColor: chipColor, foregroundColor: chipFg),
+                        ...classLabels.map((label) => _ListChip(
+                              label: label,
+                              backgroundColor: chipColor,
+                              foregroundColor: chipFg,
+                            )),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+        ],
+      ),
+    );
+  }
+}
+
+class _ListChip extends StatelessWidget {
+  const _ListChip({
+    required this.label,
+    required this.backgroundColor,
+    required this.foregroundColor,
+  });
+
+  final String label;
+  final Color backgroundColor;
+  final Color foregroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: foregroundColor,
+              fontWeight: FontWeight.w500,
+            ),
+      ),
+    );
+  }
+}
+
+class _SwipeBackground extends StatelessWidget {
+  const _SwipeBackground({
+    required this.alignment,
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.foregroundColor,
+  });
+
+  final Alignment alignment;
+  final IconData icon;
+  final String label;
+  final Color color;
+  final Color foregroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      alignment: alignment,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: foregroundColor),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: foregroundColor,
+                  fontWeight: FontWeight.w500,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bottom sheet for picking a note color.
+class _ColorPickerSheet extends StatelessWidget {
+  const _ColorPickerSheet({this.selectedColor});
+
+  final String? selectedColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Note color',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _ColorOption(
+                  color: ColorPresets.fromHex(ColorPresets.defaultHex),
+                  label: 'Default',
+                  isSelected: (selectedColor == null || selectedColor == ColorPresets.defaultHex),
+                  onTap: () => Navigator.of(context).pop(ColorPresets.defaultHex),
+                ),
+                ...ColorPresets.entries.map((entry) {
+                  final (hex, label) = entry;
+                  return _ColorOption(
+                    color: ColorPresets.fromHex(hex),
+                    label: label,
+                    isSelected: selectedColor == hex,
+                    onTap: () => Navigator.of(context).pop(hex),
+                  );
+                }),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
-
-  IconData _iconForNode(Node node) {
-    if (node.isJournal) return Icons.calendar_today_outlined;
-    if (node.isTask) return Icons.check_circle_outline;
-    return node.icon?.isNotEmpty == true ? Icons.description_outlined : Icons.description_outlined;
-  }
 }
 
-/// Popup menu that opens the advanced React-based views.
-class _AdvancedViewsMenu extends StatelessWidget {
-  const _AdvancedViewsMenu({required this.onSelected});
+class _ColorOption extends StatelessWidget {
+  const _ColorOption({
+    required this.color,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
 
-  final ValueChanged<String> onSelected;
-
-  static const _items = <({_AdvancedView view, String route})>[
-    (view: _AdvancedView.graph, route: Routes.graph),
-    (view: _AdvancedView.timeline, route: Routes.timeline),
-    (view: _AdvancedView.gantt, route: Routes.gantt),
-    (view: _AdvancedView.chart, route: Routes.chart),
-    (view: _AdvancedView.pivot, route: Routes.pivot),
-    (view: _AdvancedView.whiteboard, route: Routes.whiteboard),
-    (view: _AdvancedView.query, route: Routes.query),
-  ];
+  final Color color;
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      tooltip: 'Advanced views',
-      icon: const Icon(Icons.more_vert),
-      onSelected: (route) {
-        HapticFeedback.lightImpact();
-        onSelected(route);
-      },
-      itemBuilder: (context) => _items
-          .map(
-            (item) => PopupMenuItem<String>(
-              value: item.route,
-              child: ListTile(
-                leading: Icon(item.view.icon),
-                title: Text(item.view.label),
-                contentPadding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            onTap();
+          },
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: isSelected
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.outline.withAlpha((0.2 * 255).round()),
+                width: isSelected ? 3 : 1,
               ),
             ),
-          )
-          .toList(),
+            child: isSelected
+                ? Icon(
+                    Icons.check,
+                    color: ColorPresets.foregroundFor(color),
+                  )
+                : null,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
     );
   }
 }
@@ -418,4 +773,104 @@ enum _AdvancedView {
 
   final String label;
   final IconData icon;
+}
+
+/// Overflow menu for the Home app bar.
+class _HomeOverflowMenu extends StatelessWidget {
+  const _HomeOverflowMenu({
+    required this.onOpenJournal,
+    required this.onOpenTodayJournal,
+    required this.onOpenSettings,
+    required this.onOpenArchived,
+    required this.onOpenAdvancedView,
+  });
+
+  final VoidCallback onOpenJournal;
+  final VoidCallback onOpenTodayJournal;
+  final VoidCallback onOpenSettings;
+  final VoidCallback onOpenArchived;
+  final ValueChanged<String> onOpenAdvancedView;
+
+  static const _advancedViews = <({_AdvancedView view, String route})>[
+    (view: _AdvancedView.graph, route: Routes.graph),
+    (view: _AdvancedView.timeline, route: Routes.timeline),
+    (view: _AdvancedView.gantt, route: Routes.gantt),
+    (view: _AdvancedView.chart, route: Routes.chart),
+    (view: _AdvancedView.pivot, route: Routes.pivot),
+    (view: _AdvancedView.whiteboard, route: Routes.whiteboard),
+    (view: _AdvancedView.query, route: Routes.query),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'More',
+      icon: const Icon(Icons.more_vert),
+      onSelected: (value) {
+        HapticFeedback.lightImpact();
+        switch (value) {
+          case 'journal':
+            onOpenJournal();
+          case 'today':
+            onOpenTodayJournal();
+          case 'settings':
+            onOpenSettings();
+          case 'archived':
+            onOpenArchived();
+          default:
+            onOpenAdvancedView(value);
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem<String>(
+          value: 'today',
+          child: ListTile(
+            leading: Icon(Icons.edit_calendar_outlined),
+            title: Text("Today's journal"),
+            contentPadding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'journal',
+          child: ListTile(
+            leading: Icon(Icons.calendar_today_outlined),
+            title: Text('Jump to journal'),
+            contentPadding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'archived',
+          child: ListTile(
+            leading: Icon(Icons.archive_outlined),
+            title: Text('Archived'),
+            contentPadding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'settings',
+          child: ListTile(
+            leading: Icon(Icons.settings_outlined),
+            title: Text('Settings'),
+            contentPadding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+        const PopupMenuDivider(),
+        ..._advancedViews.map(
+          (item) => PopupMenuItem<String>(
+            value: item.route,
+            child: ListTile(
+              leading: Icon(item.view.icon),
+              title: Text(item.view.label),
+              contentPadding: EdgeInsets.zero,
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
