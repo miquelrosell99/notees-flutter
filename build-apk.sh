@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Build a release APK for the Notees Flutter app inside Docker.
-# Release builds are unsigned by default; sign them separately with apksigner.
+# The APK is signed with the debug keystore so it can be installed locally.
 # Outputs: dist/notees.apk
 
 cd "$(dirname "$0")"
@@ -33,3 +33,20 @@ elif [[ "$BUILD_TYPE" == "appbundle" ]]; then
 fi
 
 docker rm "$CONTAINER" >/dev/null
+
+# Sign APK builds with the debug keystore so the package installer accepts them.
+if [[ "$BUILD_TYPE" == "apk" ]]; then
+  echo "Signing APK with debug keystore..."
+  docker run --rm -v "$(pwd):/project" -w /project notees-mobile-build bash -c '
+    apksigner=$(find /opt/android-sdk-linux/build-tools -name apksigner | sort -V | tail -1)
+    "$apksigner" sign \
+      --ks android/app/debug.keystore \
+      --ks-pass pass:android \
+      --key-pass pass:android \
+      --ks-key-alias androiddebugkey \
+      --in dist/notees.apk \
+      --out dist/notees-signed.apk
+    mv dist/notees-signed.apk dist/notees.apk
+  '
+  echo "APK signed: $DIST_DIR/notees.apk"
+fi
