@@ -1,0 +1,189 @@
+name: Android Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      build-mode:
+        description: 'Flutter build mode'
+        type: choice
+        options:
+          - release
+          - debug
+          - profile
+        default: release
+      git-ref:
+        description: 'Git ref to build from'
+        required: true
+        default: 'main'
+      sign-release:
+        description: 'Sign the APK with the uploaded keystore (release only)'
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      build-mode:
+        type: string
+        default: release
+      git-ref:
+        type: string
+        default: ''
+      sign-release:
+        type: boolean
+        default: true
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  BUILD_MODE: ${{ inputs.build-mode || github.event.inputs.build-mode || 'release' }}
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.git-ref || github.event.inputs.git-ref || github.ref }}
+
+      - name: Resolve version
+        id: version
+        run: |
+          version=$(grep '^version:' pubspec.yaml | sed 's/.*://' | xargs)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java
+        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+
+      - name: Cache pub dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pub-cache
+          key: ${{ runner.os }}-pub-cache-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-cache-
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        with:
+          cache-cleanup: on-success
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Patch plugins for built-in Kotlin
+        run: python3 scripts/patch_kgp_plugins.py
+
+      - name: Static analysis
+        run: flutter analyze
+
+      - name: Build APK
+        run: |
+          flutter build apk --"$BUILD_MODE"
+          mkdir -p dist
+          case "$BUILD_MODE" in
+            release) apk_file="app-release.apk" ;;
+            debug) apk_file="app-debug.apk" ;;
+            profile) apk_file="app-profile.apk" ;;
+            *)
+              echo "::error::Unsupported build mode: $BUILD_MODE"
+              exit 1
+              ;;
+          esac
+          cp "build/app/outputs/flutter-apk/$apk_file" dist/notees.apk
+
+      - name: Sign release APK with production keystore
+        if: ${{ (inputs.sign-release == true || github.event.inputs.sign-release == 'true') && env.BUILD_MODE == 'release' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 secret is required to sign the release APK."
+            exit 1
+          fi
+          tmpdir=$(mktemp -d)
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$tmpdir/keystore.jks"
+          apksigner=$(ls -1 "$ANDROID_SDK_ROOT"/build-tools/*/apksigner | sort -V | tail -1)
+          echo "Using apksigner: $apksigner"
+          "$apksigner" sign \
+            --ks "$tmpdir/keystore.jks" \
+            --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" \
+            --key-pass "pass:${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}" \
+            --ks-key-alias "${ANDROID_KEY_ALIAS:-androiddebugkey}" \
+            --in dist/notees.apk \
+            --out dist/notees-signed.apk
+          mv dist/notees-signed.apk dist/notees.apk
+          rm -rf "$tmpdir"
+
+      - name: Sign APK with debug keystore
+        if: ${{ !((inputs.sign-release == true || github.event.inputs.sign-release == 'true') && env.BUILD_MODE == 'release') }}
+        run: |
+          apksigner=$(ls -1 "$ANDROID_SDK_ROOT"/build-tools/*/apksigner | sort -V | tail -1)
+          echo "Using apksigner: $apksigner"
+          "$apksigner" sign \
+            --ks android/app/debug.keystore \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --ks-key-alias androiddebugkey \
+            --in dist/notees.apk \
+            --out dist/notees-signed.apk
+          mv dist/notees-signed.apk dist/notees.apk
+
+      - name: Rename APK with version
+        id: artifact
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          name="notees-android-${version}.apk"
+          cp dist/notees.apk "dist/$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: notees-android-apk
+          path: dist/${{ steps.artifact.outputs.name }}
+          retention-days: 14
+
+      - name: Compute SHA-256
+        id: checksum
+        run: |
+          sha256sum "dist/${{ steps.artifact.outputs.name }}" > dist/notees.apk.sha256
+          echo "sum=$(cut -d' ' -f1 dist/notees.apk.sha256)" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        run: |
+          echo "### Android APK built" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version: ${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- File: ${{ steps.artifact.outputs.name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Size: $(du -h dist/${{ steps.artifact.outputs.name }} | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA-256: \`${{ steps.checksum.outputs.sum }}\`" >> "$GITHUB_STEP_SUMMARY"
