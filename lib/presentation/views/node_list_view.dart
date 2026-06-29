@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
 
@@ -61,7 +62,10 @@ class NodeListView extends StatelessWidget {
               color: isFavorite ? colors.primary : colors.onSurfaceVariant,
             ),
             tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
-            onPressed: () => toggle(node),
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              toggle(node);
+            },
           ),
         Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
       ],

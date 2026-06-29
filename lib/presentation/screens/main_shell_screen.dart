@@ -116,24 +116,55 @@ class _MainShellScreenState extends State<MainShellScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final width = MediaQuery.of(context).size.width;
+    final useRail = width >= 600;
 
     return Scaffold(
-      body: _buildBody(),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) => setState(() => _currentIndex = index),
-        backgroundColor: theme.colorScheme.surface,
-        indicatorColor: theme.colorScheme.primaryContainer,
-        destinations: _destinations
-            .map(
-              (d) => NavigationDestination(
-                icon: Icon(d.icon),
-                selectedIcon: Icon(d.selectedIcon),
-                label: d.label,
-              ),
-            )
-            .toList(),
+      body: Row(
+        children: [
+          if (useRail)
+            NavigationRail(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: (index) {
+                HapticFeedback.lightImpact();
+                setState(() => _currentIndex = index);
+              },
+              backgroundColor: theme.colorScheme.surface,
+              indicatorColor: theme.colorScheme.primaryContainer,
+              labelType: NavigationRailLabelType.all,
+              destinations: _destinations
+                  .map(
+                    (d) => NavigationRailDestination(
+                      icon: Icon(d.icon),
+                      selectedIcon: Icon(d.selectedIcon),
+                      label: Text(d.label),
+                    ),
+                  )
+                  .toList(),
+            ),
+          Expanded(child: _buildBody()),
+        ],
       ),
+      bottomNavigationBar: useRail
+          ? null
+          : NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: (index) {
+                HapticFeedback.lightImpact();
+                setState(() => _currentIndex = index);
+              },
+              backgroundColor: theme.colorScheme.surface,
+              indicatorColor: theme.colorScheme.primaryContainer,
+              destinations: _destinations
+                  .map(
+                    (d) => NavigationDestination(
+                      icon: Icon(d.icon),
+                      selectedIcon: Icon(d.selectedIcon),
+                      label: d.label,
+                    ),
+                  )
+                  .toList(),
+            ),
     );
   }
 

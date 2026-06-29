@@ -14,6 +14,8 @@ class OfflineBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final online = context.watch<ConnectivityProvider>().online;
 
+    final disableAnimations = MediaQuery.of(context).disableAnimations;
+
     return Column(
       children: [
         AnimatedCrossFade(
@@ -48,7 +50,9 @@ class OfflineBanner extends StatelessWidget {
           crossFadeState: online
               ? CrossFadeState.showFirst
               : CrossFadeState.showSecond,
-          duration: const Duration(milliseconds: 250),
+          duration: disableAnimations
+              ? Duration.zero
+              : const Duration(milliseconds: 250),
         ),
         Expanded(child: child),
       ],

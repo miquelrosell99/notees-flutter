@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Toolbar actions supported by the native editor.
 enum EditorAction {
@@ -153,7 +154,10 @@ class _ToolbarButton extends StatelessWidget {
     return IconButton(
       icon: Icon(icon),
       tooltip: tooltip,
-      onPressed: onPressed,
+      onPressed: () {
+        HapticFeedback.lightImpact();
+        onPressed();
+      },
     );
   }
 }

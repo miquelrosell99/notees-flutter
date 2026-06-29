@@ -30,18 +30,20 @@ class _ServerManagementScreenState extends State<ServerManagementScreen> {
     final repo = context.read<AuthProvider>().serverRepository;
     final servers = await repo.getServers();
     final active = await repo.getActiveServer();
-    setState(() {
-      _servers = servers;
-      _activeServer = active;
-      _loading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _servers = servers;
+        _activeServer = active;
+        _loading = false;
+      });
+    }
   }
 
   Future<void> _switchServer(ServerProfile server) async {
     HapticFeedback.lightImpact();
     final auth = context.read<AuthProvider>();
     await auth.switchActiveServer(server);
-    await _loadServers();
+    if (mounted) await _loadServers();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Switched to ${server.nickname}. Please sign in.')),
@@ -164,20 +166,23 @@ class _ServerFormSheetState extends State<_ServerFormSheet> {
   Future<void> _testConnection() async {
     final url = _urlController.text.trim();
     if (url.isEmpty) return;
+    final repo = context.read<AuthProvider>().serverRepository;
     setState(() {
       _testing = true;
       _pingResult = null;
       _error = null;
     });
-    final repo = context.read<AuthProvider>().serverRepository;
     final result = await repo.pingServer(url, trustSelfSigned: _trustSelfSigned);
-    setState(() {
-      _testing = false;
-      _pingResult = result;
-    });
+    if (mounted) {
+      setState(() {
+        _testing = false;
+        _pingResult = result;
+      });
+    }
   }
 
   Future<void> _save() async {
+    final repo = context.read<AuthProvider>().serverRepository;
     final url = _urlController.text.trim();
     final nickname = _nicknameController.text.trim();
     if (url.isEmpty) {
@@ -187,7 +192,6 @@ class _ServerFormSheetState extends State<_ServerFormSheet> {
 
     setState(() => _saving = true);
     try {
-      final repo = context.read<AuthProvider>().serverRepository;
       final existing = widget.server;
       if (existing != null) {
         await repo.updateServer(existing.copyWith(
@@ -207,10 +211,12 @@ class _ServerFormSheetState extends State<_ServerFormSheet> {
         widget.onSaved();
       }
     } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _saving = false;
-      });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _saving = false;
+        });
+      }
     }
   }
 

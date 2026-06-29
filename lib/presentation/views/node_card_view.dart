@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
 import '../widgets/fleet_card.dart';
@@ -56,7 +57,10 @@ class NodeCardView extends StatelessWidget {
                           color: isFavorite ? colors.primary : colors.onSurfaceVariant,
                         ),
                         tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
-                        onPressed: () => onFavoriteToggle!(node),
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          onFavoriteToggle!(node);
+                        },
                       ),
                   ],
                 ),

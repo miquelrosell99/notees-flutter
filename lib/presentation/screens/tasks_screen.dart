@@ -40,14 +40,16 @@ class _TasksScreenState extends State<TasksScreen> {
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final tasks = await repo.fetchTasks(includeComplete: false, pageSize: 100);
-      setState(() {
-        _tasks = tasks;
-        _error = null;
-      });
+      if (mounted) {
+        setState(() {
+          _tasks = tasks;
+          _error = null;
+        });
+      }
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -93,7 +95,7 @@ class _TasksScreenState extends State<TasksScreen> {
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.createTask(name);
-      await _loadTasks();
+      if (mounted) await _loadTasks();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -138,7 +140,7 @@ class _TasksScreenState extends State<TasksScreen> {
       );
 
       await repo.setNodeProperty(task.uuid, statusValue.property.uuid, targetOption.uuid);
-      await _loadTasks();
+      if (mounted) await _loadTasks();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

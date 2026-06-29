@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/routing/router.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_builder.dart';
 import '../../core/theme/theme_provider.dart';
 import '../../data/repositories/workspace_repository.dart';
@@ -694,6 +695,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
+                    tooltip: 'Close',
                     onPressed: () => Navigator.of(ctx).pop(),
                   ),
                 ],
@@ -745,6 +747,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
+                    tooltip: 'Close',
                     onPressed: () => Navigator.of(ctx).pop(),
                   ),
                 ],
@@ -796,6 +799,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
+                    tooltip: 'Close',
                     onPressed: () => Navigator.of(ctx).pop(),
                   ),
                 ],
@@ -916,29 +920,34 @@ class _ThemeButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        onTap();
-      },
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: selected ? colors.primaryContainer : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: selected
-                ? colors.primary
-                : colors.outline.withAlpha((0.2 * 255).round()),
-            width: selected ? 1.5 : 1,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Center(
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: selected ? colors.primaryContainer : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: selected
+                    ? colors.primary
+                    : colors.outline.withAlpha((0.2 * 255).round()),
+                width: selected ? 1.5 : 1,
+              ),
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: selected ? colors.onPrimaryContainer : colors.onSurfaceVariant,
+            ),
           ),
-        ),
-        child: Icon(
-          icon,
-          size: 18,
-          color: selected ? colors.onPrimaryContainer : colors.onSurfaceVariant,
         ),
       ),
     );
@@ -972,7 +981,7 @@ class _AccentRow extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           _AccentSwatch(
-            color: const Color(0xFF5B7D5B),
+            color: noteesAccent,
             selected: accent == AppAccent.functional,
             onTap: () => onChanged(AppAccent.functional),
           ),
@@ -1002,30 +1011,35 @@ class _AccentSwatch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        onTap();
-      },
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 28,
-        height: 28,
-        decoration: BoxDecoration(
-          color: color ?? colors.primaryContainer,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: selected ? colors.primary : colors.outline.withAlpha((0.2 * 255).round()),
-            width: selected ? 2.5 : 1,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          onTap();
+        },
+        customBorder: const CircleBorder(),
+        child: Center(
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: color ?? colors.primaryContainer,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: selected ? colors.primary : colors.outline.withAlpha((0.2 * 255).round()),
+                width: selected ? 2.5 : 1,
+              ),
+            ),
+            child: color == null
+                ? Icon(
+                    Icons.android_outlined,
+                    size: 14,
+                    color: colors.onPrimaryContainer,
+                  )
+                : null,
           ),
         ),
-        child: color == null
-            ? Icon(
-                Icons.android_outlined,
-                size: 14,
-                color: colors.onPrimaryContainer,
-              )
-            : null,
       ),
     );
   }

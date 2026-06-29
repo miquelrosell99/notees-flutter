@@ -9,9 +9,3 @@ import 'package:flutter/material.dart';
 
 /// Functional accent for Notees: calm sage green.
 const Color noteesAccent = Color(0xFF5B7D5B);
-
-/// Beige accent preset used in the settings accent picker.
-const Color noteesAccentBeige = Color(0xFFE8DCC4);
-
-/// Preserved legacy Kotlin-wrapper accent reference.
-const Color noteesAccentLegacy = Color(0xFF404040);

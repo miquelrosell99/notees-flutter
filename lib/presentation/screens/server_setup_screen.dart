@@ -34,17 +34,20 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
     final repo = context.read<AuthProvider>().serverRepository;
     final servers = await repo.getServers();
     final activeId = await repo.getActiveServerId();
-    setState(() {
-      _servers = servers
-          .map((s) => _ServerItem(server: s, isActive: s.id == activeId))
-          .toList();
-    });
+    if (mounted) {
+      setState(() {
+        _servers = servers
+            .map((s) => _ServerItem(server: s, isActive: s.id == activeId))
+            .toList();
+      });
+    }
   }
 
   Future<void> _saveServer() async {
     if (!_formKey.currentState!.validate()) return;
 
     HapticFeedback.lightImpact();
+    final repo = context.read<AuthProvider>().serverRepository;
     setState(() {
       _pinging = true;
       _error = null;
@@ -52,17 +55,18 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
 
     try {
       final url = _urlController.text.trim();
-      final repo = context.read<AuthProvider>().serverRepository;
       final error = await repo.pingServer(
         url,
         trustSelfSigned: _trustSelfSigned,
       );
 
       if (error != null) {
-        setState(() {
-          _pinging = false;
-          _error = error;
-        });
+        if (mounted) {
+          setState(() {
+            _pinging = false;
+            _error = error;
+          });
+        }
         return;
       }
 
@@ -74,7 +78,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
 
       if (!mounted) return;
       await context.read<AuthProvider>().selectServer(profile);
-      await _loadServers();
+      if (mounted) await _loadServers();
 
       if (!mounted) return;
       context.go('/login');
@@ -91,15 +95,16 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
 
   Future<void> _selectServer(String id) async {
     HapticFeedback.lightImpact();
+    final repo = context.read<AuthProvider>().serverRepository;
     setState(() => _pinging = true);
     try {
-      final repo = context.read<AuthProvider>().serverRepository;
       final servers = await repo.getServers();
       final profile = servers.firstWhere((s) => s.id == id);
       await repo.setActiveServerId(id);
       if (!mounted) return;
       final auth = context.read<AuthProvider>();
       await auth.selectServer(profile);
+      if (mounted) await _loadServers();
       if (!mounted) return;
       context.go('/login');
     } on Exception catch (e) {
@@ -117,7 +122,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
     HapticFeedback.mediumImpact();
     final repo = context.read<AuthProvider>().serverRepository;
     await repo.removeServer(id);
-    await _loadServers();
+    if (mounted) await _loadServers();
   }
 
   @override
@@ -188,7 +193,9 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                     const SizedBox(height: 12),
                     Text(
                       _error!,
-                      style: TextStyle(color: colors.error, fontSize: 14),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: colors.error,
+                          ),
                     ),
                   ],
                   const SizedBox(height: 20),

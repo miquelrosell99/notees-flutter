@@ -102,6 +102,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         icon: Icon(
                           _obscurePassword ? Icons.visibility_off : Icons.visibility,
                         ),
+                        tooltip: 'Toggle password visibility',
                         onPressed: () {
                           HapticFeedback.lightImpact();
                           setState(() => _obscurePassword = !_obscurePassword);
@@ -131,7 +132,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 12),
                     Text(
                       auth.error!,
-                      style: TextStyle(color: colors.error, fontSize: 14),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: colors.error,
+                          ),
                       textAlign: TextAlign.center,
                     ),
                   ],

@@ -27,17 +27,19 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
   }
 
   Future<void> _loadKeys() async {
+    final auth = context.read<AuthProvider>();
+    final secureStorage = auth.secureStorage;
+
     setState(() => _loading = true);
     try {
-      final auth = context.read<AuthProvider>();
       if (auth.dio == null) throw const AuthException('No server configured');
-      final repo = AuthRepository(dio: auth.dio!, secureStorage: auth.secureStorage);
+      final repo = AuthRepository(dio: auth.dio!, secureStorage: secureStorage);
       _keys = await repo.listApiKeys();
       _error = null;
     } catch (e) {
       _error = e.toString();
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -54,9 +56,9 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
     try {
       final repo = AuthRepository(dio: auth.dio!, secureStorage: auth.secureStorage);
       _justCreated = await repo.createApiKey(name: name.trim());
-      await _loadKeys();
+      if (mounted) await _loadKeys();
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     }
   }
 
@@ -86,9 +88,9 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
     try {
       final repo = AuthRepository(dio: auth.dio!, secureStorage: auth.secureStorage);
       await repo.revokeApiKey(key.id);
-      await _loadKeys();
+      if (mounted) await _loadKeys();
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     }
   }
 
@@ -179,6 +181,7 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
                                     ),
                                     trailing: IconButton(
                                       icon: Icon(Icons.delete_outline, color: colors.error),
+                                      tooltip: 'Delete API key',
                                       onPressed: () => _revokeKey(key),
                                     ),
                                   ),

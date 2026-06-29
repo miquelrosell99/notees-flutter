@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../domain/models/search_filters.dart';
 
@@ -50,7 +51,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
         return Container(
           decoration: BoxDecoration(
             color: colors.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           ),
           child: Column(
             children: [
@@ -105,10 +106,10 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     return Center(
       child: Container(
         margin: const EdgeInsets.only(top: 12, bottom: 8),
-        width: 40,
+        width: 32,
         height: 4,
         decoration: BoxDecoration(
-          color: colors.outline.withAlpha((0.3 * 255).round()),
+          color: colors.onSurfaceVariant.withAlpha((0.35 * 255).round()),
           borderRadius: BorderRadius.circular(2),
         ),
       ),
@@ -120,7 +121,10 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     return ChoiceChip(
       label: Text(type.label),
       selected: selected,
-      onSelected: (_) => setState(() => _filters = _filters.copyWith(nodeType: type)),
+      onSelected: (_) {
+        HapticFeedback.lightImpact();
+        setState(() => _filters = _filters.copyWith(nodeType: type));
+      },
     );
   }
 
@@ -134,7 +138,10 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     return ChoiceChip(
       label: Text(label),
       selected: selected,
-      onSelected: (_) => setState(() => _filters = _filters.copyWith(taskState: state)),
+      onSelected: (_) {
+        HapticFeedback.lightImpact();
+        setState(() => _filters = _filters.copyWith(taskState: state));
+      },
     );
   }
 
@@ -159,7 +166,10 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
           color: Theme.of(context).colorScheme.outline.withAlpha((0.2 * 255).round()),
         ),
       ),
-      onTap: () => _pickDateRange(context),
+      onTap: () {
+        HapticFeedback.lightImpact();
+        _pickDateRange(context);
+      },
     );
   }
 
@@ -200,6 +210,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
           .toList(),
       onChanged: (value) {
         if (value != null) {
+          HapticFeedback.lightImpact();
           setState(() => _filters = _filters.copyWith(sortBy: value));
         }
       },

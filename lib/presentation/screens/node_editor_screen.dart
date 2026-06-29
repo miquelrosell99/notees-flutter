@@ -102,26 +102,30 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           if (c.uuid.isNotEmpty) c.uuid: c.displayName.toLowerCase(),
       };
 
-      setState(() {
-        _titleController.text = page.displayName.isNotEmpty ? page.displayName : 'Untitled';
-        _properties = properties;
-        _classNames = classNames;
-        _breadcrumbs = breadcrumbs;
-        _deletedBlockUuids.clear();
-        _error = null;
-        _focusedBlock = null;
-      });
+      if (mounted) {
+        setState(() {
+          _titleController.text = page.displayName.isNotEmpty ? page.displayName : 'Untitled';
+          _properties = properties;
+          _classNames = classNames;
+          _breadcrumbs = breadcrumbs;
+          _deletedBlockUuids.clear();
+          _error = null;
+          _focusedBlock = null;
+        });
+      }
       if (mounted) {
         await _loadCommentCount();
       }
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       final body = e.response?.data;
-      setState(() => _error = 'Server error ${status ?? ""}\n$body\n${e.message}');
+      if (mounted) {
+        setState(() => _error = 'Server error ${status ?? ""}\n$body\n${e.message}');
+      }
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -207,16 +211,16 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       }
       _deletedBlockUuids.clear();
 
-      await _loadPage();
+      if (mounted) await _loadPage();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Saved')),
         );
       }
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
-      setState(() => _saving = false);
+      if (mounted) setState(() => _saving = false);
     }
   }
 

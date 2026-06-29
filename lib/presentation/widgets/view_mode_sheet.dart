@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../views/node_view_mode.dart';
 
@@ -57,7 +58,10 @@ class ViewModeSheet extends StatelessWidget {
                 trailing: isSelected
                     ? Icon(Icons.check, color: colors.primary)
                     : null,
-                onTap: () => Navigator.of(context).pop(mode),
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  Navigator.of(context).pop(mode);
+                },
               );
             }),
           ],

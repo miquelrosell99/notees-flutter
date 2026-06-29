@@ -155,7 +155,10 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.send),
-                    onPressed: _createComment,
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      _createComment();
+                    },
                   ),
                 ],
               ),
@@ -197,7 +200,10 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
           subtitle: Text(comment.createDate ?? ''),
           trailing: IconButton(
             icon: const Icon(Icons.delete_outline),
-            onPressed: () => _deleteComment(comment),
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              _deleteComment(comment);
+            },
           ),
         );
       },
