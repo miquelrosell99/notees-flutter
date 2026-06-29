@@ -1,6 +1,6 @@
 # AGENTS.md — Notees Mobile
 
-This file contains project-specific context for the first-class Flutter mobile app in `mobile/`.
+This file contains project-specific context for the first-class Flutter mobile app in this repository.
 
 ## Overview
 
@@ -15,7 +15,7 @@ The mobile app is a **first-class native Flutter app** for Notees. It provides n
 ## Key Files
 
 ```
-mobile/
+notees-flutter/
 ├── lib/
 │   ├── main.dart
 │   ├── app.dart
@@ -34,6 +34,7 @@ mobile/
 │   └── native/               # Platform-specific native helpers
 ├── android/                  # Android platform project
 ├── ios/                      # iOS platform project
+├── .github/workflows/        # Android CI
 ├── build-apk.sh             # Docker-based APK build
 ├── Dockerfile               # Flutter build image
 └── AGENTS.md                # This file
@@ -41,7 +42,7 @@ mobile/
 
 ## Build
 
-**Release APK builds must run in GitHub Actions only.** Do not build release APKs locally. The Android workflow (`.github/workflows/android.yml`) builds, signs, and uploads the APK on every push or pull request that touches `mobile/**`.
+**Release APK builds must run in GitHub Actions only.** Do not build release APKs locally. The Android workflow (`.github/workflows/android.yml`) builds, signs, and uploads the APK on every push or pull request.
 
 CI uses directly-installed tooling (`actions/setup-java`, `subosito/flutter-action`, `android-actions/setup-android`) with cached `~/.pub-cache` and Gradle homes, following the same pattern as Logseq's Android workflow. It builds an unsigned release APK and then signs it with `apksigner` using the production keystore.
 
@@ -49,7 +50,6 @@ To request a CI build manually:
 
 ```bash
 # Trigger a workflow dispatch and print the run URL
-cd mobile
 ./trigger-ci-build.sh
 ```
 
@@ -62,8 +62,6 @@ The local Docker-based build (`./build-apk.sh` / `docker compose run --rm build-
 A `compose.yaml` is provided for lightweight local Flutter checks without installing the Flutter SDK. It uses the `ghcr.io/cirruslabs/flutter:stable` image and persists `pub-cache` and Gradle caches in Docker volumes.
 
 ```bash
-cd mobile
-
 # Run static analysis (fast; catches compile errors before a full build)
 docker compose run --rm flutter flutter analyze
 
@@ -78,14 +76,13 @@ The Android workflow runs `flutter analyze` first so compile errors fail fast in
 
 ## Avoiding CI failures
 
-Run the local analyze command before every push that touches `mobile/`:
+Run the local analyze command before every push:
 
 ```bash
-cd mobile
 docker compose run --rm flutter flutter analyze
 ```
 
-The Android workflow and `mobile/Dockerfile` run `scripts/patch_kgp_plugins.py`
+The Android workflow and `Dockerfile` run `scripts/patch_kgp_plugins.py`
 after `flutter pub get`. This removes legacy Kotlin Gradle Plugin application
 from the few remaining plugins that have not yet migrated to AGP 9+ built-in
 Kotlin (`cryptography_flutter`, `dynamic_color`, `workmanager_android`).
