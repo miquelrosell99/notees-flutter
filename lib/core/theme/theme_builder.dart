@@ -25,6 +25,8 @@ ThemeData buildNoteesTheme({
   // then override the primary color with the chosen accent.
   final seedColor = accent ?? (isDark ? Colors.grey.shade900 : Colors.white);
 
+  final surfaceContainers = _surfaceContainers(isDark, pureBlack);
+
   final colorScheme = ColorScheme.fromSeed(
     seedColor: seedColor,
     brightness: brightness,
@@ -33,7 +35,12 @@ ThemeData buildNoteesTheme({
     secondary: accent ?? (isDark ? Colors.grey.shade700 : Colors.grey.shade200),
     onSecondary: isDark ? Colors.white : Colors.black,
     surface: pureBlack && isDark ? Colors.black : null,
-    surfaceContainerHighest: pureBlack && isDark ? const Color(0xFF121212) : null,
+  ).copyWith(
+    surfaceContainerLowest: surfaceContainers.$1,
+    surfaceContainerLow: surfaceContainers.$2,
+    surfaceContainer: surfaceContainers.$3,
+    surfaceContainerHigh: surfaceContainers.$4,
+    surfaceContainerHighest: surfaceContainers.$5,
   );
 
   final baseScheme = accent != null
@@ -83,7 +90,7 @@ ThemeData buildNoteesTheme({
     ),
     cardTheme: CardThemeData(
       elevation: 0,
-      color: baseScheme.surfaceContainerHighest,
+      color: baseScheme.surfaceContainer,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         side: BorderSide(
@@ -124,23 +131,23 @@ ThemeData buildNoteesTheme({
       filled: true,
       fillColor: baseScheme.surfaceContainerHighest,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(
           color: baseScheme.outline.withAlpha((0.2 * 255).round()),
         ),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(
           color: baseScheme.outline.withAlpha((0.2 * 255).round()),
         ),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(color: baseScheme.primary, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide(color: baseScheme.error),
       ),
       contentPadding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
@@ -153,6 +160,7 @@ ThemeData buildNoteesTheme({
     bottomSheetTheme: BottomSheetThemeData(
       elevation: 0,
       backgroundColor: baseScheme.surfaceContainerHighest,
+      surfaceTintColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -160,6 +168,7 @@ ThemeData buildNoteesTheme({
     dialogTheme: DialogThemeData(
       elevation: 0,
       backgroundColor: baseScheme.surfaceContainerHighest,
+      surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
     ),
     snackBarTheme: SnackBarThemeData(
@@ -199,6 +208,36 @@ ThemeData buildNoteesTheme({
 Color _contrastFor(Color color) {
   final luminance = color.computeLuminance();
   return luminance > 0.5 ? Colors.black : Colors.white;
+}
+
+/// Returns explicit grayscale surface container values so dynamic or accent
+/// colors cannot tint surfaces. Values are chosen from the Attire fleet scale.
+(Color, Color, Color, Color, Color) _surfaceContainers(bool isDark, bool pureBlack) {
+  if (isDark) {
+    if (pureBlack) {
+      return (
+        const Color(0xFF000000),
+        const Color(0xFF111111),
+        const Color(0xFF1A1A1A),
+        const Color(0xFF222222),
+        const Color(0xFF2A2A2A),
+      );
+    }
+    return (
+      const Color(0xFF0F0F0F),
+      const Color(0xFF1A1A1A),
+      const Color(0xFF1F1F1F),
+      const Color(0xFF252525),
+      const Color(0xFF2A2A2A),
+    );
+  }
+  return (
+    const Color(0xFFFFFFFF),
+    const Color(0xFFF7F7F7),
+    const Color(0xFFF2F2F2),
+    const Color(0xFFECECEC),
+    const Color(0xFFE6E6E6),
+  );
 }
 
 /// Resolves the effective accent color from the user's preference.

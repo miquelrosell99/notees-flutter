@@ -57,7 +57,7 @@ class _TrashScreenState extends State<TrashScreen> {
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.restoreNode(node.uuid);
-      await _loadTrash();
+      if (mounted) await _loadTrash();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -98,7 +98,7 @@ class _TrashScreenState extends State<TrashScreen> {
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.permanentlyDeleteNode(node.uuid);
-      await _loadTrash();
+      if (mounted) await _loadTrash();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -169,7 +169,7 @@ class _TrashScreenState extends State<TrashScreen> {
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.emptyTrash();
-      await _loadTrash();
+      if (mounted) await _loadTrash();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

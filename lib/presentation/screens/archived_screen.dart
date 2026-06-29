@@ -39,14 +39,16 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final nodes = await repo.fetchArchived();
-      setState(() {
-        _archived = nodes;
-        _error = null;
-      });
+      if (mounted) {
+        setState(() {
+          _archived = nodes;
+          _error = null;
+        });
+      }
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -59,7 +61,7 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.unarchiveNode(node.uuid);
-      await _loadArchived();
+      if (mounted) await _loadArchived();
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
@@ -131,7 +133,7 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
           background: Container(
             decoration: BoxDecoration(
               color: colors.primaryContainer,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(20),
             ),
             alignment: Alignment.centerRight,
             padding: const EdgeInsets.only(right: 20),
@@ -154,7 +156,7 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
             margin: EdgeInsets.zero,
             elevation: 0,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(20),
               side: BorderSide(
                 color: colors.outline.withAlpha((0.1 * 255).round()),
               ),

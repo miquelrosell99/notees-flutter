@@ -47,14 +47,16 @@ class _JournalScreenState extends State<JournalScreen> {
           limit: 30,
         ),
       );
-      setState(() {
-        _recentJournals = journals;
-        _error = null;
-      });
+      if (mounted) {
+        setState(() {
+          _recentJournals = journals;
+          _error = null;
+        });
+      }
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 

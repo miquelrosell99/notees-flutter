@@ -25,13 +25,13 @@ class EmptyState extends StatelessWidget {
           children: [
             Icon(
               icon,
-              size: 64,
+              size: 48,
               color: colors.onSurfaceVariant.withAlpha((0.35 * 255).round()),
             ),
             const SizedBox(height: 16),
             Text(
               title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w600,
                     color: colors.onSurfaceVariant,
                   ),

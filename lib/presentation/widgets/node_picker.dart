@@ -132,6 +132,7 @@ class _NodePickerState extends State<NodePicker> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.close),
+                  tooltip: 'Close',
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],

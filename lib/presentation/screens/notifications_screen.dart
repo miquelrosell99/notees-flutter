@@ -53,7 +53,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     try {
       final repo = NotificationRepository(dio: auth.dio!);
       await repo.markRead(notification.id);
-      await _loadNotifications();
+      if (mounted) await _loadNotifications();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -69,7 +69,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     try {
       final repo = NotificationRepository(dio: auth.dio!);
       await repo.markAllRead();
-      await _loadNotifications();
+      if (mounted) await _loadNotifications();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {

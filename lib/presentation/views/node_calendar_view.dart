@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
 import 'node_list_view.dart';
@@ -63,12 +64,14 @@ class _NodeCalendarViewState extends State<NodeCalendarView> {
   }
 
   void _previousMonth() {
+    HapticFeedback.lightImpact();
     setState(() {
       _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month - 1);
     });
   }
 
   void _nextMonth() {
+    HapticFeedback.lightImpact();
     setState(() {
       _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month + 1);
     });

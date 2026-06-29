@@ -339,6 +339,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 if (value.text.isEmpty) return const SizedBox.shrink();
                 return IconButton(
                   icon: const Icon(Icons.clear),
+                  tooltip: 'Clear search',
                   onPressed: () {
                     _controller.clear();
                     _onQueryChanged('');
@@ -367,6 +368,7 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.tune),
+            tooltip: 'Filter',
             onPressed: () async {
               final updated = await FilterBottomSheet.show(context, _filters);
               if (updated != null) {

@@ -169,20 +169,24 @@ class AstRichText extends StatelessWidget {
         return [
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
-            child: GestureDetector(
-              onTap: target.isNotEmpty ? () => onNodeLinkTap?.call(target) : null,
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 2),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: isClass ? colors.secondaryContainer : colors.primaryContainer,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  label,
-                  style: base.copyWith(
-                    color: isClass ? colors.onSecondaryContainer : colors.onPrimaryContainer,
-                    fontWeight: FontWeight.w500,
+            child: Semantics(
+              button: true,
+              label: 'Link to $label',
+              child: GestureDetector(
+                onTap: target.isNotEmpty ? () => onNodeLinkTap?.call(target) : null,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isClass ? colors.secondaryContainer : colors.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    label,
+                    style: base.copyWith(
+                      color: isClass ? colors.onSecondaryContainer : colors.onPrimaryContainer,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ),

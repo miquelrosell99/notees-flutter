@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
 import '_view_helpers.dart';
@@ -153,7 +154,10 @@ class _NodeTableViewState extends State<NodeTableView> {
                                   color: isFavorite ? colors.primary : colors.onSurfaceVariant,
                                 ),
                                 tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
-                                onPressed: () => widget.onFavoriteToggle!(node),
+                                onPressed: () {
+                                  HapticFeedback.lightImpact();
+                                  widget.onFavoriteToggle!(node);
+                                },
                               ),
                             ],
                           ],

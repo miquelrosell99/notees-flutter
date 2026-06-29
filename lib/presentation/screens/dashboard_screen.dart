@@ -73,16 +73,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ]);
       final inboxContent = results[0] as PageContent;
       final classes = results[2] as List<Node>;
-      setState(() {
-        _inboxBlocks = inboxContent.node.children;
-        _todayJournal = results[1] as Node;
-        _classNames = {for (final c in classes) c.uuid: c.displayName};
-        _error = null;
-      });
+      if (mounted) {
+        setState(() {
+          _inboxBlocks = inboxContent.node.children;
+          _todayJournal = results[1] as Node;
+          _classNames = {for (final c in classes) c.uuid: c.displayName};
+          _error = null;
+        });
+      }
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -107,7 +109,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.moveNode(nodeUuid: block.uuid, parentUuid: destination.uuid);
-      await _loadDashboard();
+      if (mounted) await _loadDashboard();
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
@@ -126,12 +128,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.archiveNode(block.uuid);
-      await _loadDashboard();
+      if (mounted) await _loadDashboard();
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not archive block: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _unarchiveBlock(Node block) async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    setState(() => _loading = true);
+    try {
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      await repo.unarchiveNode(block.uuid);
+      if (mounted) await _loadDashboard();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not restore note: $e')),
         );
       }
     }
@@ -163,12 +184,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.deleteNode(block.uuid);
-      await _loadDashboard();
+      if (mounted) await _loadDashboard();
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not delete block: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _restoreBlock(Node block) async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    setState(() => _loading = true);
+    try {
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      await repo.restoreNode(block.uuid);
+      if (mounted) await _loadDashboard();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not restore note: $e')),
         );
       }
     }
@@ -191,7 +231,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       await repo.updateNode(block.uuid, color: color);
-      await _loadDashboard();
+      if (mounted) await _loadDashboard();
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
@@ -286,6 +326,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                     IconButton(
                       icon: const Icon(Icons.close),
+                      tooltip: 'Close',
                       onPressed: () => Navigator.of(ctx).pop(),
                     ),
                   ],
@@ -308,11 +349,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     setState(() => _loading = true);
                     try {
                       final journal = await _getOrCreateJournal(date);
-                      _openJournal(journal: journal);
+                      if (mounted) _openJournal(journal: journal);
                     } catch (e) {
-                      setState(() => _error = e.toString());
+                      if (mounted) setState(() => _error = e.toString());
                     } finally {
-                      setState(() => _loading = false);
+                      if (mounted) setState(() => _loading = false);
                     }
                   },
                 ),
@@ -424,6 +465,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onBlockLongPress: _showBlockActions,
         onBlockArchive: _archiveBlock,
         onBlockDelete: _deleteBlock,
+        onBlockArchiveUndo: _unarchiveBlock,
+        onBlockDeleteUndo: _restoreBlock,
       );
     }
 
@@ -438,10 +481,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
           direction: DismissDirection.horizontal,
           confirmDismiss: (direction) async {
             if (direction == DismissDirection.startToEnd) {
-              _archiveBlock(block);
+              HapticFeedback.lightImpact();
+              await _archiveBlock(block);
+              if (mounted) {
+                _showUndoSnackBar(
+                  this.context,
+                  message: 'Note archived',
+                  onUndo: () => _unarchiveBlock(block),
+                );
+              }
               return false;
             }
-            return await _confirmDelete(block);
+            final confirmed = await _confirmDelete(block);
+            if (confirmed && mounted) {
+              _showUndoSnackBar(
+                this.context,
+                message: 'Note deleted',
+                onUndo: () => _restoreBlock(block),
+              );
+            }
+            return false;
           },
           background: _SwipeBackground(
             alignment: Alignment.centerLeft,
@@ -492,9 +551,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
     if (result == true) {
-      _deleteBlock(block);
+      HapticFeedback.mediumImpact();
+      await _deleteBlock(block);
+      return true;
     }
     return false;
+  }
+
+  void _showUndoSnackBar(
+    BuildContext context, {
+    required String message,
+    required VoidCallback onUndo,
+  }) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            onUndo();
+          },
+        ),
+      ),
+    );
   }
 }
 

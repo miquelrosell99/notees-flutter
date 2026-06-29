@@ -61,16 +61,18 @@ class _PagesScreenState extends State<PagesScreen> {
         repo.fetchRecentPages(limit: 10),
         repo.fetchFavoriteUuids(),
       ]);
-      setState(() {
-        _rootPages = results[0] as List<Node>;
-        _recents = results[1] as List<Node>;
-        _favoriteUuids = (results[2] as List<String>).toSet();
-        _error = null;
-      });
+      if (mounted) {
+        setState(() {
+          _rootPages = results[0] as List<Node>;
+          _recents = results[1] as List<Node>;
+          _favoriteUuids = (results[2] as List<String>).toSet();
+          _error = null;
+        });
+      }
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 

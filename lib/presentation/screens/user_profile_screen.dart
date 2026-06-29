@@ -51,12 +51,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
   Future<void> _saveProfile() async {
     HapticFeedback.lightImpact();
+    final auth = context.read<AuthProvider>();
     setState(() {
       _savingProfile = true;
       _profileError = null;
     });
     try {
-      final auth = context.read<AuthProvider>();
       await auth.updateUserProfile(
         name: _nameController.text.trim(),
         surnames: _surnamesController.text.trim(),
@@ -67,14 +67,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         );
       }
     } catch (e) {
-      setState(() => _profileError = e.toString());
+      if (mounted) setState(() => _profileError = e.toString());
     } finally {
-      setState(() => _savingProfile = false);
+      if (mounted) setState(() => _savingProfile = false);
     }
   }
 
   Future<void> _changePassword() async {
     HapticFeedback.lightImpact();
+    final auth = context.read<AuthProvider>();
     setState(() {
       _passwordError = null;
       _passwordSuccess = null;
@@ -95,7 +96,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
     setState(() => _savingPassword = true);
     try {
-      final auth = context.read<AuthProvider>();
       if (auth.dio == null) throw const AuthException('No server configured');
       await AuthRepository(dio: auth.dio!, secureStorage: auth.secureStorage)
           .changePassword(
@@ -105,11 +105,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       _currentPasswordController.clear();
       _newPasswordController.clear();
       _confirmPasswordController.clear();
-      setState(() => _passwordSuccess = 'Password changed');
+      if (mounted) setState(() => _passwordSuccess = 'Password changed');
     } catch (e) {
-      setState(() => _passwordError = e.toString());
+      if (mounted) setState(() => _passwordError = e.toString());
     } finally {
-      setState(() => _savingPassword = false);
+      if (mounted) setState(() => _savingPassword = false);
     }
   }
 
@@ -219,6 +219,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       labelText: 'Current password',
                       suffixIcon: IconButton(
                         icon: Icon(_obscureCurrent ? Icons.visibility_off : Icons.visibility),
+                        tooltip: 'Toggle password visibility',
                         onPressed: () => setState(() => _obscureCurrent = !_obscureCurrent),
                       ),
                     ),
@@ -231,6 +232,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       labelText: 'New password',
                       suffixIcon: IconButton(
                         icon: Icon(_obscureNew ? Icons.visibility_off : Icons.visibility),
+                        tooltip: 'Toggle password visibility',
                         onPressed: () => setState(() => _obscureNew = !_obscureNew),
                       ),
                     ),
@@ -243,6 +245,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       labelText: 'Confirm new password',
                       suffixIcon: IconButton(
                         icon: Icon(_obscureConfirm ? Icons.visibility_off : Icons.visibility),
+                        tooltip: 'Toggle password visibility',
                         onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
                       ),
                     ),

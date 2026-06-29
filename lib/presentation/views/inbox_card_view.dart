@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/utils/ast_stringifier.dart';
 import '../../core/utils/color_presets.dart';
@@ -20,6 +21,8 @@ class InboxCardView extends StatelessWidget {
     this.onBlockLongPress,
     this.onBlockArchive,
     this.onBlockDelete,
+    this.onBlockArchiveUndo,
+    this.onBlockDeleteUndo,
     this.classNames = const {},
   });
 
@@ -28,6 +31,8 @@ class InboxCardView extends StatelessWidget {
   final ValueChanged<Node>? onBlockLongPress;
   final ValueChanged<Node>? onBlockArchive;
   final ValueChanged<Node>? onBlockDelete;
+  final ValueChanged<Node>? onBlockArchiveUndo;
+  final ValueChanged<Node>? onBlockDeleteUndo;
   final Map<String, String> classNames;
 
   @override
@@ -50,6 +55,8 @@ class InboxCardView extends StatelessWidget {
           onLongPress: onBlockLongPress != null ? () => onBlockLongPress!(block) : null,
           onArchive: onBlockArchive != null ? () => onBlockArchive!(block) : null,
           onDelete: onBlockDelete != null ? () => onBlockDelete!(block) : null,
+          onArchiveUndo: onBlockArchiveUndo != null ? () => onBlockArchiveUndo!(block) : null,
+          onDeleteUndo: onBlockDeleteUndo != null ? () => onBlockDeleteUndo!(block) : null,
         );
       },
     );
@@ -64,6 +71,8 @@ class _DismissibleInboxCard extends StatelessWidget {
     this.onLongPress,
     this.onArchive,
     this.onDelete,
+    this.onArchiveUndo,
+    this.onDeleteUndo,
   });
 
   final Node block;
@@ -72,6 +81,8 @@ class _DismissibleInboxCard extends StatelessWidget {
   final VoidCallback? onLongPress;
   final VoidCallback? onArchive;
   final VoidCallback? onDelete;
+  final VoidCallback? onArchiveUndo;
+  final VoidCallback? onDeleteUndo;
 
   @override
   Widget build(BuildContext context) {
@@ -92,11 +103,27 @@ class _DismissibleInboxCard extends StatelessWidget {
       direction: _direction,
       confirmDismiss: (direction) async {
         if (direction == DismissDirection.startToEnd && canArchive) {
+          HapticFeedback.lightImpact();
           onArchive!();
+          _showUndoSnackBar(
+            context,
+            message: 'Note archived',
+            onUndo: onArchiveUndo,
+          );
           return false; // We handle removal via parent refresh.
         }
         if (direction == DismissDirection.endToStart && canDelete) {
-          return await _confirmDelete(context);
+          final confirmed = await _confirmDelete(context);
+          if (confirmed == true && context.mounted) {
+            HapticFeedback.lightImpact();
+            onDelete!();
+            _showUndoSnackBar(
+              context,
+              message: 'Note deleted',
+              onUndo: onDeleteUndo,
+            );
+          }
+          return false;
         }
         return false;
       },
@@ -126,27 +153,45 @@ class _DismissibleInboxCard extends StatelessWidget {
   }
 
   Future<bool> _confirmDelete(BuildContext context) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete note?'),
-        content: const Text('This note will be moved to trash.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
+    return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Delete note?'),
+            content: const Text('This note will be moved to trash.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Delete'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
+        ) ??
+        false;
+  }
+
+  void _showUndoSnackBar(
+    BuildContext context, {
+    required String message,
+    required VoidCallback? onUndo,
+  }) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: onUndo != null
+            ? SnackBarAction(
+                label: 'Undo',
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  onUndo();
+                },
+              )
+            : null,
       ),
     );
-    if (result == true) {
-      onDelete!();
-    }
-    return false; // Parent refresh handles removal.
   }
 }
 

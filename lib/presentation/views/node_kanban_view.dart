@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
 import '../widgets/fleet_card.dart';
@@ -315,7 +316,10 @@ class _KanbanCard extends StatelessWidget {
                       color: isFavorite ? colors.primary : colors.onSurfaceVariant,
                     ),
                     tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
-                    onPressed: onFavoriteToggle,
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      onFavoriteToggle?.call();
+                    },
                   ),
               ],
             ),

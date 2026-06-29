@@ -268,6 +268,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     }
 
     // Drop target: dropping on a row makes the dragged node a child.
+    final disableAnimations = MediaQuery.of(context).disableAnimations;
     content = DragTarget<BlockNode>(
       onWillAcceptWithDetails: (details) =>
           details.data != node && !_isDescendant(details.data, node),
@@ -277,7 +278,9 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       builder: (context, candidateData, rejectedData) {
         final active = candidateData.isNotEmpty;
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: disableAnimations
+              ? Duration.zero
+              : const Duration(milliseconds: 150),
           decoration: BoxDecoration(
             color: active ? colors.primaryContainer.withAlpha((0.25 * 255).round()) : null,
             borderRadius: BorderRadius.circular(8),
@@ -399,11 +402,11 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
   bool _isCode(BlockNode node) => node.node.isTable || _hasSystemClass(node, 'code');
 
   Color? _calloutColor(BlockNode node, ColorScheme colors) {
-    if (_hasSystemClass(node, 'warning')) return Colors.orange;
+    if (_hasSystemClass(node, 'warning')) return colors.error;
     if (_hasSystemClass(node, 'danger')) return colors.error;
-    if (_hasSystemClass(node, 'success')) return Colors.green;
-    if (_hasSystemClass(node, 'info')) return Colors.blue;
-    if (_hasSystemClass(node, 'tip')) return Colors.teal;
+    if (_hasSystemClass(node, 'success')) return colors.primary;
+    if (_hasSystemClass(node, 'info')) return colors.tertiary;
+    if (_hasSystemClass(node, 'tip')) return colors.outline;
     if (_hasSystemClass(node, 'quote')) return colors.outline;
     return null;
   }
@@ -519,7 +522,7 @@ class _DragHandleState extends State<_DragHandle> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final feedback = Material(
-      elevation: 3,
+      elevation: 0,
       borderRadius: BorderRadius.circular(8),
       child: Container(
         width: MediaQuery.of(context).size.width - 32,
@@ -590,8 +593,7 @@ class _BlockToolbarButton extends StatelessWidget {
       icon: Icon(icon, size: 20),
       tooltip: tooltip,
       color: colors.onSurfaceVariant,
-      visualDensity: VisualDensity.compact,
-      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
       padding: EdgeInsets.zero,
       onPressed: onPressed,
     );
@@ -615,8 +617,8 @@ class _Bullet extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
-        width: 28,
-        height: 44,
+        width: 48,
+        height: 48,
         child: Center(
           child: collapsed
               ? Icon(Icons.chevron_right, size: 18, color: colors.onSurfaceVariant)
