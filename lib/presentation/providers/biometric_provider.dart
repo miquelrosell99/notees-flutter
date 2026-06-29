@@ -24,7 +24,11 @@ class BiometricProvider extends ChangeNotifier {
 
   Future<void> initialize() async {
     _enabled = prefs.getBool(_enabledKey) ?? false;
-    _available = await _helper.isAvailable();
+    try {
+      _available = await _helper.isAvailable();
+    } on Exception catch (_) {
+      _available = false;
+    }
     notifyListeners();
   }
 

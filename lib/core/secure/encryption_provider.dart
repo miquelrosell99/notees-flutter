@@ -119,7 +119,11 @@ class EncryptionProvider extends ChangeNotifier {
       _isUnlocked = false;
       _derivedKeyHex = null;
       AppDatabase.encryptionPassword = null;
-      await AppDatabase().close();
+      try {
+        await AppDatabase().close();
+      } on Exception catch (_) {
+        // The database may not have been opened yet; ignore close failures.
+      }
       notifyListeners();
     }
   }

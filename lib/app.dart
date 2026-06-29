@@ -56,7 +56,7 @@ class NoteesApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider(prefs)),
-        ChangeNotifierProvider(create: (_) => EncryptionProvider(prefs: prefs)..initialize()),
+        ChangeNotifierProvider(create: (_) => EncryptionProvider(prefs: prefs)),
       ],
       child: const _NoteesAppBody(),
     );
@@ -79,14 +79,38 @@ class _NoteesAppBodyState extends State<_NoteesAppBody> {
     final encryption = context.read<EncryptionProvider>();
     final auth = context.read<AuthProvider>();
     _router = createRouter(authProvider: auth);
-    encryption.initialize().then((_) {
-      auth.initialize().then((_) {
-        if (auth.activeServer != null) {
-          BackgroundSync.registerPeriodic();
+    _initializeAfterFirstFrame(encryption, auth);
+    unawaited(IntentReceiver.instance.initialize());
+  }
+
+  /// Initializes encryption, auth, and periodic sync after the first frame so
+  /// that startup crashes in optional subsystems do not prevent the UI from
+  /// rendering. Errors are logged and surfaced through [AuthProvider.error].
+  void _initializeAfterFirstFrame(
+    EncryptionProvider encryption,
+    AuthProvider auth,
+  ) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await encryption.initialize();
+      } on Exception catch (e, stack) {
+        debugPrint('EncryptionProvider initialization failed: $e\n$stack');
+      }
+
+      try {
+        await auth.initialize();
+      } on Exception catch (e, stack) {
+        debugPrint('AuthProvider initialization failed: $e\n$stack');
+      }
+
+      if (auth.activeServer != null && BackgroundSync.isInitialized) {
+        try {
+          await BackgroundSync.registerPeriodic();
+        } on Exception catch (e, stack) {
+          debugPrint('BackgroundSync periodic registration failed: $e\n$stack');
         }
-      });
+      }
     });
-    IntentReceiver.instance.initialize();
   }
 
   @override

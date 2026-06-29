@@ -9,7 +9,15 @@ import 'native/background_sync.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await BackgroundSync.initialize();
+
+  // Initialize background sync outside runApp so a Workmanager failure does
+  // not take down the whole app. Users can still use the app without periodic
+  // background sync.
+  try {
+    await BackgroundSync.initialize();
+  } on Exception catch (e, stack) {
+    debugPrint('BackgroundSync initialization failed: $e\n$stack');
+  }
 
   // Lock to portrait on phones for the first release.
   await SystemChrome.setPreferredOrientations([

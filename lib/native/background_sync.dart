@@ -79,6 +79,9 @@ class BackgroundSync {
     _initialized = true;
   }
 
+  /// Returns whether [initialize] completed successfully.
+  static bool get isInitialized => _initialized;
+
   /// Registers a 15-minute periodic sync task that only runs when online.
   static Future<void> registerPeriodic() async {
     await Workmanager().registerPeriodicTask(
