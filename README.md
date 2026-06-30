@@ -16,26 +16,32 @@ A first-class Flutter companion app for [Notees](https://github.com/notees/notee
 
 ## Build
 
-The local build runs inside Docker so the environment matches CI:
+Install the Flutter SDK and Android toolchain, then run the native Flutter
+commands:
 
 ```bash
-cd mobile
-./build-apk.sh apk release
+flutter pub get
+python3 scripts/patch_kgp_plugins.py
+python3 scripts/patch_mdi_icons.py
+flutter build apk --release
 ```
 
-The APK is written to `mobile/dist/notees.apk`.
+The APK is written to `build/app/outputs/flutter-apk/app-release.apk`.
 
-### Built-in Kotlin workaround
+### Pub-cache patches
 
 A few published Flutter plugins still apply the legacy Kotlin Gradle Plugin
 (KGP), which causes Flutter to emit a migration warning during Android builds.
-The build runs `scripts/patch_kgp_plugins.py` after `flutter pub get` to remove
-`apply plugin: 'kotlin-android'` from the remaining plugin build files in the
-pub cache. The script is idempotent and the patched plugins still compile and
-produce a working APK.
+`scripts/patch_kgp_plugins.py` removes `apply plugin: 'kotlin-android'` from the
+remaining plugin build files in the pub cache. It is idempotent and only touches
+the pub cache.
+
+`material_design_icons_flutter` also needs a small patch because `IconData` is
+`final` in recent Flutter versions. Run `scripts/patch_mdi_icons.py` after every
+`flutter pub get`.
 
 `share_plus`, `package_info_plus`, and `record` were upgraded to KGP-free major
-versions, so they no longer need patching. Remove this workaround once
+versions, so they no longer need patching. Remove the KGP workaround once
 `cryptography_flutter`, `dynamic_color`, and `workmanager_android` also ship
 built-in Kotlin releases.
 

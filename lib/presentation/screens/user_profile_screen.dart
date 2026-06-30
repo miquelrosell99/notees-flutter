@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -218,7 +219,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     decoration: InputDecoration(
                       labelText: 'Current password',
                       suffixIcon: IconButton(
-                        icon: Icon(_obscureCurrent ? Icons.visibility_off : Icons.visibility),
+                        icon: Icon(_obscureCurrent ? MdiIcons.eyeOff : MdiIcons.eye),
                         tooltip: 'Toggle password visibility',
                         onPressed: () => setState(() => _obscureCurrent = !_obscureCurrent),
                       ),
@@ -231,7 +232,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     decoration: InputDecoration(
                       labelText: 'New password',
                       suffixIcon: IconButton(
-                        icon: Icon(_obscureNew ? Icons.visibility_off : Icons.visibility),
+                        icon: Icon(_obscureNew ? MdiIcons.eyeOff : MdiIcons.eye),
                         tooltip: 'Toggle password visibility',
                         onPressed: () => setState(() => _obscureNew = !_obscureNew),
                       ),
@@ -244,7 +245,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     decoration: InputDecoration(
                       labelText: 'Confirm new password',
                       suffixIcon: IconButton(
-                        icon: Icon(_obscureConfirm ? Icons.visibility_off : Icons.visibility),
+                        icon: Icon(_obscureConfirm ? MdiIcons.eyeOff : MdiIcons.eye),
                         tooltip: 'Toggle password visibility',
                         onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
                       ),

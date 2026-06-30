@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 /// The splash screen is displayed while [AuthProvider.initialize] resolves
 /// the active server and existing session.
@@ -20,7 +21,7 @@ class SplashScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Icon(
-                Icons.notes_outlined,
+                MdiIcons.noteTextOutline,
                 size: 40,
                 color: Theme.of(context).colorScheme.onPrimaryContainer,
               ),

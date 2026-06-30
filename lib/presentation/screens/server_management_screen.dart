@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -89,7 +90,7 @@ class _ServerManagementScreenState extends State<ServerManagementScreen> {
                               children: [
                                 ListTile(
                                   leading: Icon(
-                                    Icons.dns,
+                                    MdiIcons.dns,
                                     color: isActive ? colors.primary : colors.onSurfaceVariant,
                                   ),
                                   title: Text(server.nickname),
@@ -99,8 +100,8 @@ class _ServerManagementScreenState extends State<ServerManagementScreen> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   trailing: isActive
-                                      ? Icon(Icons.check_circle, color: colors.primary)
-                                      : const Icon(Icons.chevron_right),
+                                      ? Icon(MdiIcons.checkCircle, color: colors.primary)
+                                      : Icon(MdiIcons.chevronRight),
                                   onTap: () => _switchServer(server),
                                   onLongPress: () => _showServerSheet(server: server),
                                 ),
@@ -122,7 +123,7 @@ class _ServerManagementScreenState extends State<ServerManagementScreen> {
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showServerSheet(),
-        icon: const Icon(Icons.add),
+        icon: Icon(MdiIcons.plus),
         label: const Text('Server'),
       ),
     );
@@ -239,10 +240,10 @@ class _ServerFormSheetState extends State<_ServerFormSheet> {
           const SizedBox(height: 20),
           TextField(
             controller: _urlController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Server URL',
               hintText: 'https://notees.example.com',
-              prefixIcon: Icon(Icons.link),
+              prefixIcon: Icon(MdiIcons.link),
             ),
             keyboardType: TextInputType.url,
             autocorrect: false,
@@ -250,9 +251,9 @@ class _ServerFormSheetState extends State<_ServerFormSheet> {
           const SizedBox(height: 12),
           TextField(
             controller: _nicknameController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Nickname (optional)',
-              prefixIcon: Icon(Icons.label_outline),
+              prefixIcon: Icon(MdiIcons.labelOutline),
             ),
           ),
           const SizedBox(height: 8),

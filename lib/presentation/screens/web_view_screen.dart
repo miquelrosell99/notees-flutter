@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -219,13 +220,13 @@ class _NoteesWebViewScreenState extends State<NoteesWebViewScreen> {
       appBar: AppBar(
         title: Text(widget.title ?? 'Notees'),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: Icon(MdiIcons.arrowLeft),
           tooltip: 'Back',
           onPressed: () => context.canPop() ? context.pop() : context.go(Routes.dashboard),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: Icon(MdiIcons.refresh),
             tooltip: 'Reload',
             onPressed: _controller == null ? null : _reload,
           ),

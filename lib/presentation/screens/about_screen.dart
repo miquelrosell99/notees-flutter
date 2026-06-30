@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../widgets/fleet_card.dart';
@@ -43,7 +44,7 @@ class _AboutScreenState extends State<AboutScreen> {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Icon(
-                Icons.notes_outlined,
+                MdiIcons.noteTextOutline,
                 size: 40,
                 color: colors.onPrimaryContainer,
               ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -195,7 +196,7 @@ class _PagesScreenState extends State<PagesScreen> {
       ),
       floatingActionButton: FloatingActionButton.small(
         onPressed: () => _createPage(context),
-        child: const Icon(Icons.add),
+        child: Icon(MdiIcons.plus),
       ),
     );
   }
@@ -230,17 +231,17 @@ class _PagesScreenState extends State<PagesScreen> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        const SectionTitle(icon: Icons.widgets_outlined, label: 'Templates'),
+        SectionTitle(icon: MdiIcons.widgetsOutline, label: 'Templates'),
         const SizedBox(height: 8),
         FleetCard(
           child: ListTile(
             leading: Icon(
-              Icons.widgets_outlined,
+              MdiIcons.widgetsOutline,
               color: colors.onSurfaceVariant,
             ),
             title: const Text('Templates'),
             trailing: Icon(
-              Icons.chevron_right,
+              MdiIcons.chevronRight,
               color: colors.onSurfaceVariant,
             ),
             onTap: () => context.push(Routes.templates),
@@ -248,7 +249,7 @@ class _PagesScreenState extends State<PagesScreen> {
         ),
         const SizedBox(height: 28),
         if (_rootPages.isNotEmpty) ...[
-          const SectionTitle(icon: Icons.folder_outlined, label: 'Root pages'),
+          SectionTitle(icon: MdiIcons.folderOutline, label: 'Root pages'),
           const SizedBox(height: 8),
           FleetCard(
             child: NodeListView(
@@ -261,7 +262,7 @@ class _PagesScreenState extends State<PagesScreen> {
           ),
           const SizedBox(height: 28),
         ],
-        const SectionTitle(icon: Icons.access_time, label: 'Recent'),
+        SectionTitle(icon: MdiIcons.clockOutline, label: 'Recent'),
         const SizedBox(height: 8),
         FleetCard(
           child: _recents.isEmpty

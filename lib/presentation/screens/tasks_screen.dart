@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -168,7 +169,7 @@ class _TasksScreenState extends State<TasksScreen> {
       floatingActionButton: FloatingActionButton(
         onPressed: _createTask,
         tooltip: 'Create task',
-        child: const Icon(Icons.add),
+        child: Icon(MdiIcons.plus),
       ),
     );
   }
@@ -207,14 +208,14 @@ class _TasksScreenState extends State<TasksScreen> {
                   ListTile(
                     leading: IconButton(
                       icon: Icon(
-                        Icons.radio_button_unchecked,
+                        MdiIcons.radioboxBlank,
                         color: colors.primary,
                       ),
                       tooltip: 'Toggle completion',
                       onPressed: () => _toggleTaskCompletion(task),
                     ),
                     title: Text(task.displayName),
-                    trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+                    trailing: Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
                     onTap: () => _openNode(task),
                   ),
                   if (!isLast) const Divider(height: 1),

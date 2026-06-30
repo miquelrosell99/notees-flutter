@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
@@ -126,44 +127,44 @@ class _CommandPaletteState extends State<CommandPalette> {
 
   List<_CommandEntry> _buildEntries() {
     final entries = <_CommandEntry>[
-      const _CommandEntry(
-        icon: Icons.dashboard_outlined,
+      _CommandEntry(
+        icon: MdiIcons.viewDashboardOutline,
         label: 'Go to dashboard',
         item: StaticCommand(CommandPaletteAction.dashboard),
       ),
-      const _CommandEntry(
-        icon: Icons.calendar_today_outlined,
+      _CommandEntry(
+        icon: MdiIcons.calendarOutline,
         label: 'Go to journals',
         item: StaticCommand(CommandPaletteAction.journal),
       ),
-      const _CommandEntry(
-        icon: Icons.check_circle_outline,
+      _CommandEntry(
+        icon: MdiIcons.checkCircleOutline,
         label: 'Go to tasks',
         item: StaticCommand(CommandPaletteAction.tasks),
       ),
-      const _CommandEntry(
-        icon: Icons.description_outlined,
+      _CommandEntry(
+        icon: MdiIcons.fileDocumentOutline,
         label: 'Go to pages',
         item: StaticCommand(CommandPaletteAction.pages),
       ),
-      const _CommandEntry(
-        icon: Icons.edit_calendar_outlined,
+      _CommandEntry(
+        icon: MdiIcons.calendarEditOutline,
         label: "Go to journal today",
         item: StaticCommand(CommandPaletteAction.journalToday),
       ),
-      const _CommandEntry(
-        icon: Icons.search,
+      _CommandEntry(
+        icon: MdiIcons.magnify,
         label: 'Go to search',
         item: StaticCommand(CommandPaletteAction.search),
       ),
-      const _CommandEntry(
-        icon: Icons.settings_outlined,
+      _CommandEntry(
+        icon: MdiIcons.cogOutline,
         label: 'Go to settings',
         item: StaticCommand(CommandPaletteAction.settings),
       ),
       ..._recents.map(
         (node) => _CommandEntry(
-          icon: Icons.access_time,
+          icon: MdiIcons.clockOutline,
           label: node.displayName,
           subtitle: 'Recent page',
           item: NodeCommand(node),
@@ -171,7 +172,7 @@ class _CommandPaletteState extends State<CommandPalette> {
       ),
       ..._favorites.map(
         (node) => _CommandEntry(
-          icon: Icons.star,
+          icon: MdiIcons.star,
           label: node.displayName,
           subtitle: 'Favorite',
           item: NodeCommand(node),
@@ -220,7 +221,7 @@ class _CommandPaletteState extends State<CommandPalette> {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close),
+                  icon: Icon(MdiIcons.close),
                   tooltip: 'Close',
                   onPressed: () => Navigator.of(context).pop(),
                 ),
@@ -236,7 +237,7 @@ class _CommandPaletteState extends State<CommandPalette> {
               textAlignVertical: TextAlignVertical.center,
               decoration: InputDecoration(
                 hintText: 'Type a command or page name...',
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: Icon(MdiIcons.magnify),
                 filled: true,
                 fillColor: colors.surfaceContainerHighest,
                 border: OutlineInputBorder(

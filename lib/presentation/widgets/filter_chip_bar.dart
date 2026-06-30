@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 import '../../domain/models/search_filters.dart';
 
@@ -87,7 +88,7 @@ class _FilterChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Chip(
       label: Text(label),
-      deleteIcon: const Icon(Icons.close, size: 18),
+      deleteIcon: Icon(MdiIcons.close, size: 18),
       onDeleted: onDeleted,
       padding: EdgeInsets.zero,
     );

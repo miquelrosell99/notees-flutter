@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 import '../../core/utils/ast_builder.dart';
 import '../../data/models/node.dart';
@@ -233,23 +234,23 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
         Expanded(child: field),
         if (isFocused) ...[
           _BlockToolbarButton(
-            icon: Icons.format_indent_increase,
+            icon: MdiIcons.formatIndentIncrease,
             tooltip: 'Indent',
             onPressed: () => widget.onIndent(node),
           ),
           _BlockToolbarButton(
-            icon: Icons.format_indent_decrease,
+            icon: MdiIcons.formatIndentDecrease,
             tooltip: 'Outdent',
             onPressed: () => widget.onOutdent(node),
           ),
           if (node.id > 0)
             _BlockToolbarButton(
-              icon: Icons.add,
+              icon: MdiIcons.plus,
               tooltip: 'Add child',
               onPressed: () => widget.onAddChild(node),
             ),
           _BlockToolbarButton(
-            icon: Icons.more_vert,
+            icon: MdiIcons.dotsVertical,
             tooltip: 'Block options',
             onPressed: () => _showBlockMenu(node),
           ),
@@ -428,7 +429,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
           children: [
             if (node.id > 0)
               ListTile(
-                leading: const Icon(Icons.add),
+                leading: Icon(MdiIcons.plus),
                 title: const Text('Add child'),
                 onTap: () {
                   Navigator.of(ctx).pop();
@@ -436,7 +437,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
                 },
               ),
             ListTile(
-              leading: const Icon(Icons.format_indent_increase),
+              leading: Icon(MdiIcons.formatIndentIncrease),
               title: const Text('Indent'),
               onTap: () {
                 Navigator.of(ctx).pop();
@@ -444,7 +445,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.format_indent_decrease),
+              leading: Icon(MdiIcons.formatIndentDecrease),
               title: const Text('Outdent'),
               onTap: () {
                 Navigator.of(ctx).pop();
@@ -452,7 +453,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.delete_outline),
+              leading: Icon(MdiIcons.deleteOutline),
               title: const Text('Delete block'),
               onTap: () {
                 Navigator.of(ctx).pop();
@@ -461,7 +462,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
             ),
             if (widget.onInsertImage != null)
               ListTile(
-                leading: const Icon(Icons.image),
+                leading: Icon(MdiIcons.image),
                 title: const Text('Insert image'),
                 onTap: () {
                   Navigator.of(ctx).pop();
@@ -470,7 +471,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
               ),
             if (widget.onInsertAudio != null)
               ListTile(
-                leading: const Icon(Icons.mic),
+                leading: Icon(MdiIcons.microphone),
                 title: const Text('Insert audio'),
                 onTap: () {
                   Navigator.of(ctx).pop();
@@ -621,7 +622,7 @@ class _Bullet extends StatelessWidget {
         height: 48,
         child: Center(
           child: collapsed
-              ? Icon(Icons.chevron_right, size: 18, color: colors.onSurfaceVariant)
+              ? Icon(MdiIcons.chevronRight, size: 18, color: colors.onSurfaceVariant)
               : Container(
                   width: 6,
                   height: 6,

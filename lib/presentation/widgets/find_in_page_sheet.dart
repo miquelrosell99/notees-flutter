@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 /// Current state of the find-in-page search.
 class FindState {
@@ -110,7 +111,7 @@ class _FindInPageSheetState extends State<FindInPageSheet> {
                         autofocus: true,
                         decoration: InputDecoration(
                           hintText: 'Find in page',
-                          prefixIcon: const Icon(Icons.search),
+                          prefixIcon: Icon(MdiIcons.magnify),
                           filled: true,
                           fillColor: colors.surfaceContainerHighest,
                           border: OutlineInputBorder(
@@ -123,12 +124,12 @@ class _FindInPageSheetState extends State<FindInPageSheet> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_up),
+                      icon: Icon(MdiIcons.chevronUp),
                       tooltip: 'Previous',
                       onPressed: widget.onPrevious,
                     ),
                     IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_down),
+                      icon: Icon(MdiIcons.chevronDown),
                       tooltip: 'Next',
                       onPressed: widget.onNext,
                     ),

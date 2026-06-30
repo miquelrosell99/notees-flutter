@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -134,8 +135,8 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        const SectionTitle(
-          icon: Icons.description_outlined,
+        SectionTitle(
+          icon: MdiIcons.fileDocumentOutline,
           label: 'Choose a template',
         ),
         const SizedBox(height: 8),
@@ -148,12 +149,12 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
                 children: [
                   ListTile(
                     leading: Icon(
-                      Icons.description_outlined,
+                      MdiIcons.fileDocumentOutline,
                       color: colors.onSurfaceVariant,
                     ),
                     title: Text(template.displayName),
                     trailing: Icon(
-                      Icons.chevron_right,
+                      MdiIcons.chevronRight,
                       color: colors.onSurfaceVariant,
                     ),
                     onTap: () => _onTemplateTap(template),

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 import '../../data/models/node.dart';
 import '../widgets/fleet_card.dart';
+import '../widgets/responsive_card_grid_delegate.dart';
 
 /// Card grid view for a collection of nodes.
 class NodeCardView extends StatelessWidget {
@@ -25,12 +27,7 @@ class NodeCardView extends StatelessWidget {
 
     return GridView.builder(
       padding: const EdgeInsets.all(16),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 220,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 1.1,
-      ),
+      gridDelegate: responsiveCardGridDelegate(context),
       itemCount: nodes.length,
       itemBuilder: (context, index) {
         final node = nodes[index];
@@ -53,7 +50,7 @@ class NodeCardView extends StatelessWidget {
                     if (onFavoriteToggle != null)
                       IconButton(
                         icon: Icon(
-                          isFavorite ? Icons.star : Icons.star_border,
+                          isFavorite ? MdiIcons.star : MdiIcons.starOutline,
                           color: isFavorite ? colors.primary : colors.onSurfaceVariant,
                         ),
                         tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
@@ -108,9 +105,9 @@ class NodeCardView extends StatelessWidget {
   }
 
   IconData _iconForNode(Node node) {
-    if (node.isJournal) return Icons.calendar_today_outlined;
-    if (node.isTask) return Icons.check_circle_outline;
-    return node.icon?.isNotEmpty == true ? Icons.description_outlined : Icons.description_outlined;
+    if (node.isJournal) return MdiIcons.calendarOutline;
+    if (node.isTask) return MdiIcons.checkCircleOutline;
+    return node.icon?.isNotEmpty == true ? MdiIcons.fileDocumentOutline : MdiIcons.fileDocumentOutline;
   }
 }
 

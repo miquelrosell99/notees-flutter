@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/connectivity_provider.dart';
@@ -29,7 +30,7 @@ class OfflineBanner extends StatelessWidget {
               child: Row(
                 children: [
                   Icon(
-                    Icons.signal_wifi_off,
+                    MdiIcons.wifiOff,
                     size: 18,
                     color: Theme.of(context).colorScheme.onErrorContainer,
                   ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -110,7 +111,7 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
       return ListView(
         children: [
           EmptyState(
-            icon: Icons.archive_outlined,
+            icon: MdiIcons.archiveOutline,
             title: 'Nothing archived',
             subtitle: 'Archived notes will appear here.',
           ),
@@ -140,7 +141,7 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.unarchive_outlined, color: colors.onPrimaryContainer),
+                Icon(MdiIcons.archiveArrowUpOutline, color: colors.onPrimaryContainer),
                 const SizedBox(height: 2),
                 Text(
                   'Unarchive',
@@ -163,7 +164,7 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
             ),
             child: ListTile(
               leading: Icon(
-                node.isTask ? Icons.check_circle_outline : Icons.description_outlined,
+                node.isTask ? MdiIcons.checkCircleOutline : MdiIcons.fileDocumentOutline,
                 color: colors.onSurfaceVariant,
               ),
               title: Text(node.displayName),
@@ -172,7 +173,7 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
                 style: TextStyle(color: colors.onSurfaceVariant),
               ),
               trailing: IconButton(
-                icon: const Icon(Icons.unarchive_outlined),
+                icon: Icon(MdiIcons.archiveArrowUpOutline),
                 tooltip: 'Unarchive',
                 onPressed: () => _unarchive(node),
               ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
 import '../views/node_view_mode.dart';
@@ -56,7 +57,7 @@ class ViewModeSheet extends StatelessWidget {
                   ),
                 ),
                 trailing: isSelected
-                    ? Icon(Icons.check, color: colors.primary)
+                    ? Icon(MdiIcons.check, color: colors.primary)
                     : null,
                 onTap: () {
                   HapticFeedback.lightImpact();

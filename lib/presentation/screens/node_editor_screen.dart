@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -764,7 +765,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         title: const Text('Edit page'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search),
+            icon: Icon(MdiIcons.magnify),
             tooltip: 'Find in page',
             onPressed: _openFindSheet,
           ),
@@ -772,25 +773,25 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             icon: Badge(
               isLabelVisible: _commentCount > 0,
               label: Text('$_commentCount'),
-              child: const Icon(Icons.chat_bubble_outline),
+              child: Icon(MdiIcons.chatOutline),
             ),
             tooltip: 'Comments',
             onPressed: _openComments,
           ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
+            icon: Icon(MdiIcons.dotsVertical),
             tooltip: 'More options',
             onSelected: (value) {
               if (value == 'share') _openShareSheet();
             },
             itemBuilder: (context) => [
-              const PopupMenuItem<String>(
+              PopupMenuItem<String>(
                 value: 'share',
                 child: Row(
                   children: [
-                    Icon(Icons.share_outlined),
-                    SizedBox(width: 12),
-                    Text('Share'),
+                    Icon(MdiIcons.shareOutline),
+                    const SizedBox(width: 12),
+                    const Text('Share'),
                   ],
                 ),
               ),
@@ -806,7 +807,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             )
           else
             IconButton(
-              icon: const Icon(Icons.check),
+              icon: Icon(MdiIcons.check),
               tooltip: 'Save',
               onPressed: _save,
             ),
@@ -843,7 +844,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                         _buildBlockTree(colors),
                         TextButton.icon(
                           onPressed: _addBlock,
-                          icon: const Icon(Icons.add),
+                          icon: Icon(MdiIcons.plus),
                           label: const Text('Add block'),
                         ),
                         const SizedBox(height: 20),
@@ -902,7 +903,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         items.add(
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Icon(Icons.chevron_right, size: 16, color: colors.outline),
+            child: Icon(MdiIcons.chevronRight, size: 16, color: colors.outline),
           ),
         );
       }
@@ -922,7 +923,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   }
 
   IconData _iconForName(String name) {
-    return Icons.description_outlined;
+    return MdiIcons.fileDocumentOutline;
   }
 
   Widget _buildTitleField() {

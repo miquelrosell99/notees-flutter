@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
@@ -120,7 +121,7 @@ class _AudioRecorderSheetState extends State<AudioRecorderSheet> {
                 style: TextStyle(color: colors.error),
               ),
             ] else if (_hasRecording) ...[
-              const Icon(Icons.check_circle, size: 48),
+              Icon(MdiIcons.checkCircle, size: 48),
               const SizedBox(height: 8),
               Text(
                 'Recorded ${_formatDuration(_duration)}',
@@ -149,7 +150,7 @@ class _AudioRecorderSheetState extends State<AudioRecorderSheet> {
                 if (_hasRecording)
                   TextButton.icon(
                     onPressed: _discard,
-                    icon: const Icon(Icons.delete_outline),
+                    icon: Icon(MdiIcons.deleteOutline),
                     label: const Text('Discard'),
                   )
                 else
@@ -159,7 +160,7 @@ class _AudioRecorderSheetState extends State<AudioRecorderSheet> {
                   onPressed: _toggleRecording,
                   backgroundColor: _isRecording ? colors.error : colors.primary,
                   child: Icon(
-                    _isRecording ? Icons.stop : Icons.mic,
+                    _isRecording ? MdiIcons.stop : MdiIcons.microphone,
                     color: _isRecording ? colors.onError : colors.onPrimary,
                   ),
                 ),

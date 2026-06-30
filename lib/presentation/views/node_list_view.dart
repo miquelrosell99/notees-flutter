@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
@@ -58,7 +59,7 @@ class NodeListView extends StatelessWidget {
         if (toggle != null)
           IconButton(
             icon: Icon(
-              isFavorite ? Icons.star : Icons.star_border,
+              isFavorite ? MdiIcons.star : MdiIcons.starOutline,
               color: isFavorite ? colors.primary : colors.onSurfaceVariant,
             ),
             tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
@@ -67,14 +68,14 @@ class NodeListView extends StatelessWidget {
               toggle(node);
             },
           ),
-        Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+        Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
       ],
     );
   }
 
   IconData _iconForNode(Node node) {
-    if (node.isJournal) return Icons.calendar_today_outlined;
-    if (node.isTask) return Icons.check_circle_outline;
-    return node.icon?.isNotEmpty == true ? Icons.description_outlined : Icons.description_outlined;
+    if (node.isJournal) return MdiIcons.calendarOutline;
+    if (node.isTask) return MdiIcons.checkCircleOutline;
+    return node.icon?.isNotEmpty == true ? MdiIcons.fileDocumentOutline : MdiIcons.fileDocumentOutline;
   }
 }

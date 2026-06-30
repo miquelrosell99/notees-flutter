@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 import '../../core/utils/ast_stringifier.dart';
 import '../../core/utils/color_presets.dart';
 import '../../data/models/node.dart';
 import '../widgets/fleet_card.dart';
+import '../widgets/responsive_card_grid_delegate.dart';
 
 /// Card grid view for Inbox blocks.
 ///
@@ -39,12 +41,7 @@ class InboxCardView extends StatelessWidget {
   Widget build(BuildContext context) {
     return GridView.builder(
       padding: const EdgeInsets.all(16),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 220,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 1.1,
-      ),
+      gridDelegate: responsiveCardGridDelegate(context),
       itemCount: blocks.length,
       itemBuilder: (context, index) {
         final block = blocks[index];
@@ -129,14 +126,14 @@ class _DismissibleInboxCard extends StatelessWidget {
       },
       background: _SwipeBackground(
         alignment: Alignment.centerLeft,
-        icon: Icons.archive_outlined,
+        icon: MdiIcons.archiveOutline,
         label: 'Archive',
         color: Theme.of(context).colorScheme.secondaryContainer,
         foregroundColor: Theme.of(context).colorScheme.onSecondaryContainer,
       ),
       secondaryBackground: _SwipeBackground(
         alignment: Alignment.centerRight,
-        icon: Icons.delete_outline,
+        icon: MdiIcons.deleteOutline,
         label: 'Delete',
         color: Theme.of(context).colorScheme.errorContainer,
         foregroundColor: Theme.of(context).colorScheme.onErrorContainer,
@@ -273,7 +270,7 @@ class _InboxCard extends StatelessWidget {
               Row(
                 children: [
                   Icon(
-                    block.isTask ? Icons.check_circle_outline : Icons.inbox_outlined,
+                    block.isTask ? MdiIcons.checkCircleOutline : MdiIcons.inboxOutline,
                     color: mutedFg,
                     size: 22,
                   ),

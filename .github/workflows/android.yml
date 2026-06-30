@@ -101,6 +101,9 @@ jobs:
       - name: Patch plugins for built-in Kotlin
         run: python3 scripts/patch_kgp_plugins.py
 
+      - name: Patch material_design_icons_flutter for final IconData
+        run: python3 scripts/patch_mdi_icons.py
+
       - name: Static analysis
         run: flutter analyze
 

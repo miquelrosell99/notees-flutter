@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
@@ -254,7 +255,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.color_lens_outlined),
+              leading: Icon(MdiIcons.paletteOutline),
               title: const Text('Change color'),
               onTap: () {
                 Navigator.of(ctx).pop();
@@ -262,7 +263,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.archive_outlined),
+              leading: Icon(MdiIcons.archiveOutline),
               title: const Text('Archive'),
               onTap: () {
                 Navigator.of(ctx).pop();
@@ -270,7 +271,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.drive_file_move_outline),
+              leading: Icon(MdiIcons.fileMoveOutline),
               title: const Text('Move to page'),
               onTap: () {
                 Navigator.of(ctx).pop();
@@ -278,7 +279,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               },
             ),
             ListTile(
-              leading: Icon(Icons.delete_outline, color: Theme.of(ctx).colorScheme.error),
+              leading: Icon(MdiIcons.deleteOutline, color: Theme.of(ctx).colorScheme.error),
               title: Text('Delete', style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
               onTap: () {
                 Navigator.of(ctx).pop();
@@ -325,7 +326,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close),
+                      icon: Icon(MdiIcons.close),
                       tooltip: 'Close',
                       onPressed: () => Navigator.of(ctx).pop(),
                     ),
@@ -427,7 +428,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openQuickNote,
-        icon: const Icon(Icons.add),
+        icon: Icon(MdiIcons.plus),
         label: const Text('Note'),
       ),
     );
@@ -449,7 +450,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return ListView(
         children: [
           EmptyState(
-            icon: Icons.lightbulb_outline,
+            icon: MdiIcons.lightbulbOutline,
             title: 'Inbox is empty',
             subtitle: 'Tap + to capture a note, photo, or voice memo.',
           ),
@@ -504,14 +505,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           },
           background: _SwipeBackground(
             alignment: Alignment.centerLeft,
-            icon: Icons.archive_outlined,
+            icon: MdiIcons.archiveOutline,
             label: 'Archive',
             color: colors.secondaryContainer,
             foregroundColor: colors.onSecondaryContainer,
           ),
           secondaryBackground: _SwipeBackground(
             alignment: Alignment.centerRight,
-            icon: Icons.delete_outline,
+            icon: MdiIcons.deleteOutline,
             label: 'Delete',
             color: colors.errorContainer,
             foregroundColor: colors.onErrorContainer,
@@ -650,7 +651,7 @@ class _InboxListTile extends StatelessWidget {
               ],
             ),
           ),
-          Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+          Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
         ],
       ),
     );
@@ -824,7 +825,7 @@ class _ColorOption extends StatelessWidget {
             ),
             child: isSelected
                 ? Icon(
-                    Icons.check,
+                    MdiIcons.check,
                     color: ColorPresets.foregroundFor(color),
                   )
                 : null,
@@ -840,19 +841,19 @@ class _ColorOption extends StatelessWidget {
   }
 }
 
-enum _AdvancedView {
-  graph(label: 'Graph', icon: Icons.hub_outlined),
-  whiteboard(label: 'Whiteboard', icon: Icons.draw_outlined),
-  timeline(label: 'Timeline', icon: Icons.timeline_outlined),
-  gantt(label: 'Gantt', icon: Icons.view_week_outlined),
-  chart(label: 'Chart', icon: Icons.bar_chart_outlined),
-  pivot(label: 'Pivot', icon: Icons.pivot_table_chart_outlined),
-  query(label: 'Query builder', icon: Icons.account_tree_outlined);
-
-  const _AdvancedView({required this.label, required this.icon});
+class _AdvancedView {
+  _AdvancedView({required this.label, required this.icon});
 
   final String label;
   final IconData icon;
+
+  static final graph = _AdvancedView(label: 'Graph', icon: MdiIcons.lanConnect);
+  static final whiteboard = _AdvancedView(label: 'Whiteboard', icon: MdiIcons.draw);
+  static final timeline = _AdvancedView(label: 'Timeline', icon: MdiIcons.timeline);
+  static final gantt = _AdvancedView(label: 'Gantt', icon: MdiIcons.viewWeekOutline);
+  static final chart = _AdvancedView(label: 'Chart', icon: MdiIcons.chartBar);
+  static final pivot = _AdvancedView(label: 'Pivot', icon: MdiIcons.tablePivot);
+  static final query = _AdvancedView(label: 'Query builder', icon: MdiIcons.fileTree);
 }
 
 /// Overflow menu for the Home app bar.
@@ -871,7 +872,7 @@ class _HomeOverflowMenu extends StatelessWidget {
   final VoidCallback onOpenArchived;
   final ValueChanged<String> onOpenAdvancedView;
 
-  static const _advancedViews = <({_AdvancedView view, String route})>[
+  static final _advancedViews = <({_AdvancedView view, String route})>[
     (view: _AdvancedView.graph, route: Routes.graph),
     (view: _AdvancedView.timeline, route: Routes.timeline),
     (view: _AdvancedView.gantt, route: Routes.gantt),
@@ -885,7 +886,7 @@ class _HomeOverflowMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
       tooltip: 'More',
-      icon: const Icon(Icons.more_vert),
+      icon: Icon(MdiIcons.dotsVertical),
       onSelected: (value) {
         HapticFeedback.lightImpact();
         switch (value) {
@@ -902,37 +903,37 @@ class _HomeOverflowMenu extends StatelessWidget {
         }
       },
       itemBuilder: (context) => [
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(
           value: 'today',
           child: ListTile(
-            leading: Icon(Icons.edit_calendar_outlined),
+            leading: Icon(MdiIcons.calendarEditOutline),
             title: Text("Today's journal"),
             contentPadding: EdgeInsets.zero,
             visualDensity: VisualDensity.compact,
           ),
         ),
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(
           value: 'journal',
           child: ListTile(
-            leading: Icon(Icons.calendar_today_outlined),
+            leading: Icon(MdiIcons.calendarOutline),
             title: Text('Jump to journal'),
             contentPadding: EdgeInsets.zero,
             visualDensity: VisualDensity.compact,
           ),
         ),
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(
           value: 'archived',
           child: ListTile(
-            leading: Icon(Icons.archive_outlined),
+            leading: Icon(MdiIcons.archiveOutline),
             title: Text('Archived'),
             contentPadding: EdgeInsets.zero,
             visualDensity: VisualDensity.compact,
           ),
         ),
-        const PopupMenuItem<String>(
+        PopupMenuItem<String>(
           value: 'settings',
           child: ListTile(
-            leading: Icon(Icons.settings_outlined),
+            leading: Icon(MdiIcons.cogOutline),
             title: Text('Settings'),
             contentPadding: EdgeInsets.zero,
             visualDensity: VisualDensity.compact,

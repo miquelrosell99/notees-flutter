@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
 import 'editor_inline_toolbar.dart';
@@ -28,20 +29,20 @@ class SlashCommandPalette extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final commands = <({IconData icon, String label, EditorAction action})>[
-      (icon: Icons.looks_one, label: 'Heading 1', action: EditorAction.heading1),
-      (icon: Icons.looks_two, label: 'Heading 2', action: EditorAction.heading2),
-      (icon: Icons.looks_3, label: 'Heading 3', action: EditorAction.heading3),
-      (icon: Icons.format_bold, label: 'Bold', action: EditorAction.bold),
-      (icon: Icons.format_italic, label: 'Italic', action: EditorAction.italic),
-      (icon: Icons.check_circle_outline, label: 'Task', action: EditorAction.task),
-      (icon: Icons.code, label: 'Code', action: EditorAction.code),
-      (icon: Icons.image, label: 'Image', action: EditorAction.image),
-      (icon: Icons.link, label: 'Link', action: EditorAction.link),
-      (icon: Icons.tag, label: 'Tag', action: EditorAction.tagLink),
-      (icon: Icons.category_outlined, label: 'Class', action: EditorAction.classLink),
-      (icon: Icons.tune, label: 'Property', action: EditorAction.property),
-      (icon: Icons.table_chart, label: 'Table', action: EditorAction.table),
-      (icon: Icons.description_outlined, label: 'Template', action: EditorAction.template),
+      (icon: MdiIcons.formatHeader1, label: 'Heading 1', action: EditorAction.heading1),
+      (icon: MdiIcons.formatHeader2, label: 'Heading 2', action: EditorAction.heading2),
+      (icon: MdiIcons.formatHeader3, label: 'Heading 3', action: EditorAction.heading3),
+      (icon: MdiIcons.formatBold, label: 'Bold', action: EditorAction.bold),
+      (icon: MdiIcons.formatItalic, label: 'Italic', action: EditorAction.italic),
+      (icon: MdiIcons.checkCircleOutline, label: 'Task', action: EditorAction.task),
+      (icon: MdiIcons.codeBraces, label: 'Code', action: EditorAction.code),
+      (icon: MdiIcons.image, label: 'Image', action: EditorAction.image),
+      (icon: MdiIcons.link, label: 'Link', action: EditorAction.link),
+      (icon: MdiIcons.tag, label: 'Tag', action: EditorAction.tagLink),
+      (icon: MdiIcons.shapeOutline, label: 'Class', action: EditorAction.classLink),
+      (icon: MdiIcons.tune, label: 'Property', action: EditorAction.property),
+      (icon: MdiIcons.table, label: 'Table', action: EditorAction.table),
+      (icon: MdiIcons.fileDocumentOutline, label: 'Template', action: EditorAction.template),
     ];
 
     return SafeArea(
@@ -61,7 +62,7 @@ class SlashCommandPalette extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close),
+                  icon: Icon(MdiIcons.close),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],

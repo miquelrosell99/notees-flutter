@@ -35,8 +35,7 @@ notees-flutter/
 ├── android/                  # Android platform project
 ├── ios/                      # iOS platform project
 ├── .github/workflows/        # Android CI
-├── build-apk.sh             # Docker-based APK build
-├── Dockerfile               # Flutter build image
+├── scripts/                  # Build helpers (KGP + MDI icon patches)
 └── AGENTS.md                # This file
 ```
 
@@ -55,39 +54,49 @@ To request a CI build manually:
 
 Then download the artifact from the printed workflow run.
 
-The local Docker-based build (`./build-apk.sh` / `docker compose run --rm build-apk`) exists only for local debugging without a host Flutter SDK. It produces an unsigned release APK; it is not a routine developer command and does not match the CI environment exactly.
+## Local development
 
-## Local development with Docker Compose
-
-A `compose.yaml` is provided for lightweight local Flutter checks without installing the Flutter SDK. It uses the `ghcr.io/cirruslabs/flutter:stable` image and persists `pub-cache` and Gradle caches in Docker volumes.
+Install the Flutter SDK and Android toolchain, then use the native Flutter
+commands. The CI workflow runs `flutter analyze` first so compile errors fail
+fast instead of after a full Gradle build.
 
 ```bash
+# Install dependencies and apply pub-cache patches
+flutter pub get
+python3 scripts/patch_kgp_plugins.py
+python3 scripts/patch_mdi_icons.py
+
 # Run static analysis (fast; catches compile errors before a full build)
-docker compose run --rm flutter flutter analyze
+flutter analyze
 
 # Run tests
-docker compose run --rm flutter flutter test
+flutter test
 
-# Build an unsigned release APK (for debugging only)
-docker compose run --rm build-apk
+# Build a debug APK for local install
+flutter build apk --debug
 ```
-
-The Android workflow runs `flutter analyze` first so compile errors fail fast instead of after a full Gradle build.
 
 ## Avoiding CI failures
 
-Run the local analyze command before every push:
+Run the local analyze and test commands before every push:
 
 ```bash
-docker compose run --rm flutter flutter analyze
+flutter analyze
+flutter test
 ```
 
-The Android workflow and `Dockerfile` run `scripts/patch_kgp_plugins.py`
-after `flutter pub get`. This removes legacy Kotlin Gradle Plugin application
-from the few remaining plugins that have not yet migrated to AGP 9+ built-in
-Kotlin (`cryptography_flutter`, `dynamic_color`, `workmanager_android`).
+The Android workflow runs two pub-cache patches after `flutter pub get`:
+
+- `scripts/patch_kgp_plugins.py` removes legacy Kotlin Gradle Plugin application
+  from plugins that have not yet migrated to AGP 9+ built-in Kotlin
+  (`cryptography_flutter`, `dynamic_color`, `workmanager_android`).
+- `scripts/patch_mdi_icons.py` replaces `class _MdiIconData extends IconData`
+  in `material_design_icons_flutter` because `IconData` is `final` in recent
+  Flutter versions. The patch is idempotent and only touches the pub cache.
+
 `share_plus`, `package_info_plus`, and `record` were upgraded to KGP-free major
-versions instead. The patch is idempotent and only touches the pub cache.
+versions instead. Remove the KGP workaround once the remaining plugins ship
+built-in Kotlin releases.
 
 Common issues that break the Android build:
 
