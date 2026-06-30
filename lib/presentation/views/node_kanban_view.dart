@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
@@ -110,7 +111,7 @@ class _NodeKanbanViewState extends State<NodeKanbanView> {
               final selected = key == _groupByKey;
               return ListTile(
                 title: Text(propertyDisplayName(key)),
-                trailing: selected ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary) : null,
+                trailing: selected ? Icon(MdiIcons.check, color: Theme.of(context).colorScheme.primary) : null,
                 onTap: () => Navigator.of(ctx).pop(key),
               );
             }),
@@ -147,7 +148,7 @@ class _NodeKanbanViewState extends State<NodeKanbanView> {
               ),
               const Spacer(),
               IconButton(
-                icon: const Icon(Icons.folder_copy_outlined),
+                icon: Icon(MdiIcons.folderMultipleOutline),
                 tooltip: 'Group by property',
                 onPressed: _openGroupSelector,
               ),
@@ -311,7 +312,7 @@ class _KanbanCard extends StatelessWidget {
                 if (onFavoriteToggle != null)
                   IconButton(
                     icon: Icon(
-                      isFavorite ? Icons.star : Icons.star_border,
+                      isFavorite ? MdiIcons.star : MdiIcons.starOutline,
                       size: 18,
                       color: isFavorite ? colors.primary : colors.onSurfaceVariant,
                     ),

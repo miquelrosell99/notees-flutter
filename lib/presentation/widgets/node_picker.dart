@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -131,7 +132,7 @@ class _NodePickerState extends State<NodePicker> {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close),
+                  icon: Icon(MdiIcons.close),
                   tooltip: 'Close',
                   onPressed: () => Navigator.of(context).pop(),
                 ),
@@ -145,7 +146,7 @@ class _NodePickerState extends State<NodePicker> {
               autofocus: true,
               decoration: InputDecoration(
                 hintText: 'Search...',
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: Icon(MdiIcons.magnify),
                 filled: true,
                 fillColor: colors.surfaceContainerHighest,
                 border: OutlineInputBorder(
@@ -173,7 +174,7 @@ class _NodePickerState extends State<NodePicker> {
                       final node = _results[index];
                       return ListTile(
                         leading: Icon(
-                          node.isTask ? Icons.check_circle_outline : Icons.description_outlined,
+                          node.isTask ? MdiIcons.checkCircleOutline : MdiIcons.fileDocumentOutline,
                           color: colors.onSurfaceVariant,
                         ),
                         title: Text(node.displayName),

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -332,13 +333,13 @@ class _SearchScreenState extends State<SearchScreen> {
           textAlignVertical: TextAlignVertical.center,
           decoration: InputDecoration(
             hintText: 'Search notes, tasks, pages...',
-            prefixIcon: const Icon(Icons.search),
+            prefixIcon: Icon(MdiIcons.magnify),
             suffixIcon: ValueListenableBuilder<TextEditingValue>(
               valueListenable: _controller,
               builder: (context, value, child) {
                 if (value.text.isEmpty) return const SizedBox.shrink();
                 return IconButton(
-                  icon: const Icon(Icons.clear),
+                  icon: Icon(MdiIcons.close),
                   tooltip: 'Clear search',
                   onPressed: () {
                     _controller.clear();
@@ -367,7 +368,7 @@ class _SearchScreenState extends State<SearchScreen> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.tune),
+            icon: Icon(MdiIcons.tune),
             tooltip: 'Filter',
             onPressed: () async {
               final updated = await FilterBottomSheet.show(context, _filters);
@@ -386,11 +387,11 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
           if (_activeSavedView != null)
             ListTile(
-              leading: Icon(Icons.saved_search, color: colors.primary),
+              leading: Icon(MdiIcons.magnifyScan, color: colors.primary),
               title: Text(_activeSavedView!.name),
               subtitle: const Text('Saved search'),
               trailing: IconButton(
-                icon: const Icon(Icons.close),
+                icon: Icon(MdiIcons.close),
                 tooltip: 'Clear saved search',
                 onPressed: _clearSavedSearch,
               ),
@@ -433,8 +434,8 @@ class _SearchScreenState extends State<SearchScreen> {
                   return ActionChip(
                     avatar: Icon(
                       view.viewType == 'table'
-                          ? Icons.table_rows
-                          : Icons.list,
+                          ? MdiIcons.tableRow
+                          : MdiIcons.viewList,
                       size: 18,
                     ),
                     label: Text(view.name),
@@ -488,7 +489,7 @@ class _SearchScreenState extends State<SearchScreen> {
       padding: const EdgeInsets.all(20),
       children: [
         if (_favorites.isNotEmpty) ...[
-          const SectionTitle(icon: Icons.star_outline, label: 'Favorites'),
+          SectionTitle(icon: MdiIcons.starOutline, label: 'Favorites'),
           const SizedBox(height: 8),
           FleetCard(
             child: Column(
@@ -514,7 +515,7 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
           const SizedBox(height: 28),
         ],
-        const SectionTitle(icon: Icons.access_time, label: 'Recent pages'),
+        SectionTitle(icon: MdiIcons.clockOutline, label: 'Recent pages'),
         const SizedBox(height: 8),
         FleetCard(
           child: _recents.isEmpty
@@ -551,13 +552,13 @@ class _SearchScreenState extends State<SearchScreen> {
       children: [
         IconButton(
           icon: Icon(
-            isFavorite ? Icons.star : Icons.star_border,
+            isFavorite ? MdiIcons.star : MdiIcons.starOutline,
             color: isFavorite ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurfaceVariant,
           ),
           tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
           onPressed: () => _toggleFavorite(node),
         ),
-        Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        Icon(MdiIcons.chevronRight, color: Theme.of(context).colorScheme.onSurfaceVariant),
       ],
     );
   }
@@ -577,9 +578,9 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   IconData _iconForNode(Node node) {
-    if (node.isJournal) return Icons.calendar_today_outlined;
-    if (node.isTask) return Icons.check_circle_outline;
-    return Icons.description_outlined;
+    if (node.isJournal) return MdiIcons.calendarOutline;
+    if (node.isTask) return MdiIcons.checkCircleOutline;
+    return MdiIcons.fileDocumentOutline;
   }
 
   Widget _buildLoadMoreButton() {
@@ -594,7 +595,7 @@ class _SearchScreenState extends State<SearchScreen> {
               )
             : TextButton.icon(
                 onPressed: _loadMore,
-                icon: const Icon(Icons.expand_more),
+                icon: Icon(MdiIcons.chevronDown),
                 label: const Text('Load more results'),
               ),
       ),

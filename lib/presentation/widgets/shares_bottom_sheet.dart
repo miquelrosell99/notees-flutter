@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart' as share_plus;
@@ -143,7 +144,7 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
                       ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close),
+                  icon: Icon(MdiIcons.close),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
@@ -175,14 +176,14 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
                               ? 'Select date'
                               : _expiry!.toIso8601String().split('T').first,
                         ),
-                        trailing: const Icon(Icons.calendar_today_outlined),
+                        trailing: Icon(MdiIcons.calendarOutline),
                         onTap: _pickExpiry,
                       ),
                     ],
                     const SizedBox(height: 12),
                     FilledButton.icon(
                       onPressed: _createShare,
-                      icon: const Icon(Icons.link),
+                      icon: Icon(MdiIcons.link),
                       label: const Text('Create public link'),
                     ),
                   ],
@@ -240,7 +241,7 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
           ),
           subtitle: Text(share.expiryDate ?? 'No expiry'),
           trailing: IconButton(
-            icon: const Icon(Icons.delete_outline),
+            icon: Icon(MdiIcons.deleteOutline),
             onPressed: () => _revokeShare(share),
           ),
         );

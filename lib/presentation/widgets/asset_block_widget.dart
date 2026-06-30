@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -142,7 +143,7 @@ class _AssetBlockWidgetState extends State<AssetBlockWidget> {
     if (_audioPath != null) {
       return ListTile(
         contentPadding: EdgeInsets.zero,
-        leading: Icon(Icons.audiotrack, color: colors.primary),
+        leading: Icon(MdiIcons.musicNote, color: colors.primary),
         title: Text(
           name,
           maxLines: 1,
@@ -150,7 +151,7 @@ class _AssetBlockWidgetState extends State<AssetBlockWidget> {
         ),
         subtitle: const Text('Audio recording'),
         trailing: IconButton(
-          icon: const Icon(Icons.play_circle_fill),
+          icon: Icon(MdiIcons.playCircle),
           tooltip: 'Play audio',
           onPressed: _playAudio,
         ),
@@ -159,14 +160,14 @@ class _AssetBlockWidgetState extends State<AssetBlockWidget> {
 
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: Icon(Icons.insert_drive_file, color: colors.onSurfaceVariant),
+      leading: Icon(MdiIcons.fileDocument, color: colors.onSurfaceVariant),
       title: Text(
         name,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
       trailing: IconButton(
-        icon: const Icon(Icons.open_in_new),
+        icon: Icon(MdiIcons.openInNew),
         tooltip: 'Open file',
         onPressed: _openFile,
       ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 /// Available ways to display a collection of nodes in the mobile app.
 enum NodeViewMode {
@@ -22,11 +23,11 @@ extension NodeViewModeExt on NodeViewMode {
 
   IconData get icon {
     return switch (this) {
-      NodeViewMode.list => Icons.list,
-      NodeViewMode.card => Icons.grid_view,
-      NodeViewMode.table => Icons.table_rows,
-      NodeViewMode.kanban => Icons.view_kanban,
-      NodeViewMode.calendar => Icons.calendar_month,
+      NodeViewMode.list => MdiIcons.viewList,
+      NodeViewMode.card => MdiIcons.viewGrid,
+      NodeViewMode.table => MdiIcons.tableRow,
+      NodeViewMode.kanban => MdiIcons.viewDashboardVariant,
+      NodeViewMode.calendar => MdiIcons.calendarMonth,
     };
   }
 }

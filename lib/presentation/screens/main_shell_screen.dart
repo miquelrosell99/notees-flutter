@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -31,31 +32,31 @@ class MainShellScreen extends StatefulWidget {
 class _MainShellScreenState extends State<MainShellScreen> {
   late int _currentIndex = widget.initialIndex;
 
-  final _destinations = const <_NavDestination>[
+  final _destinations = <_NavDestination>[
     _NavDestination(
       label: 'Home',
-      icon: Icons.home_outlined,
-      selectedIcon: Icons.home,
+      icon: MdiIcons.homeOutline,
+      selectedIcon: MdiIcons.home,
     ),
     _NavDestination(
       label: 'Journal',
-      icon: Icons.calendar_today_outlined,
-      selectedIcon: Icons.calendar_today,
+      icon: MdiIcons.calendarOutline,
+      selectedIcon: MdiIcons.calendar,
     ),
     _NavDestination(
       label: 'Tasks',
-      icon: Icons.check_circle_outline,
-      selectedIcon: Icons.check_circle,
+      icon: MdiIcons.checkCircleOutline,
+      selectedIcon: MdiIcons.checkCircle,
     ),
     _NavDestination(
       label: 'Pages',
-      icon: Icons.description_outlined,
-      selectedIcon: Icons.description,
+      icon: MdiIcons.fileDocumentOutline,
+      selectedIcon: MdiIcons.fileDocument,
     ),
     _NavDestination(
       label: 'Search',
-      icon: Icons.search,
-      selectedIcon: Icons.search,
+      icon: MdiIcons.magnify,
+      selectedIcon: MdiIcons.magnify,
     ),
   ];
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 import '../widgets/fleet_card.dart';
 import '../widgets/section_title.dart';
@@ -13,8 +14,8 @@ class KeyboardShortcutsScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Keyboard shortcuts')),
       body: ListView(
         padding: const EdgeInsets.all(20),
-        children: const [
-          SectionTitle(icon: Icons.language_outlined, label: 'Global'),
+        children: [
+          SectionTitle(icon: MdiIcons.web, label: 'Global'),
           SizedBox(height: 8),
           _ShortcutGroup(shortcuts: [
             _Shortcut('Command palette', 'Ctrl + K'),
@@ -27,7 +28,7 @@ class KeyboardShortcutsScreen extends StatelessWidget {
             _Shortcut('Redo', 'Ctrl + Y'),
           ]),
           SizedBox(height: 28),
-          SectionTitle(icon: Icons.edit_note_outlined, label: 'Editor'),
+          SectionTitle(icon: MdiIcons.noteEditOutline, label: 'Editor'),
           SizedBox(height: 8),
           _ShortcutGroup(shortcuts: [
             _Shortcut('Bold', 'Ctrl + B'),
@@ -41,7 +42,7 @@ class KeyboardShortcutsScreen extends StatelessWidget {
             _Shortcut('Outdent block', 'Shift + Tab'),
           ]),
           SizedBox(height: 28),
-          SectionTitle(icon: Icons.select_all_outlined, label: 'Selection'),
+          SectionTitle(icon: MdiIcons.selectAll, label: 'Selection'),
           SizedBox(height: 8),
           _ShortcutGroup(shortcuts: [
             _Shortcut('Select all blocks', 'Ctrl + A'),
@@ -51,7 +52,7 @@ class KeyboardShortcutsScreen extends StatelessWidget {
             _Shortcut('Delete selected', 'Delete'),
           ]),
           SizedBox(height: 28),
-          SectionTitle(icon: Icons.keyboard_arrow_up_outlined, label: 'Navigation'),
+          SectionTitle(icon: MdiIcons.chevronUp, label: 'Navigation'),
           SizedBox(height: 8),
           _ShortcutGroup(shortcuts: [
             _Shortcut('Navigate up', '↑'),

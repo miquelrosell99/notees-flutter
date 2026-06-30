@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
@@ -107,7 +108,7 @@ class _NodeTableViewState extends State<NodeTableView> {
               ),
               const Spacer(),
               IconButton(
-                icon: const Icon(Icons.view_column_outlined),
+                icon: Icon(MdiIcons.viewColumnOutline),
                 tooltip: 'Select columns',
                 onPressed: _openColumnSelector,
               ),
@@ -149,7 +150,7 @@ class _NodeTableViewState extends State<NodeTableView> {
                               const SizedBox(width: 8),
                               IconButton(
                                 icon: Icon(
-                                  isFavorite ? Icons.star : Icons.star_border,
+                                  isFavorite ? MdiIcons.star : MdiIcons.starOutline,
                                   size: 18,
                                   color: isFavorite ? colors.primary : colors.onSurfaceVariant,
                                 ),

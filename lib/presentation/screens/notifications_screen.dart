@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/repositories/notification_repository.dart';
@@ -135,8 +136,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             child: ListTile(
               leading: Icon(
                 notification.isRead
-                    ? Icons.notifications_outlined
-                    : Icons.notifications_active,
+                    ? MdiIcons.bellOutline
+                    : MdiIcons.bell,
                 color: notification.isRead
                     ? colors.onSurfaceVariant
                     : colors.primary,

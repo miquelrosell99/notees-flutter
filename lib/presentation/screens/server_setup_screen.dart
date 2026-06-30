@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -155,10 +156,10 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                     keyboardType: TextInputType.url,
                     autocorrect: false,
                     textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Server URL',
                       hintText: 'https://notees.example.com',
-                      prefixIcon: Icon(Icons.link),
+                      prefixIcon: Icon(MdiIcons.link),
                     ),
                     validator: (value) {
                       final trimmed = value?.trim() ?? '';
@@ -175,10 +176,10 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                   TextFormField(
                     controller: _nicknameController,
                     textInputAction: TextInputAction.done,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Nickname (optional)',
                       hintText: 'Home server',
-                      prefixIcon: Icon(Icons.label_outline),
+                      prefixIcon: Icon(MdiIcons.labelOutline),
                     ),
                     onFieldSubmitted: (_) => _saveServer(),
                   ),
@@ -207,7 +208,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                             height: 18,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.arrow_forward),
+                        : Icon(MdiIcons.arrowRight),
                     label: const Text('Connect'),
                   ),
                 ],
@@ -215,7 +216,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
             ),
             if (_servers.isNotEmpty) ...[
               const SizedBox(height: 32),
-              const SectionTitle(icon: Icons.dns, label: 'Saved servers'),
+              SectionTitle(icon: MdiIcons.dns, label: 'Saved servers'),
               const SizedBox(height: 8),
               FleetCard(
                 child: Column(
@@ -226,7 +227,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                       children: [
                         ListTile(
                           leading: Icon(
-                            item.isActive ? Icons.check_circle : Icons.circle_outlined,
+                            item.isActive ? MdiIcons.checkCircle : MdiIcons.circleOutline,
                             color: item.isActive ? colors.primary : colors.outline,
                           ),
                           title: Text(item.server.nickname),
@@ -236,7 +237,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                             overflow: TextOverflow.ellipsis,
                           ),
                           trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline),
+                            icon: Icon(MdiIcons.deleteOutline),
                             onPressed: () => _removeServer(item.server.id),
                           ),
                           onTap: () => _selectServer(item.server.id),

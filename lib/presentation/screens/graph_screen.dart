@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/routing/router.dart';
@@ -19,7 +20,7 @@ class GraphScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Graph'),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: Icon(MdiIcons.arrowLeft),
           tooltip: 'Back',
           onPressed: () => context.canPop() ? context.pop() : context.go(Routes.dashboard),
         ),
@@ -31,7 +32,7 @@ class GraphScreen extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                Icons.account_tree_outlined,
+                MdiIcons.fileTree,
                 size: 64,
                 color: colors.onSurfaceVariant,
               ),

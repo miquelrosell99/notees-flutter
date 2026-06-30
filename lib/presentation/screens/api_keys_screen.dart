@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -152,7 +153,7 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
                                   const SnackBar(content: Text('Copied to clipboard')),
                                 );
                               },
-                              icon: const Icon(Icons.copy),
+                              icon: Icon(MdiIcons.contentCopy),
                               label: const Text('Copy key'),
                             ),
                           ],
@@ -180,7 +181,7 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
                                       style: Theme.of(context).textTheme.bodySmall,
                                     ),
                                     trailing: IconButton(
-                                      icon: Icon(Icons.delete_outline, color: colors.error),
+                                      icon: Icon(MdiIcons.deleteOutline, color: colors.error),
                                       tooltip: 'Delete API key',
                                       onPressed: () => _revokeKey(key),
                                     ),
@@ -196,7 +197,7 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _createKey,
-        icon: const Icon(Icons.add),
+        icon: Icon(MdiIcons.plus),
         label: const Text('Key'),
       ),
     );

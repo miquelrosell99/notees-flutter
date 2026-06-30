@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -126,7 +127,7 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
                         ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close),
+                    icon: Icon(MdiIcons.close),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
@@ -154,7 +155,7 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.send),
+                    icon: Icon(MdiIcons.send),
                     onPressed: () {
                       HapticFeedback.lightImpact();
                       _createComment();
@@ -199,7 +200,7 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
           title: Text(comment.displayName),
           subtitle: Text(comment.createDate ?? ''),
           trailing: IconButton(
-            icon: const Icon(Icons.delete_outline),
+            icon: Icon(MdiIcons.deleteOutline),
             onPressed: () {
               HapticFeedback.lightImpact();
               _deleteComment(comment);

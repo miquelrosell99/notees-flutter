@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -167,7 +168,7 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.camera_alt_outlined),
+              leading: Icon(MdiIcons.cameraOutline),
               title: const Text('Take a photo'),
               onTap: () {
                 Navigator.of(ctx).pop();
@@ -175,7 +176,7 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
+              leading: Icon(MdiIcons.imageMultipleOutline),
               title: const Text('Choose from gallery'),
               onTap: () {
                 Navigator.of(ctx).pop();
@@ -257,20 +258,20 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
                 Expanded(
                   child: FilledButton.icon(
                     onPressed: () => _save(auth),
-                    icon: const Icon(Icons.save_outlined),
+                    icon: Icon(MdiIcons.contentSaveOutline),
                     label: const Text('Save'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 IconButton.filledTonal(
                   onPressed: isOnline ? () => _showImageSourcePicker(auth) : null,
-                  icon: const Icon(Icons.camera_alt_outlined),
+                  icon: Icon(MdiIcons.cameraOutline),
                   tooltip: 'Add photo',
                 ),
                 const SizedBox(width: 12),
                 IconButton.filledTonal(
                   onPressed: () => _recordAudio(auth),
-                  icon: const Icon(Icons.mic),
+                  icon: Icon(MdiIcons.microphone),
                   tooltip: 'Record audio note',
                 ),
               ],

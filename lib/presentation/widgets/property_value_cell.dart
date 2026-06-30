@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/models/property.dart';
@@ -211,7 +212,7 @@ class _PropertyValueCellState extends State<PropertyValueCell> {
         final node = await NodePicker.show(context, mode: NodePickerMode.any);
         if (node != null) _onChanged(node.id);
       },
-      icon: const Icon(Icons.link, size: 18),
+      icon: Icon(MdiIcons.link, size: 18),
       label: Text(currentId == null ? 'Select node' : 'Node $currentId'),
       style: TextButton.styleFrom(
         padding: EdgeInsets.zero,
@@ -235,7 +236,7 @@ class _PropertyValueCellState extends State<PropertyValueCell> {
         final nodeId = await widget.onPickDate?.call(date);
         if (nodeId != null) _onChanged(nodeId);
       },
-      icon: const Icon(Icons.calendar_today, size: 18),
+      icon: Icon(MdiIcons.calendar, size: 18),
       label: Text(currentId == null ? 'Select date' : 'Date node $currentId'),
       style: TextButton.styleFrom(
         padding: EdgeInsets.zero,

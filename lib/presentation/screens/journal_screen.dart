@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -151,24 +152,24 @@ class _JournalScreenState extends State<JournalScreen> {
           child: Column(
             children: [
               ListTile(
-                leading: Icon(Icons.edit_calendar_outlined, color: colors.primary),
+                leading: Icon(MdiIcons.calendarEditOutline, color: colors.primary),
                 title: const Text('Today'),
                 subtitle: Text(todayLabel),
-                trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+                trailing: Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
                 onTap: _openToday,
               ),
               const Divider(height: 1),
               ListTile(
-                leading: Icon(Icons.calendar_month_outlined, color: colors.onSurfaceVariant),
+                leading: Icon(MdiIcons.calendarMonthOutline, color: colors.onSurfaceVariant),
                 title: const Text('Pick a date'),
-                trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+                trailing: Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
                 onTap: _pickDate,
               ),
             ],
           ),
         ),
         const SizedBox(height: 28),
-        const SectionTitle(icon: Icons.history_outlined, label: 'Recent journals'),
+        SectionTitle(icon: MdiIcons.history, label: 'Recent journals'),
         const SizedBox(height: 8),
         FleetCard(
           child: _recentJournals.isEmpty

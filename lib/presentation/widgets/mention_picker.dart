@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -72,7 +73,7 @@ class MentionPicker extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close),
+                  icon: Icon(MdiIcons.close),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
@@ -95,7 +96,7 @@ class MentionPicker extends StatelessWidget {
               },
             ),
           ListTile(
-            leading: Icon(Icons.description_outlined, color: colors.onSurfaceVariant),
+            leading: Icon(MdiIcons.fileDocumentOutline, color: colors.onSurfaceVariant),
             title: const Text('Page or node'),
             subtitle: const Text('Search notes, pages, and more'),
             onTap: () async {

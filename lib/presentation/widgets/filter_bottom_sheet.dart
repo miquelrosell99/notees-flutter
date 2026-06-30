@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
 import '../../domain/models/search_filters.dart';
@@ -159,7 +160,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       title: Text(label),
-      trailing: const Icon(Icons.calendar_today),
+      trailing: Icon(MdiIcons.calendar),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(

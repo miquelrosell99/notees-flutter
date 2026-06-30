@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
 /// Toolbar actions supported by the native editor.
@@ -48,85 +49,85 @@ class EditorInlineToolbar extends StatelessWidget {
           child: Row(
             children: [
               _ToolbarButton(
-                icon: Icons.format_bold,
+                icon: MdiIcons.formatBold,
                 tooltip: 'Bold',
                 onPressed: () => onAction(EditorAction.bold),
               ),
               _ToolbarButton(
-                icon: Icons.format_italic,
+                icon: MdiIcons.formatItalic,
                 tooltip: 'Italic',
                 onPressed: () => onAction(EditorAction.italic),
               ),
               _ToolbarButton(
-                icon: Icons.format_underlined,
+                icon: MdiIcons.formatUnderline,
                 tooltip: 'Underline',
                 onPressed: () => onAction(EditorAction.underline),
               ),
               _ToolbarButton(
-                icon: Icons.format_strikethrough,
+                icon: MdiIcons.formatStrikethrough,
                 tooltip: 'Strikethrough',
                 onPressed: () => onAction(EditorAction.strikethrough),
               ),
               _ToolbarButton(
-                icon: Icons.code,
+                icon: MdiIcons.codeBraces,
                 tooltip: 'Code',
                 onPressed: () => onAction(EditorAction.code),
               ),
               _ToolbarButton(
-                icon: Icons.highlight,
+                icon: MdiIcons.marker,
                 tooltip: 'Highlight',
                 onPressed: () => onAction(EditorAction.highlight),
               ),
               _ToolbarButton(
-                icon: Icons.looks_one,
+                icon: MdiIcons.formatHeader1,
                 tooltip: 'Heading 1',
                 onPressed: () => onAction(EditorAction.heading1),
               ),
               _ToolbarButton(
-                icon: Icons.looks_two,
+                icon: MdiIcons.formatHeader2,
                 tooltip: 'Heading 2',
                 onPressed: () => onAction(EditorAction.heading2),
               ),
               _ToolbarButton(
-                icon: Icons.looks_3,
+                icon: MdiIcons.formatHeader3,
                 tooltip: 'Heading 3',
                 onPressed: () => onAction(EditorAction.heading3),
               ),
               const VerticalDivider(width: 16),
               _ToolbarButton(
-                icon: Icons.link,
+                icon: MdiIcons.link,
                 tooltip: 'Link to node',
                 onPressed: () => onAction(EditorAction.link),
               ),
               _ToolbarButton(
-                icon: Icons.category_outlined,
+                icon: MdiIcons.shapeOutline,
                 tooltip: 'Link to class',
                 onPressed: () => onAction(EditorAction.classLink),
               ),
               _ToolbarButton(
-                icon: Icons.tag,
+                icon: MdiIcons.tag,
                 tooltip: 'Link to tag',
                 onPressed: () => onAction(EditorAction.tagLink),
               ),
               const VerticalDivider(width: 16),
               _ToolbarButton(
-                icon: Icons.image,
+                icon: MdiIcons.image,
                 tooltip: 'Insert image',
                 onPressed: () => onAction(EditorAction.image),
               ),
               _ToolbarButton(
-                icon: Icons.mic,
+                icon: MdiIcons.microphone,
                 tooltip: 'Insert audio',
                 onPressed: () => onAction(EditorAction.audio),
               ),
               const VerticalDivider(width: 16),
               _ToolbarButton(
-                icon: Icons.format_list_bulleted,
+                icon: MdiIcons.formatListBulleted,
                 tooltip: 'Slash command',
                 onPressed: () => onAction(EditorAction.slash),
               ),
               _ToolbarButton(
-                icon: Icons.alternate_email,
+                icon: MdiIcons.at,
                 tooltip: 'Mention',
                 onPressed: () => onAction(EditorAction.mention),
               ),

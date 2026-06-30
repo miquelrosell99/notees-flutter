@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
@@ -122,7 +123,7 @@ class _NodeCalendarViewState extends State<NodeCalendarView> {
               final selected = key == _dateKey;
               return ListTile(
                 title: Text(propertyDisplayName(key)),
-                trailing: selected ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary) : null,
+                trailing: selected ? Icon(MdiIcons.check, color: Theme.of(context).colorScheme.primary) : null,
                 onTap: () => Navigator.of(ctx).pop(key),
               );
             }),
@@ -211,17 +212,17 @@ class _NodeCalendarViewState extends State<NodeCalendarView> {
               ),
               const Spacer(),
               IconButton(
-                icon: const Icon(Icons.chevron_left),
+                icon: Icon(MdiIcons.chevronLeft),
                 tooltip: 'Previous month',
                 onPressed: _previousMonth,
               ),
               IconButton(
-                icon: const Icon(Icons.chevron_right),
+                icon: Icon(MdiIcons.chevronRight),
                 tooltip: 'Next month',
                 onPressed: _nextMonth,
               ),
               IconButton(
-                icon: const Icon(Icons.calendar_today_outlined),
+                icon: Icon(MdiIcons.calendarOutline),
                 tooltip: 'Select date property',
                 onPressed: _openDateKeySelector,
               ),

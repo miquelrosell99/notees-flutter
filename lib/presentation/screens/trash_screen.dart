@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -123,7 +124,7 @@ class _TrashScreenState extends State<TrashScreen> {
         actions: [
           if (_nodes.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.delete_forever_outlined),
+              icon: Icon(MdiIcons.deleteForeverOutline),
               tooltip: 'Empty trash',
               onPressed: _emptyTrash,
             ),
@@ -221,12 +222,12 @@ class _TrashScreenState extends State<TrashScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
-                          icon: Icon(Icons.restore, color: colors.primary),
+                          icon: Icon(MdiIcons.restore, color: colors.primary),
                           tooltip: 'Restore',
                           onPressed: () => _restoreNode(node),
                         ),
                         IconButton(
-                          icon: Icon(Icons.delete_forever, color: colors.error),
+                          icon: Icon(MdiIcons.deleteForever, color: colors.error),
                           tooltip: 'Delete permanently',
                           onPressed: () => _deleteNode(node),
                         ),
@@ -245,8 +246,8 @@ class _TrashScreenState extends State<TrashScreen> {
   }
 
   IconData _iconForNode(Node node) {
-    if (node.isJournal) return Icons.calendar_today_outlined;
-    if (node.isTask) return Icons.check_circle_outline;
-    return node.icon?.isNotEmpty == true ? Icons.description_outlined : Icons.description_outlined;
+    if (node.isJournal) return MdiIcons.calendarOutline;
+    if (node.isTask) return MdiIcons.checkCircleOutline;
+    return node.icon?.isNotEmpty == true ? MdiIcons.fileDocumentOutline : MdiIcons.fileDocumentOutline;
   }
 }

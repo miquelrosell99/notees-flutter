@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -55,7 +56,7 @@ class _LockScreenState extends State<LockScreen> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Icon(
-                    Icons.lock_outline,
+                    MdiIcons.lockOutline,
                     size: 40,
                     color: colors.onPrimaryContainer,
                   ),
@@ -88,7 +89,7 @@ class _LockScreenState extends State<LockScreen> {
                     HapticFeedback.lightImpact();
                     _authenticate();
                   },
-                  icon: const Icon(Icons.fingerprint),
+                  icon: Icon(MdiIcons.fingerprint),
                   label: const Text('Unlock'),
                 ),
               ],

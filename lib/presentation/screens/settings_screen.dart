@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -241,7 +242,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const SectionTitle(icon: Icons.palette_outlined, label: 'Appearance'),
+          SectionTitle(icon: MdiIcons.paletteOutline, label: 'Appearance'),
           const SizedBox(height: 8),
           FleetCard(
             child: Column(
@@ -264,13 +265,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 28),
-          const SectionTitle(icon: Icons.edit_note_outlined, label: 'Editor'),
+          SectionTitle(icon: MdiIcons.noteEditOutline, label: 'Editor'),
           const SizedBox(height: 8),
           FleetCard(
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.view_list_outlined),
+                  leading: Icon(MdiIcons.viewListOutline),
                   title: const Text('Default view mode'),
                   trailing: Text(
                     settings.defaultViewMode.label,
@@ -280,7 +281,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.format_indent_increase_outlined),
+                  leading: Icon(MdiIcons.formatIndentIncrease),
                   title: const Text('Linked refs collapse level'),
                   trailing: Text(
                     settings.linkedRefsCollapseLevel == 0
@@ -292,7 +293,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.calendar_view_week_outlined),
+                  leading: Icon(MdiIcons.calendarWeekOutline),
                   title: const Text('First day of week'),
                   trailing: Text(
                     firstDayOfWeekLabel(settings.firstDayOfWeek),
@@ -302,7 +303,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.calendar_today_outlined),
+                  leading: Icon(MdiIcons.calendarOutline),
                   title: const Text('Date format'),
                   trailing: Text(
                     settings.dateFormat,
@@ -312,7 +313,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.add_circle_outline),
+                  leading: Icon(MdiIcons.plusCircleOutline),
                   title: const Text('Quick capture destination'),
                   trailing: Text(
                     quickCaptureDestinationLabel(settings.quickCaptureDestination),
@@ -324,25 +325,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 28),
-          const SectionTitle(icon: Icons.dns_outlined, label: 'Server'),
+          SectionTitle(icon: MdiIcons.dnsOutline, label: 'Server'),
           const SizedBox(height: 8),
           FleetCard(
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.dns),
+                  leading: Icon(MdiIcons.dns),
                   title: const Text('Manage servers'),
                   subtitle: auth.activeServer != null
                       ? Text(auth.activeServer!.nickname)
                       : const Text('No active server'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push('/settings/servers'),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 28),
-          const SectionTitle(icon: Icons.workspaces_outlined, label: 'Workspace'),
+          SectionTitle(icon: MdiIcons.layersTripleOutline, label: 'Workspace'),
           const SizedBox(height: 8),
           FleetCard(
             child: _loadingWorkspaces
@@ -358,14 +359,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           ListTile(
                             leading: Icon(
-                              workspace.isActive ? Icons.check_circle : Icons.circle_outlined,
+                              workspace.isActive ? MdiIcons.checkCircle : MdiIcons.circleOutline,
                               color: workspace.isActive ? colors.primary : colors.onSurfaceVariant,
                             ),
                             title: Text(workspace.name),
                             subtitle: workspace.isActive ? const Text('Active') : null,
                             trailing: workspace.isActive
-                                ? Icon(Icons.check, color: colors.primary)
-                                : const Icon(Icons.chevron_right),
+                                ? Icon(MdiIcons.check, color: colors.primary)
+                                : Icon(MdiIcons.chevronRight),
                             onTap: workspace.isActive
                                 ? null
                                 : () => _switchWorkspace(workspace),
@@ -377,55 +378,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
           ),
           const SizedBox(height: 28),
-          const SectionTitle(icon: Icons.dashboard_outlined, label: 'Graph & sidebar'),
+          SectionTitle(icon: MdiIcons.viewDashboardOutline, label: 'Graph & sidebar'),
           const SizedBox(height: 8),
           FleetCard(
             child: Column(
               children: [
                 _ToggleTile(
-                  icon: Icons.star_outline,
+                  icon: MdiIcons.starOutline,
                   label: 'Show favorites',
                   value: settings.showSidebarFavorites,
                   onChanged: settings.setShowSidebarFavorites,
                 ),
                 const Divider(height: 1),
                 _ToggleTile(
-                  icon: Icons.access_time,
+                  icon: MdiIcons.clockOutline,
                   label: 'Show recents',
                   value: settings.showSidebarRecents,
                   onChanged: settings.setShowSidebarRecents,
                 ),
                 const Divider(height: 1),
                 _ToggleTile(
-                  icon: Icons.calendar_today_outlined,
+                  icon: MdiIcons.calendarOutline,
                   label: 'Show journals',
                   value: settings.showSidebarJournals,
                   onChanged: settings.setShowSidebarJournals,
                 ),
                 const Divider(height: 1),
                 _ToggleTile(
-                  icon: Icons.check_circle_outline,
+                  icon: MdiIcons.checkCircleOutline,
                   label: 'Show tasks',
                   value: settings.showSidebarTasks,
                   onChanged: settings.setShowSidebarTasks,
                 ),
                 const Divider(height: 1),
                 _ToggleTile(
-                  icon: Icons.description_outlined,
+                  icon: MdiIcons.fileDocumentOutline,
                   label: 'Show pages',
                   value: settings.showSidebarPages,
                   onChanged: settings.setShowSidebarPages,
                 ),
                 const Divider(height: 1),
                 _ToggleTile(
-                  icon: Icons.hub_outlined,
+                  icon: MdiIcons.lanConnect,
                   label: 'Show graph',
                   value: settings.showSidebarGraph,
                   onChanged: settings.setShowSidebarGraph,
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.auto_delete_outlined),
+                  leading: Icon(MdiIcons.deleteClockOutline),
                   title: const Text('Trash retention days'),
                   trailing: Text(
                     '${settings.trashRetentionDays} days',
@@ -437,26 +438,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 28),
-          const SectionTitle(icon: Icons.account_circle_outlined, label: 'Account'),
+          SectionTitle(icon: MdiIcons.accountCircleOutline, label: 'Account'),
           const SizedBox(height: 8),
           FleetCard(
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.person_outline),
+                  leading: Icon(MdiIcons.accountOutline),
                   title: Text(auth.user?.displayName ?? 'Guest'),
                   subtitle: auth.user != null ? Text(auth.user!.email) : null,
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: auth.user != null
                       ? () => context.push('/settings/profile')
                       : null,
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.key_outlined),
+                  leading: Icon(MdiIcons.keyOutline),
                   title: const Text('API keys'),
                   subtitle: const Text('Manage personal access tokens'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: auth.user != null
                       ? () => context.push('/settings/api-keys')
                       : null,
@@ -464,7 +465,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Divider(height: 1),
                 ListTile(
                   leading: Icon(
-                    Icons.fingerprint,
+                    MdiIcons.fingerprint,
                     color: biometric.available == false ? colors.outline : null,
                   ),
                   title: const Text('Biometric lock'),
@@ -480,20 +481,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.archive_outlined),
+                  leading: Icon(MdiIcons.archiveOutline),
                   title: const Text('Archived'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push(Routes.archived),
                 ),
                 ListTile(
-                  leading: const Icon(Icons.delete_outline),
+                  leading: Icon(MdiIcons.deleteOutline),
                   title: const Text('Trash'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push('/trash'),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: Icon(Icons.logout, color: colors.error),
+                  leading: Icon(MdiIcons.logout, color: colors.error),
                   title: Text('Sign out', style: TextStyle(color: colors.error)),
                   onTap: _logout,
                 ),
@@ -501,7 +502,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 28),
-          const SectionTitle(icon: Icons.security_outlined, label: 'Security'),
+          SectionTitle(icon: MdiIcons.shieldOutline, label: 'Security'),
           const SizedBox(height: 8),
           FleetCard(
             child: _EncryptionSection(
@@ -509,84 +510,84 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 28),
-          const SectionTitle(icon: Icons.layers_outlined, label: 'Advanced views'),
+          SectionTitle(icon: MdiIcons.layersOutline, label: 'Advanced views'),
           const SizedBox(height: 8),
           FleetCard(
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.hub_outlined),
+                  leading: Icon(MdiIcons.lanConnect),
                   title: const Text('Graph'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push(Routes.graph),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.draw_outlined),
+                  leading: Icon(MdiIcons.draw),
                   title: const Text('Whiteboard'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push(Routes.whiteboard),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.timeline_outlined),
+                  leading: Icon(MdiIcons.timeline),
                   title: const Text('Timeline'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push(Routes.timeline),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.view_week_outlined),
+                  leading: Icon(MdiIcons.viewWeekOutline),
                   title: const Text('Gantt'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push(Routes.gantt),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.bar_chart_outlined),
+                  leading: Icon(MdiIcons.chartBar),
                   title: const Text('Chart'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push(Routes.chart),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.pivot_table_chart_outlined),
+                  leading: Icon(MdiIcons.tablePivot),
                   title: const Text('Pivot'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push(Routes.pivot),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.account_tree_outlined),
+                  leading: Icon(MdiIcons.fileTree),
                   title: const Text('Query builder'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push(Routes.query),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 28),
-          const SectionTitle(icon: Icons.info_outline, label: 'About'),
+          SectionTitle(icon: MdiIcons.informationOutline, label: 'About'),
           const SizedBox(height: 8),
           FleetCard(
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.description_outlined),
+                  leading: Icon(MdiIcons.fileDocumentOutline),
                   title: const Text('About Notees'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push('/about'),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.keyboard_outlined),
+                  leading: Icon(MdiIcons.keyboardOutline),
                   title: const Text('Keyboard shortcuts'),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push('/settings/keyboard-shortcuts'),
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.numbers),
+                  leading: Icon(MdiIcons.numeric),
                   title: const Text('Version'),
                   trailing: Text(_version, style: TextStyle(color: colors.onSurfaceVariant)),
                 ),
@@ -694,7 +695,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close),
+                    icon: Icon(MdiIcons.close),
                     tooltip: 'Close',
                     onPressed: () => Navigator.of(ctx).pop(),
                   ),
@@ -704,7 +705,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ...values.map((value) => ListTile(
                   title: Text(labelBuilder(value)),
                   trailing: value == selected
-                      ? Icon(Icons.check, color: Theme.of(ctx).colorScheme.primary)
+                      ? Icon(MdiIcons.check, color: Theme.of(ctx).colorScheme.primary)
                       : null,
                   onTap: () {
                     HapticFeedback.lightImpact();
@@ -746,7 +747,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close),
+                    icon: Icon(MdiIcons.close),
                     tooltip: 'Close',
                     onPressed: () => Navigator.of(ctx).pop(),
                   ),
@@ -756,7 +757,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ...values.map((value) => ListTile(
                   title: Text(labelBuilder(value)),
                   trailing: value == selected
-                      ? Icon(Icons.check, color: Theme.of(ctx).colorScheme.primary)
+                      ? Icon(MdiIcons.check, color: Theme.of(ctx).colorScheme.primary)
                       : null,
                   onTap: () {
                     HapticFeedback.lightImpact();
@@ -798,7 +799,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close),
+                    icon: Icon(MdiIcons.close),
                     tooltip: 'Close',
                     onPressed: () => Navigator.of(ctx).pop(),
                   ),
@@ -808,7 +809,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ...values.map((value) => ListTile(
                   title: Text(labelBuilder(value)),
                   trailing: value == selected
-                      ? Icon(Icons.check, color: Theme.of(ctx).colorScheme.primary)
+                      ? Icon(MdiIcons.check, color: Theme.of(ctx).colorScheme.primary)
                       : null,
                   onTap: () {
                     HapticFeedback.lightImpact();
@@ -835,29 +836,29 @@ class _EncryptionSection extends StatelessWidget {
 
     if (!encryption.isEnabled) {
       return ListTile(
-        leading: const Icon(Icons.lock_outline),
+        leading: Icon(MdiIcons.lockOutline),
         title: const Text('Local encryption'),
         subtitle: const Text('Encrypt the local database with a password'),
-        trailing: const Icon(Icons.chevron_right),
+        trailing: Icon(MdiIcons.chevronRight),
         onTap: onConfigure,
       );
     }
 
     if (!encryption.isUnlocked) {
       return ListTile(
-        leading: Icon(Icons.lock, color: colors.primary),
+        leading: Icon(MdiIcons.lock, color: colors.primary),
         title: const Text('Local encryption locked'),
         subtitle: const Text('Tap to unlock the local database'),
-        trailing: const Icon(Icons.chevron_right),
+        trailing: Icon(MdiIcons.chevronRight),
         onTap: onConfigure,
       );
     }
 
     return ListTile(
-      leading: Icon(Icons.lock_open, color: colors.primary),
+      leading: Icon(MdiIcons.lockOpen, color: colors.primary),
       title: const Text('Local encryption active'),
       subtitle: const Text('Tap to lock or disable encryption'),
-      trailing: const Icon(Icons.chevron_right),
+      trailing: Icon(MdiIcons.chevronRight),
       onTap: onConfigure,
     );
   }
@@ -884,19 +885,19 @@ class _ThemeRow extends StatelessWidget {
             ),
           ),
           _ThemeButton(
-            icon: Icons.wb_sunny_outlined,
+            icon: MdiIcons.weatherSunny,
             selected: mode == AppThemeMode.light,
             onTap: () => onChanged(AppThemeMode.light),
           ),
           const SizedBox(width: 8),
           _ThemeButton(
-            icon: Icons.dark_mode_outlined,
+            icon: MdiIcons.weatherNight,
             selected: mode == AppThemeMode.dark,
             onTap: () => onChanged(AppThemeMode.dark),
           ),
           const SizedBox(width: 8),
           _ThemeButton(
-            icon: Icons.brightness_auto_outlined,
+            icon: MdiIcons.brightnessAuto,
             selected: mode == AppThemeMode.system,
             onTap: () => onChanged(AppThemeMode.system),
           ),
@@ -1033,7 +1034,7 @@ class _AccentSwatch extends StatelessWidget {
             ),
             child: color == null
                 ? Icon(
-                    Icons.android_outlined,
+                    MdiIcons.android,
                     size: 14,
                     color: colors.onPrimaryContainer,
                   )
