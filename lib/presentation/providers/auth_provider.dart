@@ -56,6 +56,7 @@ class AuthProvider extends ChangeNotifier {
           baseUrl: _activeServer!.url,
           secureStorage: secureStorage,
           trustSelfSigned: _activeServer!.trustSelfSigned,
+          cookieJar: await sharedCookieJar(),
         );
         _syncService = await _buildSyncService(_dio!);
         _user = await AuthRepository(dio: _dio!, secureStorage: secureStorage).checkSession();
@@ -84,6 +85,7 @@ class AuthProvider extends ChangeNotifier {
       baseUrl: server.url,
       secureStorage: secureStorage,
       trustSelfSigned: server.trustSelfSigned,
+      cookieJar: await sharedCookieJar(),
     );
     _syncService = await _buildSyncService(_dio!);
     _user = null;

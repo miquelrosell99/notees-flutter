@@ -114,7 +114,6 @@ class AuthRepository {
       await dio.post('/auth/logout');
     } finally {
       await secureStorage.deleteAccessToken();
-      await secureStorage.deleteRefreshToken();
     }
   }
 
@@ -165,17 +164,15 @@ class AuthRepository {
 
   User _handleTokenResponse(Map<String, dynamic> data) {
     final accessToken = data['access_token'] as String?;
-    final refreshToken = data['refresh_token'] as String?;
     final userJson = data['user'] as Map<String, dynamic>?;
 
     if (accessToken == null || userJson == null) {
       throw const AuthException('Invalid response from server');
     }
 
+    // The refresh token arrives as an HTTPOnly cookie and lives in the shared
+    // cookie jar; only the access token goes to secure storage.
     secureStorage.writeAccessToken(accessToken);
-    if (refreshToken != null) {
-      secureStorage.writeRefreshToken(refreshToken);
-    }
 
     return User.fromJson(userJson);
   }

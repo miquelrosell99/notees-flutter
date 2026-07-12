@@ -41,6 +41,7 @@ void _backgroundSyncCallback() {
         baseUrl: activeServer.url,
         secureStorage: secureStorage,
         trustSelfSigned: activeServer.trustSelfSigned,
+        cookieJar: await sharedCookieJar(),
       );
       final clientId = await getClientId(prefs);
       final syncService = SyncV2Service(
