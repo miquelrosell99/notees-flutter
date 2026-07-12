@@ -29,6 +29,7 @@ class AuthProvider extends ChangeNotifier {
   User? _user;
   Dio? _dio;
   SyncV2Service? _syncService;
+  TwoFactorChallenge? _twoFactorChallenge;
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -41,6 +42,9 @@ class AuthProvider extends ChangeNotifier {
   String? get error => _error;
   Dio? get dio => _dio;
   SyncV2Service? get syncService => _syncService;
+
+  /// Pending 2FA challenge after a successful password step, if any.
+  TwoFactorChallenge? get twoFactorChallenge => _twoFactorChallenge;
 
   Future<void> initialize() async {
     _loading = true;
@@ -83,17 +87,49 @@ class AuthProvider extends ChangeNotifier {
     );
     _syncService = await _buildSyncService(_dio!);
     _user = null;
+    _twoFactorChallenge = null;
     notifyListeners();
   }
 
   Future<void> login(String email, String password, {bool rememberMe = false}) async {
+    _error = null;
+    _twoFactorChallenge = null;
+    _busy = true;
+    notifyListeners();
+    try {
+      if (_dio == null) throw const AuthException('No server configured');
+      final repo = AuthRepository(dio: _dio!, secureStorage: secureStorage);
+      final result = await repo.login(email: email, password: password, rememberMe: rememberMe);
+      switch (result) {
+        case LoginSuccess(:final user):
+          _user = user;
+          await _switchToDefaultWorkspace();
+        case TwoFactorChallenge():
+          _twoFactorChallenge = result;
+      }
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
+  /// Completes a pending 2FA challenge with a TOTP or backup code.
+  Future<void> verifyTwoFactor(String code) async {
+    final challenge = _twoFactorChallenge;
+    if (challenge == null) throw const AuthException('No two-factor challenge pending');
     _error = null;
     _busy = true;
     notifyListeners();
     try {
       if (_dio == null) throw const AuthException('No server configured');
       final repo = AuthRepository(dio: _dio!, secureStorage: secureStorage);
-      _user = await repo.login(email: email, password: password, rememberMe: rememberMe);
+      _user = await repo.verifyTwoFactor(
+        preauthToken: challenge.preauthToken,
+        code: code,
+      );
+      _twoFactorChallenge = null;
       await _switchToDefaultWorkspace();
     } catch (e) {
       _error = e.toString();
@@ -101,6 +137,13 @@ class AuthProvider extends ChangeNotifier {
       _busy = false;
       notifyListeners();
     }
+  }
+
+  /// Discards a pending 2FA challenge, returning to the password step.
+  void cancelTwoFactor() {
+    _twoFactorChallenge = null;
+    _error = null;
+    notifyListeners();
   }
 
   Future<void> register(String email, String password, {String? name, String? surnames}) async {
@@ -130,6 +173,7 @@ class AuthProvider extends ChangeNotifier {
     } finally {
       _busy = false;
       _user = null;
+      _twoFactorChallenge = null;
       notifyListeners();
     }
   }

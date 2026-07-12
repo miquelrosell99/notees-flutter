@@ -8,6 +8,7 @@ class User {
     this.profilePic,
     required this.role,
     required this.isActive,
+    this.totpEnabled = false,
   });
 
   final String id;
@@ -18,6 +19,7 @@ class User {
   final String? profilePic;
   final String role;
   final bool isActive;
+  final bool totpEnabled;
 
   String get displayName {
     final parts = [if (name != null) name, if (surnames != null) surnames]
@@ -35,6 +37,7 @@ class User {
         profilePic: json['profile_pic'] as String?,
         role: json['role'] as String,
         isActive: json['is_active'] as bool,
+        totpEnabled: json['totp_enabled'] as bool? ?? false,
       );
 
   Map<String, dynamic> toJson() => {
@@ -46,5 +49,6 @@ class User {
         'profile_pic': profilePic,
         'role': role,
         'is_active': isActive,
+        'totp_enabled': totpEnabled,
       };
 }

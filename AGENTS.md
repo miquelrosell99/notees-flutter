@@ -90,9 +90,13 @@ The Android workflow runs two pub-cache patches after `flutter pub get`:
 - `scripts/patch_kgp_plugins.py` removes legacy Kotlin Gradle Plugin application
   from plugins that have not yet migrated to AGP 9+ built-in Kotlin
   (`cryptography_flutter`, `dynamic_color`, `workmanager_android`).
-- `scripts/patch_mdi_icons.py` replaces `class _MdiIconData extends IconData`
-  in `material_design_icons_flutter` because `IconData` is `final` in recent
-  Flutter versions. The patch is idempotent and only touches the pub cache.
+- `scripts/patch_mdi_icons.py` removes `class _MdiIconData extends IconData`
+  from `material_design_icons_flutter` (because `IconData` is `final` in recent
+  Flutter versions) and inlines each map entry as a **const** `IconData(...)`
+  instance so release-build icon tree-shaking keeps working — non-const
+  `IconData` invocations fail the release build with "Avoid non-constant
+  invocations of IconData". The patch is idempotent and only touches the pub
+  cache.
 
 `share_plus`, `package_info_plus`, and `record` were upgraded to KGP-free major
 versions instead. Remove the KGP workaround once the remaining plugins ship
@@ -120,6 +124,16 @@ For major refactors, trigger a CI build via `./trigger-ci-build.sh` rather than 
 
 - Server credentials and tokens are stored in `flutter_secure_storage`.
 - Biometric lock is enabled in Settings and gates app resume.
+
+## Server Reference
+
+The backend/server source for Notees is kept in a sibling folder for reference while building the mobile app:
+
+```
+../notees/   # git@github.com:miquelrosell99/notees.git
+```
+
+Keep this clone up to date when the mobile app needs to align with API contracts, data models, auth flows, or deployment conventions from the server repository.
 
 ## Skill References
 
