@@ -121,22 +121,27 @@ class _NoteesAppBodyState extends State<_NoteesAppBody> {
       provider: themeProvider,
       builder: (context, light, dark) {
         final auth = context.watch<AuthProvider>();
-        return AppLocker(
-          child: ShareListener(
-            child: DeepLinkListener(
-              child: QuickNoteTileListener(
-                child: AudioNoteTileListener(
-                  child: OfflineBanner(
-                    child: OfflineSync(
-                      dio: auth.dio ?? Dio(),
-                      syncService: auth.syncService,
-                      child: MaterialApp.router(
-                        title: 'Notees',
-                        debugShowCheckedModeBanner: false,
-                        theme: light,
-                        darkTheme: dark,
-                        themeMode: _flutterThemeMode(themeProvider.themeMode),
-                        routerConfig: _router,
+        // The wrapper chain (lock screen, offline banner, listeners) sits
+        // above MaterialApp, so provide Directionality for it here.
+        return Directionality(
+          textDirection: TextDirection.ltr,
+          child: AppLocker(
+            child: ShareListener(
+              child: DeepLinkListener(
+                child: QuickNoteTileListener(
+                  child: AudioNoteTileListener(
+                    child: OfflineBanner(
+                      child: OfflineSync(
+                        dio: auth.dio ?? Dio(),
+                        syncService: auth.syncService,
+                        child: MaterialApp.router(
+                          title: 'Notees',
+                          debugShowCheckedModeBanner: false,
+                          theme: light,
+                          darkTheme: dark,
+                          themeMode: _flutterThemeMode(themeProvider.themeMode),
+                          routerConfig: _router,
+                        ),
                       ),
                     ),
                   ),

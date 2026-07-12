@@ -15,7 +15,7 @@ void main() async {
   // background sync.
   try {
     await BackgroundSync.initialize();
-  } on Exception catch (e, stack) {
+  } catch (e, stack) {
     debugPrint('BackgroundSync initialization failed: $e\n$stack');
   }
 
