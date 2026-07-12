@@ -20,6 +20,7 @@ class NodeCollection extends StatelessWidget {
     this.footer,
     this.favoriteUuids,
     this.onFavoriteToggle,
+    this.classIndex,
   });
 
   final NodeViewMode mode;
@@ -29,6 +30,9 @@ class NodeCollection extends StatelessWidget {
   final Widget? footer;
   final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
+
+  /// Class uuid → class node, forwarded to the card view for colored pills.
+  final Map<String, Node>? classIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -51,6 +55,7 @@ class NodeCollection extends StatelessWidget {
           onNodeTap: onNodeTap,
           favoriteUuids: favoriteUuids,
           onFavoriteToggle: onFavoriteToggle,
+          classIndex: classIndex,
         );
       case NodeViewMode.table:
         return NodeTableView(

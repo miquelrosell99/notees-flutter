@@ -20,6 +20,33 @@ class ColorPresets {
 
   static const String defaultHex = '#f9f5e8';
 
+  static final RegExp _cssVarPattern = RegExp(r'^var\(--color-preset-([a-z]+)\)$');
+
+  /// Resolves a stored color value to a [Color], or null when unset/unknown.
+  ///
+  /// Accepts both storage formats: the web app's CSS variable references
+  /// (`var(--color-preset-green)`) and freeform hex strings (`#RRGGBB`).
+  static Color? tryResolve(String? stored) {
+    if (stored == null || stored.trim().isEmpty) return null;
+    final value = stored.trim();
+
+    final varMatch = _cssVarPattern.firstMatch(value);
+    if (varMatch != null) {
+      final name = varMatch.group(1);
+      for (final (hex, label) in entries) {
+        if (label.toLowerCase() == name) return fromHex(hex);
+      }
+      return null;
+    }
+
+    if (value.startsWith('#')) {
+      final hex = value.substring(1);
+      if (hex.length == 6) return Color(int.parse('FF$hex', radix: 16));
+      if (hex.length == 8) return Color(int.parse(hex, radix: 16));
+    }
+    return null;
+  }
+
   /// Parses a hex color string (#RRGGBB) into a Flutter [Color].
   static Color fromHex(String? hex) {
     if (hex == null || hex.isEmpty) return const Color(0xFFF9F5E8);

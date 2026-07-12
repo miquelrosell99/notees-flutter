@@ -28,6 +28,7 @@ class _PagesScreenState extends State<PagesScreen> {
   List<Node> _rootPages = [];
   List<Node> _recents = [];
   Set<String> _favoriteUuids = {};
+  Map<String, Node> _classIndex = {};
   bool _loading = true;
   String? _error;
   NodeViewMode _viewMode = NodeViewMode.list;
@@ -61,12 +62,14 @@ class _PagesScreenState extends State<PagesScreen> {
         repo.fetchRootPages(),
         repo.fetchRecentPages(limit: 10),
         repo.fetchFavoriteUuids(),
+        repo.fetchClasses(),
       ]);
       if (mounted) {
         setState(() {
           _rootPages = results[0] as List<Node>;
           _recents = results[1] as List<Node>;
           _favoriteUuids = (results[2] as List<String>).toSet();
+          _classIndex = {for (final c in (results[3] as List<Node>)) c.uuid: c};
           _error = null;
         });
       }
@@ -225,6 +228,7 @@ class _PagesScreenState extends State<PagesScreen> {
         emptyMessage: 'No pages',
         favoriteUuids: _favoriteUuids,
         onFavoriteToggle: _toggleFavorite,
+        classIndex: _classIndex,
       );
     }
 

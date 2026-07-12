@@ -6,8 +6,9 @@ import 'app_colors.dart';
 /// Available theme modes.
 enum AppThemeMode { light, dark, system }
 
-/// Available accent sources.
-enum AppAccent { white, functional, dynamicColor }
+/// Available accent sources: monochrome white (default), optional sage or
+/// orange functional accents, and dynamic color as the last resort.
+enum AppAccent { white, functional, orange, dynamicColor }
 
 /// Builds the fleet RosellRamos [ThemeData] for Notees.
 ///
@@ -50,7 +51,12 @@ ThemeData buildNoteesTheme({
           primaryContainer: accent.withAlpha((0.15 * 255).round()),
           onPrimaryContainer: accent,
         )
-      : colorScheme;
+      : colorScheme.copyWith(
+          // fromSeed derives a blue-tinted primaryContainer even from an
+          // achromatic seed; pin explicit neutrals for the white accent.
+          primaryContainer: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFE6E6E6),
+          onPrimaryContainer: isDark ? Colors.white : Colors.black,
+        );
 
   return ThemeData(
     useMaterial3: true,
@@ -247,6 +253,7 @@ Color? resolveAccent(AppAccent accent, Color? dynamicColor) {
   return switch (accent) {
     AppAccent.white => null,
     AppAccent.functional => noteesAccent,
+    AppAccent.orange => noteesAccentOrange,
     AppAccent.dynamicColor => dynamicColor ?? noteesAccent,
   };
 }

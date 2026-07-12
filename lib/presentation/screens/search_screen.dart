@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/constants/system.dart';
 import '../../core/routing/router.dart';
+import '../../core/utils/node_icon.dart';
 import '../../core/utils/view_mode_store.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
@@ -55,6 +56,9 @@ class _SearchScreenState extends State<SearchScreen> {
   List<Node> _favorites = [];
   Set<String> _favoriteUuids = {};
   bool _loadingSuggestions = true;
+
+  /// Class uuid → class node, used for colored class pills in card results.
+  Map<String, Node> _classIndex = {};
 
   @override
   void initState() {
@@ -127,6 +131,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (mounted) {
         setState(() {
           _savedViews = views;
+          _classIndex = {for (final c in classes) c.uuid: c};
           _loadingSavedViews = false;
         });
       }
@@ -477,6 +482,7 @@ class _SearchScreenState extends State<SearchScreen> {
       nodes: _results,
       onNodeTap: _openNode,
       footer: _hasMore ? _buildLoadMoreButton() : null,
+      classIndex: _classIndex,
     );
   }
 
@@ -499,9 +505,10 @@ class _SearchScreenState extends State<SearchScreen> {
                 return Column(
                   children: [
                     ListTile(
-                      leading: Icon(
-                        _iconForNode(node),
-                        color: colors.onSurfaceVariant,
+                      leading: NodeIcon(
+                        iconField: node.icon,
+                        fallbackIcon: _iconForNode(node),
+                        fallbackColor: colors.onSurfaceVariant,
                       ),
                       title: Text(node.displayName),
                       trailing: _favoriteTrailing(node),
