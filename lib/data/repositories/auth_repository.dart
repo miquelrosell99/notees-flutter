@@ -12,20 +12,62 @@ class AuthRepository {
   final Dio dio;
   final SecureStorage secureStorage;
 
-  Future<User> login({
+  Future<LoginResult> login({
     required String email,
     required String password,
     bool rememberMe = false,
   }) async {
-    final response = await dio.post<Map<String, dynamic>>(
-      '/auth/login',
-      data: {
-        'email': email,
-        'password': password,
-        'remember_me': rememberMe,
-      },
-    );
-    return _handleTokenResponse(response.data!);
+    final Map<String, dynamic> data;
+    try {
+      final response = await dio.post<Map<String, dynamic>>(
+        '/auth/login',
+        data: {
+          'email': email,
+          'password': password,
+          'remember_me': rememberMe,
+        },
+      );
+      data = response.data!;
+    } on DioException catch (e) {
+      throw AuthException(_serverMessage(e, 'Login failed'));
+    }
+    if (data['requires_2fa'] == true) {
+      return TwoFactorChallenge(
+        preauthToken: data['preauth_token'] as String,
+        purpose: data['purpose'] as String? ?? 'verify',
+      );
+    }
+    return LoginSuccess(_handleTokenResponse(data));
+  }
+
+  /// Completes a login that returned a [TwoFactorChallenge].
+  ///
+  /// [code] accepts either the current 6-digit TOTP or a one-time backup code.
+  Future<User> verifyTwoFactor({
+    required String preauthToken,
+    required String code,
+  }) async {
+    try {
+      final response = await dio.post<Map<String, dynamic>>(
+        '/auth/2fa/verify',
+        data: {
+          'preauth_token': preauthToken,
+          'code': code,
+        },
+      );
+      return _handleTokenResponse(response.data!);
+    } on DioException catch (e) {
+      throw AuthException(_serverMessage(e, 'Verification failed'));
+    }
+  }
+
+  /// Extracts the server's error detail from a failed auth request.
+  static String _serverMessage(DioException e, String fallback) {
+    final body = e.response?.data;
+    if (body is Map && body['detail'] != null) {
+      return body['detail'].toString();
+    }
+    return e.message ?? fallback;
   }
 
   Future<User> register({
@@ -145,6 +187,32 @@ class AuthException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Result of a login attempt: either a full session or a 2FA challenge that
+/// must be completed via [AuthRepository.verifyTwoFactor].
+sealed class LoginResult {
+  const LoginResult();
+}
+
+class LoginSuccess extends LoginResult {
+  const LoginSuccess(this.user);
+  final User user;
+}
+
+/// The server accepted the password but requires a second factor.
+/// [preauthToken] is short-lived (~5 minutes) and single-purpose.
+class TwoFactorChallenge extends LoginResult {
+  const TwoFactorChallenge({
+    required this.preauthToken,
+    required this.purpose,
+  });
+
+  final String preauthToken;
+
+  /// 'verify' for normal logins; 'setup' would mean forced enrollment
+  /// (not currently issued by the server).
+  final String purpose;
 }
 
 class ApiKey {
