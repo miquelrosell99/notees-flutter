@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
@@ -73,8 +74,14 @@ class BackgroundSync {
   static bool _initialized = false;
 
   /// Must be called once before [runApp].
+  ///
+  /// No-op on platforms without a Workmanager implementation (desktop, web).
   static Future<void> initialize() async {
     if (_initialized) return;
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
+      return;
+    }
     await Workmanager().initialize(_backgroundSyncCallback);
     _initialized = true;
   }

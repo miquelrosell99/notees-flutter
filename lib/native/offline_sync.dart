@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -67,6 +68,13 @@ class _OfflineSyncState extends State<OfflineSync> with WidgetsBindingObserver {
   }
 
   Future<void> _flush() async {
+    // The local SQLite queue (sqflite_sqlcipher) only has Android/iOS
+    // implementations; skip flushing on other platforms.
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
+      return;
+    }
+
     final encryption = context.read<EncryptionProvider>();
     if (encryption.isEnabled && !encryption.isUnlocked) {
       // Do not attempt to open the encrypted database while locked.

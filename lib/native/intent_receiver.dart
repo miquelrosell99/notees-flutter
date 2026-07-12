@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// Receives Android intents (share, deep link) via a platform MethodChannel.
@@ -23,6 +24,8 @@ class IntentReceiver {
 
   Future<void> initialize() async {
     if (_initialized) return;
+    // The intents channel only has an Android implementation.
+    if (defaultTargetPlatform != TargetPlatform.android) return;
     _initialized = true;
 
     _channel.setMethodCallHandler((call) async {
