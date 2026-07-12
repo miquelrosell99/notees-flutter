@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/routing/router.dart';
 import '../../core/secure/secure_storage.dart';
 import '../providers/auth_provider.dart';
@@ -84,7 +85,17 @@ class _NoteesWebViewScreenState extends State<NoteesWebViewScreen> {
       );
 
     final accessToken = await secureStorage.readAccessToken();
-    final refreshToken = await secureStorage.readRefreshToken();
+    // The refresh token lives in the shared cookie jar (the server rotates it
+    // on every refresh), so read the current value from there.
+    String? refreshToken;
+    final jar = await sharedCookieJar();
+    final refreshUri = Uri.parse('$baseUrl/api/auth/refresh');
+    for (final cookie in await jar.loadForRequest(refreshUri)) {
+      if (cookie.name == 'refresh_token') {
+        refreshToken = cookie.value;
+        break;
+      }
+    }
     final cookieManager = WebViewCookieManager();
 
     if (accessToken != null && accessToken.isNotEmpty) {

@@ -7,7 +7,6 @@ class SecureStorage {
   final FlutterSecureStorage _storage;
 
   static const _accessTokenKey = 'access_token';
-  static const _refreshTokenKey = 'refresh_token';
   static const _apiKeyPrefix = 'api_key_';
 
   Future<void> writeAccessToken(String token) =>
@@ -16,13 +15,6 @@ class SecureStorage {
   Future<String?> readAccessToken() => _storage.read(key: _accessTokenKey);
 
   Future<void> deleteAccessToken() => _storage.delete(key: _accessTokenKey);
-
-  Future<void> writeRefreshToken(String token) =>
-      _storage.write(key: _refreshTokenKey, value: token);
-
-  Future<String?> readRefreshToken() => _storage.read(key: _refreshTokenKey);
-
-  Future<void> deleteRefreshToken() => _storage.delete(key: _refreshTokenKey);
 
   Future<void> writeApiKey(String serverId, String key) =>
       _storage.write(key: '$_apiKeyPrefix$serverId', value: key);
