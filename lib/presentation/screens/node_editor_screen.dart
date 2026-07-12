@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -9,7 +10,10 @@ import 'package:provider/provider.dart';
 
 import '../../core/routing/router.dart';
 import '../../core/utils/ast_builder.dart';
+import '../../core/utils/color_presets.dart';
+import '../../core/utils/node_icon.dart';
 import '../../data/models/breadcrumb_item.dart';
+import '../../data/models/linked_reference.dart';
 import '../../data/models/node.dart';
 import '../../data/models/property.dart';
 import '../../data/repositories/comment_repository.dart';
@@ -18,7 +22,6 @@ import '../providers/auth_provider.dart';
 import '../widgets/block_tree_editor.dart';
 import '../widgets/comments_bottom_sheet.dart';
 import '../widgets/editor_inline_toolbar.dart';
-import '../widgets/find_in_page_sheet.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/mention_picker.dart';
 import '../widgets/node_picker.dart';
@@ -46,37 +49,61 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   final _scrollController = ScrollController();
   final _blockTreeKey = GlobalKey<BlockTreeEditorState>();
   final List<BlockNode> _roots = [];
-  final _findState = ValueNotifier(FindState());
 
   List<BreadcrumbItem> _breadcrumbs = [];
   List<NodePropertyValue> _properties = [];
   Map<String, String> _classNames = {};
+  Map<String, Color> _linkColors = {};
+  String? _pageColor;
+  String? _pageIcon;
+  bool _pageIsPrivate = false;
   final Set<String> _deletedBlockUuids = {};
   bool _loading = true;
   bool _saving = false;
   String? _error;
   BlockNode? _focusedBlock;
-  PersistentBottomSheetController? _findController;
-  List<BlockNode> _findMatches = [];
-  int _findMatchIndex = -1;
   int _commentCount = 0;
+  List<LinkedReference> _linkedReferences = [];
+  int _linkedRefsTotal = 0;
+
+  /// Autosave: edits mark the page dirty and debounce a background save.
+  Timer? _autosaveTimer;
+  bool _dirty = false;
 
   @override
   void initState() {
     super.initState();
+    _titleController.addListener(_markDirty);
     _loadPage();
   }
 
   @override
   void dispose() {
+    _autosaveTimer?.cancel();
     _titleController.dispose();
     _scrollController.dispose();
-    _findController?.close();
-    _findState.dispose();
     for (final block in _allBlocks()) {
       block.controller.dispose();
     }
     super.dispose();
+  }
+
+  /// Marks the page dirty and schedules a debounced autosave.
+  void _markDirty() {
+    if (_loading) return;
+    _dirty = true;
+    _autosaveTimer?.cancel();
+    _autosaveTimer = Timer(const Duration(seconds: 2), _autosave);
+  }
+
+  void _autosave() {
+    if (!_dirty || !mounted) return;
+    if (_saving) {
+      // A save is already in flight; retry shortly.
+      _autosaveTimer = Timer(const Duration(seconds: 2), _autosave);
+      return;
+    }
+    _save(manual: false);
   }
 
   Future<void> _loadPage() async {
@@ -103,11 +130,30 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           if (c.uuid.isNotEmpty) c.uuid: c.displayName.toLowerCase(),
       };
 
+      // Data colors for link chips: the page's own blocks plus all classes.
+      final linkColors = <String, Color>{};
+      void collectColors(List<Node> nodes) {
+        for (final n in nodes) {
+          final color = ColorPresets.tryResolve(n.color);
+          if (color != null) linkColors[n.uuid] = color;
+          collectColors(n.children);
+        }
+      }
+      collectColors(page.children);
+      for (final c in classes) {
+        final color = ColorPresets.tryResolve(c.color);
+        if (color != null) linkColors[c.uuid] = color;
+      }
+
       if (mounted) {
         setState(() {
           _titleController.text = page.displayName.isNotEmpty ? page.displayName : 'Untitled';
           _properties = properties;
           _classNames = classNames;
+          _linkColors = linkColors;
+          _pageColor = page.color;
+          _pageIcon = page.icon;
+          _pageIsPrivate = page.isPrivate;
           _breadcrumbs = breadcrumbs;
           _deletedBlockUuids.clear();
           _error = null;
@@ -116,6 +162,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       }
       if (mounted) {
         await _loadCommentCount();
+        await _loadLinkedReferences();
       }
     } on DioException catch (e) {
       final status = e.response?.statusCode;
@@ -143,6 +190,30 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     }
   }
 
+  Future<void> _loadLinkedReferences() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    try {
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      final result = await repo.fetchLinkedReferences(widget.nodeUuid);
+      if (mounted) {
+        setState(() {
+          _linkedReferences = result.references;
+          _linkedRefsTotal = result.totalCount;
+        });
+      }
+    } catch (_) {
+      // Non-critical: hide the section on failure.
+      if (mounted) {
+        setState(() {
+          _linkedReferences = [];
+          _linkedRefsTotal = 0;
+        });
+      }
+    }
+  }
+
   Future<void> _openComments() async {
     await CommentsBottomSheet.show(context, nodeUuid: widget.nodeUuid);
     if (mounted) await _loadCommentCount();
@@ -152,7 +223,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     SharesBottomSheet.show(context, nodeUuid: widget.nodeUuid);
   }
 
-  List<BlockNode> _nodesToBlockTree(List<Node> nodes, {BlockNode? parent}) {
+  List<BlockNode> _nodesToBlockTree(List<Node> nodes, {BlockNode? parent, Set<String>? visited}) {
+    visited ??= <String>{};
     final sorted = List<Node>.from(nodes)..sort((a, b) => a.sequence.compareTo(b.sequence));
     return sorted.map((node) {
       final ast = _tryParseAst(node.name);
@@ -163,7 +235,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         parent: parent,
         collapsed: false,
       );
-      block.children.addAll(_nodesToBlockTree(node.children, parent: block));
+      // Guard against cyclic children in corrupt server data.
+      if (visited!.add(node.uuid)) {
+        block.children.addAll(_nodesToBlockTree(node.children, parent: block, visited: visited));
+      }
       return block;
     }).toList();
   }
@@ -178,9 +253,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     return AstBuilder.parseInline(name);
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool manual = true}) async {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
+    if (_saving) return; // avoid overlapping saves
 
     final title = _titleController.text.trim();
 
@@ -211,15 +287,23 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         await repo.deleteNode(uuid);
       }
       _deletedBlockUuids.clear();
+      _dirty = false;
 
-      if (mounted) await _loadPage();
-      if (mounted) {
+      // Autosaves must not reload the page: that would steal focus and
+      // rebuild the block controllers while the user is typing.
+      if (manual && mounted) await _loadPage();
+      if (manual && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Saved')),
         );
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
+      if (!manual && mounted) {
+        // Stay dirty and retry in the background.
+        _autosaveTimer?.cancel();
+        _autosaveTimer = Timer(const Duration(seconds: 5), _autosave);
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -304,6 +388,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       isTable: node.isTable,
       isAsset: node.isAsset,
       isComment: node.isComment,
+      isPrivate: node.isPrivate,
       classes: node.classes,
       tags: node.tags,
       properties: node.properties,
@@ -332,6 +417,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       isTable: node.isTable,
       isAsset: node.isAsset,
       isComment: node.isComment,
+      isPrivate: node.isPrivate,
       classes: node.classes,
       tags: node.tags,
       properties: node.properties,
@@ -360,6 +446,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       isTable: node.isTable,
       isAsset: node.isAsset,
       isComment: node.isComment,
+      isPrivate: node.isPrivate,
       classes: node.classes,
       tags: node.tags,
       properties: node.properties,
@@ -381,6 +468,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       _roots.add(newBlock);
       _focusedBlock = newBlock;
     });
+    _markDirty();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _blockTreeKey.currentState?.requestFocusFor(newBlock);
     });
@@ -400,6 +488,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       parent.children.add(newBlock);
       _focusedBlock = newBlock;
     });
+    _markDirty();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _blockTreeKey.currentState?.requestFocusFor(newBlock);
     });
@@ -417,6 +506,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       }
       block.controller.dispose();
     });
+    _markDirty();
   }
 
   void _removeBlockFromTree(BlockNode block) {
@@ -440,6 +530,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       newParent.children.add(block);
       newParent.collapsed = false;
     });
+    _markDirty();
   }
 
   void _onOutdent(BlockNode block) {
@@ -457,6 +548,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       block.parent = grandparent;
       siblings.insert(parentIndex + 1, block);
     });
+    _markDirty();
   }
 
   void _onMove(BlockNode moved, BlockNode target, DropPosition position) {
@@ -478,11 +570,13 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           target.collapsed = false;
       }
     });
+    _markDirty();
   }
 
   void _onToggleCollapse(BlockNode block) {
     HapticFeedback.lightImpact();
     setState(() => block.collapsed = !block.collapsed);
+    _markDirty();
   }
 
   void _onFocus(BlockNode? block) {
@@ -590,6 +684,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       case EditorAction.audio:
         return;
     }
+    _markDirty();
   }
 
   void _applyHeading(TextEditingController controller, int level) {
@@ -689,54 +784,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     controller
       ..text = newText
       ..selection = TextSelection.collapsed(offset: newOffset.clamp(0, newText.length));
-  }
-
-  void _openFindSheet() {
-    _findController?.close();
-    _findController = FindInPageSheet.show(
-      context: context,
-      stateNotifier: _findState,
-      onQueryChanged: _updateFindQuery,
-      onPrevious: _findPrevious,
-      onNext: _findNext,
-    );
-  }
-
-  void _updateFindQuery(String query) {
-    final lower = query.toLowerCase();
-    final all = _allBlocks();
-    final matches = lower.isEmpty
-        ? <BlockNode>[]
-        : all.where((b) => b.controller.text.toLowerCase().contains(lower)).toList();
-    _findMatchIndex = matches.isEmpty ? -1 : 0;
-    _findMatches = matches;
-    _findState.value = FindState(query: query, matchCount: matches.length, currentIndex: _findMatchIndex);
-    setState(() {});
-    _jumpToCurrentMatch();
-  }
-
-  void _findNext() {
-    if (_findMatches.isEmpty) return;
-    _findMatchIndex = (_findMatchIndex + 1) % _findMatches.length;
-    _findState.value = _findState.value.copyWith(currentIndex: _findMatchIndex);
-    setState(() {});
-    _jumpToCurrentMatch();
-  }
-
-  void _findPrevious() {
-    if (_findMatches.isEmpty) return;
-    _findMatchIndex = (_findMatchIndex - 1 + _findMatches.length) % _findMatches.length;
-    _findState.value = _findState.value.copyWith(currentIndex: _findMatchIndex);
-    setState(() {});
-    _jumpToCurrentMatch();
-  }
-
-  void _jumpToCurrentMatch() {
-    if (_findMatchIndex < 0 || _findMatchIndex >= _findMatches.length) return;
-    final block = _findMatches[_findMatchIndex];
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _blockTreeKey.currentState?.scrollToBlock(block);
-    });
+    _markDirty();
   }
 
   List<BlockNode> _allBlocks() {
@@ -762,13 +810,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Edit page'),
+        title: _breadcrumbs.isEmpty ? null : _buildBreadcrumbRow(),
         actions: [
-          IconButton(
-            icon: Icon(MdiIcons.magnify),
-            tooltip: 'Find in page',
-            onPressed: _openFindSheet,
-          ),
           IconButton(
             icon: Badge(
               isLabelVisible: _commentCount > 0,
@@ -808,8 +851,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           else
             IconButton(
               icon: Icon(MdiIcons.check),
-              tooltip: 'Save',
-              onPressed: _save,
+              tooltip: 'Save now',
+              onPressed: () => _save(),
             ),
           const SizedBox(width: 8),
         ],
@@ -818,7 +861,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                _buildBreadcrumbs(),
                 Expanded(
                   child: RefreshIndicator(
                     onRefresh: _loadPage,
@@ -849,6 +891,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                         ),
                         const SizedBox(height: 20),
                         _buildPropertiesSection(colors),
+                        _buildLinkedReferencesSection(colors),
                       ],
                     ),
                   ),
@@ -860,9 +903,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     );
   }
 
-  Widget _buildBreadcrumbs() {
-    if (_breadcrumbs.isEmpty) return const SizedBox.shrink();
-
+  /// Compact breadcrumb row shown in the app bar title slot.
+  Widget _buildBreadcrumbRow() {
     final colors = Theme.of(context).colorScheme;
     final items = <Widget>[];
 
@@ -871,18 +913,21 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       final isLast = i == _breadcrumbs.length - 1;
       final label = item.displayName.isNotEmpty ? item.displayName : 'Untitled';
 
-      Widget chip = Material(
-        color: Colors.transparent,
-        child: InkWell(
+      items.add(
+        InkWell(
           onTap: isLast ? null : () => _openBreadcrumbNode(item),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (item.icon?.isNotEmpty == true) ...[
-                  Icon(_iconForName(item.icon!), size: 16, color: colors.onSurfaceVariant),
+                  NodeIcon(
+                    iconField: item.icon,
+                    size: 16,
+                    fallbackColor: colors.onSurfaceVariant,
+                  ),
                   const SizedBox(width: 6),
                 ],
                 Text(
@@ -897,49 +942,59 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           ),
         ),
       );
-
-      items.add(chip);
       if (!isLast) {
         items.add(
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 2),
             child: Icon(MdiIcons.chevronRight, size: 16, color: colors.outline),
           ),
         );
       }
     }
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: colors.outlineVariant)),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(children: items),
-      ),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(children: items),
     );
   }
 
-  IconData _iconForName(String name) {
-    return MdiIcons.fileDocumentOutline;
-  }
-
   Widget _buildTitleField() {
+    final colors = Theme.of(context).colorScheme;
+    final pageColor = ColorPresets.tryResolve(_pageColor);
     return FleetCard(
-      child: Padding(
+      child: Container(
+        decoration: pageColor != null
+            ? BoxDecoration(
+                border: Border(left: BorderSide(color: pageColor, width: 4)),
+              )
+            : null,
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: TextField(
-          controller: _titleController,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
+        child: Row(
+          children: [
+            NodeIcon(iconField: _pageIcon, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: _titleController,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                decoration: const InputDecoration(
+                  hintText: 'Page title',
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(vertical: 16),
+                ),
               ),
-          decoration: const InputDecoration(
-            hintText: 'Page title',
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.symmetric(vertical: 16),
-          ),
+            ),
+            if (_pageIsPrivate) ...[
+              const SizedBox(width: 8),
+              Icon(
+                MdiIcons.lockOutline,
+                size: 18,
+                color: colors.onSurfaceVariant,
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -967,6 +1022,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           onOutdent: _onOutdent,
           onToggleCollapse: _onToggleCollapse,
           onNodeLinkTap: _onNodeLinkTap,
+          onContentChanged: _markDirty,
+          linkColors: _linkColors,
         ),
       ),
     );
@@ -999,6 +1056,51 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             }),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildLinkedReferencesSection(ColorScheme colors) {
+    if (_linkedReferences.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Linked References ($_linkedRefsTotal)',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 4),
+          ..._linkedReferences.map((ref) {
+            final page = ref.sourcePage;
+            final subtitle = page != null && page.uuid != ref.sourceNode.uuid
+                ? page.displayName
+                : null;
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: NodeIcon(
+                iconField: ref.sourceNode.icon,
+                fallbackColor: colors.onSurfaceVariant,
+                size: 22,
+              ),
+              title: Text(
+                ref.sourceNode.displayName.isNotEmpty
+                    ? ref.sourceNode.displayName
+                    : 'Untitled',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: subtitle != null
+                  ? Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis)
+                  : null,
+              onTap: () => context.push('${Routes.editor}/${ref.sourceNode.uuid}'),
+            );
+          }),
+        ],
       ),
     );
   }

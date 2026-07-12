@@ -12,20 +12,19 @@ class ThemeProvider extends ChangeNotifier {
 
   final SharedPreferences _prefs;
 
-  static const List<Map<String, dynamic>> accentPresets = [
-    {'name': 'White', 'color': '0xFFFFFFFF'},
-    {'name': 'Sage', 'color': '0xFF5B7D5B'},
-    {'name': 'Dynamic', 'color': null},
-  ];
-
   AppThemeMode get themeMode {
     final raw = _prefs.getString(_themeModeKey);
     return AppThemeMode.values.byName(raw ?? AppThemeMode.system.name);
   }
 
+  /// Fleet theming: monochrome white is the default accent; sage, orange,
+  /// and dynamic color are opt-in alternatives.
   AppAccent get accent {
     final raw = _prefs.getString(_accentKey);
-    return AppAccent.values.byName(raw ?? AppAccent.white.name);
+    return AppAccent.values.firstWhere(
+      (a) => a.name == raw,
+      orElse: () => AppAccent.white,
+    );
   }
 
   bool get pureBlack => _prefs.getBool(_pureBlackKey) ?? false;

@@ -25,7 +25,7 @@ class InboxCardView extends StatelessWidget {
     this.onBlockDelete,
     this.onBlockArchiveUndo,
     this.onBlockDeleteUndo,
-    this.classNames = const {},
+    this.classIndex = const {},
   });
 
   final List<Node> blocks;
@@ -35,7 +35,9 @@ class InboxCardView extends StatelessWidget {
   final ValueChanged<Node>? onBlockDelete;
   final ValueChanged<Node>? onBlockArchiveUndo;
   final ValueChanged<Node>? onBlockDeleteUndo;
-  final Map<String, String> classNames;
+
+  /// Class uuid → class node, used to render named, colored class pills.
+  final Map<String, Node> classIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +49,7 @@ class InboxCardView extends StatelessWidget {
         final block = blocks[index];
         return _DismissibleInboxCard(
           block: block,
-          classNames: classNames,
+          classIndex: classIndex,
           onTap: () => onBlockTap(block),
           onLongPress: onBlockLongPress != null ? () => onBlockLongPress!(block) : null,
           onArchive: onBlockArchive != null ? () => onBlockArchive!(block) : null,
@@ -63,7 +65,7 @@ class InboxCardView extends StatelessWidget {
 class _DismissibleInboxCard extends StatelessWidget {
   const _DismissibleInboxCard({
     required this.block,
-    required this.classNames,
+    required this.classIndex,
     required this.onTap,
     this.onLongPress,
     this.onArchive,
@@ -73,7 +75,7 @@ class _DismissibleInboxCard extends StatelessWidget {
   });
 
   final Node block;
-  final Map<String, String> classNames;
+  final Map<String, Node> classIndex;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
   final VoidCallback? onArchive;
@@ -88,7 +90,7 @@ class _DismissibleInboxCard extends StatelessWidget {
 
     Widget card = _InboxCard(
       block: block,
-      classNames: classNames,
+      classIndex: classIndex,
       onTap: onTap,
       onLongPress: onLongPress,
     );
@@ -237,13 +239,13 @@ class _SwipeBackground extends StatelessWidget {
 class _InboxCard extends StatelessWidget {
   const _InboxCard({
     required this.block,
-    required this.classNames,
+    required this.classIndex,
     required this.onTap,
     this.onLongPress,
   });
 
   final Node block;
-  final Map<String, String> classNames;
+  final Map<String, Node> classIndex;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
@@ -317,22 +319,23 @@ class _InboxCard extends StatelessWidget {
   }
 
   Widget _buildClassChips(Color fgColor) {
-    final names = block.classesUuid
-        .map((uuid) => classNames[uuid])
-        .whereType<String>()
-        .where((name) => name.isNotEmpty)
+    final classes = block.classesUuid
+        .map((uuid) => classIndex[uuid])
+        .whereType<Node>()
+        .where((cls) => cls.displayName.isNotEmpty)
         .take(3)
         .toList();
-    if (names.isEmpty) return const SizedBox.shrink();
+    if (classes.isEmpty) return const SizedBox.shrink();
 
     return Wrap(
       spacing: 6,
       runSpacing: 6,
-      children: names.map((label) {
+      children: classes.map((cls) {
+        final color = ColorPresets.tryResolve(cls.color);
         return _Chip(
-          label: label,
-          backgroundColor: fgColor.withAlpha((0.12 * 255).round()),
-          foregroundColor: fgColor,
+          label: cls.displayName,
+          backgroundColor: color ?? fgColor.withAlpha((0.12 * 255).round()),
+          foregroundColor: color != null ? ColorPresets.foregroundFor(color) : fgColor,
         );
       }).toList(),
     );

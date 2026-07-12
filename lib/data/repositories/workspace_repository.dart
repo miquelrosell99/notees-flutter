@@ -20,7 +20,9 @@ class WorkspaceRepository {
   final Dio dio;
 
   Future<List<Workspace>> listWorkspaces() async {
-    final response = await dio.get<Map<String, dynamic>>('/workspaces');
+    // Trailing slash required: the server's SPA fallback intercepts
+    // GET /api/workspaces (no slash) with a 404 before Starlette can redirect.
+    final response = await dio.get<Map<String, dynamic>>('/workspaces/');
     final data = response.data;
     if (data == null) return [];
     final items = (data['items'] as List<dynamic>?) ?? [];

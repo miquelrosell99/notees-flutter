@@ -37,7 +37,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   List<Node> _inboxBlocks = [];
   Node? _todayJournal;
-  Map<String, String> _classNames = {};
+  Map<String, Node> _classIndex = {};
   bool _loading = true;
   String? _error;
   NodeViewMode _viewMode = NodeViewMode.card;
@@ -78,7 +78,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _inboxBlocks = inboxContent.node.children;
           _todayJournal = results[1] as Node;
-          _classNames = {for (final c in classes) c.uuid: c.displayName};
+          _classIndex = {for (final c in classes) c.uuid: c};
           _error = null;
         });
       }
@@ -461,7 +461,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_viewMode == NodeViewMode.card) {
       return InboxCardView(
         blocks: _inboxBlocks,
-        classNames: _classNames,
+        classIndex: _classIndex,
         onBlockTap: _openNode,
         onBlockLongPress: _showBlockActions,
         onBlockArchive: _archiveBlock,
@@ -524,7 +524,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               borderRadius: BorderRadius.circular(20),
               child: _InboxListTile(
                 block: block,
-                classNames: _classNames,
+                classIndex: _classIndex,
               ),
             ),
           ),
@@ -583,11 +583,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 class _InboxListTile extends StatelessWidget {
   const _InboxListTile({
     required this.block,
-    required this.classNames,
+    required this.classIndex,
   });
 
   final Node block;
-  final Map<String, String> classNames;
+  final Map<String, Node> classIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -595,10 +595,10 @@ class _InboxListTile extends StatelessWidget {
     final chipColor = colors.primaryContainer;
     final chipFg = colors.onPrimaryContainer;
 
-    final classLabels = block.classesUuid
-        .map((uuid) => classNames[uuid])
-        .whereType<String>()
-        .where((name) => name.isNotEmpty)
+    final classes = block.classesUuid
+        .map((uuid) => classIndex[uuid])
+        .whereType<Node>()
+        .where((cls) => cls.displayName.isNotEmpty)
         .take(3)
         .toList();
 
@@ -631,7 +631,7 @@ class _InboxListTile extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                if (classLabels.isNotEmpty || block.isTask)
+                if (classes.isNotEmpty || block.isTask)
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: Wrap(
@@ -640,11 +640,14 @@ class _InboxListTile extends StatelessWidget {
                       children: [
                         if (block.isTask)
                           _ListChip(label: 'Task', backgroundColor: chipColor, foregroundColor: chipFg),
-                        ...classLabels.map((label) => _ListChip(
-                              label: label,
-                              backgroundColor: chipColor,
-                              foregroundColor: chipFg,
-                            )),
+                        ...classes.map((cls) {
+                          final color = ColorPresets.tryResolve(cls.color);
+                          return _ListChip(
+                            label: cls.displayName,
+                            backgroundColor: color ?? chipColor,
+                            foregroundColor: color != null ? ColorPresets.foregroundFor(color) : chipFg,
+                          );
+                        }),
                       ],
                     ),
                   ),

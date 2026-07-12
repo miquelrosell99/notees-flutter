@@ -8,6 +8,7 @@ import '../../core/utils/ast_builder.dart';
 import '../../domain/models/search_filters.dart';
 import '../../domain/services/sync_v2_service.dart';
 import '../models/breadcrumb_item.dart';
+import '../models/linked_reference.dart';
 import '../models/node.dart';
 import '../models/page_content.dart';
 import '../models/property.dart';
@@ -245,6 +246,23 @@ class NodeRepository {
       if (c.uuid == uuid) return c;
     }
     return null;
+  }
+
+  /// Fetches nodes that link to the given node (backlinks with context).
+  Future<LinkedReferencesResult> fetchLinkedReferences(String uuid, {int limit = 50}) async {
+    final response = await dio.get<Map<String, dynamic>>(
+      '/nodes/$uuid/linked-references',
+      queryParameters: {'limit': limit},
+    );
+    final data = response.data;
+    if (data == null) {
+      return const LinkedReferencesResult(references: [], totalCount: 0);
+    }
+    final items = data['linked_references'] as List<dynamic>? ?? [];
+    return LinkedReferencesResult(
+      references: items.map((e) => LinkedReference.fromJson(e as Map<String, dynamic>)).toList(),
+      totalCount: data['total_count'] as int? ?? items.length,
+    );
   }
 
   Future<List<Node>> searchWithFilters(SearchFilters filters) async {

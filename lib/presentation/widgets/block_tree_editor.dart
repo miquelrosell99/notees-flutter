@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 import '../../core/utils/ast_builder.dart';
+import '../../core/utils/color_presets.dart';
 import '../../data/models/node.dart';
 import 'asset_block_widget.dart';
 import 'ast_rich_text.dart';
@@ -30,7 +31,9 @@ class BlockNode {
   int get depth {
     int d = 0;
     BlockNode? p = parent;
-    while (p != null) {
+    // Guard against cyclic parent links in corrupt server data.
+    final seen = <BlockNode>{};
+    while (p != null && seen.add(p)) {
       d++;
       p = p.parent;
     }
@@ -61,6 +64,8 @@ class BlockTreeEditor extends StatefulWidget {
     this.onInsertAudio,
     this.onNodeLinkTap,
     this.onExternalLinkTap,
+    this.onContentChanged,
+    this.linkColors,
   });
 
   final List<BlockNode> roots;
@@ -79,6 +84,12 @@ class BlockTreeEditor extends StatefulWidget {
   final VoidCallback? onInsertAudio;
   final ValueChanged<String>? onNodeLinkTap;
   final ValueChanged<String>? onExternalLinkTap;
+
+  /// Invoked whenever a block's text changes (for autosave).
+  final VoidCallback? onContentChanged;
+
+  /// Data colors for link targets (node/class uuid → color).
+  final Map<String, Color>? linkColors;
 
   @override
   BlockTreeEditorState createState() => BlockTreeEditorState();
@@ -131,11 +142,14 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     );
   }
 
-  void _flatten(List<BlockNode> nodes, List<_VisibleRow> rows) {
+  void _flatten(List<BlockNode> nodes, List<_VisibleRow> rows, [Set<BlockNode>? visited]) {
+    visited ??= <BlockNode>{};
     for (final node in nodes) {
+      // Skip already-visited nodes: corrupt server data can contain cycles.
+      if (!visited.add(node)) continue;
       rows.add(_VisibleRow(node: node));
       if (!node.collapsed) {
-        _flatten(node.children, rows);
+        _flatten(node.children, rows, visited);
       }
     }
   }
@@ -182,6 +196,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
           if (widget.focusedNode != node) {
             widget.onFocus(node);
           }
+          widget.onContentChanged?.call();
         },
       );
 
@@ -204,6 +219,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
           source: node.node.name,
           onNodeLinkTap: widget.onNodeLinkTap,
           onExternalLinkTap: widget.onExternalLinkTap,
+          linkColors: widget.linkColors,
           style: _isCode(node)
               ? TextStyle(
                   fontFamily: 'monospace',
@@ -257,6 +273,19 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
         ],
       ],
     );
+
+    // A block's own data color renders as a left border (mirrors the web
+    // app's BlockRow), independent of the theme accent.
+    final blockColor = ColorPresets.tryResolve(node.node.color);
+    if (blockColor != null) {
+      content = Container(
+        decoration: BoxDecoration(
+          border: Border(left: BorderSide(color: blockColor, width: 3)),
+        ),
+        padding: const EdgeInsets.only(left: 6),
+        child: content,
+      );
+    }
 
     if (isFocused) {
       content = Container(
@@ -386,7 +415,9 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
 
   bool _isDescendant(BlockNode ancestor, BlockNode candidate) {
     BlockNode? current = candidate.parent;
-    while (current != null) {
+    // Guard against cyclic parent links in corrupt server data.
+    final seen = <BlockNode>{};
+    while (current != null && seen.add(current)) {
       if (current == ancestor) return true;
       current = current.parent;
     }

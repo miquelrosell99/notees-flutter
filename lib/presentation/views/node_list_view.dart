@@ -3,6 +3,7 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
+import '../../core/utils/node_icon.dart';
 
 /// Reusable list view for a collection of nodes.
 class NodeListView extends StatelessWidget {
@@ -39,9 +40,10 @@ class NodeListView extends StatelessWidget {
         final node = nodes[index];
         final isFavorite = favoriteUuids?.contains(node.uuid) ?? false;
         return ListTile(
-          leading: Icon(
-            _iconForNode(node),
-            color: colors.onSurfaceVariant,
+          leading: NodeIcon(
+            iconField: node.icon,
+            fallbackIcon: _iconForNode(node),
+            fallbackColor: colors.onSurfaceVariant,
           ),
           title: Text(node.displayName),
           trailing: _buildTrailing(context, node, isFavorite, colors),

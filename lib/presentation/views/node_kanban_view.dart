@@ -3,6 +3,7 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
+import '../../core/utils/node_icon.dart';
 import '../widgets/fleet_card.dart';
 import '_view_helpers.dart';
 
@@ -293,10 +294,11 @@ class _KanbanCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(
-                  iconForNode(node),
+                NodeIcon(
+                  iconField: node.icon,
+                  fallbackIcon: iconForNode(node),
                   size: 18,
-                  color: colors.onSurfaceVariant,
+                  fallbackColor: colors.onSurfaceVariant,
                 ),
                 const SizedBox(width: 8),
                 Expanded(

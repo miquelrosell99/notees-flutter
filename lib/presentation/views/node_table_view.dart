@@ -3,6 +3,7 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
+import '../../core/utils/node_icon.dart';
 import '_view_helpers.dart';
 
 /// Table view for a collection of nodes.
@@ -139,10 +140,11 @@ class _NodeTableViewState extends State<NodeTableView> {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              iconForNode(node),
+                            NodeIcon(
+                              iconField: node.icon,
+                              fallbackIcon: iconForNode(node),
                               size: 18,
-                              color: colors.onSurfaceVariant,
+                              fallbackColor: colors.onSurfaceVariant,
                             ),
                             const SizedBox(width: 8),
                             Flexible(child: Text(node.displayName)),

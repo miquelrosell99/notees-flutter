@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/routing/router.dart';
+import '../../core/utils/node_icon.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
@@ -212,9 +213,10 @@ class _TrashScreenState extends State<TrashScreen> {
               return Column(
                 children: [
                   ListTile(
-                    leading: Icon(
-                      _iconForNode(node),
-                      color: colors.onSurfaceVariant,
+                    leading: NodeIcon(
+                      iconField: node.icon,
+                      fallbackIcon: _iconForNode(node),
+                      fallbackColor: colors.onSurfaceVariant,
                     ),
                     title: Text(node.displayName),
                     subtitle: node.writeDate != null ? Text(node.writeDate!) : null,

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/utils/color_presets.dart';
+
 /// Renders a Notees JSON AST node name as styled rich text.
 ///
 /// When a block is not being edited, this avoids showing raw Markdown-like
@@ -17,6 +19,7 @@ class AstRichText extends StatelessWidget {
     this.style,
     this.maxLines,
     this.overflow = TextOverflow.ellipsis,
+    this.linkColors,
   });
 
   /// JSON-encoded AST document (the backend `node.name` value).
@@ -33,6 +36,11 @@ class AstRichText extends StatelessWidget {
 
   final int? maxLines;
   final TextOverflow overflow;
+
+  /// Data colors for link targets (node/class uuid → color), resolved from
+  /// the page tree and the workspace's classes. When a target has a color,
+  /// its chip fills with it (mirrors the web app's pills).
+  final Map<String, Color>? linkColors;
 
   @override
   Widget build(BuildContext context) {
@@ -166,6 +174,8 @@ class AstRichText extends StatelessWidget {
         final label = node['label'] as String? ?? target;
         final refType = node['ref_type'] as String? ?? 'node';
         final isClass = refType == 'class';
+        // Data colors always win over the theme accent (content is king).
+        final dataColor = linkColors?[target];
         return [
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
@@ -178,13 +188,16 @@ class AstRichText extends StatelessWidget {
                   margin: const EdgeInsets.symmetric(horizontal: 2),
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: isClass ? colors.secondaryContainer : colors.primaryContainer,
+                    color: dataColor ??
+                        (isClass ? colors.secondaryContainer : colors.primaryContainer),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     label,
                     style: base.copyWith(
-                      color: isClass ? colors.onSecondaryContainer : colors.onPrimaryContainer,
+                      color: dataColor != null
+                          ? ColorPresets.foregroundFor(dataColor)
+                          : (isClass ? colors.onSecondaryContainer : colors.onPrimaryContainer),
                       fontWeight: FontWeight.w500,
                     ),
                   ),

@@ -988,6 +988,12 @@ class _AccentRow extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           _AccentSwatch(
+            color: noteesAccentOrange,
+            selected: accent == AppAccent.orange,
+            onTap: () => onChanged(AppAccent.orange),
+          ),
+          const SizedBox(width: 10),
+          _AccentSwatch(
             color: null,
             selected: accent == AppAccent.dynamicColor,
             onTap: () => onChanged(AppAccent.dynamicColor),

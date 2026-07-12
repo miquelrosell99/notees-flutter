@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 import '../../data/models/node.dart';
+import '../../core/utils/color_presets.dart';
+import '../../core/utils/node_icon.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/responsive_card_grid_delegate.dart';
 
@@ -14,12 +16,16 @@ class NodeCardView extends StatelessWidget {
     required this.onNodeTap,
     this.favoriteUuids,
     this.onFavoriteToggle,
+    this.classIndex,
   });
 
   final List<Node> nodes;
   final ValueChanged<Node> onNodeTap;
   final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
+
+  /// Class uuid → class node, used to render named, colored class pills.
+  final Map<String, Node>? classIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -41,9 +47,10 @@ class NodeCardView extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Icon(
-                      _iconForNode(node),
-                      color: colors.onSurfaceVariant,
+                    NodeIcon(
+                      iconField: node.icon,
+                      fallbackIcon: _iconForNode(node),
+                      fallbackColor: colors.onSurfaceVariant,
                       size: 28,
                     ),
                     const Spacer(),
@@ -93,8 +100,22 @@ class NodeCardView extends StatelessWidget {
     if (node.isJournal) {
       chips.add(_Chip('Journal', colors.secondaryContainer, colors.onSecondaryContainer));
     }
-    if (node.classes.isNotEmpty) {
-      chips.add(_Chip('${node.classes.length}', colors.surfaceContainerHighest, colors.onSurfaceVariant));
+    if (node.classesUuid.isNotEmpty) {
+      final index = classIndex;
+      if (index == null) {
+        chips.add(_Chip('${node.classesUuid.length}', colors.surfaceContainerHighest, colors.onSurfaceVariant));
+      } else {
+        for (final uuid in node.classesUuid) {
+          final cls = index[uuid];
+          if (cls == null) continue;
+          final color = ColorPresets.tryResolve(cls.color);
+          chips.add(_Chip(
+            cls.displayName,
+            color ?? colors.surfaceContainerHighest,
+            color != null ? ColorPresets.foregroundFor(color) : colors.onSurfaceVariant,
+          ));
+        }
+      }
     }
 
     return Wrap(

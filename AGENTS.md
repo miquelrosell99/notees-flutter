@@ -115,7 +115,7 @@ For major refactors, trigger a CI build via `./trigger-ci-build.sh` rather than 
 ## Design System
 
 - Monochrome base layer dominates 90%+ of the UI.
-- Functional accent (sage `#5B7D5B`) is used only for selected states, badges, primary buttons, and status indicators.
+- Accent is monochrome white by default; sage green `#5B7D5B`, muted orange `#B0763D`, and dynamic color are opt-in alternatives (Settings → Appearance). The accent is used only for selected states, badges, primary buttons, and status indicators.
 - Cards use `borderRadius: 20`, zero elevation, subtle outline at 10% opacity.
 - Bottom sheets use top radius of 28.
 - Dynamic color is supported via `dynamic_color` and can be enabled in Settings.
