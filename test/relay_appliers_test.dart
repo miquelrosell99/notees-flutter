@@ -304,5 +304,154 @@ void main() {
       mostRecentId = await cache.getMostRecentTaskCompletionId(nodeUuid);
       expect(mostRecentId, isNull);
     });
+
+    test('applies propertySchema.create/update/delete', () async {
+      final schemaUuid = '00000000-0000-0000-0000-000000000401';
+      final createEnvelope = OperationEnvelope(
+        id: 'e1',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 1, logical: 0),
+        affectedNodeIds: [schemaUuid],
+        opType: 'propertySchema.create',
+        payload: OperationPayloads.propertySchemaCreate(
+          schemaId: schemaUuid,
+          name: 'Priority',
+          type: 'selection',
+          options: [
+            {'id': 0, 'name': 'Low'},
+            {'id': 1, 'name': 'High'},
+          ],
+        ),
+      );
+
+      await appliers.apply(createEnvelope);
+      var property = await cache.getPropertySchema(schemaUuid);
+      expect(property, isNotNull);
+      expect(property!.name, 'Priority');
+      expect(property.type, 'selection');
+      expect(property.options.length, 2);
+
+      final updateEnvelope = OperationEnvelope(
+        id: 'e2',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 2, logical: 0),
+        affectedNodeIds: [schemaUuid],
+        opType: 'propertySchema.update',
+        payload: OperationPayloads.propertySchemaUpdate(
+          schemaId: schemaUuid,
+          name: 'Importance',
+        ),
+      );
+      await appliers.apply(updateEnvelope);
+      property = await cache.getPropertySchema(schemaUuid);
+      expect(property!.name, 'Importance');
+
+      final deleteEnvelope = OperationEnvelope(
+        id: 'e3',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 3, logical: 0),
+        affectedNodeIds: [schemaUuid],
+        opType: 'propertySchema.delete',
+        payload: OperationPayloads.propertySchemaDelete(schemaId: schemaUuid),
+      );
+      await appliers.apply(deleteEnvelope);
+      property = await cache.getPropertySchema(schemaUuid);
+      expect(property, isNull);
+    });
+
+    test('applies classPropertyEdge.create/update/delete/reorder', () async {
+      final classUuid = '00000000-0000-0000-0000-000000000501';
+      final schemaUuid = '00000000-0000-0000-0000-000000000502';
+
+      await cache.upsertClass(
+        uuid: classUuid,
+        name: 'Project',
+      );
+      await appliers.apply(OperationEnvelope(
+        id: 'e1',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 1, logical: 0),
+        affectedNodeIds: [schemaUuid],
+        opType: 'propertySchema.create',
+        payload: OperationPayloads.propertySchemaCreate(
+          schemaId: schemaUuid,
+          name: 'Owner',
+          type: 'text',
+        ),
+      ));
+
+      final createEdgeEnvelope = OperationEnvelope(
+        id: 'e2',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 2, logical: 0),
+        affectedNodeIds: [classUuid, schemaUuid],
+        opType: 'classPropertyEdge.create',
+        payload: OperationPayloads.classPropertyEdgeCreate(
+          classId: classUuid,
+          propertySchemaId: schemaUuid,
+          sequence: 0,
+          required: true,
+        ),
+      );
+      await appliers.apply(createEdgeEnvelope);
+      var classProperties = await cache.getClassProperties(classUuid);
+      expect(classProperties.length, 1);
+      expect(classProperties.first.propertyName, 'Owner');
+      expect(classProperties.first.required, isTrue);
+
+      final updateEdgeEnvelope = OperationEnvelope(
+        id: 'e3',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 3, logical: 0),
+        affectedNodeIds: [classUuid, schemaUuid],
+        opType: 'classPropertyEdge.update',
+        payload: OperationPayloads.classPropertyEdgeUpdate(
+          classId: classUuid,
+          propertySchemaId: schemaUuid,
+          required: false,
+        ),
+      );
+      await appliers.apply(updateEdgeEnvelope);
+      classProperties = await cache.getClassProperties(classUuid);
+      expect(classProperties.first.required, isFalse);
+
+      final reorderEnvelope = OperationEnvelope(
+        id: 'e4',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 4, logical: 0),
+        affectedNodeIds: [classUuid, schemaUuid],
+        opType: 'classPropertyEdge.reorder',
+        payload: OperationPayloads.classPropertyEdgeReorder(
+          classId: classUuid,
+          orderedPropertySchemaIds: [schemaUuid],
+        ),
+      );
+      await appliers.apply(reorderEnvelope);
+      classProperties = await cache.getClassProperties(classUuid);
+      expect(classProperties.first.sequence, 0);
+
+      final deleteEdgeEnvelope = OperationEnvelope(
+        id: 'e5',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 5, logical: 0),
+        affectedNodeIds: [classUuid, schemaUuid],
+        opType: 'classPropertyEdge.delete',
+        payload: OperationPayloads.classPropertyEdgeDelete(
+          classId: classUuid,
+          propertySchemaId: schemaUuid,
+        ),
+      );
+      await appliers.apply(deleteEdgeEnvelope);
+      classProperties = await cache.getClassProperties(classUuid);
+      expect(classProperties, isEmpty);
+    });
   });
 }

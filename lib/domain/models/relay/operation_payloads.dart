@@ -164,6 +164,146 @@ class OperationPayloads {
         'index': index,
       };
 
+  static Map<String, dynamic> propertySchemaCreate({
+    required String schemaId,
+    required String name,
+    String? icon,
+    String? type,
+    bool? multi,
+    bool? isSystem,
+    String? scope,
+    String? nodeId,
+    String? iconVisibility,
+    Map<String, dynamic>? validationRules,
+    bool? required,
+    bool? readonly,
+    bool? hideWhenEmpty,
+    dynamic defaultValue,
+    List<String>? classFilterUuids,
+    List<Map<String, dynamic>>? options,
+    String? computed,
+  }) =>
+      {
+        'schemaId': schemaId,
+        'name': name,
+        if (icon != null) 'icon': icon,
+        if (type != null) 'type': type,
+        if (multi != null) 'multi': multi,
+        if (isSystem != null) 'isSystem': isSystem,
+        if (scope != null) 'scope': scope,
+        if (nodeId != null) 'nodeId': nodeId,
+        if (iconVisibility != null) 'iconVisibility': iconVisibility,
+        if (validationRules != null) 'validationRules': validationRules,
+        if (required != null) 'required': required,
+        if (readonly != null) 'readonly': readonly,
+        if (hideWhenEmpty != null) 'hideWhenEmpty': hideWhenEmpty,
+        if (defaultValue != null) 'defaultValue': defaultValue,
+        if (classFilterUuids != null) 'classFilterUuids': classFilterUuids,
+        if (options != null) 'options': options,
+        if (computed != null) 'computed': computed,
+      };
+
+  static Map<String, dynamic> propertySchemaUpdate({
+    required String schemaId,
+    String? name,
+    String? icon,
+    String? type,
+    bool? multi,
+    String? scope,
+    String? nodeId,
+    String? iconVisibility,
+    Map<String, dynamic>? validationRules,
+    bool? required,
+    bool? readonly,
+    bool? hideWhenEmpty,
+    dynamic defaultValue,
+    List<String>? classFilterUuids,
+    List<Map<String, dynamic>>? options,
+    String? computed,
+  }) =>
+      {
+        'schemaId': schemaId,
+        if (name != null) 'name': name,
+        if (icon != null) 'icon': icon,
+        if (type != null) 'type': type,
+        if (multi != null) 'multi': multi,
+        if (scope != null) 'scope': scope,
+        if (nodeId != null) 'nodeId': nodeId,
+        if (iconVisibility != null) 'iconVisibility': iconVisibility,
+        if (validationRules != null) 'validationRules': validationRules,
+        if (required != null) 'required': required,
+        if (readonly != null) 'readonly': readonly,
+        if (hideWhenEmpty != null) 'hideWhenEmpty': hideWhenEmpty,
+        if (defaultValue != null) 'defaultValue': defaultValue,
+        if (classFilterUuids != null) 'classFilterUuids': classFilterUuids,
+        if (options != null) 'options': options,
+        if (computed != null) 'computed': computed,
+      };
+
+  static Map<String, dynamic> propertySchemaDelete({required String schemaId}) => {
+        'schemaId': schemaId,
+      };
+
+  static Map<String, dynamic> classPropertyEdgeCreate({
+    required String classId,
+    required String propertySchemaId,
+    int? sequence,
+    dynamic defaultValue,
+    bool? hidden,
+    bool? required,
+    bool? readonly,
+    bool? hideWhenEmpty,
+  }) =>
+      {
+        'classId': classId,
+        'propertySchemaId': propertySchemaId,
+        if (sequence != null) 'sequence': sequence,
+        if (defaultValue != null) 'defaultValue': defaultValue,
+        if (hidden != null) 'hidden': hidden,
+        if (required != null) 'required': required,
+        if (readonly != null) 'readonly': readonly,
+        if (hideWhenEmpty != null) 'hideWhenEmpty': hideWhenEmpty,
+      };
+
+  static Map<String, dynamic> classPropertyEdgeUpdate({
+    required String classId,
+    required String propertySchemaId,
+    int? sequence,
+    dynamic defaultValue,
+    bool? hidden,
+    bool? required,
+    bool? readonly,
+    bool? hideWhenEmpty,
+  }) =>
+      {
+        'classId': classId,
+        'propertySchemaId': propertySchemaId,
+        if (sequence != null) 'sequence': sequence,
+        if (defaultValue != null) 'defaultValue': defaultValue,
+        if (hidden != null) 'hidden': hidden,
+        if (required != null) 'required': required,
+        if (readonly != null) 'readonly': readonly,
+        if (hideWhenEmpty != null) 'hideWhenEmpty': hideWhenEmpty,
+      };
+
+  static Map<String, dynamic> classPropertyEdgeDelete({
+    required String classId,
+    required String propertySchemaId,
+  }) =>
+      {
+        'classId': classId,
+        'propertySchemaId': propertySchemaId,
+      };
+
+  static Map<String, dynamic> classPropertyEdgeReorder({
+    required String classId,
+    required List<String> orderedPropertySchemaIds,
+  }) =>
+      {
+        'classId': classId,
+        'orderedPropertySchemaIds': orderedPropertySchemaIds,
+      };
+
   static Map<String, dynamic> taskRecordCompletion({
     required String nodeId,
     required String completionId,

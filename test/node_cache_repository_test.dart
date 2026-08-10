@@ -150,6 +150,68 @@ void main() {
       await repo.reorderFavorites('ws-1', ['p-2', 'p-3']);
       expect(await repo.getFavoriteUuids('ws-1'), ['p-2', 'p-3']);
     });
+
+    test('getAvailableProperties returns schemas attached to node classes', () async {
+      final classUuid = '00000000-0000-0000-0000-000000000601';
+      final schemaUuid = '00000000-0000-0000-0000-000000000602';
+      final node = Node(
+        id: 0,
+        uuid: 'n-1',
+        name: 'Item',
+        displayName: 'Item',
+        classesUuid: [classUuid],
+      );
+      await repo.upsertClass(uuid: classUuid, name: 'Book');
+      await repo.upsertPropertySchema(
+        PropertySchemaRow(
+          uuid: schemaUuid,
+          workspaceId: 'ws',
+          name: 'Author',
+          type: 'text',
+        ),
+      );
+      await repo.upsertClassPropertyEdge(
+        ClassPropertyEdgeRow(
+          classUuid: classUuid,
+          propertyUuid: schemaUuid,
+          sequence: 0,
+        ),
+      );
+      await repo.upsert(node);
+
+      final available = await repo.getAvailableProperties('n-1');
+      expect(available.length, 1);
+      expect(available.first.uuid, schemaUuid);
+      expect(available.first.name, 'Author');
+    });
+
+    test('getClassProperties returns class-level metadata', () async {
+      final classUuid = '00000000-0000-0000-0000-000000000603';
+      final schemaUuid = '00000000-0000-0000-0000-000000000604';
+      await repo.upsertClass(uuid: classUuid, name: 'Contact');
+      await repo.upsertPropertySchema(
+        PropertySchemaRow(
+          uuid: schemaUuid,
+          workspaceId: 'ws',
+          name: 'Email',
+          type: 'text',
+        ),
+      );
+      await repo.upsertClassPropertyEdge(
+        ClassPropertyEdgeRow(
+          classUuid: classUuid,
+          propertyUuid: schemaUuid,
+          sequence: 1,
+          required: true,
+        ),
+      );
+
+      final classProperties = await repo.getClassProperties(classUuid);
+      expect(classProperties.length, 1);
+      expect(classProperties.first.propertyName, 'Email');
+      expect(classProperties.first.sequence, 1);
+      expect(classProperties.first.required, isTrue);
+    });
   });
 
   group('readNodesFromSnapshotDatabase', () {

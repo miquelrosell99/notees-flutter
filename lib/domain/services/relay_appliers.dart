@@ -13,9 +13,11 @@ class RelayAppliers {
 
   Future<void> apply(OperationEnvelope envelope) async {
     final payload = envelope.payload;
-    // Class operations identify the target via `classId`, not `nodeId`.
+    // Class/property operations identify the target via `classId` or `schemaId`,
+    // not `nodeId`.
     final nodeId = payload['nodeId'] as String? ??
         payload['classId'] as String? ??
+        payload['schemaId'] as String? ??
         '';
     if (nodeId.isEmpty) return;
 
@@ -52,6 +54,20 @@ class RelayAppliers {
         await _applyClassDelete(payload);
       case 'class.setExtends':
         await _applyClassSetExtends(payload);
+      case 'propertySchema.create':
+        await _applyPropertySchemaCreate(payload);
+      case 'propertySchema.update':
+        await _applyPropertySchemaUpdate(payload);
+      case 'propertySchema.delete':
+        await _applyPropertySchemaDelete(payload);
+      case 'classPropertyEdge.create':
+        await _applyClassPropertyEdgeCreate(payload);
+      case 'classPropertyEdge.update':
+        await _applyClassPropertyEdgeUpdate(payload);
+      case 'classPropertyEdge.delete':
+        await _applyClassPropertyEdgeDelete(payload);
+      case 'classPropertyEdge.reorder':
+        await _applyClassPropertyEdgeReorder(payload);
       case 'user.favorite.add':
         await _cache.applyFavoriteAdd(
           envelope.workspaceId,
@@ -382,6 +398,153 @@ class RelayAppliers {
       payload['extendsClassIds'] ?? payload['extends'],
     );
     await _cache.setClassExtends(classId, extendsList);
+  }
+
+  Future<void> _applyPropertySchemaCreate(Map<String, dynamic> payload) async {
+    final schemaId = payload['schemaId'] as String?;
+    if (schemaId == null) return;
+    await _cache.upsertPropertySchema(
+      PropertySchemaRow(
+        uuid: schemaId,
+        workspaceId: '', // Workspace is implicit to the local cache.
+        name: payload['name'] as String? ?? '',
+        icon: payload['icon'] as String?,
+        type: payload['type'] as String? ?? 'text',
+        multi: payload['multi'] == true,
+        isSystem: payload['isSystem'] == true,
+        scope: payload['scope'] as String? ?? 'global',
+        nodeUuid: payload['nodeId'] as String?,
+        iconVisibility: payload['iconVisibility'] as String?,
+        validationRules: payload['validationRules'] as Map<String, dynamic>?,
+        required: payload['required'] == true,
+        readonly: payload['readonly'] == true,
+        hideWhenEmpty: payload['hideWhenEmpty'] == true,
+        defaultValue: payload['defaultValue'],
+        classFilterUuids: _readStringList(payload['classFilterUuids']),
+        options: (payload['options'] as List<dynamic>?)
+                ?.cast<Map<String, dynamic>>() ??
+            const [],
+        computed: payload['computed'] as String?,
+      ),
+    );
+  }
+
+  Future<void> _applyPropertySchemaUpdate(Map<String, dynamic> payload) async {
+    final schemaId = payload['schemaId'] as String?;
+    if (schemaId == null) return;
+    final existing = await _cache.getPropertySchema(schemaId);
+    if (existing == null) return;
+    await _cache.upsertPropertySchema(
+      PropertySchemaRow(
+        uuid: schemaId,
+        workspaceId: '',
+        name: payload.containsKey('name')
+            ? (payload['name'] as String?) ?? existing.name
+            : existing.name,
+        icon: payload.containsKey('icon')
+            ? payload['icon'] as String?
+            : existing.icon,
+        type: payload.containsKey('type')
+            ? (payload['type'] as String?) ?? existing.type
+            : existing.type,
+        multi: payload.containsKey('multi')
+            ? payload['multi'] == true
+            : existing.multi,
+        isSystem: existing.isSystem,
+        scope: payload.containsKey('scope')
+            ? (payload['scope'] as String?) ?? existing.scope
+            : existing.scope,
+        nodeUuid: payload.containsKey('nodeId')
+            ? payload['nodeId'] as String?
+            : existing.nodeUuid,
+        iconVisibility: payload.containsKey('iconVisibility')
+            ? payload['iconVisibility'] as String?
+            : existing.iconVisibility,
+        validationRules: payload.containsKey('validationRules')
+            ? payload['validationRules'] as Map<String, dynamic>?
+            : existing.validationRules,
+        required: payload.containsKey('required')
+            ? payload['required'] == true
+            : false,
+        readonly: payload.containsKey('readonly')
+            ? payload['readonly'] == true
+            : existing.isReadOnly,
+        hideWhenEmpty: payload.containsKey('hideWhenEmpty')
+            ? payload['hideWhenEmpty'] == true
+            : existing.isHiddenSystem,
+        defaultValue: payload.containsKey('defaultValue')
+            ? payload['defaultValue']
+            : null,
+        classFilterUuids: payload.containsKey('classFilterUuids')
+            ? _readStringList(payload['classFilterUuids'])
+            : existing.classFilters,
+        options: payload.containsKey('options')
+            ? (payload['options'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? const []
+            : existing.options.map((o) => {'id': o.id, 'uuid': o.uuid, 'name': o.name, 'icon': o.icon, 'color': o.color}).toList(),
+        computed: payload.containsKey('computed')
+            ? payload['computed'] as String?
+            : null,
+      ),
+    );
+  }
+
+  Future<void> _applyPropertySchemaDelete(Map<String, dynamic> payload) async {
+    final schemaId = payload['schemaId'] as String?;
+    if (schemaId == null) return;
+    await _cache.deletePropertySchema(schemaId);
+  }
+
+  Future<void> _applyClassPropertyEdgeCreate(Map<String, dynamic> payload) async {
+    final classId = payload['classId'] as String?;
+    final propertySchemaId = payload['propertySchemaId'] as String?;
+    if (classId == null || propertySchemaId == null) return;
+    await _cache.upsertClassPropertyEdge(
+      ClassPropertyEdgeRow(
+        classUuid: classId,
+        propertyUuid: propertySchemaId,
+        sequence: payload['sequence'] as int? ?? 0,
+        defaultValue: payload['defaultValue'],
+        hidden: payload['hidden'] == true,
+        required: payload['required'] as bool?,
+        readonly: payload['readonly'] as bool?,
+        hideWhenEmpty: payload['hideWhenEmpty'] as bool?,
+      ),
+    );
+  }
+
+  Future<void> _applyClassPropertyEdgeUpdate(Map<String, dynamic> payload) async {
+    final classId = payload['classId'] as String?;
+    final propertySchemaId = payload['propertySchemaId'] as String?;
+    if (classId == null || propertySchemaId == null) return;
+    await _cache.upsertClassPropertyEdge(
+      ClassPropertyEdgeRow(
+        classUuid: classId,
+        propertyUuid: propertySchemaId,
+        sequence: payload['sequence'] as int? ?? 0,
+        defaultValue: payload['defaultValue'],
+        hidden: payload['hidden'] == true,
+        required: payload['required'] as bool?,
+        readonly: payload['readonly'] as bool?,
+        hideWhenEmpty: payload['hideWhenEmpty'] as bool?,
+      ),
+    );
+  }
+
+  Future<void> _applyClassPropertyEdgeDelete(Map<String, dynamic> payload) async {
+    final classId = payload['classId'] as String?;
+    final propertySchemaId = payload['propertySchemaId'] as String?;
+    if (classId == null || propertySchemaId == null) return;
+    await _cache.deleteClassPropertyEdge(classId, propertySchemaId);
+  }
+
+  Future<void> _applyClassPropertyEdgeReorder(Map<String, dynamic> payload) async {
+    final classId = payload['classId'] as String?;
+    final orderedIds = payload['orderedPropertySchemaIds'];
+    if (classId == null) return;
+    await _cache.reorderClassPropertyEdges(
+      classId,
+      _readStringList(orderedIds),
+    );
   }
 
   Future<Node> _loadOrCreate(String nodeId) async {

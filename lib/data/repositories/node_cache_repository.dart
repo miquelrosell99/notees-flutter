@@ -42,6 +42,80 @@ class _ClassRow {
   final String? updatedAt;
 }
 
+/// Lightweight in-memory representation of a row from the server's
+/// `property_schema` table.
+class PropertySchemaRow {
+  PropertySchemaRow({
+    required this.uuid,
+    required this.workspaceId,
+    required this.name,
+    this.icon,
+    this.type = 'text',
+    this.multi = false,
+    this.isSystem = false,
+    this.scope = 'global',
+    this.nodeUuid,
+    this.iconVisibility,
+    this.validationRules,
+    this.required = false,
+    this.readonly = false,
+    this.hideWhenEmpty = false,
+    this.defaultValue,
+    this.classFilterUuids = const [],
+    this.options = const [],
+    this.computed,
+    this.active = true,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String uuid;
+  final String workspaceId;
+  final String name;
+  final String? icon;
+  final String type;
+  final bool multi;
+  final bool isSystem;
+  final String scope;
+  final String? nodeUuid;
+  final String? iconVisibility;
+  final Map<String, dynamic>? validationRules;
+  final bool required;
+  final bool readonly;
+  final bool hideWhenEmpty;
+  final dynamic defaultValue;
+  final List<String> classFilterUuids;
+  final List<Map<String, dynamic>> options;
+  final String? computed;
+  final bool active;
+  final String? createdAt;
+  final String? updatedAt;
+}
+
+/// Lightweight in-memory representation of a row from the server's
+/// `class_property_edge` table.
+class ClassPropertyEdgeRow {
+  ClassPropertyEdgeRow({
+    required this.classUuid,
+    required this.propertyUuid,
+    this.sequence = 0,
+    this.defaultValue,
+    this.hidden = false,
+    this.required,
+    this.readonly,
+    this.hideWhenEmpty,
+  });
+
+  final String classUuid;
+  final String propertyUuid;
+  final int sequence;
+  final dynamic defaultValue;
+  final bool hidden;
+  final bool? required;
+  final bool? readonly;
+  final bool? hideWhenEmpty;
+}
+
 /// Local cache of server node state populated by pull sync.
 class NodeCacheRepository {
   NodeCacheRepository(this._database);
@@ -158,11 +232,15 @@ class NodeCacheRepository {
       snapshotDb = await openDatabase(tempPath);
       final nodes = await readNodesFromSnapshotDatabase(snapshotDb, workspaceId);
       final classes = await _readClassesFromSnapshotDatabase(snapshotDb, workspaceId);
+      final propertySchemas = await _readPropertySchemasFromSnapshotDatabase(snapshotDb, workspaceId);
+      final classPropertyEdges = await _readClassPropertyEdgesFromSnapshotDatabase(snapshotDb, workspaceId);
       final db = await _database.database;
       await db.transaction((txn) async {
         await txn.delete('node_cache');
         await txn.delete('search_index');
         await txn.delete('class_cache');
+        await txn.delete('property_schema');
+        await txn.delete('class_property_edge');
         final now = DateTime.now().millisecondsSinceEpoch;
         final nodeBatch = txn.batch();
         for (final node in nodes) {
@@ -183,6 +261,24 @@ class NodeCacheRepository {
           );
         }
         await classBatch.commit(noResult: true);
+        final propertyBatch = txn.batch();
+        for (final schema in propertySchemas) {
+          propertyBatch.insert(
+            'property_schema',
+            _propertySchemaToRow(schema),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        await propertyBatch.commit(noResult: true);
+        final edgeBatch = txn.batch();
+        for (final edge in classPropertyEdges) {
+          edgeBatch.insert(
+            'class_property_edge',
+            _classPropertyEdgeToRow(edge),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        await edgeBatch.commit(noResult: true);
       });
     } finally {
       await snapshotDb?.close();
@@ -302,6 +398,94 @@ class NodeCacheRepository {
         active: (row['active'] as int? ?? 1) == 1,
         createdAt: row['created_at'] as String?,
         updatedAt: row['updated_at'] as String?,
+      );
+    }).toList();
+  }
+
+  /// Reads property-schema rows from a server-derived snapshot database.
+  Future<List<PropertySchemaRow>> _readPropertySchemasFromSnapshotDatabase(Database db, String workspaceId) async {
+    final rows = await db.query(
+      'property_schema',
+      where: 'workspace_id = ? AND active = 1',
+      whereArgs: [workspaceId],
+    );
+    return rows.map((row) {
+      List<String> classFilterUuids;
+      List<Map<String, dynamic>> options;
+      Map<String, dynamic>? validationRules;
+      dynamic defaultValue;
+      try {
+        classFilterUuids = (jsonDecode(row['class_filter_uuids'] as String? ?? '[]') as List<dynamic>).cast<String>();
+      } catch (_) {
+        classFilterUuids = const [];
+      }
+      try {
+        options = (jsonDecode(row['options'] as String? ?? '[]') as List<dynamic>).cast<Map<String, dynamic>>();
+      } catch (_) {
+        options = const [];
+      }
+      try {
+        final raw = row['validation_rules'] as String?;
+        validationRules = raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
+      } catch (_) {
+        validationRules = null;
+      }
+      try {
+        final raw = row['default_value'] as String?;
+        defaultValue = raw == null ? null : jsonDecode(raw);
+      } catch (_) {
+        defaultValue = row['default_value'];
+      }
+      return PropertySchemaRow(
+        uuid: row['id'] as String,
+        workspaceId: row['workspace_id'] as String,
+        name: row['name'] as String,
+        icon: row['icon'] as String?,
+        type: row['type'] as String? ?? 'text',
+        multi: (row['multi'] as int? ?? 0) == 1,
+        isSystem: (row['is_system'] as int? ?? 0) == 1,
+        scope: row['scope'] as String? ?? 'global',
+        nodeUuid: row['node_id'] as String?,
+        iconVisibility: row['icon_visibility'] as String?,
+        validationRules: validationRules,
+        required: (row['required'] as int? ?? 0) == 1,
+        readonly: (row['readonly'] as int? ?? 0) == 1,
+        hideWhenEmpty: (row['hide_when_empty'] as int? ?? 0) == 1,
+        defaultValue: defaultValue,
+        classFilterUuids: classFilterUuids,
+        options: options,
+        computed: row['computed'] as String?,
+        active: (row['active'] as int? ?? 1) == 1,
+        createdAt: row['created_at'] as String?,
+        updatedAt: row['updated_at'] as String?,
+      );
+    }).toList();
+  }
+
+  /// Reads class-property-edge rows from a server-derived snapshot database.
+  Future<List<ClassPropertyEdgeRow>> _readClassPropertyEdgesFromSnapshotDatabase(Database db, String workspaceId) async {
+    final rows = await db.query(
+      'class_property_edge',
+      where: 'class_id IN (SELECT id FROM class WHERE workspace_id = ? AND active = 1)',
+      whereArgs: [workspaceId],
+    );
+    return rows.map((row) {
+      dynamic defaultValue;
+      try {
+        final raw = row['default_value'] as String?;
+        defaultValue = raw == null ? null : jsonDecode(raw);
+      } catch (_) {
+        defaultValue = row['default_value'];
+      }
+      return ClassPropertyEdgeRow(
+        classUuid: row['class_id'] as String,
+        propertyUuid: row['property_schema_id'] as String,
+        sequence: row['sequence'] as int? ?? 0,
+        defaultValue: defaultValue,
+        hidden: (row['hidden'] as int? ?? 0) == 1,
+        required: row['required'] == null ? null : (row['required'] as int) == 1,
+        readonly: row['readonly'] == null ? null : (row['readonly'] as int) == 1,
+        hideWhenEmpty: row['hide_when_empty'] == null ? null : (row['hide_when_empty'] as int) == 1,
       );
     }).toList();
   }
@@ -517,25 +701,100 @@ class NodeCacheRepository {
   Future<List<NodePropertyValue>> getNodeProperties(String uuid) async {
     final node = await getByUuid(uuid);
     if (node == null) return const [];
-    return node.properties.entries.map((e) {
-      final schema = _knownPropertySchemas[e.key];
-      return NodePropertyValue(
-        property: schema ?? _genericProperty(e.key),
-        values: [e.value],
-      );
-    }).toList();
+    final entries = <NodePropertyValue>[];
+    for (final entry in node.properties.entries) {
+      final schema = await getPropertySchema(entry.key);
+      entries.add(NodePropertyValue(
+        property: schema ?? _knownPropertySchemas[entry.key] ?? _genericProperty(entry.key),
+        values: [entry.value],
+      ));
+    }
+    return entries;
   }
 
   /// Best-effort available properties for a node.
   ///
-  /// For task nodes this returns the hard-coded task status/deadline/scheduled/
-  /// priority schemas so the UI can toggle status and set due dates even when
-  /// the server has not yet sent property-schema operations.
+  /// Returns property schemas attached to any of the node's classes, ordered by
+  /// the class-property-edge sequence. Task nodes also get the hard-coded task
+  /// status/deadline/scheduled/priority schemas as a fallback.
   Future<List<Property>> getAvailableProperties(String uuid) async {
     final node = await getByUuid(uuid);
     if (node == null) return const [];
-    if (node.isTask) return _taskProperties;
-    return const [];
+    final classUuids = node.classesUuid;
+    final fromClasses = classUuids.isEmpty
+        ? const <Property>[]
+        : await getPropertySchemasForClasses(classUuids);
+    if (!node.isTask) return fromClasses;
+
+    final existing = fromClasses.map((p) => p.uuid).toSet();
+    return [
+      ...fromClasses,
+      ..._taskProperties.where((p) => !existing.contains(p.uuid)),
+    ];
+  }
+
+  /// Property schemas attached to [classUuids] via class-property edges.
+  Future<List<Property>> getPropertySchemasForClasses(List<String> classUuids) async {
+    if (classUuids.isEmpty) return const [];
+    final db = await _database.database;
+    final placeholders = classUuids.map((_) => '?').join(',');
+    final rows = await db.rawQuery(
+      'SELECT ps.* FROM property_schema ps '
+      'INNER JOIN class_property_edge cpe ON cpe.property_uuid = ps.uuid '
+      'WHERE cpe.class_uuid IN ($placeholders) AND ps.active = 1 AND cpe.hidden = 0 '
+      'ORDER BY cpe.sequence ASC, ps.name ASC',
+      classUuids,
+    );
+    return rows.map(_propertySchemaFromRow).toList();
+  }
+
+  /// A single cached property schema by UUID.
+  Future<Property?> getPropertySchema(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'property_schema',
+      where: 'uuid = ? AND active = 1',
+      whereArgs: [uuid],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return _propertySchemaFromRow(rows.first);
+  }
+
+  /// Class-level property metadata for [classUuid].
+  Future<List<ClassProperty>> getClassProperties(String classUuid) async {
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      'SELECT c.name AS class_name, c.uuid AS class_uuid, ps.uuid AS property_uuid, '
+      'ps.name AS property_name, ps.type AS property_type, cpe.sequence, '
+      'cpe.default_value, cpe.hidden, cpe.required, cpe.readonly '
+      'FROM class_property_edge cpe '
+      'INNER JOIN property_schema ps ON ps.uuid = cpe.property_uuid '
+      'INNER JOIN class_cache c ON c.uuid = cpe.class_uuid '
+      'WHERE cpe.class_uuid = ? AND ps.active = 1 '
+      'ORDER BY cpe.sequence ASC',
+      [classUuid],
+    );
+    return rows.map((row) {
+      dynamic defaultValue;
+      try {
+        final raw = row['default_value'] as String?;
+        defaultValue = raw == null ? null : jsonDecode(raw);
+      } catch (_) {
+        defaultValue = row['default_value'];
+      }
+      return ClassProperty(
+        classNodeUuid: row['class_uuid'] as String,
+        classNodeName: row['class_name'] as String? ?? '',
+        propertyUuid: row['property_uuid'] as String,
+        propertyName: row['property_name'] as String? ?? '',
+        propertyType: row['property_type'] as String? ?? 'text',
+        sequence: row['sequence'] as int? ?? 0,
+        defaultValue: defaultValue,
+        hidden: (row['hidden'] as int? ?? 0) == 1,
+        required: (row['required'] as int? ?? 0) == 1,
+      );
+    }).toList();
   }
 
   /// Walks parent_uuid chain from [uuid] up to a root.
@@ -1066,6 +1325,156 @@ class NodeCacheRepository {
       'created_at': cls.createdAt,
       'updated_at': cls.updatedAt,
     };
+  }
+
+  // === Property schema helpers ===
+
+  Map<String, dynamic> _propertySchemaToRow(PropertySchemaRow schema) {
+    return {
+      'uuid': schema.uuid,
+      'workspace_id': schema.workspaceId,
+      'name': schema.name,
+      'icon': schema.icon,
+      'type': schema.type,
+      'multi': schema.multi ? 1 : 0,
+      'is_system': schema.isSystem ? 1 : 0,
+      'scope': schema.scope,
+      'node_uuid': schema.nodeUuid,
+      'icon_visibility': schema.iconVisibility,
+      'validation_rules': schema.validationRules == null ? null : jsonEncode(schema.validationRules),
+      'required': schema.required ? 1 : 0,
+      'readonly': schema.readonly ? 1 : 0,
+      'hide_when_empty': schema.hideWhenEmpty ? 1 : 0,
+      'default_value': schema.defaultValue == null ? null : jsonEncode(schema.defaultValue),
+      'class_filter_uuids': jsonEncode(schema.classFilterUuids),
+      'options': jsonEncode(schema.options),
+      'computed': schema.computed,
+      'active': schema.active ? 1 : 0,
+      'created_at': schema.createdAt,
+      'updated_at': schema.updatedAt,
+    };
+  }
+
+  Property _propertySchemaFromRow(Map<String, dynamic> row) {
+    List<SelectionOption> options;
+    List<String> classFilters;
+    Map<String, dynamic>? validationRules;
+    try {
+      options = ((jsonDecode(row['options'] as String? ?? '[]') as List<dynamic>?) ?? const [])
+          .map((e) => _selectionOptionFromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      options = const [];
+    }
+    try {
+      classFilters = (jsonDecode(row['class_filter_uuids'] as String? ?? '[]') as List<dynamic>)
+          .map((e) => e.toString())
+          .toList();
+    } catch (_) {
+      classFilters = const [];
+    }
+    try {
+      final raw = row['validation_rules'] as String?;
+      validationRules = raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      validationRules = null;
+    }
+    return Property(
+      id: 0,
+      uuid: row['uuid'] as String,
+      name: row['name'] as String,
+      type: row['type'] as String? ?? 'text',
+      icon: row['icon'] as String?,
+      multi: (row['multi'] as int? ?? 0) == 1,
+      isSystem: (row['is_system'] as int? ?? 0) == 1,
+      scope: row['scope'] as String? ?? 'global',
+      nodeUuid: row['node_uuid'] as String?,
+      iconVisibility: row['icon_visibility'] as String? ?? 'hidden',
+      validationRules: validationRules,
+      classFilters: classFilters,
+      options: options,
+      createDate: row['created_at'] as String?,
+      writeDate: row['updated_at'] as String?,
+    );
+  }
+
+  SelectionOption _selectionOptionFromJson(Map<String, dynamic> json) {
+    final id = json['id'];
+    final uuid = (json['uuid'] as String?) ??
+        (json['selection_line_uuid'] as String?) ??
+        (json['id']?.toString() ?? '');
+    return SelectionOption(
+      id: id is int ? id : int.tryParse(id?.toString() ?? '0') ?? 0,
+      uuid: uuid,
+      name: (json['name'] as String?) ?? '',
+      icon: json['icon'] as String?,
+      color: json['color'] as String?,
+      sequence: (json['sequence'] as int?) ?? (json['order'] as int?) ?? 0,
+    );
+  }
+
+  Map<String, dynamic> _classPropertyEdgeToRow(ClassPropertyEdgeRow edge) {
+    return {
+      'class_uuid': edge.classUuid,
+      'property_uuid': edge.propertyUuid,
+      'sequence': edge.sequence,
+      'default_value': edge.defaultValue == null ? null : jsonEncode(edge.defaultValue),
+      'hidden': edge.hidden ? 1 : 0,
+      'required': edge.required == null ? null : (edge.required! ? 1 : 0),
+      'readonly': edge.readonly == null ? null : (edge.readonly! ? 1 : 0),
+      'hide_when_empty': edge.hideWhenEmpty == null ? null : (edge.hideWhenEmpty! ? 1 : 0),
+    };
+  }
+
+  Future<void> upsertPropertySchema(PropertySchemaRow schema) async {
+    final db = await _database.database;
+    await db.insert(
+      'property_schema',
+      _propertySchemaToRow(schema),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deletePropertySchema(String uuid) async {
+    final db = await _database.database;
+    await db.update(
+      'property_schema',
+      {'active': 0},
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
+  }
+
+  Future<void> upsertClassPropertyEdge(ClassPropertyEdgeRow edge) async {
+    final db = await _database.database;
+    await db.insert(
+      'class_property_edge',
+      _classPropertyEdgeToRow(edge),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> deleteClassPropertyEdge(String classUuid, String propertyUuid) async {
+    final db = await _database.database;
+    await db.delete(
+      'class_property_edge',
+      where: 'class_uuid = ? AND property_uuid = ?',
+      whereArgs: [classUuid, propertyUuid],
+    );
+  }
+
+  Future<void> reorderClassPropertyEdges(String classUuid, List<String> orderedPropertyUuids) async {
+    final db = await _database.database;
+    await db.transaction((txn) async {
+      for (var i = 0; i < orderedPropertyUuids.length; i++) {
+        await txn.update(
+          'class_property_edge',
+          {'sequence': i},
+          where: 'class_uuid = ? AND property_uuid = ?',
+          whereArgs: [classUuid, orderedPropertyUuids[i]],
+        );
+      }
+    });
   }
 
   static String _normalizeClassName(String? name) {

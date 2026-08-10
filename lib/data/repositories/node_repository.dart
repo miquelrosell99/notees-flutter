@@ -524,11 +524,9 @@ class NodeRepository {
 
   /// Fetches the properties a class applies to its nodes, including the
   /// class-level `hidden`, `required` and `default_value` attributes.
-  ///
-  /// Class-level property metadata is not rebuilt locally yet, so this returns
-  /// an empty list until the cache is extended.
   Future<List<ClassProperty>> fetchClassProperties(String classNodeUuid, {bool includeInherited = true}) async {
-    return const [];
+    _requireCache();
+    return _cache!.getClassProperties(classNodeUuid);
   }
 
   Future<void> setNodeProperty(String nodeUuid, String propertyUuid, dynamic value) async {
