@@ -8,20 +8,40 @@ void main() {
       expect(uuid, '00000000-0000-0000-00dd-202608090000');
     });
 
-    test('dateToMonthUuid produces the expected pattern', () {
+    test('dateToMonthUuid produces the expected server pattern', () {
       final uuid = dateToMonthUuid(DateTime(2026, 8, 9));
-      expect(uuid, '00000000-0000-0000-00mm-202608000000');
+      expect(uuid, '00000000-0000-0000-00aa-202608000000');
     });
 
-    test('dateToYearUuid produces the expected pattern', () {
+    test('dateToYearUuid produces the expected server pattern', () {
       final uuid = dateToYearUuid(DateTime(2026, 8, 9));
-      expect(uuid, '00000000-0000-0000-00yy-202600000000');
+      expect(uuid, '00000000-0000-0000-00bb-202600000000');
     });
 
     test('outputs are valid UUID length and format', () {
       final day = dateToDayUuid(DateTime(2026, 12, 31));
       expect(day.length, 36);
       expect(day.split('-').length, 5);
+    });
+
+    test('journalDateFromUuid parses day UUIDs', () {
+      final date = journalDateFromUuid('00000000-0000-0000-00dd-202608090000');
+      expect(date, DateTime(2026, 8, 9));
+    });
+
+    test('journalDateFromUuid parses month UUIDs with server prefix', () {
+      final date = journalDateFromUuid('00000000-0000-0000-00aa-202608000000');
+      expect(date, DateTime(2026, 8));
+    });
+
+    test('journalDateFromUuid parses year UUIDs with server prefix', () {
+      final date = journalDateFromUuid('00000000-0000-0000-00bb-202600000000');
+      expect(date, DateTime(2026));
+    });
+
+    test('journalDateFromUuid returns null for non-journal UUIDs', () {
+      expect(journalDateFromUuid('00000000-0000-0000-0001-000000000001'), isNull);
+      expect(journalDateFromUuid('not-a-uuid'), isNull);
     });
   });
 }
