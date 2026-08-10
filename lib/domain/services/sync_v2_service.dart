@@ -230,6 +230,12 @@ class SyncV2Service {
       await _watermarks.resetWorkspace(workspaceId);
     }
 
+    // If the class cache is empty (e.g. after a schema migration that added
+    // the table), force a fresh snapshot restore so classes get populated.
+    if (await _cache.classCacheCount() == 0) {
+      await _watermarks.resetWorkspace(workspaceId);
+    }
+
     var lastReceived =
         await _watermarks.getReceived(workspaceId) ?? const Hlc(physical: 0, logical: 0);
     final snapshotIsNewer =
