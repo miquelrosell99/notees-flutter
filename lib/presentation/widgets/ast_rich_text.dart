@@ -15,6 +15,7 @@ class AstRichText extends StatelessWidget {
     super.key,
     required this.source,
     this.onNodeLinkTap,
+    this.onNodeLinkLongPress,
     this.onExternalLinkTap,
     this.style,
     this.maxLines,
@@ -27,6 +28,12 @@ class AstRichText extends StatelessWidget {
 
   /// Called when the user taps a node/class link. Receives the target id.
   final ValueChanged<String>? onNodeLinkTap;
+
+  /// Called when the user long-presses a node/class link.
+  ///
+  /// Receives the raw link id (usually `targetUuid` or `targetUuid:linkUuid`)
+  /// and the rendered label so the parent editor can show a context menu.
+  final void Function(String linkId, String label)? onNodeLinkLongPress;
 
   /// Called when the user taps an external link. Receives the URL.
   final ValueChanged<String>? onExternalLinkTap;
@@ -50,14 +57,15 @@ class AstRichText extends StatelessWidget {
     return RichText(
       maxLines: maxLines,
       overflow: overflow,
-      text: TextSpan(
-        style: defaultStyle,
-        children: spans,
-      ),
+      text: TextSpan(style: defaultStyle, children: spans),
     );
   }
 
-  List<InlineSpan> _buildSpans(BuildContext context, String source, TextStyle base) {
+  List<InlineSpan> _buildSpans(
+    BuildContext context,
+    String source,
+    TextStyle base,
+  ) {
     final ast = _tryParseAst(source);
     if (ast == null || ast.isEmpty) {
       return [const TextSpan(text: '')];
@@ -80,7 +88,11 @@ class AstRichText extends StatelessWidget {
     return null;
   }
 
-  List<InlineSpan> _buildBlockSpans(BuildContext context, Map<String, dynamic> block, TextStyle base) {
+  List<InlineSpan> _buildBlockSpans(
+    BuildContext context,
+    Map<String, dynamic> block,
+    TextStyle base,
+  ) {
     final type = block['type'] as String?;
     switch (type) {
       case 'paragraph':
@@ -106,7 +118,11 @@ class AstRichText extends StatelessWidget {
     }
   }
 
-  List<InlineSpan> _buildInlineSpans(BuildContext context, Map<String, dynamic> node, TextStyle base) {
+  List<InlineSpan> _buildInlineSpans(
+    BuildContext context,
+    Map<String, dynamic> node,
+    TextStyle base,
+  ) {
     final type = node['type'] as String?;
     final colors = Theme.of(context).colorScheme;
 
@@ -129,18 +145,38 @@ class AstRichText extends StatelessWidget {
           ),
         ];
       case 'strong':
-        return _wrapChildren(context, node, base.copyWith(fontWeight: FontWeight.w700));
+        return _wrapChildren(
+          context,
+          node,
+          base.copyWith(fontWeight: FontWeight.w700),
+        );
       case 'em':
-        return _wrapChildren(context, node, base.copyWith(fontStyle: FontStyle.italic));
+        return _wrapChildren(
+          context,
+          node,
+          base.copyWith(fontStyle: FontStyle.italic),
+        );
       case 'underline':
-        return _wrapChildren(context, node, base.copyWith(decoration: TextDecoration.underline));
+        return _wrapChildren(
+          context,
+          node,
+          base.copyWith(decoration: TextDecoration.underline),
+        );
       case 'strikethrough':
-        return _wrapChildren(context, node, base.copyWith(decoration: TextDecoration.lineThrough));
+        return _wrapChildren(
+          context,
+          node,
+          base.copyWith(decoration: TextDecoration.lineThrough),
+        );
       case 'highlight':
         return _wrapChildren(
           context,
           node,
-          base.copyWith(backgroundColor: colors.tertiaryContainer.withAlpha((0.5 * 255).round())),
+          base.copyWith(
+            backgroundColor: colors.tertiaryContainer.withAlpha(
+              (0.5 * 255).round(),
+            ),
+          ),
         );
       case 'external_link':
         final url = node['url'] as String? ?? '';
@@ -155,7 +191,9 @@ class AstRichText extends StatelessWidget {
         }
         return [
           TextSpan(
-            children: labelSpans.isNotEmpty ? labelSpans : [TextSpan(text: url, style: base)],
+            children: labelSpans.isNotEmpty
+                ? labelSpans
+                : [TextSpan(text: url, style: base)],
             style: base.copyWith(
               color: colors.primary,
               decoration: TextDecoration.underline,
@@ -183,13 +221,24 @@ class AstRichText extends StatelessWidget {
               button: true,
               label: 'Link to $label',
               child: GestureDetector(
-                onTap: target.isNotEmpty ? () => onNodeLinkTap?.call(target) : null,
+                onTap: target.isNotEmpty
+                    ? () => onNodeLinkTap?.call(target)
+                    : null,
+                onLongPress: linkId.isNotEmpty
+                    ? () => onNodeLinkLongPress?.call(linkId, label)
+                    : null,
                 child: Container(
                   margin: const EdgeInsets.symmetric(horizontal: 2),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
-                    color: dataColor ??
-                        (isClass ? colors.secondaryContainer : colors.primaryContainer),
+                    color:
+                        dataColor ??
+                        (isClass
+                            ? colors.secondaryContainer
+                            : colors.primaryContainer),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -197,7 +246,9 @@ class AstRichText extends StatelessWidget {
                     style: base.copyWith(
                       color: dataColor != null
                           ? ColorPresets.foregroundFor(dataColor)
-                          : (isClass ? colors.onSecondaryContainer : colors.onPrimaryContainer),
+                          : (isClass
+                                ? colors.onSecondaryContainer
+                                : colors.onPrimaryContainer),
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -208,13 +259,22 @@ class AstRichText extends StatelessWidget {
         ];
       case 'user_mention':
         final label = node['label'] as String? ?? '';
-        return [TextSpan(text: '@$label', style: base.copyWith(color: colors.primary))];
+        return [
+          TextSpan(
+            text: '@$label',
+            style: base.copyWith(color: colors.primary),
+          ),
+        ];
       default:
         return _wrapChildren(context, node, base);
     }
   }
 
-  List<InlineSpan> _wrapChildren(BuildContext context, Map<String, dynamic> node, TextStyle style) {
+  List<InlineSpan> _wrapChildren(
+    BuildContext context,
+    Map<String, dynamic> node,
+    TextStyle style,
+  ) {
     final children = node['children'];
     final spans = <InlineSpan>[];
     if (children is List) {

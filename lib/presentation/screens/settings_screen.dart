@@ -557,13 +557,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               children: [
                 ListTile(
-                  leading: Icon(MdiIcons.lanConnect),
-                  title: const Text('Graph'),
-                  trailing: Icon(MdiIcons.chevronRight),
-                  onTap: () => context.push(Routes.graph),
-                ),
-                const Divider(height: 1),
-                ListTile(
                   leading: Icon(MdiIcons.draw),
                   title: const Text('Whiteboard'),
                   trailing: Icon(MdiIcons.chevronRight),
@@ -575,13 +568,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Timeline'),
                   trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push(Routes.timeline),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(MdiIcons.viewWeekOutline),
-                  title: const Text('Gantt'),
-                  trailing: Icon(MdiIcons.chevronRight),
-                  onTap: () => context.push(Routes.gantt),
                 ),
                 const Divider(height: 1),
                 ListTile(

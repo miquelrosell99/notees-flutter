@@ -830,10 +830,8 @@ class _AdvancedView {
   final String label;
   final IconData icon;
 
-  static final graph = _AdvancedView(label: 'Graph', icon: MdiIcons.lanConnect);
   static final whiteboard = _AdvancedView(label: 'Whiteboard', icon: MdiIcons.draw);
   static final timeline = _AdvancedView(label: 'Timeline', icon: MdiIcons.timeline);
-  static final gantt = _AdvancedView(label: 'Gantt', icon: MdiIcons.viewWeekOutline);
   static final chart = _AdvancedView(label: 'Chart', icon: MdiIcons.chartBar);
   static final pivot = _AdvancedView(label: 'Pivot', icon: MdiIcons.tablePivot);
   static final query = _AdvancedView(label: 'Query builder', icon: MdiIcons.fileTree);
@@ -856,9 +854,7 @@ class _HomeOverflowMenu extends StatelessWidget {
   final ValueChanged<String> onOpenAdvancedView;
 
   static final _advancedViews = <({_AdvancedView view, String route})>[
-    (view: _AdvancedView.graph, route: Routes.graph),
     (view: _AdvancedView.timeline, route: Routes.timeline),
-    (view: _AdvancedView.gantt, route: Routes.gantt),
     (view: _AdvancedView.chart, route: Routes.chart),
     (view: _AdvancedView.pivot, route: Routes.pivot),
     (view: _AdvancedView.whiteboard, route: Routes.whiteboard),

@@ -164,8 +164,6 @@ class _NoteesWebViewScreenState extends State<NoteesWebViewScreen> {
       case 'editor':
         final nodeUuid = firstSegment ?? '';
         if (nodeUuid.isNotEmpty) router.push('${Routes.editor}/$nodeUuid');
-      case 'graph':
-        router.push(Routes.graph);
       case 'whiteboard':
         router.push(
           firstSegment != null
@@ -174,8 +172,6 @@ class _NoteesWebViewScreenState extends State<NoteesWebViewScreen> {
         );
       case 'timeline':
         router.push(Routes.timeline);
-      case 'gantt':
-        router.push(Routes.gantt);
       case 'chart':
         router.push(Routes.chart);
       case 'pivot':

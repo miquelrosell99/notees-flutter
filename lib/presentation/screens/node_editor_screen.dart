@@ -119,7 +119,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
     setState(() => _loading = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      final repo = NodeRepository(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      );
       final pageContent = await repo.fetchPageContent(widget.nodeUuid);
       final page = pageContent.node;
 
@@ -127,7 +130,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         block.controller.dispose();
       }
       _roots.clear();
-      _roots.addAll(_nodesToBlockTree(page.children.where((b) => !b.isPage).toList()));
+      _roots.addAll(
+        _nodesToBlockTree(page.children.where((b) => !b.isPage).toList()),
+      );
 
       final properties = await repo.fetchNodeProperties(widget.nodeUuid);
       final classes = await repo.fetchClasses();
@@ -166,6 +171,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           collectColors(n.children);
         }
       }
+
       collectColors(page.children);
       for (final c in classes) {
         final color = ColorPresets.tryResolve(c.color);
@@ -174,10 +180,16 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
       if (mounted) {
         setState(() {
-          _titleController.text = page.displayName.isNotEmpty ? page.displayName : 'Untitled';
+          _titleController.text = page.displayName.isNotEmpty
+              ? page.displayName
+              : 'Untitled';
           _classProperties = classProps;
           _availableProperties = available;
-          _properties = _buildDisplayProperties(properties, classProps, available);
+          _properties = _buildDisplayProperties(
+            properties,
+            classProps,
+            available,
+          );
           _classNames = classNames;
           _linkColors = linkColors;
           _pageColor = page.color;
@@ -198,7 +210,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       final status = e.response?.statusCode;
       final body = e.response?.data;
       if (mounted) {
-        setState(() => _error = 'Server error ${status ?? ""}\n$body\n${e.message}');
+        setState(
+          () => _error = 'Server error ${status ?? ""}\n$body\n${e.message}',
+        );
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -225,7 +239,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     if (auth.dio == null) return;
 
     try {
-      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      final repo = NodeRepository(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      );
       final result = await repo.fetchLinkedReferences(widget.nodeUuid);
       if (mounted) {
         setState(() {
@@ -249,9 +266,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     if (auth.dio == null) return;
 
     try {
-      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      final repo = NodeRepository(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      );
       final uuids = await repo.fetchFavoriteUuids();
-      if (mounted) setState(() => _isFavorite = uuids.contains(widget.nodeUuid));
+      if (mounted) {
+        setState(() => _isFavorite = uuids.contains(widget.nodeUuid));
+      }
     } catch (_) {
       if (mounted) setState(() => _isFavorite = false);
     }
@@ -338,9 +360,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     SharesBottomSheet.show(context, nodeUuid: widget.nodeUuid);
   }
 
-  List<BlockNode> _nodesToBlockTree(List<Node> nodes, {BlockNode? parent, Set<String>? visited}) {
+  List<BlockNode> _nodesToBlockTree(
+    List<Node> nodes, {
+    BlockNode? parent,
+    Set<String>? visited,
+  }) {
     visited ??= <String>{};
-    final sorted = List<Node>.from(nodes)..sort((a, b) => a.sequence.compareTo(b.sequence));
+    final sorted = List<Node>.from(nodes)
+      ..sort((a, b) => a.sequence.compareTo(b.sequence));
     return sorted.map((node) {
       final ast = _tryParseAst(node.name);
       final markdown = AstBuilder.toMarkdown(ast);
@@ -352,7 +379,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       );
       // Guard against cyclic children in corrupt server data.
       if (visited!.add(node.uuid)) {
-        block.children.addAll(_nodesToBlockTree(node.children, parent: block, visited: visited));
+        block.children.addAll(
+          _nodesToBlockTree(node.children, parent: block, visited: visited),
+        );
       }
       return block;
     }).toList();
@@ -377,7 +406,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
     setState(() => _saving = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      final repo = NodeRepository(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      );
 
       final titleAst = AstBuilder.serialize(AstBuilder.parseInline(title));
       await repo.updateNode(widget.nodeUuid, name: titleAst);
@@ -408,9 +440,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       // rebuild the block controllers while the user is typing.
       if (manual && mounted) await _loadPage();
       if (manual && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Saved')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Saved')));
       }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -475,12 +507,17 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     void visit(List<BlockNode> list) {
       for (final node in list) {
         if (node.node.uuid.isEmpty && index < created.length) {
-          node.node = _copyNodeWithId(node.node, created[index].id, created[index].uuid);
+          node.node = _copyNodeWithId(
+            node.node,
+            created[index].id,
+            created[index].uuid,
+          );
           index++;
         }
         visit(node.children);
       }
     }
+
     visit(nodes);
   }
 
@@ -703,9 +740,12 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     if (auth.dio == null) return;
     final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
     if (_looksLikeUuid(target)) {
-      repo.fetchNodeByUuid(target).then((node) {
-        if (mounted) context.push('${Routes.editor}/${node.uuid}');
-      }).catchError((_) {});
+      repo
+          .fetchNodeByUuid(target)
+          .then((node) {
+            if (mounted) context.push('${Routes.editor}/${node.uuid}');
+          })
+          .catchError((_) {});
     } else {
       final id = int.tryParse(target);
       if (id != null && mounted) {
@@ -716,6 +756,150 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
   bool _looksLikeUuid(String value) {
     return RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(value);
+  }
+
+  void _onNodeLinkAction(
+    BlockNode block,
+    NodeLinkAction action,
+    String linkId,
+    String label, {
+    String? newTarget,
+    String? newLabel,
+  }) {
+    final target = linkId.split(':').first;
+    switch (action) {
+      case NodeLinkAction.open:
+        _onNodeLinkTap(target);
+        return;
+      case NodeLinkAction.edit:
+        if (newTarget == null || newTarget.isEmpty) return;
+        final ast = AstBuilder.parseInline(block.controller.text);
+        final newLinkId = _replaceLinkTarget(linkId, newTarget);
+        final newAst = _mutateAstLinks(
+          ast,
+          matcher: (node) => _matchesNodeLink(node, linkId, label),
+          transformer: (node) {
+            final refType = node['ref_type'] as String? ?? 'node';
+            return AstBuilder.nodeLink(
+              targetId: newLinkId,
+              label: newLabel,
+              refType: refType,
+            );
+          },
+        );
+        _updateBlockFromAst(block, newAst);
+      case NodeLinkAction.delete:
+        final ast = AstBuilder.parseInline(block.controller.text);
+        final newAst = _mutateAstLinks(
+          ast,
+          matcher: (node) => _matchesNodeLink(node, linkId, label),
+          transformer: (_) => null,
+        );
+        _updateBlockFromAst(block, newAst);
+      case NodeLinkAction.unlink:
+        final ast = AstBuilder.parseInline(block.controller.text);
+        final text = label.isNotEmpty ? label : target;
+        final newAst = _mutateAstLinks(
+          ast,
+          matcher: (node) => _matchesNodeLink(node, linkId, label),
+          transformer: (_) => AstBuilder.text(text),
+        );
+        _updateBlockFromAst(block, newAst);
+    }
+    _markDirty();
+  }
+
+  String _replaceLinkTarget(String linkId, String newTarget) {
+    final colon = linkId.indexOf(':');
+    if (colon >= 0) {
+      return '$newTarget${linkId.substring(colon)}';
+    }
+    return newTarget;
+  }
+
+  bool _matchesNodeLink(
+    Map<String, dynamic> node,
+    String linkId,
+    String label,
+  ) {
+    if (node['type'] != 'node_link') return false;
+    final nodeLinkId = node['link_id'] as String? ?? '';
+    if (nodeLinkId == linkId) return true;
+    // Fall back to matching by visible target + label for links that do not
+    // carry a uuid suffix.
+    final nodeLabel = node['label'] as String? ?? '';
+    return nodeLinkId.split(':').first == linkId.split(':').first &&
+        nodeLabel == label;
+  }
+
+  void _updateBlockFromAst(BlockNode block, List<Map<String, dynamic>> ast) {
+    final markdown = AstBuilder.toMarkdown(ast);
+    block.controller.text = markdown;
+    block.node = _copyNodeWithName(block.node, AstBuilder.serialize(ast));
+  }
+
+  List<Map<String, dynamic>> _mutateAstLinks(
+    List<Map<String, dynamic>> ast, {
+    required bool Function(Map<String, dynamic> node) matcher,
+    required Map<String, dynamic>? Function(Map<String, dynamic> node)
+    transformer,
+  }) {
+    return ast
+        .map(
+          (block) => _mutateBlockLinks(
+            block,
+            matcher: matcher,
+            transformer: transformer,
+          ),
+        )
+        .toList();
+  }
+
+  Map<String, dynamic> _mutateBlockLinks(
+    Map<String, dynamic> block, {
+    required bool Function(Map<String, dynamic> node) matcher,
+    required Map<String, dynamic>? Function(Map<String, dynamic> node)
+    transformer,
+  }) {
+    final copy = Map<String, dynamic>.of(block);
+    final children = block['children'];
+    if (children is List) {
+      copy['children'] = _mutateInlineLinks(
+        children.cast<Map<String, dynamic>>(),
+        matcher: matcher,
+        transformer: transformer,
+      );
+    }
+    return copy;
+  }
+
+  List<Map<String, dynamic>> _mutateInlineLinks(
+    List<Map<String, dynamic>> nodes, {
+    required bool Function(Map<String, dynamic> node) matcher,
+    required Map<String, dynamic>? Function(Map<String, dynamic> node)
+    transformer,
+  }) {
+    final result = <Map<String, dynamic>>[];
+    for (final node in nodes) {
+      if (matcher(node)) {
+        final transformed = transformer(node);
+        if (transformed != null) {
+          result.add(transformed);
+        }
+        continue;
+      }
+      final copy = Map<String, dynamic>.of(node);
+      final children = node['children'];
+      if (children is List) {
+        copy['children'] = _mutateInlineLinks(
+          children.cast<Map<String, dynamic>>(),
+          matcher: matcher,
+          transformer: transformer,
+        );
+      }
+      result.add(copy);
+    }
+    return result;
   }
 
   Future<void> _onToolbarAction(EditorAction action) async {
@@ -746,7 +930,11 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           ? text.substring(selection.start, selection.end)
           : defaultText ?? marker;
       final replacement = '$marker$selected$marker';
-      final newText = text.replaceRange(selection.start, selection.end, replacement);
+      final newText = text.replaceRange(
+        selection.start,
+        selection.end,
+        replacement,
+      );
       final newOffset = selection.start + replacement.length;
       controller
         ..text = newText
@@ -790,11 +978,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         await _convertToTask(block);
       case EditorAction.table:
         final cursor = selection.isValid ? selection.start : 0;
-        const replacement = '| Header | Header |\n| --- | --- |\n| Cell | Cell |';
+        const replacement =
+            '| Header | Header |\n| --- | --- |\n| Cell | Cell |';
         final newText = text.replaceRange(cursor, cursor, replacement);
         controller
           ..text = newText
-          ..selection = TextSelection.collapsed(offset: cursor + replacement.length);
+          ..selection = TextSelection.collapsed(
+            offset: cursor + replacement.length,
+          );
       case EditorAction.slash:
       case EditorAction.mention:
       case EditorAction.audio:
@@ -823,7 +1014,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     }
     controller
       ..text = newText
-      ..selection = TextSelection.collapsed(offset: newOffset.clamp(0, newText.length));
+      ..selection = TextSelection.collapsed(
+        offset: newOffset.clamp(0, newText.length),
+      );
   }
 
   void _applyHeadingCycle(TextEditingController controller) {
@@ -894,10 +1087,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     );
     if (!mounted) return;
 
-    final taskNode = _copyNodeAsTask(
-      created,
-      status: pendingStatus,
-    );
+    final taskNode = _copyNodeAsTask(created, status: pendingStatus);
 
     if (isEmpty) {
       if (block.node.uuid.isNotEmpty) {
@@ -933,7 +1123,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     if (auth.dio == null) return;
 
     final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
-    final current = block.node.properties[SystemPropertyUuids.taskStatus] as String?;
+    final current =
+        block.node.properties[SystemPropertyUuids.taskStatus] as String?;
     final isDone = current != null && TaskStatuses.closed.contains(current);
     final newStatus = isDone ? 'Pending' : 'Done';
 
@@ -953,9 +1144,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update task: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to update task: $e')));
       }
     }
   }
@@ -1034,8 +1225,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     final mode = action == EditorAction.classLink
         ? NodePickerMode.classNode
         : action == EditorAction.tagLink
-            ? NodePickerMode.tag
-            : NodePickerMode.any;
+        ? NodePickerMode.tag
+        : NodePickerMode.any;
     if (!mounted) return;
     final node = await NodePicker.show(context, mode: mode);
     if (node == null) return;
@@ -1046,7 +1237,11 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     final open = action == EditorAction.classLink ? '{{' : '[[';
     final close = action == EditorAction.classLink ? '}}' : ']]';
     final replacement = '$open${node.uuid}|${node.displayName}$close';
-    final newText = text.replaceRange(selection.start, selection.end, replacement);
+    final newText = text.replaceRange(
+      selection.start,
+      selection.end,
+      replacement,
+    );
     final newOffset = selection.start + replacement.length;
     controller
       ..text = newText
@@ -1069,7 +1264,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       final newText = text.replaceRange(cursor - 1, cursor, '');
       controller
         ..text = newText
-        ..selection = TextSelection.collapsed(offset: (cursor - 1).clamp(0, newText.length));
+        ..selection = TextSelection.collapsed(
+          offset: (cursor - 1).clamp(0, newText.length),
+        );
     }
 
     await _applyEditorAction(block, action);
@@ -1103,7 +1300,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     }
     controller
       ..text = newText
-      ..selection = TextSelection.collapsed(offset: newOffset.clamp(0, newText.length));
+      ..selection = TextSelection.collapsed(
+        offset: newOffset.clamp(0, newText.length),
+      );
     _markDirty();
   }
 
@@ -1115,6 +1314,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         visit(node.children);
       }
     }
+
     visit(_roots);
     return result;
   }
@@ -1185,48 +1385,48 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _readerMode
-              ? _buildReaderBody()
-              : Column(
-                  children: [
-                    Expanded(
-                      child: RefreshIndicator(
-                        onRefresh: _loadPage,
-                        child: ListView(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.all(20),
-                          children: [
-                            if (_error != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 16),
-                                child: FleetCard(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Text(
-                                      _error!,
-                                      style: TextStyle(color: colors.error),
-                                    ),
-                                  ),
+          ? _buildReaderBody()
+          : Column(
+              children: [
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _loadPage,
+                    child: ListView(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.all(20),
+                      children: [
+                        if (_error != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: FleetCard(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Text(
+                                  _error!,
+                                  style: TextStyle(color: colors.error),
                                 ),
                               ),
-                            _buildTitleField(),
-                            const SizedBox(height: 20),
-                            _buildBlockTree(colors),
-                            TextButton.icon(
-                              onPressed: _addBlock,
-                              icon: Icon(MdiIcons.plus),
-                              label: const Text('Add block'),
                             ),
-                            const SizedBox(height: 20),
-                            _buildPropertiesSection(colors),
-                            _buildLinkedReferencesSection(colors),
-                          ],
+                          ),
+                        _buildTitleField(),
+                        const SizedBox(height: 20),
+                        _buildBlockTree(colors),
+                        TextButton.icon(
+                          onPressed: _addBlock,
+                          icon: Icon(MdiIcons.plus),
+                          label: const Text('Add block'),
                         ),
-                      ),
+                        const SizedBox(height: 20),
+                        _buildPropertiesSection(colors),
+                        _buildLinkedReferencesSection(colors),
+                      ],
                     ),
-                    if (keyboardVisible)
-                      EditorInlineToolbar(onAction: _onToolbarAction),
-                  ],
+                  ),
                 ),
+                if (keyboardVisible)
+                  EditorInlineToolbar(onAction: _onToolbarAction),
+              ],
+            ),
       bottomNavigationBar: _readerMode ? _buildReaderBottomBar(colors) : null,
     );
   }
@@ -1316,9 +1516,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                 Text(
                   label,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: isLast ? colors.onSurface : colors.onSurfaceVariant,
-                        fontWeight: isLast ? FontWeight.w600 : FontWeight.normal,
-                      ),
+                    color: isLast ? colors.onSurface : colors.onSurfaceVariant,
+                    fontWeight: isLast ? FontWeight.w600 : FontWeight.normal,
+                  ),
                 ),
               ],
             ),
@@ -1359,9 +1559,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             Expanded(
               child: TextField(
                 controller: _titleController,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
                 decoration: const InputDecoration(
                   hintText: 'Page title',
                   border: InputBorder.none,
@@ -1405,6 +1605,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           onOutdent: _onOutdent,
           onToggleCollapse: _onToggleCollapse,
           onNodeLinkTap: _onNodeLinkTap,
+          onNodeLinkAction: _onNodeLinkAction,
           onContentChanged: _markDirty,
           onToggleTask: _onToggleTaskStatus,
           linkColors: _linkColors,
@@ -1431,9 +1632,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           children: [
             Text(
               'Properties',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
             ...visible.map(_buildPropertyCell),
@@ -1444,8 +1645,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                 title: Text(
                   'Hidden properties (${hidden.length})',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: colors.onSurfaceVariant,
-                      ),
+                    color: colors.onSurfaceVariant,
+                  ),
                 ),
                 children: hidden.map(_buildPropertyCell).toList(),
               ),
@@ -1500,12 +1701,20 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       final refreshed = await repo.fetchNodeProperties(widget.nodeUuid);
       if (!mounted) return;
       setState(() {
-        _properties = _buildDisplayProperties(refreshed, _classProperties, _availableProperties);
+        _properties = _buildDisplayProperties(
+          refreshed,
+          _classProperties,
+          _availableProperties,
+        );
       });
     } on DioException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save ${property.name}: ${e.message ?? 'error'}')),
+        SnackBar(
+          content: Text(
+            'Failed to save ${property.name}: ${e.message ?? 'error'}',
+          ),
+        ),
       );
     }
   }
@@ -1530,9 +1739,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         children: [
           Text(
             'Linked References ($_linkedRefsTotal)',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 4),
           ..._linkedReferences.map((ref) {
@@ -1557,7 +1766,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
               subtitle: subtitle != null
                   ? Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis)
                   : null,
-              onTap: () => context.push('${Routes.editor}/${ref.sourceNode.uuid}'),
+              onTap: () =>
+                  context.push('${Routes.editor}/${ref.sourceNode.uuid}'),
             );
           }),
         ],
@@ -1594,9 +1804,9 @@ class _ReaderBarButton extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               label,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(color: colors.onSurfaceVariant),
             ),
           ],
         ),
@@ -1635,7 +1845,9 @@ class _PageReaderView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final paperColor = isDark ? const Color(0xFF1C1915) : const Color(0xFFFDFBF7);
+    final paperColor = isDark
+        ? const Color(0xFF1C1915)
+        : const Color(0xFFFDFBF7);
 
     return Container(
       color: paperColor,
@@ -1645,9 +1857,9 @@ class _PageReaderView extends StatelessWidget {
           children: [
             Text(
               title.isNotEmpty ? title : 'Untitled',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 24),
             ..._buildBlocks(context, roots, 0),
@@ -1657,7 +1869,11 @@ class _PageReaderView extends StatelessWidget {
     );
   }
 
-  List<Widget> _buildBlocks(BuildContext context, List<BlockNode> nodes, int depth) {
+  List<Widget> _buildBlocks(
+    BuildContext context,
+    List<BlockNode> nodes,
+    int depth,
+  ) {
     final rows = <Widget>[];
     for (final block in nodes) {
       rows.add(_buildBlockRow(context, block, depth));
@@ -1741,7 +1957,8 @@ class _PageReaderView extends StatelessWidget {
     final style = _contentStyle(context, isHeading, level);
 
     if (block.node.isTask) {
-      final status = block.node.properties[SystemPropertyUuids.taskStatus] as String?;
+      final status =
+          block.node.properties[SystemPropertyUuids.taskStatus] as String?;
       final isDone = status != null && TaskStatuses.closed.contains(status);
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1796,7 +2013,9 @@ class _PageReaderView extends StatelessWidget {
   String _sourceWithoutBullet(String name) {
     final ast = _tryParseAst(name);
     final markdown = AstBuilder.toMarkdown(ast);
-    final stripped = markdown.startsWith('- ') ? markdown.substring(2) : markdown;
+    final stripped = markdown.startsWith('- ')
+        ? markdown.substring(2)
+        : markdown;
     return AstBuilder.serialize(AstBuilder.parseInline(stripped));
   }
 

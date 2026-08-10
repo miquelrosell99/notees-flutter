@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
+import 'bottom_sheet_drag_handle.dart';
 
 /// Actions that can be triggered from the global command palette.
 enum CommandPaletteAction {
@@ -208,6 +209,7 @@ class _CommandPaletteState extends State<CommandPalette> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          const BottomSheetDragHandle(),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
             child: Row(
@@ -216,8 +218,8 @@ class _CommandPaletteState extends State<CommandPalette> {
                   child: Text(
                     'Command palette',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 IconButton(
@@ -252,10 +254,7 @@ class _CommandPaletteState extends State<CommandPalette> {
           if (_error != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(
-                _error!,
-                style: TextStyle(color: colors.error),
-              ),
+              child: Text(_error!, style: TextStyle(color: colors.error)),
             ),
           if (_loading)
             const Padding(

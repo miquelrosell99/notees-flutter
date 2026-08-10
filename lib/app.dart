@@ -289,15 +289,11 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
         router.push(Routes.pages);
       case 'tasks':
         router.push(Routes.tasks);
-      case 'graph':
-        router.push(Routes.graph);
       case 'whiteboard':
         final uuid = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : null;
         router.push(uuid != null ? '${Routes.whiteboard}/$uuid' : Routes.whiteboard);
       case 'timeline':
         router.push(Routes.timeline);
-      case 'gantt':
-        router.push(Routes.gantt);
       case 'chart':
         router.push(Routes.chart);
       case 'pivot':

@@ -47,10 +47,8 @@ abstract class Routes {
   static const search = '/search';
   static const tasks = '/tasks';
   static const templates = '/templates';
-  static const graph = '/graph';
   static const whiteboard = '/whiteboard';
   static const timeline = '/timeline';
-  static const gantt = '/gantt';
   static const chart = '/chart';
   static const pivot = '/pivot';
   static const query = '/query';
@@ -177,13 +175,6 @@ GoRouter createRouter({required AuthProvider authProvider}) {
         builder: (context, state) => const MainShellScreen(initialIndex: 1),
       ),
       GoRoute(
-        path: Routes.graph,
-        builder: (context, state) => const NoteesWebViewScreen(
-          path: Routes.graph,
-          title: 'Graph',
-        ),
-      ),
-      GoRoute(
         path: Routes.whiteboard,
         builder: (context, state) => const NoteesWebViewScreen(
           path: Routes.whiteboard,
@@ -205,13 +196,6 @@ GoRouter createRouter({required AuthProvider authProvider}) {
         builder: (context, state) => const NoteesWebViewScreen(
           path: Routes.timeline,
           title: 'Timeline',
-        ),
-      ),
-      GoRoute(
-        path: Routes.gantt,
-        builder: (context, state) => const NoteesWebViewScreen(
-          path: Routes.gantt,
-          title: 'Gantt',
         ),
       ),
       GoRoute(
