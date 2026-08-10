@@ -90,7 +90,6 @@ void _backgroundSyncCallback() {
 
       final queue = OfflineQueue(
         database: AppDatabase(),
-        dio: dio,
         syncService: syncService,
       );
       await queue.process();

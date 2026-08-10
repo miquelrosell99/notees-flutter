@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/utils/ast_builder.dart';
@@ -19,12 +18,10 @@ import 'sync_v2_service.dart';
 class OfflineQueue {
   OfflineQueue({
     required this.database,
-    required this.dio,
     this.syncService,
   });
 
   final AppDatabase database;
-  final Dio dio;
   final SyncV2Service? syncService;
 
   Future<void> enqueueQuickNote(String name) async {
@@ -68,24 +65,21 @@ class OfflineQueue {
       final method = item['method'] as String;
       final payload = jsonDecode(item['payload'] as String) as Map<String, dynamic>;
       try {
+        if (syncService == null) {
+          errors.add('$method: Sync service not available');
+          continue;
+        }
         switch (method) {
           case 'quick_note':
             final name = payload['name'] as String;
-            if (syncService != null) {
-              final nodeUuid = const Uuid().v7();
-              await syncService!.enqueue(
-                type: 'create',
-                nodeUuid: nodeUuid,
-                contentAst: AstBuilder.parseInline(name),
-                isPage: true,
-              );
-              await syncService!.flush();
-            } else {
-              await dio.post<Map<String, dynamic>>(
-                '/nodes/page',
-                queryParameters: {'name': name},
-              );
-            }
+            final nodeUuid = const Uuid().v7();
+            await syncService!.enqueue(
+              type: 'create',
+              nodeUuid: nodeUuid,
+              contentAst: AstBuilder.parseInline(name),
+              isPage: true,
+            );
+            await syncService!.flush();
           case 'editor_save':
             final pageUuid = payload['page_uuid'] as String;
             final title = payload['title'] as String;
@@ -95,7 +89,7 @@ class OfflineQueue {
             final deletedUuids = ((payload['deleted_uuids'] as List<dynamic>?) ?? [])
                 .map((e) => e as String)
                 .toList();
-            final service = EditorSaveService(dio: dio, syncService: syncService);
+            final service = EditorSaveService(syncService: syncService!);
             await service.savePage(
               pageUuid: pageUuid,
               title: title,
@@ -104,8 +98,6 @@ class OfflineQueue {
             );
         }
         await database.remove((item['id'] as num).toInt());
-      } on DioException catch (e) {
-        errors.add('$method: ${e.message}');
       } catch (e) {
         errors.add('$method: $e');
       }

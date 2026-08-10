@@ -23,7 +23,6 @@ import '../../presentation/screens/server_setup_screen.dart';
 import '../../presentation/screens/keyboard_shortcuts_screen.dart';
 import '../../presentation/screens/settings_screen.dart';
 import '../../presentation/screens/splash_screen.dart';
-import '../../presentation/screens/templates_screen.dart';
 import '../../presentation/screens/trash_screen.dart';
 import '../../presentation/screens/user_profile_screen.dart';
 import '../../presentation/screens/web_view_screen.dart';
@@ -235,10 +234,6 @@ GoRouter createRouter({required AuthProvider authProvider}) {
             title: 'Query builder',
           );
         },
-      ),
-      GoRoute(
-        path: Routes.templates,
-        builder: (context, state) => const TemplatesScreen(),
       ),
       GoRoute(
         path: Routes.notifications,

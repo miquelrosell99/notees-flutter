@@ -20,8 +20,8 @@ class Share {
   final String? nodeName;
 
   factory Share.fromJson(Map<String, dynamic> json) => Share(
-        shareUuid: json['share_uuid'] as String,
-        nodeUuid: json['node_uuid'] as String,
+        shareUuid: (json['share_uuid'] ?? json['uuid']) as String,
+        nodeUuid: (json['node_uuid'] ?? '') as String,
         createdAt: json['created_at'] as String,
         expiryDate: json['expiry_date'] as String?,
         url: json['url'] as String?,
@@ -35,10 +35,17 @@ class ShareRepository {
   final Dio dio;
 
   Future<List<Share>> fetchShares() async {
-    final response = await dio.get<Map<String, dynamic>>('/shares');
+    final response = await dio.get<dynamic>('/shares');
     final data = response.data;
     if (data == null) return [];
-    final items = (data['shares'] ?? data['items']) as List<dynamic>? ?? [];
+    final List<dynamic> items;
+    if (data is List) {
+      items = data;
+    } else if (data is Map<String, dynamic>) {
+      items = (data['shares'] ?? data['items'] ?? []) as List<dynamic>;
+    } else {
+      items = [];
+    }
     return items.map((e) => Share.fromJson(e as Map<String, dynamic>)).toList();
   }
 
@@ -54,7 +61,8 @@ class ShareRepository {
         if (password != null) 'password': password,
       },
     );
-    return Share.fromJson(response.data!);
+    final json = response.data!;
+    return Share.fromJson({...json, 'node_uuid': nodeUuid});
   }
 
   Future<List<Share>> fetchNodeShares(String nodeUuid) async {
@@ -62,7 +70,9 @@ class ShareRepository {
     final data = response.data;
     if (data == null) return [];
     final items = (data['shares'] ?? data['items']) as List<dynamic>? ?? [];
-    return items.map((e) => Share.fromJson(e as Map<String, dynamic>)).toList();
+    return items
+        .map((e) => Share.fromJson({...(e as Map<String, dynamic>), 'node_uuid': nodeUuid}))
+        .toList();
   }
 
   Future<void> revokeShare(String shareUuid) async {
