@@ -1633,53 +1633,42 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
     final canRename = !isJournalDatePage;
 
-    Widget title = Row(
-      children: [
-        NodeIcon(iconField: _pageIcon, size: 28),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            _titleController.text.isNotEmpty ? _titleController.text : 'Untitled',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+    return TextField(
+      controller: _titleController,
+      readOnly: true,
+      canRequestFocus: false,
+      onTap: canRename ? _showRenameTitleDialog : null,
+      style: Theme.of(
+        context,
+      ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+      decoration: InputDecoration(
+        hintText: 'Untitled',
+        prefixIcon: NodeIcon(
+          iconField: _pageIcon,
+          size: 28,
+          fallbackColor: colors.onSurfaceVariant,
+        ),
+        suffixIcon: _pageIsPrivate
+            ? Icon(
+                MdiIcons.lockOutline,
+                size: 18,
+                color: colors.onSurfaceVariant,
+              )
+            : null,
+        enabledBorder: UnderlineInputBorder(
+          borderSide: BorderSide(
+            color: pageColor ?? colors.outline.withAlpha((0.2 * 255).round()),
+            width: pageColor != null ? 2 : 1,
           ),
         ),
-        if (_pageIsPrivate) ...[
-          const SizedBox(width: 8),
-          Icon(
-            MdiIcons.lockOutline,
-            size: 18,
-            color: colors.onSurfaceVariant,
+        disabledBorder: UnderlineInputBorder(
+          borderSide: BorderSide(
+            color: pageColor ?? colors.outline.withAlpha((0.2 * 255).round()),
+            width: pageColor != null ? 2 : 1,
           ),
-        ],
-      ],
-    );
-
-    if (canRename) {
-      title = InkWell(
-        onTap: _showRenameTitleDialog,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: title,
         ),
-      );
-    } else {
-      title = Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: title,
-      );
-    }
-
-    return Container(
-      decoration: pageColor != null
-          ? BoxDecoration(
-              border: Border(left: BorderSide(color: pageColor, width: 4)),
-            )
-          : null,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: title,
+        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+      ),
     );
   }
 
