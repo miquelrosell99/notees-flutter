@@ -13,7 +13,10 @@ class RelayAppliers {
 
   Future<void> apply(OperationEnvelope envelope) async {
     final payload = envelope.payload;
-    final nodeId = payload['nodeId'] as String? ?? '';
+    // Class operations identify the target via `classId`, not `nodeId`.
+    final nodeId = payload['nodeId'] as String? ??
+        payload['classId'] as String? ??
+        '';
     if (nodeId.isEmpty) return;
 
     switch (envelope.opType) {

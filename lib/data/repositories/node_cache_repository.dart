@@ -377,7 +377,7 @@ class NodeCacheRepository {
     final db = await _database.database;
     final rows = await db.query(
       'class_cache',
-      where: 'uuid = ?',
+      where: 'uuid = ? AND active = 1',
       whereArgs: [uuid],
       limit: 1,
     );

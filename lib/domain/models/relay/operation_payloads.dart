@@ -93,6 +93,51 @@ class OperationPayloads {
         'classId': classId,
       };
 
+  static Map<String, dynamic> classCreate({
+    required String classId,
+    required String name,
+    String? icon,
+    String? color,
+    String? description,
+    List<String>? extendsClassIds,
+  }) =>
+      {
+        'classId': classId,
+        'name': name,
+        if (icon != null) 'icon': icon,
+        if (color != null) 'color': color,
+        if (description != null) 'description': description,
+        if (extendsClassIds != null) 'extends': extendsClassIds,
+      };
+
+  static Map<String, dynamic> classUpdate({
+    required String classId,
+    String? name,
+    String? icon,
+    String? color,
+    String? description,
+  }) =>
+      {
+        'classId': classId,
+        if (name != null) 'name': name,
+        if (icon != null) 'icon': icon,
+        if (color != null) 'color': color,
+        if (description != null) 'description': description,
+      };
+
+  static Map<String, dynamic> classDelete({required String classId}) => {
+        'classId': classId,
+      };
+
+  static Map<String, dynamic> classSetExtends({
+    required String classId,
+    required List<String> extendsClassIds,
+  }) =>
+      {
+        'classId': classId,
+        'extendsClassIds': extendsClassIds,
+      };
+
   static Map<String, dynamic> propertySet({
     required String propertyValueId,
     required String nodeId,
