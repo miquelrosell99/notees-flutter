@@ -362,6 +362,16 @@ class NodeCacheRepository {
     return rows.map(_classFromRow).toList();
   }
 
+  /// Number of active classes currently cached.
+  Future<int> classCacheCount() async {
+    final db = await _database.database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS count FROM class_cache WHERE active = 1',
+    );
+    final count = result.firstOrNull?['count'];
+    return (count is int ? count : int.tryParse(count.toString()) ?? 0);
+  }
+
   /// A single class by UUID, or `null` if it is not cached.
   Future<Node?> getClassByUuid(String uuid) async {
     final db = await _database.database;
