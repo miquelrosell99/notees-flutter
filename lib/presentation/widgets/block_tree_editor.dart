@@ -294,6 +294,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
           onDragStarted: () => setState(() => _dragging = node),
           onDragEnded: () => setState(() => _dragging = null),
           onToggleCollapse: () => widget.onToggleCollapse(node),
+          onFocusView: () => _showFocusedBlockView(node),
           onIndent: () => widget.onIndent(node),
           onOutdent: () => widget.onOutdent(node),
         ),
@@ -340,8 +341,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     if (isFocused) {
       content = Container(
         decoration: BoxDecoration(
-          color: colors.surfaceContainerHighest.withAlpha((0.5 * 255).round()),
-          borderRadius: BorderRadius.circular(8),
+          color: colors.surfaceContainerHighest.withAlpha((0.35 * 255).round()),
         ),
         child: content,
       );
@@ -363,9 +363,8 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
               : const Duration(milliseconds: 150),
           decoration: BoxDecoration(
             color: active
-                ? colors.primaryContainer.withAlpha((0.25 * 255).round())
+                ? colors.primaryContainer.withAlpha((0.2 * 255).round())
                 : null,
-            borderRadius: BorderRadius.circular(8),
           ),
           child: content,
         );
@@ -386,7 +385,6 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
           builder: (context, candidateData, rejectedData) {
             return Container(
               height: 4,
-              margin: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
                 color: candidateData.isNotEmpty
                     ? colors.primary
@@ -396,10 +394,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
             );
           },
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: content,
-        ),
+        content,
         // Drop after this row.
         DragTarget<BlockNode>(
           onWillAcceptWithDetails: (details) =>
@@ -410,7 +405,6 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
           builder: (context, candidateData, rejectedData) {
             return Container(
               height: 4,
-              margin: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
                 color: candidateData.isNotEmpty
                     ? colors.primary
@@ -518,10 +512,32 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     showModalBottomSheet(
       context: context,
       showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: Icon(MdiIcons.eyeOutline),
+              title: const Text('Focus view'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _showFocusedBlockView(node);
+              },
+            ),
+            if (node.children.isNotEmpty)
+              ListTile(
+                leading: Icon(
+                  node.collapsed ? MdiIcons.chevronDown : MdiIcons.chevronUp,
+                ),
+                title: Text(node.collapsed ? 'Expand' : 'Collapse'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  widget.onToggleCollapse(node);
+                },
+              ),
             if (node.id > 0)
               ListTile(
                 leading: Icon(MdiIcons.plus),
@@ -577,6 +593,105 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
         ),
       ),
     );
+  }
+
+  void _showFocusedBlockView(BlockNode block) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        final colors = Theme.of(ctx).colorScheme;
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.6,
+          minChildSize: 0.3,
+          maxChildSize: 0.9,
+          builder: (ctx, scrollController) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Focused view',
+                      style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: colors.onSurfaceVariant,
+                          ),
+                    ),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: ListView(
+                        controller: scrollController,
+                        children: [
+                          AstRichText(
+                            source: block.node.name,
+                            onNodeLinkTap: widget.onNodeLinkTap,
+                            onNodeLinkLongPress: (linkId, label) {
+                              Navigator.of(ctx).pop();
+                              _showNodeLinkMenu(block, linkId, label);
+                            },
+                            onExternalLinkTap: widget.onExternalLinkTap,
+                            linkColors: widget.linkColors,
+                            style: Theme.of(ctx).textTheme.bodyLarge,
+                          ),
+                          ..._buildFocusedChildren(ctx, block.children, 1),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton.tonalIcon(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        widget.onFocus(block);
+                      },
+                      icon: Icon(MdiIcons.pencilOutline),
+                      label: const Text('Edit this block'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  List<Widget> _buildFocusedChildren(
+    BuildContext context,
+    List<BlockNode> children,
+    int depth,
+  ) {
+    final rows = <Widget>[];
+    for (final child in children) {
+      rows.add(
+        Padding(
+          padding: EdgeInsets.only(left: depth * 20.0, top: 8),
+          child: AstRichText(
+            source: child.node.name,
+            onNodeLinkTap: widget.onNodeLinkTap,
+            onNodeLinkLongPress: (linkId, label) {
+              Navigator.of(context).pop();
+              _showNodeLinkMenu(child, linkId, label);
+            },
+            onExternalLinkTap: widget.onExternalLinkTap,
+            linkColors: widget.linkColors,
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+        ),
+      );
+      if (child.children.isNotEmpty) {
+        rows.addAll(_buildFocusedChildren(context, child.children, depth + 1));
+      }
+    }
+    return rows;
   }
 
   void _showNodeLinkMenu(BlockNode block, String linkId, String label) {
@@ -725,6 +840,7 @@ class _DragHandle extends StatefulWidget {
     required this.onDragStarted,
     required this.onDragEnded,
     required this.onToggleCollapse,
+    required this.onFocusView,
     required this.onIndent,
     required this.onOutdent,
   });
@@ -735,6 +851,7 @@ class _DragHandle extends StatefulWidget {
   final VoidCallback onDragStarted;
   final VoidCallback onDragEnded;
   final VoidCallback onToggleCollapse;
+  final VoidCallback onFocusView;
   final VoidCallback onIndent;
   final VoidCallback onOutdent;
 
@@ -770,7 +887,8 @@ class _DragHandleState extends State<_DragHandle> {
 
     final bullet = _Bullet(
       collapsed: widget.collapsed,
-      onTap: widget.onToggleCollapse,
+      onToggleCollapse: widget.onToggleCollapse,
+      onFocusView: widget.onFocusView,
       colors: colors,
     );
 
@@ -828,18 +946,20 @@ class _BlockToolbarButton extends StatelessWidget {
 class _Bullet extends StatelessWidget {
   const _Bullet({
     required this.collapsed,
-    required this.onTap,
+    required this.onToggleCollapse,
+    required this.onFocusView,
     required this.colors,
   });
 
   final bool collapsed;
-  final VoidCallback onTap;
+  final VoidCallback onToggleCollapse;
+  final VoidCallback onFocusView;
   final ColorScheme colors;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: collapsed ? onToggleCollapse : onFocusView,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
         width: 48,

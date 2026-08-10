@@ -320,6 +320,105 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     await SharePlus.instance.share(ShareParams(text: text));
   }
 
+  Future<void> _showRenameTitleDialog() async {
+    final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
+    if (isJournalDatePage) return;
+
+    final controller = TextEditingController(text: _titleController.text);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename page'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(hintText: 'Page title'),
+          onSubmitted: (value) => Navigator.of(ctx).pop(value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (name == null || name.isEmpty || name == _titleController.text) return;
+    await _renamePage(name);
+  }
+
+  Future<void> _renamePage(String name) async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    setState(() => _saving = true);
+    try {
+      final repo = NodeRepository(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      );
+      final titleAst = AstBuilder.serialize(AstBuilder.parseInline(name));
+      await repo.updateNode(widget.nodeUuid, name: titleAst);
+      if (mounted) {
+        setState(() => _titleController.text = name);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Page renamed')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not rename page: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _showPageOptionsMenu() {
+    final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
+    HapticFeedback.lightImpact();
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!isJournalDatePage)
+              ListTile(
+                leading: Icon(MdiIcons.pencilOutline),
+                title: const Text('Rename'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _showRenameTitleDialog();
+                },
+              ),
+            ListTile(
+              leading: Icon(MdiIcons.shareOutline),
+              title: const Text('Share'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _openShareSheet();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _onReaderAddBlock() {
     HapticFeedback.lightImpact();
     setState(() => _readerMode = false);
@@ -411,9 +510,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     if (auth.dio == null) return;
     if (_saving) return; // avoid overlapping saves
 
-    final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
-    final title = _titleController.text.trim();
-
     setState(() => _saving = true);
     try {
       final repo = NodeRepository(
@@ -421,10 +517,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         syncService: auth.syncService,
       );
 
-      if (!isJournalDatePage && title.isNotEmpty) {
-        final titleAst = AstBuilder.serialize(AstBuilder.parseInline(title));
-        await repo.updateNode(widget.nodeUuid, name: titleAst);
-      }
+      // Page title changes are handled explicitly via _renamePage; do not
+      // rewrite the title here so autosave cannot accidentally overwrite it.
 
       // Ensure every focused block's AST is synced before serializing.
       _syncAllBlockNames();
@@ -1358,24 +1452,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             tooltip: 'Comments',
             onPressed: _openComments,
           ),
-          PopupMenuButton<String>(
+          IconButton(
             icon: Icon(MdiIcons.dotsVertical),
             tooltip: 'More options',
-            onSelected: (value) {
-              if (value == 'share') _openShareSheet();
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem<String>(
-                value: 'share',
-                child: Row(
-                  children: [
-                    Icon(MdiIcons.shareOutline),
-                    const SizedBox(width: 12),
-                    const Text('Share'),
-                  ],
-                ),
-              ),
-            ],
+            onPressed: _showPageOptionsMenu,
           ),
           if (_saving)
             const Center(
@@ -1557,6 +1637,47 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     final colors = Theme.of(context).colorScheme;
     final pageColor = ColorPresets.tryResolve(_pageColor);
     final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
+    final canRename = !isJournalDatePage;
+
+    Widget title = Row(
+      children: [
+        NodeIcon(iconField: _pageIcon, size: 28),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            _titleController.text.isNotEmpty ? _titleController.text : 'Untitled',
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+          ),
+        ),
+        if (_pageIsPrivate) ...[
+          const SizedBox(width: 8),
+          Icon(
+            MdiIcons.lockOutline,
+            size: 18,
+            color: colors.onSurfaceVariant,
+          ),
+        ],
+      ],
+    );
+
+    if (canRename) {
+      title = InkWell(
+        onTap: _showRenameTitleDialog,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: title,
+        ),
+      );
+    } else {
+      title = Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: title,
+      );
+    }
+
     return FleetCard(
       child: Container(
         decoration: pageColor != null
@@ -1565,34 +1686,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
               )
             : null,
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: [
-            NodeIcon(iconField: _pageIcon, size: 28),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextField(
-                controller: _titleController,
-                readOnly: isJournalDatePage,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-                decoration: InputDecoration(
-                  hintText: isJournalDatePage ? null : 'Page title',
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
-            ),
-            if (_pageIsPrivate) ...[
-              const SizedBox(width: 8),
-              Icon(
-                MdiIcons.lockOutline,
-                size: 18,
-                color: colors.onSurfaceVariant,
-              ),
-            ],
-          ],
-        ),
+        child: title,
       ),
     );
   }
