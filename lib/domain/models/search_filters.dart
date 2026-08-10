@@ -100,7 +100,14 @@ enum SortBy {
   relevance('relevance'),
   writeDate('write_date'),
   createDate('create_date'),
-  name('name');
+  name('name'),
+  // The following values are sent to the backend, but the current backend
+  // search endpoint only documents relevance/write_date/create_date/name.
+  // When the backend ignores them, TasksScreen falls back to client-side
+  // sorting so the UI still works.
+  dueDate('due_date'),
+  priority('priority'),
+  manual('manual');
 
   const SortBy(this.value);
   final String value;
@@ -115,6 +122,12 @@ enum SortBy {
         return 'Created';
       case SortBy.name:
         return 'Name';
+      case SortBy.dueDate:
+        return 'Due date';
+      case SortBy.priority:
+        return 'Priority';
+      case SortBy.manual:
+        return 'Manual order';
     }
   }
 }

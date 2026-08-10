@@ -31,6 +31,7 @@ PATCH_PATTERNS = {
     "dynamic_color": r"^dynamic_color-",
     "cryptography_flutter": r"^cryptography_flutter-",
     "workmanager_android": r"^workmanager_android-",
+    "home_widget": r"^home_widget-",
 }
 
 

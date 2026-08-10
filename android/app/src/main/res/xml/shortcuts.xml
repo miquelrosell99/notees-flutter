@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_note"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_note"
+        android:shortcutShortLabel="@string/shortcut_new_note_short"
+        android:shortcutLongLabel="@string/shortcut_new_note_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.notees.notees"
+            android:targetClass="com.notees.notees.MainActivity"
+            android:data="notees://shortcut/note" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="new_task"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_task"
+        android:shortcutShortLabel="@string/shortcut_new_task_short"
+        android:shortcutLongLabel="@string/shortcut_new_task_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.notees.notees"
+            android:targetClass="com.notees.notees.MainActivity"
+            android:data="notees://shortcut/task" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="new_journal"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_journal"
+        android:shortcutShortLabel="@string/shortcut_new_journal_short"
+        android:shortcutLongLabel="@string/shortcut_new_journal_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.notees.notees"
+            android:targetClass="com.notees.notees.MainActivity"
+            android:data="notees://shortcut/journal" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="search"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_search"
+        android:shortcutShortLabel="@string/shortcut_search_short"
+        android:shortcutLongLabel="@string/shortcut_search_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.notees.notees"
+            android:targetClass="com.notees.notees.MainActivity"
+            android:data="notees://shortcut/search" />
+    </shortcut>
+</shortcuts>

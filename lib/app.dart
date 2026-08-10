@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/constants/capture_types.dart';
 import 'core/routing/router.dart';
 import 'core/secure/encryption_provider.dart';
 import 'core/secure/secure_storage.dart';
@@ -19,11 +20,13 @@ import 'native/app_locker.dart';
 import 'native/background_sync.dart';
 import 'native/intent_receiver.dart';
 import 'native/offline_sync.dart';
+import 'native/reminder_service.dart';
 import 'presentation/providers/auth_provider.dart';
 import 'presentation/providers/biometric_provider.dart';
 import 'presentation/providers/connectivity_provider.dart';
 import 'presentation/providers/settings_provider.dart';
 import 'presentation/widgets/audio_recorder_sheet.dart';
+import 'presentation/widgets/floating_capture_bubble.dart';
 import 'presentation/widgets/offline_banner.dart';
 import 'presentation/widgets/quick_capture_sheet.dart';
 
@@ -51,12 +54,20 @@ class NoteesApp extends StatelessWidget {
             prefs: prefs,
           ),
         ),
-        ChangeNotifierProvider(
-          create: (_) => BiometricProvider(prefs: prefs)..initialize(),
-        ),
+        Provider(create: (_) => secureStorage),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider(prefs)),
         ChangeNotifierProvider(create: (_) => EncryptionProvider(prefs: prefs)),
+        ChangeNotifierProxyProvider2<EncryptionProvider, SecureStorage,
+            BiometricProvider>(
+          create: (_) => BiometricProvider(prefs: prefs)..initialize(),
+          update: (_, encryption, storage, previous) {
+            final provider = previous ?? BiometricProvider(prefs: prefs);
+            provider.encryptionProvider = encryption;
+            provider.secureStorage = storage;
+            return provider;
+          },
+        ),
       ],
       child: const _NoteesAppBody(),
     );
@@ -81,6 +92,7 @@ class _NoteesAppBodyState extends State<_NoteesAppBody> {
     _router = createRouter(authProvider: auth);
     _initializeAfterFirstFrame(encryption, auth);
     unawaited(IntentReceiver.instance.initialize());
+    unawaited(ReminderService.instance.initialize());
   }
 
   /// Initializes encryption, auth, and periodic sync after the first frame so
@@ -134,13 +146,17 @@ class _NoteesAppBodyState extends State<_NoteesAppBody> {
                       child: OfflineSync(
                         dio: auth.dio ?? Dio(),
                         syncService: auth.syncService,
-                        child: MaterialApp.router(
-                          title: 'Notees',
-                          debugShowCheckedModeBanner: false,
-                          theme: light,
-                          darkTheme: dark,
-                          themeMode: _flutterThemeMode(themeProvider.themeMode),
-                          routerConfig: _router,
+                        child: ReminderListener(
+                          child: FloatingCaptureBubble(
+                            child: MaterialApp.router(
+                              title: 'Notees',
+                              debugShowCheckedModeBanner: false,
+                              theme: light,
+                              darkTheme: dark,
+                              themeMode: _flutterThemeMode(themeProvider.themeMode),
+                              routerConfig: _router,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -174,12 +190,12 @@ class ShareListener extends StatefulWidget {
 }
 
 class _ShareListenerState extends State<ShareListener> {
-  StreamSubscription<String>? _sub;
+  StreamSubscription<SharePayload>? _sub;
 
   @override
   void initState() {
     super.initState();
-    _sub = IntentReceiver.instance.onShareText.listen(_onShare);
+    _sub = IntentReceiver.instance.onShare.listen(_onShare);
   }
 
   @override
@@ -188,7 +204,7 @@ class _ShareListenerState extends State<ShareListener> {
     super.dispose();
   }
 
-  void _onShare(String text) {
+  void _onShare(SharePayload payload) {
     final ctx = context;
     if (!ctx.mounted) return;
     final auth = ctx.read<AuthProvider>();
@@ -196,7 +212,10 @@ class _ShareListenerState extends State<ShareListener> {
     showModalBottomSheet(
       context: ctx,
       isScrollControlled: true,
-      builder: (_) => QuickCaptureSheet(initialText: text),
+      builder: (_) => QuickCaptureSheet(
+        initialText: payload.text ?? '',
+        imagePath: payload.imagePath,
+      ),
     );
   }
 
@@ -286,6 +305,39 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
       case 'query':
         final nodeUuid = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '';
         if (nodeUuid.isNotEmpty) router.push('${Routes.query}/$nodeUuid');
+      case 'shortcut':
+        final action = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '';
+        _handleShortcut(action);
+    }
+  }
+
+  void _handleShortcut(String action) {
+    final ctx = context;
+    if (!ctx.mounted) return;
+    final auth = ctx.read<AuthProvider>();
+    if (!auth.isAuthenticated) return;
+
+    switch (action) {
+      case 'search':
+        ctx.push(Routes.search);
+      case 'note':
+        showModalBottomSheet(
+          context: ctx,
+          isScrollControlled: true,
+          builder: (_) => const QuickCaptureSheet(initialType: QuickCaptureType.note),
+        );
+      case 'task':
+        showModalBottomSheet(
+          context: ctx,
+          isScrollControlled: true,
+          builder: (_) => const QuickCaptureSheet(initialType: QuickCaptureType.task),
+        );
+      case 'journal':
+        showModalBottomSheet(
+          context: ctx,
+          isScrollControlled: true,
+          builder: (_) => const QuickCaptureSheet(initialType: QuickCaptureType.journal),
+        );
     }
   }
 
@@ -413,6 +465,76 @@ class _AudioNoteTileListenerState extends State<AudioNoteTileListener> {
       repository: repo,
       destination: destination,
     );
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
+/// Listens for taps and snooze actions on task reminders and navigates to the
+/// corresponding editor or re-schedules the reminder.
+class ReminderListener extends StatefulWidget {
+  const ReminderListener({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<ReminderListener> createState() => _ReminderListenerState();
+}
+
+class _ReminderListenerState extends State<ReminderListener> {
+  StreamSubscription<String>? _tapSub;
+  StreamSubscription<ReminderSnoozeEvent>? _snoozeSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _tapSub = ReminderService.instance.onTaskTapped.listen(_onTaskTapped);
+    _snoozeSub = ReminderService.instance.onSnooze.listen(_onSnooze);
+  }
+
+  @override
+  void dispose() {
+    _tapSub?.cancel();
+    _snoozeSub?.cancel();
+    super.dispose();
+  }
+
+  void _onTaskTapped(String taskUuid) {
+    final router = GoRouter.of(context);
+    router.push('${Routes.editor}/$taskUuid');
+  }
+
+  Future<void> _onSnooze(ReminderSnoozeEvent event) async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+    try {
+      final task = await repo.fetchNode(event.taskUuid);
+      await ReminderService.instance.snoozeTaskReminder(
+        event.taskUuid,
+        task.displayName,
+        event.duration,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Snoozed for ${_formatSnooze(event.duration)}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not snooze reminder: $e')),
+        );
+      }
+    }
+  }
+
+  String _formatSnooze(Duration duration) {
+    if (duration.inDays >= 1) return '1 day';
+    if (duration.inHours >= 1) return '1 hour';
+    return '15 minutes';
   }
 
   @override

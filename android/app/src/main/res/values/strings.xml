@@ -2,4 +2,24 @@
 <resources>
     <string name="quick_note_tile_label">Quick note</string>
     <string name="audio_note_tile_label">Audio note</string>
+    <string name="shortcut_new_note_short">New note</string>
+    <string name="shortcut_new_note_long">New note</string>
+    <string name="shortcut_new_task_short">New task</string>
+    <string name="shortcut_new_task_long">New task</string>
+    <string name="shortcut_new_journal_short">New journal</string>
+    <string name="shortcut_new_journal_long">New journal entry</string>
+    <string name="shortcut_search_short">Search</string>
+    <string name="shortcut_search_long">Search Notees</string>
+
+    <string name="widget_task_title">Today</string>
+    <string name="widget_today_tasks_title">Today\'s tasks</string>
+    <string name="widget_no_tasks">No tasks for today</string>
+    <string name="widget_all_caught_up">All caught up</string>
+    <string name="widget_add_task">Add task</string>
+    <string name="widget_complete_task">Complete task</string>
+
+    <plurals name="widget_task_count">
+        <item quantity="one">%d task</item>
+        <item quantity="other">%d tasks</item>
+    </plurals>
 </resources>

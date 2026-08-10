@@ -26,4 +26,15 @@ class SecureStorage {
       _storage.delete(key: '$_apiKeyPrefix$serverId');
 
   Future<void> clear() => _storage.deleteAll();
+
+  static const _encryptionPasswordKey = 'encryption_password';
+
+  Future<void> writeEncryptionPassword(String password) =>
+      _storage.write(key: _encryptionPasswordKey, value: password);
+
+  Future<String?> readEncryptionPassword() =>
+      _storage.read(key: _encryptionPasswordKey);
+
+  Future<void> deleteEncryptionPassword() =>
+      _storage.delete(key: _encryptionPasswordKey);
 }

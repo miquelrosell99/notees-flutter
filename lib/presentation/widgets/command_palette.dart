@@ -7,10 +7,10 @@ import '../../data/repositories/node_repository.dart';
 
 /// Actions that can be triggered from the global command palette.
 enum CommandPaletteAction {
-  dashboard,
-  journal,
+  inbox,
   tasks,
-  pages,
+  library,
+  journals,
   journalToday,
   search,
   settings,
@@ -128,14 +128,9 @@ class _CommandPaletteState extends State<CommandPalette> {
   List<_CommandEntry> _buildEntries() {
     final entries = <_CommandEntry>[
       _CommandEntry(
-        icon: MdiIcons.viewDashboardOutline,
-        label: 'Go to dashboard',
-        item: StaticCommand(CommandPaletteAction.dashboard),
-      ),
-      _CommandEntry(
-        icon: MdiIcons.calendarOutline,
-        label: 'Go to journals',
-        item: StaticCommand(CommandPaletteAction.journal),
+        icon: MdiIcons.inboxOutline,
+        label: 'Go to inbox',
+        item: StaticCommand(CommandPaletteAction.inbox),
       ),
       _CommandEntry(
         icon: MdiIcons.checkCircleOutline,
@@ -143,9 +138,14 @@ class _CommandPaletteState extends State<CommandPalette> {
         item: StaticCommand(CommandPaletteAction.tasks),
       ),
       _CommandEntry(
-        icon: MdiIcons.fileDocumentOutline,
-        label: 'Go to pages',
-        item: StaticCommand(CommandPaletteAction.pages),
+        icon: MdiIcons.bookshelf,
+        label: 'Go to library',
+        item: StaticCommand(CommandPaletteAction.library),
+      ),
+      _CommandEntry(
+        icon: MdiIcons.calendarOutline,
+        label: 'Go to journals',
+        item: StaticCommand(CommandPaletteAction.journals),
       ),
       _CommandEntry(
         icon: MdiIcons.calendarEditOutline,

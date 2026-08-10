@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
@@ -20,15 +21,34 @@ class AppDatabase {
   /// Returns the shared database instance.
   factory AppDatabase() => _instance ??= AppDatabase._internal();
 
+  /// Returns an in-memory database instance for tests.
+  factory AppDatabase.inMemory() => _inMemoryInstance ??= AppDatabase._internal(':memory:');
+  static AppDatabase? _inMemoryInstance;
+
+  /// Wraps an already-opened database for tests.
+  factory AppDatabase.fromDatabase(Database db) {
+    final instance = AppDatabase._internal(':memory:');
+    instance._db = db;
+    return instance;
+  }
+
   /// Resets the singleton, mainly for tests.
   static void reset() {
     _instance?._db = null;
     _instance = null;
+    _inMemoryInstance?._db = null;
+    _inMemoryInstance = null;
     encryptionPassword = null;
   }
 
   final String _dbName;
   Database? _db;
+
+  /// Whether the local SQLite database has a platform implementation.
+  /// sqflite_sqlcipher only supports Android and iOS.
+  static bool get isSupported =>
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
 
   /// The SQLCipher password used when opening the database.
   /// Set to `null` to use an unencrypted database.
@@ -37,6 +57,7 @@ class AppDatabase {
   Future<Database> get database async => _db ??= await _open();
 
   Future<String> get _path async {
+    if (_dbName == ':memory:') return ':memory:';
     final dir = await getApplicationDocumentsDirectory();
     return join(dir.path, _dbName);
   }
@@ -45,13 +66,19 @@ class AppDatabase {
     final path = await _path;
     return openDatabase(
       path,
-      version: 3,
+      version: 9,
       password: encryptionPassword,
       onCreate: (db, version) async {
         await _createOfflineQueue(db);
-        await _createSyncOutbox(db);
         await _createSyncState(db);
         await _createNodeCache(db);
+        await _createSearchIndex(db);
+        await _createRelayOutbox(db);
+        await _createRelayOperations(db);
+        await _createSyncWatermark(db);
+        await _createSyncPushWatermark(db);
+        await _createFavorites(db);
+        await _createTaskCompletion(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -60,6 +87,27 @@ class AppDatabase {
         }
         if (oldVersion < 3) {
           await _createNodeCache(db);
+        }
+        if (oldVersion < 4) {
+          await _createSearchIndex(db);
+        }
+        if (oldVersion < 5) {
+          await _createRelayOutbox(db);
+          await _createRelayOperations(db);
+          await _createSyncWatermark(db);
+          await _createSyncPushWatermark(db);
+        }
+        if (oldVersion < 6) {
+          await _migrateNodeCacheV6(db);
+        }
+        if (oldVersion < 7) {
+          await _createFavorites(db);
+        }
+        if (oldVersion < 8) {
+          await _migrateNodeCacheV8(db);
+        }
+        if (oldVersion < 9) {
+          await _createTaskCompletion(db);
         }
       },
     );
@@ -120,8 +168,15 @@ class AppDatabase {
         uuid TEXT PRIMARY KEY,
         name TEXT,
         parent_uuid TEXT,
-        sequence REAL NOT NULL DEFAULT 0,
+        classes_uuid TEXT,
+        is_page INTEGER NOT NULL DEFAULT 0,
+        is_task INTEGER NOT NULL DEFAULT 0,
+        is_daily INTEGER NOT NULL DEFAULT 0,
+        is_monthly INTEGER NOT NULL DEFAULT 0,
+        is_yearly INTEGER NOT NULL DEFAULT 0,
         is_deleted INTEGER NOT NULL DEFAULT 0,
+        is_archived INTEGER NOT NULL DEFAULT 0,
+        sequence REAL NOT NULL DEFAULT 0,
         version INTEGER NOT NULL DEFAULT 0,
         write_date TEXT,
         payload TEXT NOT NULL,
@@ -130,6 +185,139 @@ class AppDatabase {
     ''');
     await db.execute('CREATE INDEX idx_node_cache_parent ON node_cache(parent_uuid)');
     await db.execute('CREATE INDEX idx_node_cache_deleted ON node_cache(is_deleted)');
+    await db.execute('CREATE INDEX idx_node_cache_page ON node_cache(is_page)');
+    await db.execute('CREATE INDEX idx_node_cache_task ON node_cache(is_task)');
+    await db.execute('CREATE INDEX idx_node_cache_daily ON node_cache(is_daily)');
+  }
+
+  Future<void> _migrateNodeCacheV6(Database db) async {
+    await db.execute('ALTER TABLE node_cache ADD COLUMN classes_uuid TEXT');
+    await db.execute('ALTER TABLE node_cache ADD COLUMN is_page INTEGER NOT NULL DEFAULT 0');
+    await db.execute('ALTER TABLE node_cache ADD COLUMN is_task INTEGER NOT NULL DEFAULT 0');
+    await db.execute('ALTER TABLE node_cache ADD COLUMN is_daily INTEGER NOT NULL DEFAULT 0');
+    await db.execute('ALTER TABLE node_cache ADD COLUMN is_monthly INTEGER NOT NULL DEFAULT 0');
+    await db.execute('ALTER TABLE node_cache ADD COLUMN is_yearly INTEGER NOT NULL DEFAULT 0');
+    await db.execute('CREATE INDEX idx_node_cache_page ON node_cache(is_page)');
+    await db.execute('CREATE INDEX idx_node_cache_task ON node_cache(is_task)');
+    await db.execute('CREATE INDEX idx_node_cache_daily ON node_cache(is_daily)');
+  }
+
+  Future<void> _migrateNodeCacheV8(Database db) async {
+    await db.execute('ALTER TABLE node_cache ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0');
+  }
+
+  Future<void> _createFavorites(Database db) async {
+    await db.execute('''
+      CREATE TABLE user_favorite (
+        workspace_id TEXT NOT NULL,
+        node_uuid TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (workspace_id, node_uuid)
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_user_favorite_workspace ON user_favorite(workspace_id)');
+    await db.execute('CREATE INDEX idx_user_favorite_position ON user_favorite(workspace_id, position)');
+  }
+
+  Future<void> _createSearchIndex(Database db) async {
+    await db.execute('''
+      CREATE TABLE search_index (
+        term TEXT NOT NULL,
+        node_uuid TEXT NOT NULL,
+        field TEXT NOT NULL,
+        rank INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (term, node_uuid, field)
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_search_index_term ON search_index(term)');
+    await db.execute('CREATE INDEX idx_search_index_node ON search_index(node_uuid)');
+  }
+
+  Future<void> _createRelayOutbox(Database db) async {
+    await db.execute('''
+      CREATE TABLE relay_outbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        envelope_json TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'pending',
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        next_retry_at INTEGER,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_relay_outbox_state_retry ON relay_outbox(state, next_retry_at)');
+    await db.execute('CREATE INDEX idx_relay_outbox_created ON relay_outbox(created_at)');
+  }
+
+  Future<void> _createRelayOperations(Database db) async {
+    await db.execute('''
+      CREATE TABLE relay_operations (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        hlc_physical INTEGER NOT NULL,
+        hlc_logical INTEGER NOT NULL,
+        affected_node_ids TEXT NOT NULL,
+        op_type TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        is_local INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_relay_operations_workspace_hlc ON relay_operations(workspace_id, hlc_physical, hlc_logical)');
+  }
+
+  Future<void> _createSyncWatermark(Database db) async {
+    await db.execute('''
+      CREATE TABLE sync_watermark (
+        workspace_id TEXT PRIMARY KEY,
+        hlc_physical INTEGER NOT NULL,
+        hlc_logical INTEGER NOT NULL,
+        restore_epoch INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+  }
+
+  Future<void> _createSyncPushWatermark(Database db) async {
+    await db.execute('''
+      CREATE TABLE sync_push_watermark (
+        workspace_id TEXT PRIMARY KEY,
+        hlc_physical INTEGER NOT NULL,
+        hlc_logical INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _createTaskCompletion(Database db) async {
+    await db.execute('''
+      CREATE TABLE task_completion (
+        completion_id TEXT PRIMARY KEY,
+        node_uuid TEXT NOT NULL,
+        completed_at TEXT,
+        scheduled_date TEXT,
+        deadline_date TEXT,
+        status TEXT,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_task_completion_node ON task_completion(node_uuid)');
+    await db.execute('CREATE INDEX idx_task_completion_created ON task_completion(node_uuid, created_at DESC)');
+  }
+
+  /// Creates the full schema on an already-opened test database.
+  Future<void> initializeSchema() async {
+    final db = await database;
+    await _createOfflineQueue(db);
+    await _createSyncState(db);
+    await _createNodeCache(db);
+    await _createSearchIndex(db);
+    await _createRelayOutbox(db);
+    await _createRelayOperations(db);
+    await _createSyncWatermark(db);
+    await _createSyncPushWatermark(db);
+    await _createFavorites(db);
+    await _createTaskCompletion(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

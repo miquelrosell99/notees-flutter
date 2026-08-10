@@ -11,6 +11,7 @@ class NodeListView extends StatelessWidget {
     super.key,
     required this.nodes,
     required this.onNodeTap,
+    this.onNodeLongPress,
     this.footer,
     this.shrinkWrap = false,
     this.favoriteUuids,
@@ -19,6 +20,7 @@ class NodeListView extends StatelessWidget {
 
   final List<Node> nodes;
   final ValueChanged<Node> onNodeTap;
+  final ValueChanged<Node>? onNodeLongPress;
   final Widget? footer;
   final bool shrinkWrap;
   final Set<String>? favoriteUuids;
@@ -48,6 +50,7 @@ class NodeListView extends StatelessWidget {
           title: Text(node.displayName),
           trailing: _buildTrailing(context, node, isFavorite, colors),
           onTap: () => onNodeTap(node),
+          onLongPress: onNodeLongPress == null ? null : () => onNodeLongPress!(node),
         );
       },
     );

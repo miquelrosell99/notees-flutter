@@ -97,6 +97,7 @@ ThemeData buildNoteesTheme({
     cardTheme: CardThemeData(
       elevation: 0,
       color: baseScheme.surfaceContainer,
+      surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         side: BorderSide(
@@ -207,7 +208,49 @@ ThemeData buildNoteesTheme({
     checkboxTheme: CheckboxThemeData(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
     ),
+    textTheme: _noteesTextTheme(baseScheme, isDark),
     fontFamily: 'Roboto',
+  );
+}
+
+/// Builds the Notees text theme.
+///
+/// - Display / page titles use a system serif stack for editorial warmth.
+/// - UI / body use the system sans-serif font (Roboto / Google Sans).
+/// - Task and metadata roles use slightly tighter line heights.
+TextTheme _noteesTextTheme(ColorScheme colors, bool isDark) {
+  final serif = TextStyle(
+    fontFamily: 'Georgia',
+    fontFamilyFallback: const ['Noto Serif', 'Times New Roman', 'serif'],
+    color: colors.onSurface,
+    letterSpacing: -0.2,
+  );
+  final sans = TextStyle(
+    fontFamily: 'Roboto',
+    fontFamilyFallback: const ['Inter', 'sans-serif'],
+    color: colors.onSurface,
+    letterSpacing: -0.1,
+  );
+
+  return TextTheme(
+    displayLarge: serif.copyWith(fontSize: 57, fontWeight: FontWeight.w400, height: 1.12),
+    displayMedium: serif.copyWith(fontSize: 45, fontWeight: FontWeight.w400, height: 1.16),
+    displaySmall: serif.copyWith(fontSize: 36, fontWeight: FontWeight.w400, height: 1.22),
+    headlineLarge: serif.copyWith(fontSize: 32, fontWeight: FontWeight.w400, height: 1.25),
+    headlineMedium: serif.copyWith(fontSize: 28, fontWeight: FontWeight.w400, height: 1.28),
+    headlineSmall: sans.copyWith(fontSize: 24, fontWeight: FontWeight.w500, height: 1.33),
+    titleLarge: sans.copyWith(fontSize: 22, fontWeight: FontWeight.w500, height: 1.27),
+    titleMedium: sans.copyWith(fontSize: 16, fontWeight: FontWeight.w600, height: 1.5),
+    titleSmall: sans.copyWith(fontSize: 14, fontWeight: FontWeight.w600, height: 1.43),
+    bodyLarge: sans.copyWith(fontSize: 16, fontWeight: FontWeight.w400, height: 1.5),
+    bodyMedium: sans.copyWith(fontSize: 14, fontWeight: FontWeight.w400, height: 1.43),
+    bodySmall: sans.copyWith(fontSize: 12, fontWeight: FontWeight.w400, height: 1.33),
+    labelLarge: sans.copyWith(fontSize: 14, fontWeight: FontWeight.w500, height: 1.43),
+    labelMedium: sans.copyWith(fontSize: 12, fontWeight: FontWeight.w500, height: 1.33),
+    labelSmall: sans.copyWith(fontSize: 11, fontWeight: FontWeight.w500, height: 1.27),
+  ).apply(
+    bodyColor: colors.onSurface,
+    displayColor: colors.onSurface,
   );
 }
 

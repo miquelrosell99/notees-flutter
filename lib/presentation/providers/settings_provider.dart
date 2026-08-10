@@ -2,10 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/constants/capture_types.dart';
 import '../../presentation/views/node_view_mode.dart';
 
 /// Where quick-captured notes and audio recordings are saved.
 enum QuickCaptureDestination {
+  inbox,
+  today,
+}
+
+/// Which screen the Home tab shows.
+enum HomePage {
   inbox,
   today,
 }
@@ -42,6 +49,25 @@ class SettingsProvider extends ChangeNotifier {
     );
   }
 
+  HomePage get homePage {
+    final raw = _prefs.getString(_homePageKey);
+    return HomePage.values.firstWhere(
+      (p) => p.name == raw,
+      orElse: () => HomePage.inbox,
+    );
+  }
+
+  bool get floatingCaptureBubbleEnabled =>
+      _prefs.getBool(_floatingCaptureBubbleEnabledKey) ?? false;
+
+  QuickCaptureType get floatingCaptureBubbleDefaultType {
+    final raw = _prefs.getString(_floatingCaptureBubbleDefaultTypeKey);
+    return QuickCaptureType.values.firstWhere(
+      (t) => t.name == raw,
+      orElse: () => QuickCaptureType.note,
+    );
+  }
+
   Future<void> setDefaultViewMode(NodeViewMode value) async {
     await _prefs.setString(_defaultViewModeKey, value.name);
     HapticFeedback.lightImpact();
@@ -68,6 +94,24 @@ class SettingsProvider extends ChangeNotifier {
 
   Future<void> setQuickCaptureDestination(QuickCaptureDestination value) async {
     await _prefs.setString(_quickCaptureDestinationKey, value.name);
+    HapticFeedback.lightImpact();
+    notifyListeners();
+  }
+
+  Future<void> setHomePage(HomePage value) async {
+    await _prefs.setString(_homePageKey, value.name);
+    HapticFeedback.lightImpact();
+    notifyListeners();
+  }
+
+  Future<void> setFloatingCaptureBubbleEnabled(bool value) async {
+    await _prefs.setBool(_floatingCaptureBubbleEnabledKey, value);
+    HapticFeedback.lightImpact();
+    notifyListeners();
+  }
+
+  Future<void> setFloatingCaptureBubbleDefaultType(QuickCaptureType value) async {
+    await _prefs.setString(_floatingCaptureBubbleDefaultTypeKey, value.name);
     HapticFeedback.lightImpact();
     notifyListeners();
   }
@@ -151,6 +195,22 @@ class SettingsProvider extends ChangeNotifier {
   static const _showSidebarGraphKey = 'show_sidebar_graph';
   static const _trashRetentionDaysKey = 'trash_retention_days';
   static const _quickCaptureDestinationKey = 'quick_capture_destination';
+  static const _homePageKey = 'home_page';
+  static const _floatingCaptureBubbleEnabledKey =
+      'floating_capture_bubble_enabled';
+  static const _floatingCaptureBubbleDefaultTypeKey =
+      'floating_capture_bubble_default_type';
+}
+
+/// Human-readable label for a [QuickCaptureType].
+String quickCaptureTypeLabel(QuickCaptureType type) {
+  return switch (type) {
+    QuickCaptureType.note => 'Note',
+    QuickCaptureType.task => 'Task',
+    QuickCaptureType.voice => 'Voice',
+    QuickCaptureType.photo => 'Photo',
+    QuickCaptureType.journal => 'Journal',
+  };
 }
 
 /// Human-readable label for a [QuickCaptureDestination].
@@ -158,6 +218,14 @@ String quickCaptureDestinationLabel(QuickCaptureDestination destination) {
   return switch (destination) {
     QuickCaptureDestination.inbox => 'Inbox',
     QuickCaptureDestination.today => "Today's note",
+  };
+}
+
+/// Human-readable label for a [HomePage].
+String homePageLabel(HomePage page) {
+  return switch (page) {
+    HomePage.inbox => 'Inbox',
+    HomePage.today => 'Today',
   };
 }
 

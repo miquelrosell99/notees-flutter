@@ -19,10 +19,9 @@ import '../views/node_view_mode.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/node_picker.dart';
-import '../widgets/quick_capture_sheet.dart';
 import '../widgets/view_mode_sheet.dart';
 
-/// The Home tab is the workspace Inbox.
+/// The workspace Inbox, shown as the default Home tab.
 ///
 /// It shows uncaptured blocks in a Google Keep–style card grid by default.
 /// Notes created via quick capture land here; users can open, move, or delete
@@ -367,21 +366,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  void _openQuickNote() {
-    HapticFeedback.lightImpact();
-    _showQuickNoteSheet(context);
-  }
-
-  Future<void> _showQuickNoteSheet(BuildContext context) async {
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => QuickCaptureSheet(
-        onSaved: _loadDashboard,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -426,11 +410,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ? const Center(child: CircularProgressIndicator())
             : _buildBody(colors),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openQuickNote,
-        icon: Icon(MdiIcons.plus),
-        label: const Text('Note'),
-      ),
+
     );
   }
 
@@ -859,7 +839,7 @@ class _AdvancedView {
   static final query = _AdvancedView(label: 'Query builder', icon: MdiIcons.fileTree);
 }
 
-/// Overflow menu for the Home app bar.
+/// Overflow menu for the Home app bar, shown as a bottom sheet.
 class _HomeOverflowMenu extends StatelessWidget {
   const _HomeOverflowMenu({
     required this.onOpenJournal,
@@ -887,74 +867,80 @@ class _HomeOverflowMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
+    return IconButton(
       tooltip: 'More',
       icon: Icon(MdiIcons.dotsVertical),
-      onSelected: (value) {
-        HapticFeedback.lightImpact();
-        switch (value) {
-          case 'journal':
-            onOpenJournal();
-          case 'today':
-            onOpenTodayJournal();
-          case 'settings':
-            onOpenSettings();
-          case 'archived':
-            onOpenArchived();
-          default:
-            onOpenAdvancedView(value);
+      onPressed: () => _showMenu(context),
+    );
+  }
+
+  void _showMenu(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetContext) {
+        void select(VoidCallback action) {
+          HapticFeedback.lightImpact();
+          Navigator.of(sheetContext).pop();
+          action();
         }
-      },
-      itemBuilder: (context) => [
-        PopupMenuItem<String>(
-          value: 'today',
-          child: ListTile(
-            leading: Icon(MdiIcons.calendarEditOutline),
-            title: Text("Today's journal"),
-            contentPadding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-          ),
-        ),
-        PopupMenuItem<String>(
-          value: 'journal',
-          child: ListTile(
-            leading: Icon(MdiIcons.calendarOutline),
-            title: Text('Jump to journal'),
-            contentPadding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-          ),
-        ),
-        PopupMenuItem<String>(
-          value: 'archived',
-          child: ListTile(
-            leading: Icon(MdiIcons.archiveOutline),
-            title: Text('Archived'),
-            contentPadding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-          ),
-        ),
-        PopupMenuItem<String>(
-          value: 'settings',
-          child: ListTile(
-            leading: Icon(MdiIcons.cogOutline),
-            title: Text('Settings'),
-            contentPadding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-          ),
-        ),
-        const PopupMenuDivider(),
-        ..._advancedViews.map(
-          (item) => PopupMenuItem<String>(
-            value: item.route,
-            child: ListTile(
-              leading: Icon(item.view.icon),
-              title: Text(item.view.label),
-              contentPadding: EdgeInsets.zero,
-              visualDensity: VisualDensity.compact,
+
+        return SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _menuTile(
+                    icon: MdiIcons.calendarEditOutline,
+                    label: "Today's journal",
+                    onTap: () => select(onOpenTodayJournal),
+                  ),
+                  _menuTile(
+                    icon: MdiIcons.calendarOutline,
+                    label: 'Jump to journal',
+                    onTap: () => select(onOpenJournal),
+                  ),
+                  _menuTile(
+                    icon: MdiIcons.archiveOutline,
+                    label: 'Archived',
+                    onTap: () => select(onOpenArchived),
+                  ),
+                  _menuTile(
+                    icon: MdiIcons.cogOutline,
+                    label: 'Settings',
+                    onTap: () => select(onOpenSettings),
+                  ),
+                  const Divider(),
+                  ..._advancedViews.map(
+                    (item) => _menuTile(
+                      icon: item.view.icon,
+                      label: item.view.label,
+                      onTap: () => select(() => onOpenAdvancedView(item.route)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ],
+        );
+      },
+    );
+  }
+
+  Widget _menuTile({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      onTap: onTap,
     );
   }
 }
