@@ -14,6 +14,7 @@ import '../../native/reminder_service.dart';
 import '../../native/widget_service.dart';
 import '../providers/auth_provider.dart';
 import '../views/_view_helpers.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/fleet_card.dart';
 
 /// Task list segments.
@@ -406,7 +407,7 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 
   Future<void> _toggleTaskCompletion(Node task) async {
-    HapticFeedback.lightImpact();
+    HapticFeedback.selectionClick();
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
 
@@ -1007,10 +1008,20 @@ class _TasksScreenState extends State<TasksScreen> {
 
     if (_error != null) {
       return ListView(
+        padding: const EdgeInsets.all(20),
         children: [
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text(_error!, style: TextStyle(color: colors.error)),
+          EmptyState(
+            icon: MdiIcons.alertCircleOutline,
+            title: 'Could not load tasks',
+            subtitle: _error,
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: FilledButton.tonalIcon(
+              onPressed: _loadTasks,
+              icon: Icon(MdiIcons.refresh),
+              label: const Text('Retry'),
+            ),
           ),
         ],
       );

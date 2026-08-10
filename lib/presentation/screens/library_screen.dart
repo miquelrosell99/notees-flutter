@@ -15,6 +15,7 @@ import '../providers/auth_provider.dart';
 import '../views/node_collection.dart';
 import '../views/node_list_view.dart';
 import '../views/node_view_mode.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/section_title.dart';
 import '../widgets/view_mode_sheet.dart';
@@ -357,10 +358,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget _buildContent(ColorScheme colors) {
     if (_error != null) {
       return ListView(
+        padding: const EdgeInsets.all(20),
         children: [
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text(_error!, style: TextStyle(color: colors.error)),
+          EmptyState(
+            icon: MdiIcons.alertCircleOutline,
+            title: 'Could not load library',
+            subtitle: _error,
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: FilledButton.tonalIcon(
+              onPressed: _loadLibrary,
+              icon: Icon(MdiIcons.refresh),
+              label: const Text('Retry'),
+            ),
           ),
         ],
       );

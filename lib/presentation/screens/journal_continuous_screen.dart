@@ -11,6 +11,7 @@ import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
 import '../../domain/models/search_filters.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/section_title.dart';
 
@@ -115,10 +116,20 @@ class _JournalContinuousScreenState extends State<JournalContinuousScreen> {
   Widget _buildContent(ColorScheme colors) {
     if (_error != null) {
       return ListView(
+        padding: const EdgeInsets.all(20),
         children: [
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text(_error!, style: TextStyle(color: colors.error)),
+          EmptyState(
+            icon: MdiIcons.alertCircleOutline,
+            title: 'Could not load journals',
+            subtitle: _error,
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: FilledButton.tonalIcon(
+              onPressed: _loadJournals,
+              icon: Icon(MdiIcons.refresh),
+              label: const Text('Retry'),
+            ),
           ),
         ],
       );
