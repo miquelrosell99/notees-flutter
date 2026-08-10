@@ -421,7 +421,7 @@ class NodeRepository {
     final response = await dio.get<Map<String, dynamic>>('/nodes/classes');
     final data = response.data;
     if (data == null) return [];
-    final items = data['nodes'] as List<dynamic>? ?? [];
+    final items = (data['nodes'] ?? data['items'] ?? data['classes']) as List<dynamic>? ?? [];
     return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
   }
 
