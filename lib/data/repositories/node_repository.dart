@@ -39,7 +39,7 @@ class NodeRepository {
     final items = data['nodes'] as List<dynamic>? ?? [];
     return items
         .map((e) => Node.fromJson(e as Map<String, dynamic>))
-        .where((n) => !n.isDaily)
+        .where((n) => !n.isJournal)
         .toList();
   }
 
@@ -153,7 +153,7 @@ class NodeRepository {
     final items = (data['items'] ?? data['nodes']) as List<dynamic>? ?? [];
     return items
         .map((e) => Node.fromJson(e as Map<String, dynamic>))
-        .where((n) => !n.isDaily)
+        .where((n) => !n.isJournal)
         .toList();
   }
 

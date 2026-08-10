@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../api/error_reporter.dart';
 
 import '../../data/repositories/node_repository.dart';
+import '../../domain/models/search_filters.dart';
 import '../../presentation/providers/auth_provider.dart';
 import '../../presentation/screens/about_screen.dart';
 import '../../presentation/screens/api_keys_screen.dart';
@@ -156,7 +157,13 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       ),
       GoRoute(
         path: Routes.search,
-        builder: (context, state) => const SearchScreen(),
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>?;
+          return SearchScreen(
+            initialQuery: extra?['query'] as String?,
+            initialFilters: extra?['filters'] as SearchFilters?,
+          );
+        },
       ),
       GoRoute(
         path: Routes.library,
