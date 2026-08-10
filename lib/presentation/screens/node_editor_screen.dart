@@ -62,6 +62,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   String? _pageColor;
   String? _pageIcon;
   bool _pageIsPrivate = false;
+  bool _isDaily = false;
+  bool _isMonthly = false;
+  bool _isYearly = false;
   final Set<String> _deletedBlockUuids = {};
   bool _loading = true;
   bool _saving = false;
@@ -195,6 +198,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           _pageColor = page.color;
           _pageIcon = page.icon;
           _pageIsPrivate = page.isPrivate;
+          _isDaily = page.isDaily;
+          _isMonthly = page.isMonthly;
+          _isYearly = page.isYearly;
           _breadcrumbs = breadcrumbs;
           _deletedBlockUuids.clear();
           _error = null;
@@ -226,7 +232,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     if (auth.dio == null) return;
 
     try {
-      final repo = CommentRepository(dio: auth.dio!);
+      final repo = CommentRepository(
+        dio: auth.dio!,
+        cache: auth.syncService?.cache,
+      );
       final count = await repo.fetchCommentCount(widget.nodeUuid);
       if (mounted) setState(() => _commentCount = count);
     } catch (_) {
@@ -402,6 +411,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     if (auth.dio == null) return;
     if (_saving) return; // avoid overlapping saves
 
+    final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
     final title = _titleController.text.trim();
 
     setState(() => _saving = true);
@@ -411,8 +421,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         syncService: auth.syncService,
       );
 
-      final titleAst = AstBuilder.serialize(AstBuilder.parseInline(title));
-      await repo.updateNode(widget.nodeUuid, name: titleAst);
+      if (!isJournalDatePage && title.isNotEmpty) {
+        final titleAst = AstBuilder.serialize(AstBuilder.parseInline(title));
+        await repo.updateNode(widget.nodeUuid, name: titleAst);
+      }
 
       // Ensure every focused block's AST is synced before serializing.
       _syncAllBlockNames();
@@ -1544,6 +1556,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   Widget _buildTitleField() {
     final colors = Theme.of(context).colorScheme;
     final pageColor = ColorPresets.tryResolve(_pageColor);
+    final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
     return FleetCard(
       child: Container(
         decoration: pageColor != null
@@ -1559,13 +1572,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             Expanded(
               child: TextField(
                 controller: _titleController,
+                readOnly: isJournalDatePage,
                 style: Theme.of(
                   context,
                 ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-                decoration: const InputDecoration(
-                  hintText: 'Page title',
+                decoration: InputDecoration(
+                  hintText: isJournalDatePage ? null : 'Page title',
                   border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 16),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 16),
                 ),
               ),
             ),

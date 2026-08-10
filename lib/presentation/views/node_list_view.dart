@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
-import '../../data/models/node.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../core/utils/node_icon.dart';
+import '../../data/models/node.dart';
 
 /// Reusable list view for a collection of nodes.
 class NodeListView extends StatelessWidget {
@@ -16,6 +17,7 @@ class NodeListView extends StatelessWidget {
     this.shrinkWrap = false,
     this.favoriteUuids,
     this.onFavoriteToggle,
+    this.dateFormat,
   });
 
   final List<Node> nodes;
@@ -25,6 +27,9 @@ class NodeListView extends StatelessWidget {
   final bool shrinkWrap;
   final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
+
+  /// Optional user date-format preference; used to format journal dates.
+  final String? dateFormat;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +52,7 @@ class NodeListView extends StatelessWidget {
             fallbackIcon: _iconForNode(node),
             fallbackColor: colors.onSurfaceVariant,
           ),
-          title: Text(node.displayName),
+          title: Text(resolveNodeDisplayName(node, dateFormat: dateFormat)),
           trailing: _buildTrailing(context, node, isFavorite, colors),
           onTap: () => onNodeTap(node),
           onLongPress: onNodeLongPress == null ? null : () => onNodeLongPress!(node),

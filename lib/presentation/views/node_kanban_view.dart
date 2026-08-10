@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
-import '../../data/models/node.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../core/utils/node_icon.dart';
+import '../../data/models/node.dart';
 import '../widgets/fleet_card.dart';
 import '_view_helpers.dart';
 
@@ -18,12 +19,16 @@ class NodeKanbanView extends StatefulWidget {
     required this.onNodeTap,
     this.favoriteUuids,
     this.onFavoriteToggle,
+    this.dateFormat,
   });
 
   final List<Node> nodes;
   final ValueChanged<Node> onNodeTap;
   final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
+
+  /// Optional user date-format preference; used to format journal dates.
+  final String? dateFormat;
 
   @override
   State<NodeKanbanView> createState() => _NodeKanbanViewState();
@@ -172,6 +177,7 @@ class _NodeKanbanViewState extends State<NodeKanbanView> {
                 onNodeTap: widget.onNodeTap,
                 favoriteUuids: widget.favoriteUuids,
                 onFavoriteToggle: widget.onFavoriteToggle,
+                dateFormat: widget.dateFormat,
               );
             },
           ),
@@ -189,6 +195,7 @@ class _KanbanColumn extends StatelessWidget {
     required this.onNodeTap,
     this.favoriteUuids,
     this.onFavoriteToggle,
+    this.dateFormat,
   });
 
   final String title;
@@ -197,6 +204,7 @@ class _KanbanColumn extends StatelessWidget {
   final ValueChanged<Node> onNodeTap;
   final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
+  final String? dateFormat;
 
   @override
   Widget build(BuildContext context) {
@@ -257,6 +265,7 @@ class _KanbanColumn extends StatelessWidget {
                     onFavoriteToggle: onFavoriteToggle == null
                         ? null
                         : () => onFavoriteToggle!(node),
+                    dateFormat: dateFormat,
                   ),
                 );
               },
@@ -274,12 +283,14 @@ class _KanbanCard extends StatelessWidget {
     required this.onTap,
     this.isFavorite = false,
     this.onFavoriteToggle,
+    this.dateFormat,
   });
 
   final Node node;
   final VoidCallback onTap;
   final bool isFavorite;
   final VoidCallback? onFavoriteToggle;
+  final String? dateFormat;
 
   @override
   Widget build(BuildContext context) {
@@ -303,7 +314,7 @@ class _KanbanCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    node.displayName,
+                    resolveNodeDisplayName(node, dateFormat: dateFormat),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w600,
                         ),

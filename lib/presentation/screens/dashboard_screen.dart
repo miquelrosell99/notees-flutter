@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../core/localization/material_localizations_override.dart';
 import '../../core/routing/router.dart';
 import '../../core/utils/color_presets.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../core/utils/view_mode_store.dart';
 import '../../data/models/node.dart';
 import '../../data/models/page_content.dart';
@@ -31,10 +32,13 @@ class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  State<DashboardScreen> createState() => _DashboardScreenState();
+  State<DashboardScreen> createState() => DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class DashboardScreenState extends State<DashboardScreen> {
+  /// Reloads dashboard data from the server/cache. Called by the shell after a
+  /// successful quick capture so the new note appears immediately.
+  void reload() => _loadDashboard();
   List<Node> _inboxBlocks = [];
   List<Node> _recentPages = [];
   Node? _todayJournal;
@@ -412,13 +416,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onRefresh: _loadDashboard,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : _buildBody(colors),
+            : _buildBody(colors, settings),
       ),
 
     );
   }
 
-  Widget _buildBody(ColorScheme colors) {
+  Widget _buildBody(ColorScheme colors, SettingsProvider settings) {
     if (_error != null) {
       return ListView(
         padding: const EdgeInsets.all(20),
@@ -456,7 +460,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildRecentPagesSection(colors),
+            _buildRecentPagesSection(colors, settings.dateFormat),
             EmptyState(
               icon: MdiIcons.lightbulbOutline,
               title: 'Nothing in your pocket yet.',
@@ -472,7 +476,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (_recentPages.isNotEmpty) ...[
-            _buildRecentPagesSection(colors),
+            _buildRecentPagesSection(colors, settings.dateFormat),
           ],
           if (_viewMode == NodeViewMode.card)
             InboxCardView(
@@ -555,7 +559,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildRecentPagesSection(ColorScheme colors) {
+  Widget _buildRecentPagesSection(ColorScheme colors, String dateFormat) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
       child: Column(
@@ -588,7 +592,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           const SizedBox(height: 12),
                           Expanded(
                             child: Text(
-                              node.displayName,
+                              resolveNodeDisplayName(node, dateFormat: dateFormat),
                               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                     fontWeight: FontWeight.w600,
                                   ),

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/routing/router.dart';
 import '../../core/utils/view_mode_store.dart';
+import '../providers/settings_provider.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
@@ -176,6 +177,7 @@ class _PagesScreenState extends State<PagesScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final settings = context.watch<SettingsProvider>();
 
     return Scaffold(
       appBar: AppBar(
@@ -195,7 +197,7 @@ class _PagesScreenState extends State<PagesScreen> {
         onRefresh: _loadPages,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : _buildContent(colors),
+            : _buildContent(colors, settings),
       ),
       floatingActionButton: FloatingActionButton.small(
         onPressed: () => _createPage(context),
@@ -204,7 +206,7 @@ class _PagesScreenState extends State<PagesScreen> {
     );
   }
 
-  Widget _buildContent(ColorScheme colors) {
+  Widget _buildContent(ColorScheme colors, SettingsProvider settings) {
     if (_error != null) {
       return ListView(
         children: [
@@ -229,6 +231,7 @@ class _PagesScreenState extends State<PagesScreen> {
         favoriteUuids: _favoriteUuids,
         onFavoriteToggle: _toggleFavorite,
         classIndex: _classIndex,
+        dateFormat: settings.dateFormat,
       );
     }
 
@@ -262,6 +265,7 @@ class _PagesScreenState extends State<PagesScreen> {
               shrinkWrap: true,
               favoriteUuids: _favoriteUuids,
               onFavoriteToggle: _toggleFavorite,
+              dateFormat: settings.dateFormat,
             ),
           ),
           const SizedBox(height: 28),
@@ -277,6 +281,7 @@ class _PagesScreenState extends State<PagesScreen> {
                   shrinkWrap: true,
                   favoriteUuids: _favoriteUuids,
                   onFavoriteToggle: _toggleFavorite,
+                  dateFormat: settings.dateFormat,
                 ),
         ),
       ],

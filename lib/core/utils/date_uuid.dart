@@ -31,3 +31,32 @@ String dateToYearUuid(DateTime date) {
   final suffix = '${_pad4(date.year)}00000000';
   return '00000000-0000-0000-00yy-$suffix';
 }
+
+/// Reverse of the deterministic journal UUID encoders.
+///
+/// Returns the date represented by a daily, monthly, or yearly journal UUID,
+/// or `null` if [uuid] does not match any known journal pattern.
+DateTime? journalDateFromUuid(String uuid) {
+  final clean = uuid.replaceAll('-', '');
+  if (clean.length < 28) return null;
+  final prefix = clean.substring(18, 22);
+  final suffix = clean.substring(22);
+  try {
+    if (prefix == '00dd' && suffix.length >= 8) {
+      final year = int.parse(suffix.substring(0, 4));
+      final month = int.parse(suffix.substring(4, 6));
+      final day = int.parse(suffix.substring(6, 8));
+      return DateTime(year, month, day);
+    }
+    if (prefix == '00mm' && suffix.length >= 6) {
+      final year = int.parse(suffix.substring(0, 4));
+      final month = int.parse(suffix.substring(4, 6));
+      return DateTime(year, month);
+    }
+    if (prefix == '00yy' && suffix.length >= 4) {
+      final year = int.parse(suffix.substring(0, 4));
+      return DateTime(year);
+    }
+  } catch (_) {}
+  return null;
+}

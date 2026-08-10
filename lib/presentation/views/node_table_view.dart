@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
-import '../../data/models/node.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../core/utils/node_icon.dart';
+import '../../data/models/node.dart';
 import '_view_helpers.dart';
 
 /// Table view for a collection of nodes.
@@ -16,12 +17,16 @@ class NodeTableView extends StatefulWidget {
     required this.onNodeTap,
     this.favoriteUuids,
     this.onFavoriteToggle,
+    this.dateFormat,
   });
 
   final List<Node> nodes;
   final ValueChanged<Node> onNodeTap;
   final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
+
+  /// Optional user date-format preference; used to format journal dates.
+  final String? dateFormat;
 
   @override
   State<NodeTableView> createState() => _NodeTableViewState();
@@ -147,7 +152,11 @@ class _NodeTableViewState extends State<NodeTableView> {
                               fallbackColor: colors.onSurfaceVariant,
                             ),
                             const SizedBox(width: 8),
-                            Flexible(child: Text(node.displayName)),
+                            Flexible(
+                              child: Text(
+                                resolveNodeDisplayName(node, dateFormat: widget.dateFormat),
+                              ),
+                            ),
                             if (widget.onFavoriteToggle != null) ...[
                               const SizedBox(width: 8),
                               IconButton(

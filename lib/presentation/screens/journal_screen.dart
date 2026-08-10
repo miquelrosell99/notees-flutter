@@ -2,14 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/routing/router.dart';
+import '../../core/utils/date_uuid.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
 import '../../domain/models/search_filters.dart';
 import '../providers/auth_provider.dart';
+import '../providers/settings_provider.dart';
 import '../views/node_list_view.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/section_title.dart';
@@ -117,8 +119,18 @@ class _JournalScreenState extends State<JournalScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final settings = context.watch<SettingsProvider>();
     final today = DateTime.now();
-    final todayLabel = DateFormat.yMMMMEEEEd().format(today);
+    final todayLabel = resolveNodeDisplayName(
+      Node(
+        id: 0,
+        uuid: dateToDayUuid(today),
+        name: '',
+        displayName: '',
+        isDaily: true,
+      ),
+      dateFormat: settings.dateFormat,
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -128,12 +140,12 @@ class _JournalScreenState extends State<JournalScreen> {
         onRefresh: _loadJournals,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : _buildContent(colors, todayLabel),
+            : _buildContent(colors, todayLabel, settings),
       ),
     );
   }
 
-  Widget _buildContent(ColorScheme colors, String todayLabel) {
+  Widget _buildContent(ColorScheme colors, String todayLabel, SettingsProvider settings) {
     if (_error != null) {
       return ListView(
         children: [
@@ -181,6 +193,7 @@ class _JournalScreenState extends State<JournalScreen> {
                   nodes: _recentJournals,
                   onNodeTap: _openNode,
                   shrinkWrap: true,
+                  dateFormat: settings.dateFormat,
                 ),
         ),
       ],

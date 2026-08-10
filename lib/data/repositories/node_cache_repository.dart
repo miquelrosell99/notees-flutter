@@ -242,24 +242,25 @@ class NodeCacheRepository {
 
   // === Local read queries used when the relay sync service is active ===
 
-  /// Recently touched pages, newest first.
+  /// Recently touched pages, newest first. Excludes daily journal date pages,
+  /// which live in the dedicated Journals section.
   Future<List<Node>> getRecentPages({int limit = 10}) async {
     final db = await _database.database;
     final rows = await db.query(
       'node_cache',
-      where: 'is_page = 1 AND is_deleted = 0 AND is_archived = 0',
+      where: 'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND is_daily = 0',
       orderBy: "COALESCE(write_date, '') DESC, synced_at DESC",
       limit: limit,
     );
     return rows.map(_nodeFromRow).toList();
   }
 
-  /// Top-level pages with no parent.
+  /// Top-level pages with no parent. Excludes daily journal date pages.
   Future<List<Node>> getRootPages() async {
     final db = await _database.database;
     final rows = await db.query(
       'node_cache',
-      where: 'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND parent_uuid IS NULL',
+      where: 'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND parent_uuid IS NULL AND is_daily = 0',
       orderBy: "COALESCE(write_date, '') DESC",
     );
     return rows.map(_nodeFromRow).toList();
@@ -306,6 +307,18 @@ class NodeCacheRepository {
       orderBy: 'sequence ASC, synced_at DESC',
     );
     return rows.map(_nodeFromRow).toList();
+  }
+
+  /// Counts non-deleted comments attached to [parentUuid].
+  Future<int> countComments(String parentUuid) async {
+    final db = await _database.database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS count FROM node_cache '
+      'WHERE parent_uuid = ? AND is_comment = 1 AND is_deleted = 0 AND is_archived = 0',
+      [parentUuid],
+    );
+    final count = result.firstOrNull?['count'];
+    return (count is int ? count : int.tryParse(count.toString()) ?? 0);
   }
 
   /// Deleted nodes.

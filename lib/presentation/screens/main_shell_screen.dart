@@ -33,6 +33,7 @@ class MainShellScreen extends StatefulWidget {
 
 class _MainShellScreenState extends State<MainShellScreen> {
   late int _currentIndex = widget.initialIndex;
+  final _dashboardKey = GlobalKey<DashboardScreenState>();
 
   final _destinations = <_NavDestination>[
     _NavDestination(
@@ -180,7 +181,13 @@ class _MainShellScreenState extends State<MainShellScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (_) => const QuickCaptureSheet(),
+      builder: (_) => QuickCaptureSheet(
+        onSaved: () {
+          if (_currentIndex == 0) {
+            _dashboardKey.currentState?.reload();
+          }
+        },
+      ),
     );
   }
 
@@ -190,7 +197,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
         final settings = context.watch<SettingsProvider>();
         return settings.homePage == HomePage.today
             ? const _TodayJournalHome()
-            : const DashboardScreen();
+            : DashboardScreen(key: _dashboardKey);
       case 1:
         return const TasksScreen();
       case 2:
