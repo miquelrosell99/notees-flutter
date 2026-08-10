@@ -3,10 +3,10 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/utils/node_display_name.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
-import 'bottom_sheet_drag_handle.dart';
 
 /// Modes for the node picker.
 enum NodePickerMode { any, page, classNode, tag }
@@ -24,15 +24,13 @@ class NodePicker extends StatefulWidget {
     return showModalBottomSheet<Node>(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.65,
-        minChildSize: 0.4,
-        maxChildSize: 0.9,
-        expand: false,
-        builder: (context, scrollController) => NodePicker(mode: mode),
+      builder: (context) => FractionallySizedBox(
+        heightFactor: 0.7,
+        child: NodePicker(mode: mode),
       ),
     );
   }
@@ -78,7 +76,7 @@ class _NodePickerState extends State<NodePicker> {
           if (query.isNotEmpty) {
             final lower = query.toLowerCase();
             results = results
-                .where((n) => n.displayName.toLowerCase().contains(lower))
+                .where((n) => resolveNodeDisplayName(n).toLowerCase().contains(lower))
                 .toList();
           }
         case NodePickerMode.tag:
@@ -118,7 +116,6 @@ class _NodePickerState extends State<NodePicker> {
     return SafeArea(
       child: Column(
         children: [
-          const BottomSheetDragHandle(),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
             child: Row(
@@ -179,7 +176,7 @@ class _NodePickerState extends State<NodePicker> {
                               : MdiIcons.fileDocumentOutline,
                           color: colors.onSurfaceVariant,
                         ),
-                        title: Text(node.displayName),
+                        title: Text(resolveNodeDisplayName(node)),
                         onTap: () => _select(node),
                       );
                     },

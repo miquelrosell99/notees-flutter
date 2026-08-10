@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/routing/router.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/template_repository.dart';
 import '../providers/auth_provider.dart';
@@ -152,7 +153,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
                       MdiIcons.fileDocumentOutline,
                       color: colors.onSurfaceVariant,
                     ),
-                    title: Text(template.displayName),
+                    title: Text(resolveNodeDisplayName(template)),
                     trailing: Icon(
                       MdiIcons.chevronRight,
                       color: colors.onSurfaceVariant,

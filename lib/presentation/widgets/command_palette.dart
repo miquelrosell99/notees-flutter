@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/utils/node_display_name.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
 import 'bottom_sheet_drag_handle.dart';
@@ -166,7 +167,7 @@ class _CommandPaletteState extends State<CommandPalette> {
       ..._recents.map(
         (node) => _CommandEntry(
           icon: MdiIcons.clockOutline,
-          label: node.displayName,
+          label: resolveNodeDisplayName(node),
           subtitle: 'Recent page',
           item: NodeCommand(node),
         ),
@@ -174,7 +175,7 @@ class _CommandPaletteState extends State<CommandPalette> {
       ..._favorites.map(
         (node) => _CommandEntry(
           icon: MdiIcons.star,
-          label: node.displayName,
+          label: resolveNodeDisplayName(node),
           subtitle: 'Favorite',
           item: NodeCommand(node),
         ),
