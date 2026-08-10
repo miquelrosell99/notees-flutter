@@ -35,7 +35,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   List<Node> _recents = [];
   List<Node> _recentJournals = [];
   List<Node> _classes = [];
-  List<Node> _alphabeticalNodes = [];
   Set<String> _favoriteUuids = {};
   Map<String, Node> _classIndex = {};
   bool _loading = true;
@@ -80,22 +79,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
             limit: 10,
           ),
         ),
-        repo.searchWithFilters(
-          const SearchFilters(
-            nodeType: NodeType.page,
-            sortBy: SortBy.name,
-            order: SortOrder.asc,
-            limit: 200,
-          ),
-        ),
-        repo.searchWithFilters(
-          const SearchFilters(
-            nodeType: NodeType.journal,
-            sortBy: SortBy.name,
-            order: SortOrder.asc,
-            limit: 200,
-          ),
-        ),
       ]);
       if (mounted) {
         setState(() {
@@ -106,11 +89,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
           _classIndex = {for (final c in classes) c.uuid: c};
           _recentJournals = results[4] as List<Node>;
           _classes = classes;
-          final pages = results[5] as List<Node>;
-          _alphabeticalNodes = pages
-            ..sort(
-              (a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
-            );
           _error = null;
         });
       }
@@ -469,52 +447,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
         ),
-        const SizedBox(height: 28),
-        SectionTitle(icon: MdiIcons.formatListBulleted, label: 'Alphabetical'),
-        const SizedBox(height: 8),
-        _buildAlphabeticalIndex(colors, dateFormat),
       ],
-    );
-  }
-
-  Map<String, List<Node>> _groupAlphabetically(String dateFormat) {
-    final groups = <String, List<Node>>{};
-    for (final node in _alphabeticalNodes) {
-      final name = resolveNodeDisplayName(node, dateFormat: dateFormat);
-      final first = name.isEmpty ? '#' : name[0].toUpperCase();
-      final letter = RegExp(r'[A-Z]').hasMatch(first) ? first : '#';
-      groups.putIfAbsent(letter, () => []).add(node);
-    }
-    final sortedKeys = groups.keys.toList()..sort();
-    return {for (final k in sortedKeys) k: groups[k]!};
-  }
-
-  Widget _buildAlphabeticalIndex(ColorScheme colors, String dateFormat) {
-    final groups = _groupAlphabetically(dateFormat);
-    if (groups.isEmpty) {
-      return FleetCard(child: _buildEmptyTile('No pages'));
-    }
-
-    return FleetCard(
-      child: Column(
-        children: groups.entries.map((entry) {
-          return ExpansionTile(
-            title: Text('${entry.key} (${entry.value.length})'),
-            children: entry.value.map((node) {
-              return ListTile(
-                leading: Icon(
-                  node.isJournal ? MdiIcons.calendarOutline : MdiIcons.fileDocumentOutline,
-                  color: colors.onSurfaceVariant,
-                ),
-                title: Text(resolveNodeDisplayName(node, dateFormat: dateFormat)),
-                trailing: Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
-                onTap: () => _openNode(node),
-                onLongPress: () => _showNodeActions(node),
-              );
-            }).toList(),
-          );
-        }).toList(),
-      ),
     );
   }
 
