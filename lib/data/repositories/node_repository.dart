@@ -416,6 +416,15 @@ class NodeRepository {
 
   Future<List<Node>> fetchClasses() async {
     if (_localMode) {
+      // If the class cache is empty (e.g. after a fresh install or schema
+      // migration), pull from the server first so the snapshot can populate it.
+      if (await _cache!.classCacheCount() == 0) {
+        try {
+          await syncService!.pull();
+        } catch (e) {
+          debugPrint('[fetchClasses] pull failed: $e');
+        }
+      }
       return _cache!.getClasses();
     }
     final response = await dio.get<Map<String, dynamic>>('/nodes/classes');

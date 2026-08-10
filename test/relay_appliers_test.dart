@@ -132,6 +132,77 @@ void main() {
       expect(node.isTask, isTrue);
     });
 
+    test('applies class.create, update, setExtends and delete', () async {
+      final classUuid = '00000000-0000-0000-0000-000000000301';
+      final parentUuid = '00000000-0000-0000-0000-000000000302';
+
+      final createEnvelope = OperationEnvelope(
+        id: 'e1',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 1, logical: 0),
+        affectedNodeIds: [classUuid],
+        opType: 'class.create',
+        payload: OperationPayloads.classCreate(
+          classId: classUuid,
+          name: 'Project',
+          color: '#5B7D5B',
+        ),
+      );
+      final setExtendsEnvelope = OperationEnvelope(
+        id: 'e2',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 2, logical: 0),
+        affectedNodeIds: [classUuid],
+        opType: 'class.setExtends',
+        payload: OperationPayloads.classSetExtends(
+          classId: classUuid,
+          extendsClassIds: [parentUuid],
+        ),
+      );
+      final updateEnvelope = OperationEnvelope(
+        id: 'e3',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 3, logical: 0),
+        affectedNodeIds: [classUuid],
+        opType: 'class.update',
+        payload: OperationPayloads.classUpdate(
+          classId: classUuid,
+          icon: 'folder',
+        ),
+      );
+
+      await appliers.apply(createEnvelope);
+      var cls = await cache.getClassByUuid(classUuid);
+      expect(cls, isNotNull);
+      expect(cls!.displayName, 'Project');
+      expect(cls.color, '#5B7D5B');
+
+      await appliers.apply(setExtendsEnvelope);
+      cls = await cache.getClassByUuid(classUuid);
+      // Extends are stored separately; the cached class row still exposes name/color.
+      expect(cls, isNotNull);
+
+      await appliers.apply(updateEnvelope);
+      cls = await cache.getClassByUuid(classUuid);
+      expect(cls!.icon, 'folder');
+
+      final deleteEnvelope = OperationEnvelope(
+        id: 'e4',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 4, logical: 0),
+        affectedNodeIds: [classUuid],
+        opType: 'class.delete',
+        payload: OperationPayloads.classDelete(classId: classUuid),
+      );
+      await appliers.apply(deleteEnvelope);
+      cls = await cache.getClassByUuid(classUuid);
+      expect(cls, isNull);
+    });
+
     test('applies node.archive and node.restore to isArchived flag', () async {
       final nodeUuid = '00000000-0000-0000-0000-000000000104';
       final createEnvelope = OperationEnvelope(
