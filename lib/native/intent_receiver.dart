@@ -3,6 +3,34 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+/// Payload delivered by an incoming Android share intent.
+class SharePayload {
+  const SharePayload({this.text, this.imagePath});
+
+  final String? text;
+  final String? imagePath;
+
+  bool get hasImage => imagePath != null && imagePath!.isNotEmpty;
+
+  factory SharePayload.fromMap(dynamic arguments) {
+    if (arguments is! Map) {
+      return const SharePayload();
+    }
+    final map = arguments;
+    final text = map['text'] as String?;
+    final imagePath = map['imagePath'] as String?;
+    return SharePayload(
+      text: text?.isNotEmpty == true ? text : null,
+      imagePath: imagePath?.isNotEmpty == true ? imagePath : null,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        if (text != null) 'text': text,
+        if (imagePath != null) 'imagePath': imagePath,
+      };
+}
+
 /// Receives Android intents (share, deep link) via a platform MethodChannel.
 class IntentReceiver {
   IntentReceiver._();
@@ -10,12 +38,12 @@ class IntentReceiver {
 
   static const _channel = MethodChannel('com.notees.notees/intents');
 
-  final _shareController = StreamController<String>.broadcast();
+  final _shareController = StreamController<SharePayload>.broadcast();
   final _deepLinkController = StreamController<String>.broadcast();
   final _quickNoteTileController = StreamController<void>.broadcast();
   final _audioNoteTileController = StreamController<void>.broadcast();
 
-  Stream<String> get onShareText => _shareController.stream;
+  Stream<SharePayload> get onShare => _shareController.stream;
   Stream<String> get onDeepLink => _deepLinkController.stream;
   Stream<void> get onQuickNoteTile => _quickNoteTileController.stream;
   Stream<void> get onAudioNoteTile => _audioNoteTileController.stream;
@@ -30,9 +58,9 @@ class IntentReceiver {
 
     _channel.setMethodCallHandler((call) async {
       switch (call.method) {
-        case 'onShareText':
-          final text = call.arguments as String?;
-          if (text != null) _shareController.add(text);
+        case 'onShare':
+          final payload = SharePayload.fromMap(call.arguments);
+          _shareController.add(payload);
           return null;
         case 'onDeepLink':
           final link = call.arguments as String?;
@@ -49,8 +77,10 @@ class IntentReceiver {
     });
 
     try {
-      final pendingShare = await _channel.invokeMethod<String>('getPendingShareText');
-      if (pendingShare != null) _shareController.add(pendingShare);
+      final pendingShare = await _channel.invokeMethod<Map<dynamic, dynamic>>('getPendingShare');
+      if (pendingShare != null) {
+        _shareController.add(SharePayload.fromMap(pendingShare));
+      }
       final pendingLink = await _channel.invokeMethod<String>('getPendingDeepLink');
       if (pendingLink != null) _deepLinkController.add(pendingLink);
       final pendingQuickNote = await _channel.invokeMethod<bool>('getPendingQuickNoteTile');

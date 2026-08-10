@@ -6,11 +6,13 @@ This file contains project-specific context for the first-class Flutter mobile a
 
 The mobile app is a **first-class native Flutter app** for Notees. It provides native Android and iOS experiences for the workflows users do most often on phones.
 
+**The web app is the source of truth.** Always prefer the web app's API contracts, configuration, and design over anything in this mobile app. This app adapts to the web — never the other way around. When the two disagree, match the web.
+
 - **Package**: `com.notees.notees` (Android)
 - **Display name**: `Notees`
 - **Functional accent**: sage green `#5B7D5B`
 - **Architecture**: feature-first Flutter with Provider + ChangeNotifier, Dio, go_router, sqflite
-- **Native features**: biometric app lock, offline quick-capture queue, share receiver, native block editor with inline styles and node/class/tag links, native list/card/table views, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management
+- **Native features**: biometric app lock, offline quick-capture queue, share receiver, native block editor with inline styles and node/class/tag links, native list/card/table views, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management, local task due-date reminders with snooze actions and boot reschedule, Android home-screen today-tasks widget
 
 ## Key Files
 
@@ -31,7 +33,8 @@ notees-flutter/
 │   │   ├── providers/        # AuthProvider
 │   │   ├── screens/          # Splash, ServerSetup, Login, Dashboard, Settings, ServerManagement, UserProfile, ApiKeys, etc.
 │   │   └── widgets/          # Fleet-styled cards, section titles
-│   └── native/               # Platform-specific native helpers
+│   └── native/               # Platform-specific native helpers (reminder_service, intent_receiver, background_sync, app_locker, widget_service)
+   └── android/.../TaskWidgetProvider.kt  # Today's tasks home-screen widget
 ├── android/                  # Android platform project
 ├── ios/                      # iOS platform project
 ├── .github/workflows/        # Android CI
@@ -41,7 +44,7 @@ notees-flutter/
 
 ## Build
 
-**Release APK builds must run in GitHub Actions only.** Do not build release APKs locally. The Android workflow (`.github/workflows/android.yml`) builds, signs, and uploads the APK on every push or pull request.
+**Release APK builds must run in GitHub Actions only.** Do not build release APKs locally. The Android workflow (`.github/workflows/android.yml`) builds, signs, and uploads the APK on every push to `main` or pull request targeting `main`.
 
 CI uses directly-installed tooling (`actions/setup-java`, `subosito/flutter-action`, `android-actions/setup-android`) with cached `~/.pub-cache` and Gradle homes, following the same pattern as Logseq's Android workflow. It builds an unsigned release APK and then signs it with `apksigner` using the production keystore.
 
@@ -53,6 +56,11 @@ To request a CI build manually:
 ```
 
 Then download the artifact from the printed workflow run.
+
+**Tag releases**: pushing a `v*` tag (e.g. `v1.2.3`) runs
+`.github/workflows/release.yml`, which reuses `android.yml` to build a
+production-signed release APK and publishes a GitHub Release for the tag with
+the APK and its SHA-256 checksum attached.
 
 ## Local development
 
@@ -89,7 +97,7 @@ The Android workflow runs two pub-cache patches after `flutter pub get`:
 
 - `scripts/patch_kgp_plugins.py` removes legacy Kotlin Gradle Plugin application
   from plugins that have not yet migrated to AGP 9+ built-in Kotlin
-  (`cryptography_flutter`, `dynamic_color`, `workmanager_android`).
+  (`cryptography_flutter`, `dynamic_color`, `workmanager_android`, `home_widget`).
 - `scripts/patch_mdi_icons.py` removes `class _MdiIconData extends IconData`
   from `material_design_icons_flutter` (because `IconData` is `final` in recent
   Flutter versions) and inlines each map entry as a **const** `IconData(...)`
@@ -137,8 +145,6 @@ Keep this clone up to date when the mobile app needs to align with API contracts
 
 ## Skill References
 
-- `rosellramos-app-creator` — scaffold and fleet design system
-- `flutter-ui-patterns` — cards, lists, empty states, bottom sheets
-- `flutter-play-store-release` — signing, AAB, Play Console
+- `flutter-app-development` — scaffold and fleet design system, UI patterns (cards, lists, empty states, bottom sheets), audit checklists, signing, AAB, Play Console
 - `security-hardening` — token storage, HTTPS, input validation
 - `accessibility-primer` — touch targets, focus, labels

@@ -12,6 +12,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -52,6 +53,14 @@ kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
+}
+
+dependencies {
+    // Required by flutter_local_notifications for timezone-aware scheduling on
+    // older Android versions.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // Required by BootReceiver to enqueue the workmanager reschedule task.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 }
 
 flutter {

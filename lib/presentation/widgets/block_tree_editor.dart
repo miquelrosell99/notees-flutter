@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
+import '../../core/constants/system.dart';
 import '../../core/utils/ast_builder.dart';
 import '../../core/utils/color_presets.dart';
 import '../../data/models/node.dart';
@@ -65,6 +66,7 @@ class BlockTreeEditor extends StatefulWidget {
     this.onNodeLinkTap,
     this.onExternalLinkTap,
     this.onContentChanged,
+    this.onToggleTask,
     this.linkColors,
   });
 
@@ -87,6 +89,9 @@ class BlockTreeEditor extends StatefulWidget {
 
   /// Invoked whenever a block's text changes (for autosave).
   final VoidCallback? onContentChanged;
+
+  /// Invoked when the user taps a task checkbox.
+  final ValueChanged<BlockNode>? onToggleTask;
 
   /// Data colors for link targets (node/class uuid → color).
   final Map<String, Color>? linkColors;
@@ -233,10 +238,25 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       );
     }
 
+    final isTask = node.node.isTask;
+    final isTaskDone = _isTaskDone(node);
+
     Widget content = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(width: indent),
+        if (isTask)
+          SizedBox(
+            width: 40,
+            height: 48,
+            child: Center(
+              child: Checkbox(
+                value: isTaskDone,
+                onChanged: (_) => widget.onToggleTask?.call(node),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ),
         _DragHandle(
           node: node,
           dragging: _dragging == node,
@@ -432,6 +452,11 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
   }
 
   bool _isCode(BlockNode node) => node.node.isTable || _hasSystemClass(node, 'code');
+
+  bool _isTaskDone(BlockNode node) {
+    final status = node.node.properties[SystemPropertyUuids.taskStatus] as String?;
+    return status != null && TaskStatuses.closed.contains(status);
+  }
 
   Color? _calloutColor(BlockNode node, ColorScheme colors) {
     if (_hasSystemClass(node, 'warning')) return colors.error;

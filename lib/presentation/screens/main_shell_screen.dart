@@ -7,11 +7,13 @@ import 'package:provider/provider.dart';
 import '../../core/routing/router.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
+import '../providers/settings_provider.dart';
 import '../widgets/command_palette.dart';
+import '../widgets/quick_capture_sheet.dart';
 import 'dashboard_screen.dart';
-import 'journal_screen.dart';
-import 'pages_screen.dart';
-import 'search_screen.dart';
+import 'journal_continuous_screen.dart';
+import 'library_screen.dart';
+import 'node_editor_screen.dart';
 import 'tasks_screen.dart';
 
 /// Main app shell with a bottom navigation bar.
@@ -34,14 +36,9 @@ class _MainShellScreenState extends State<MainShellScreen> {
 
   final _destinations = <_NavDestination>[
     _NavDestination(
-      label: 'Home',
-      icon: MdiIcons.homeOutline,
-      selectedIcon: MdiIcons.home,
-    ),
-    _NavDestination(
-      label: 'Journal',
-      icon: MdiIcons.calendarOutline,
-      selectedIcon: MdiIcons.calendar,
+      label: 'Inbox',
+      icon: MdiIcons.inboxOutline,
+      selectedIcon: MdiIcons.inbox,
     ),
     _NavDestination(
       label: 'Tasks',
@@ -49,14 +46,14 @@ class _MainShellScreenState extends State<MainShellScreen> {
       selectedIcon: MdiIcons.checkCircle,
     ),
     _NavDestination(
-      label: 'Pages',
-      icon: MdiIcons.fileDocumentOutline,
-      selectedIcon: MdiIcons.fileDocument,
+      label: 'Journal',
+      icon: MdiIcons.calendarOutline,
+      selectedIcon: MdiIcons.calendar,
     ),
     _NavDestination(
-      label: 'Search',
-      icon: MdiIcons.magnify,
-      selectedIcon: MdiIcons.magnify,
+      label: 'Library',
+      icon: MdiIcons.bookshelf,
+      selectedIcon: MdiIcons.bookshelf,
     ),
   ];
 
@@ -95,16 +92,16 @@ class _MainShellScreenState extends State<MainShellScreen> {
     if (!mounted || result == null) return;
 
     switch (result) {
-      case StaticCommand(action: CommandPaletteAction.dashboard):
+      case StaticCommand(action: CommandPaletteAction.inbox):
         setState(() => _currentIndex = 0);
-      case StaticCommand(action: CommandPaletteAction.journal):
-        setState(() => _currentIndex = 1);
       case StaticCommand(action: CommandPaletteAction.tasks):
+        setState(() => _currentIndex = 1);
+      case StaticCommand(action: CommandPaletteAction.journals):
         setState(() => _currentIndex = 2);
-      case StaticCommand(action: CommandPaletteAction.pages):
+      case StaticCommand(action: CommandPaletteAction.library):
         setState(() => _currentIndex = 3);
       case StaticCommand(action: CommandPaletteAction.search):
-        setState(() => _currentIndex = 4);
+        context.push(Routes.search);
       case StaticCommand(action: CommandPaletteAction.journalToday):
         context.push(Routes.journal);
       case StaticCommand(action: CommandPaletteAction.settings):
@@ -146,6 +143,15 @@ class _MainShellScreenState extends State<MainShellScreen> {
           Expanded(child: _buildBody()),
         ],
       ),
+      floatingActionButton: useRail
+          ? null
+          : FloatingActionButton(
+              onPressed: _openCaptureSheet,
+              tooltip: 'Capture',
+              child: Icon(MdiIcons.plus),
+            ),
+      floatingActionButtonLocation:
+          useRail ? null : FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: useRail
           ? null
           : NavigationBar(
@@ -169,18 +175,28 @@ class _MainShellScreenState extends State<MainShellScreen> {
     );
   }
 
+  void _openCaptureSheet() {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const QuickCaptureSheet(),
+    );
+  }
+
   Widget _buildBody() {
     switch (_currentIndex) {
       case 0:
-        return const DashboardScreen();
+        final settings = context.watch<SettingsProvider>();
+        return settings.homePage == HomePage.today
+            ? const _TodayJournalHome()
+            : const DashboardScreen();
       case 1:
-        return const JournalScreen();
-      case 2:
         return const TasksScreen();
+      case 2:
+        return const JournalContinuousScreen();
       case 3:
-        return const PagesScreen();
-      case 4:
-        return const SearchScreen();
+        return const LibraryScreen();
       default:
         return const DashboardScreen();
     }
@@ -197,4 +213,56 @@ class _NavDestination {
   final String label;
   final IconData icon;
   final IconData selectedIcon;
+}
+
+/// Home tab variant that opens today's daily journal directly in the editor.
+class _TodayJournalHome extends StatefulWidget {
+  const _TodayJournalHome();
+
+  @override
+  State<_TodayJournalHome> createState() => _TodayJournalHomeState();
+}
+
+class _TodayJournalHomeState extends State<_TodayJournalHome> {
+  String? _journalUuid;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTodayJournal();
+  }
+
+  Future<void> _loadTodayJournal() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    try {
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      final journal = await repo.getOrCreateDailyJournal(DateTime.now());
+      if (mounted) setState(() => _journalUuid = journal.uuid);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Text(
+            _error!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ),
+      );
+    }
+    final uuid = _journalUuid;
+    if (uuid == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return NodeEditorScreen(nodeUuid: uuid);
+  }
 }

@@ -1,18 +1,34 @@
 package com.notees.notees
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.webkit.MimeTypeMap
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
+import java.io.FileOutputStream
 
 class MainActivity : FlutterActivity() {
     companion object {
         const val CHANNEL = "com.notees.notees/intents"
-        private var pendingShareText: String? = null
+        private var pendingShare: SharePayload? = null
         private var pendingDeepLink: String? = null
         private var pendingQuickNoteTile: Boolean = false
         private var pendingAudioNoteTile: Boolean = false
+    }
+
+    data class SharePayload(
+        var text: String? = null,
+        var imagePath: String? = null,
+    ) {
+        fun toMap(): Map<String, String?> {
+            return mapOf(
+                "text" to text,
+                "imagePath" to imagePath,
+            )
+        }
     }
 
     private var methodChannel: MethodChannel? = null
@@ -32,10 +48,10 @@ class MainActivity : FlutterActivity() {
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
-                "getPendingShareText" -> {
-                    val text = pendingShareText
-                    pendingShareText = null
-                    result.success(text)
+                "getPendingShare" -> {
+                    val payload = pendingShare
+                    pendingShare = null
+                    result.success(payload?.toMap() ?: emptyMap<String, String>())
                 }
                 "getPendingDeepLink" -> {
                     val link = pendingDeepLink
@@ -61,11 +77,31 @@ class MainActivity : FlutterActivity() {
     private fun handleIntent(intent: Intent?) {
         when (intent?.action) {
             Intent.ACTION_SEND -> {
-                if (intent.type?.startsWith("text/") == true) {
-                    val text = intent.getStringExtra(Intent.EXTRA_TEXT)
-                    if (!text.isNullOrBlank()) {
-                        pendingShareText = text.take(100_000)
-                        flushPendingEvents()
+                when {
+                    intent.type?.startsWith("image/") == true -> {
+                        val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                        if (uri != null) {
+                            val path = cacheUri(uri)
+                            if (path != null) {
+                                pendingShare = SharePayload(imagePath = path)
+                                flushPendingEvents()
+                            }
+                        }
+                    }
+                    intent.type?.startsWith("text/") == true -> {
+                        val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+                        if (!text.isNullOrBlank()) {
+                            pendingShare = SharePayload(text = text.take(100_000))
+                            flushPendingEvents()
+                        }
+                    }
+                    else -> {
+                        // Graceful fallback: try to read any shared text.
+                        val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+                        if (!text.isNullOrBlank()) {
+                            pendingShare = SharePayload(text = text.take(100_000))
+                            flushPendingEvents()
+                        }
                     }
                 }
             }
@@ -87,10 +123,29 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun cacheUri(uri: Uri): String? {
+        val resolver = contentResolver ?: return null
+        val mimeType = resolver.getType(uri) ?: "image/jpeg"
+        val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType) ?: "jpg"
+        val file = File(cacheDir, "share_${System.currentTimeMillis()}.$extension")
+        return try {
+            resolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(file).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            file.absolutePath
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     private fun flushPendingEvents() {
         methodChannel ?: return
-        if (pendingShareText != null) {
-            methodChannel?.invokeMethod("onShareText", pendingShareText)
+        pendingShare?.let {
+            pendingShare = null
+            methodChannel?.invokeMethod("onShare", it.toMap())
         }
         if (pendingDeepLink != null) {
             methodChannel?.invokeMethod("onDeepLink", pendingDeepLink)

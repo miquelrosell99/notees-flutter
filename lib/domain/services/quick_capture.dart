@@ -62,6 +62,9 @@ class QuickCaptureService {
         parentUuid: targetParent,
       );
     } else {
+      if (!AppDatabase.isSupported) {
+        throw StateError('Offline capture is not available on this platform');
+      }
       await _database.enqueueQuickNote(name);
     }
   }

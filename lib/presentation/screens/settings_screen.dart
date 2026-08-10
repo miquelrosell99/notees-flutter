@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/constants/capture_types.dart';
 import '../../core/routing/router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/theme_builder.dart';
@@ -261,6 +262,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: theme.pureBlack,
                   onChanged: theme.setPureBlack,
                 ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(MdiIcons.homeOutline),
+                  title: const Text('Home page'),
+                  trailing: Text(
+                    homePageLabel(settings.homePage),
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showHomePagePicker(context, settings),
+                ),
               ],
             ),
           ),
@@ -321,6 +332,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   onTap: () => _showQuickCaptureDestinationPicker(context, settings),
                 ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          SectionTitle(icon: MdiIcons.bullseye, label: 'Capture bubble'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(MdiIcons.checkboxBlankCircleOutline),
+                  title: const Text('Floating capture bubble'),
+                  subtitle: const Text('A quick-capture dot that follows you inside the app'),
+                  trailing: Switch(
+                    value: settings.floatingCaptureBubbleEnabled,
+                    onChanged: (value) => _setBubbleEnabled(context, settings, value),
+                  ),
+                ),
+                if (settings.floatingCaptureBubbleEnabled) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Icon(MdiIcons.noteEditOutline),
+                    title: const Text('Default capture type'),
+                    trailing: Text(
+                      quickCaptureTypeLabel(settings.floatingCaptureBubbleDefaultType),
+                      style: TextStyle(color: colors.onSurfaceVariant),
+                    ),
+                    onTap: () => _showBubbleDefaultTypePicker(context, settings),
+                  ),
+                ],
               ],
             ),
           ),
@@ -471,7 +512,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   title: const Text('Biometric lock'),
                   subtitle: biometric.available == false
                       ? const Text('No biometrics enrolled on this device')
-                      : const Text('Require authentication to open the app'),
+                      : const Text('Require authentication and encrypt the local database'),
                   trailing: Switch(
                     value: biometric.enabled,
                     onChanged: biometric.available == true
@@ -665,6 +706,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
       labelBuilder: quickCaptureDestinationLabel,
     );
     if (destination != null) await settings.setQuickCaptureDestination(destination);
+  }
+
+  Future<void> _setBubbleEnabled(
+    BuildContext context,
+    SettingsProvider settings,
+    bool value,
+  ) async {
+    HapticFeedback.lightImpact();
+    if (!value) {
+      await settings.setFloatingCaptureBubbleEnabled(false);
+      return;
+    }
+    final granted = await _requestBubblePermission(context);
+    if (granted) {
+      await settings.setFloatingCaptureBubbleEnabled(true);
+    }
+  }
+
+  Future<bool> _requestBubblePermission(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Enable floating bubble'),
+        content: const Text(
+          'The capture bubble appears on top of the Notees app so you can '
+          'capture ideas quickly. A future version will draw the bubble over '
+          'other apps and require the system overlay permission.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Enable'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
+  Future<void> _showBubbleDefaultTypePicker(BuildContext context, SettingsProvider settings) async {
+    final type = await _showEnumPicker<QuickCaptureType>(
+      context: context,
+      title: 'Default capture type',
+      values: QuickCaptureType.values,
+      selected: settings.floatingCaptureBubbleDefaultType,
+      labelBuilder: quickCaptureTypeLabel,
+    );
+    if (type != null) await settings.setFloatingCaptureBubbleDefaultType(type);
+  }
+
+  Future<void> _showHomePagePicker(BuildContext context, SettingsProvider settings) async {
+    final page = await _showEnumPicker<HomePage>(
+      context: context,
+      title: 'Home page',
+      values: HomePage.values,
+      selected: settings.homePage,
+      labelBuilder: homePageLabel,
+    );
+    if (page != null) await settings.setHomePage(page);
   }
 
   Future<T?> _showEnumPicker<T>({

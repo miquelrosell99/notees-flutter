@@ -7,10 +7,14 @@ import '../../presentation/providers/auth_provider.dart';
 import '../../presentation/screens/about_screen.dart';
 import '../../presentation/screens/api_keys_screen.dart';
 import '../../presentation/screens/archived_screen.dart';
+import '../../presentation/screens/journal_continuous_screen.dart';
 import '../../presentation/screens/login_screen.dart';
 import '../../presentation/screens/main_shell_screen.dart';
 import '../../presentation/screens/notifications_screen.dart';
 import '../../presentation/screens/node_editor_screen.dart';
+import '../../presentation/screens/onboarding_screen.dart';
+import '../../presentation/screens/pages_screen.dart';
+import '../../presentation/screens/search_screen.dart';
 import '../../presentation/screens/server_management_screen.dart';
 import '../../presentation/screens/server_setup_screen.dart';
 import '../../presentation/screens/keyboard_shortcuts_screen.dart';
@@ -34,8 +38,11 @@ abstract class Routes {
   static const trash = '/trash';
   static const journal = '/journal';
   static const journals = '/journals';
+  static const library = '/library';
   static const notifications = '/notifications';
+  static const onboarding = '/onboarding';
   static const pages = '/pages';
+  static const search = '/search';
   static const tasks = '/tasks';
   static const templates = '/templates';
   static const graph = '/graph';
@@ -55,6 +62,7 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       final loading = authProvider.loading;
       final server = authProvider.activeServer;
       final authenticated = authProvider.isAuthenticated;
+      final onboardingCompleted = authProvider.onboardingCompleted;
       final path = state.matchedLocation;
 
       if (loading) return null;
@@ -69,7 +77,17 @@ GoRouter createRouter({required AuthProvider authProvider}) {
         }
       }
 
+      if (authenticated &&
+          !onboardingCompleted &&
+          path != Routes.onboarding) {
+        return Routes.onboarding;
+      }
+
       if (authenticated && (path == Routes.login || path == Routes.splash)) {
+        return Routes.dashboard;
+      }
+
+      if (onboardingCompleted && path == Routes.onboarding) {
         return Routes.dashboard;
       }
 
@@ -136,16 +154,24 @@ GoRouter createRouter({required AuthProvider authProvider}) {
         builder: (context, state) => const _JournalRedirect(),
       ),
       GoRoute(
-        path: Routes.journals,
-        builder: (context, state) => const MainShellScreen(initialIndex: 1),
+        path: Routes.search,
+        builder: (context, state) => const SearchScreen(),
       ),
       GoRoute(
-        path: Routes.pages,
+        path: Routes.library,
         builder: (context, state) => const MainShellScreen(initialIndex: 3),
       ),
       GoRoute(
+        path: Routes.journals,
+        builder: (context, state) => const JournalContinuousScreen(),
+      ),
+      GoRoute(
+        path: Routes.pages,
+        builder: (context, state) => const PagesScreen(),
+      ),
+      GoRoute(
         path: Routes.tasks,
-        builder: (context, state) => const MainShellScreen(initialIndex: 2),
+        builder: (context, state) => const MainShellScreen(initialIndex: 1),
       ),
       GoRoute(
         path: Routes.graph,
@@ -223,6 +249,10 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       GoRoute(
         path: Routes.notifications,
         builder: (context, state) => const NotificationsScreen(),
+      ),
+      GoRoute(
+        path: Routes.onboarding,
+        builder: (context, state) => const OnboardingScreen(),
       ),
     ],
   );

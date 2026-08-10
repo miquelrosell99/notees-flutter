@@ -7,7 +7,9 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
+import '../../core/constants/system.dart';
 import '../../core/routing/router.dart';
 import '../../core/utils/ast_builder.dart';
 import '../../core/utils/color_presets.dart';
@@ -19,6 +21,7 @@ import '../../data/models/property.dart';
 import '../../data/repositories/comment_repository.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/ast_rich_text.dart';
 import '../widgets/block_tree_editor.dart';
 import '../widgets/comments_bottom_sheet.dart';
 import '../widgets/editor_inline_toolbar.dart';
@@ -52,6 +55,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
   List<BreadcrumbItem> _breadcrumbs = [];
   List<NodePropertyValue> _properties = [];
+  Map<String, ClassProperty> _classProperties = {};
+  List<Property> _availableProperties = [];
   Map<String, String> _classNames = {};
   Map<String, Color> _linkColors = {};
   String? _pageColor;
@@ -65,6 +70,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   int _commentCount = 0;
   List<LinkedReference> _linkedReferences = [];
   int _linkedRefsTotal = 0;
+  bool _readerMode = false;
+  bool _isFavorite = false;
 
   /// Autosave: edits mark the page dirty and debounce a background save.
   Timer? _autosaveTimer;
@@ -125,6 +132,26 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       final properties = await repo.fetchNodeProperties(widget.nodeUuid);
       final classes = await repo.fetchClasses();
       final breadcrumbs = await repo.fetchBreadcrumbs(widget.nodeUuid);
+
+      // Class-level property bindings (hidden/required/default) for this node's classes.
+      final classProps = <String, ClassProperty>{};
+      for (final classUuid in page.classesUuid) {
+        try {
+          for (final cp in await repo.fetchClassProperties(classUuid)) {
+            classProps.putIfAbsent(cp.propertyUuid, () => cp);
+          }
+        } catch (_) {
+          // Ignore classes that fail to resolve; properties still render.
+        }
+      }
+      // Full property defs so required/default class props without a value still render.
+      List<Property> available = const [];
+      if (classProps.isNotEmpty) {
+        try {
+          available = await repo.fetchAvailableProperties(widget.nodeUuid);
+        } catch (_) {}
+      }
+
       final classNames = {
         for (final c in classes)
           if (c.uuid.isNotEmpty) c.uuid: c.displayName.toLowerCase(),
@@ -148,7 +175,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       if (mounted) {
         setState(() {
           _titleController.text = page.displayName.isNotEmpty ? page.displayName : 'Untitled';
-          _properties = properties;
+          _classProperties = classProps;
+          _availableProperties = available;
+          _properties = _buildDisplayProperties(properties, classProps, available);
           _classNames = classNames;
           _linkColors = linkColors;
           _pageColor = page.color;
@@ -161,6 +190,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         });
       }
       if (mounted) {
+        await _loadFavoriteStatus();
         await _loadCommentCount();
         await _loadLinkedReferences();
       }
@@ -212,6 +242,91 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         });
       }
     }
+  }
+
+  Future<void> _loadFavoriteStatus() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    try {
+      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      final uuids = await repo.fetchFavoriteUuids();
+      if (mounted) setState(() => _isFavorite = uuids.contains(widget.nodeUuid));
+    } catch (_) {
+      if (mounted) setState(() => _isFavorite = false);
+    }
+  }
+
+  Future<void> _toggleFavorite() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+    try {
+      if (_isFavorite) {
+        await repo.removeFavorite(widget.nodeUuid);
+      } else {
+        await repo.addFavorite(widget.nodeUuid);
+      }
+      if (mounted) setState(() => _isFavorite = !_isFavorite);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update favorite: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _sharePage() async {
+    final auth = context.read<AuthProvider>();
+    final server = auth.activeServer;
+    final path = '${Routes.editor}/${widget.nodeUuid}';
+    final url = server != null
+        ? Uri.parse(server.url).replace(path: path).toString()
+        : path;
+    final text = '${_titleController.text.trim()}\n$url';
+    await SharePlus.instance.share(ShareParams(text: text));
+  }
+
+  void _onReaderAddBlock() {
+    HapticFeedback.lightImpact();
+    setState(() => _readerMode = false);
+    _addBlock();
+  }
+
+  Future<void> _onReaderAddTask() async {
+    HapticFeedback.lightImpact();
+    setState(() => _readerMode = false);
+
+    final newBlock = BlockNode(
+      node: Node(id: 0, uuid: '', name: '', displayName: ''),
+      controller: TextEditingController(),
+      parent: null,
+      isNew: true,
+    );
+    setState(() {
+      _roots.add(newBlock);
+      _focusedBlock = newBlock;
+    });
+    _markDirty();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _blockTreeKey.currentState?.requestFocusFor(newBlock);
+    });
+
+    await _convertToTask(newBlock);
+  }
+
+  void _onReaderBlockTap(BlockNode block) {
+    HapticFeedback.lightImpact();
+    setState(() {
+      _readerMode = false;
+      _focusedBlock = block;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _blockTreeKey.currentState?.requestFocusFor(block);
+      _blockTreeKey.currentState?.scrollToBlock(block);
+    });
   }
 
   Future<void> _openComments() async {
@@ -652,12 +767,18 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         wrap('`');
       case EditorAction.highlight:
         wrap('==');
+      case EditorAction.heading:
+        _applyHeadingCycle(controller);
       case EditorAction.heading1:
         _applyHeading(controller, 1);
       case EditorAction.heading2:
         _applyHeading(controller, 2);
       case EditorAction.heading3:
         _applyHeading(controller, 3);
+      case EditorAction.bullet:
+        _applyBullet(controller);
+      case EditorAction.date:
+        _insertDate(controller);
       case EditorAction.link:
       case EditorAction.classLink:
       case EditorAction.tagLink:
@@ -666,12 +787,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       case EditorAction.template:
         await _insertNodeLink(block, action);
       case EditorAction.task:
-        final cursor = selection.isValid ? selection.start : 0;
-        const replacement = '- [ ] ';
-        final newText = text.replaceRange(cursor, cursor, replacement);
-        controller
-          ..text = newText
-          ..selection = TextSelection.collapsed(offset: cursor + replacement.length);
+        await _convertToTask(block);
       case EditorAction.table:
         final cursor = selection.isValid ? selection.start : 0;
         const replacement = '| Header | Header |\n| --- | --- |\n| Cell | Cell |';
@@ -708,6 +824,210 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     controller
       ..text = newText
       ..selection = TextSelection.collapsed(offset: newOffset.clamp(0, newText.length));
+  }
+
+  void _applyHeadingCycle(TextEditingController controller) {
+    final text = controller.text;
+    final selection = controller.selection;
+    final cursor = selection.isValid ? selection.start : 0;
+    final lineStart = text.lastIndexOf('\n', cursor == 0 ? 0 : cursor - 1);
+    final start = lineStart == -1 ? 0 : lineStart + 1;
+    final afterLineStart = text.substring(start);
+    final existing = RegExp(r'^#{1,3}\s*').firstMatch(afterLineStart);
+    final level = existing != null
+        ? ((afterLineStart.split(' ').first.length) % 3) + 1
+        : 1;
+    _applyHeading(controller, level);
+  }
+
+  void _applyBullet(TextEditingController controller) {
+    final text = controller.text;
+    final selection = controller.selection;
+    final cursor = selection.isValid ? selection.start : 0;
+    final lineStart = text.lastIndexOf('\n', cursor == 0 ? 0 : cursor - 1);
+    final start = lineStart == -1 ? 0 : lineStart + 1;
+    const replacement = '- ';
+    final newText = text.replaceRange(start, start, replacement);
+    controller
+      ..text = newText
+      ..selection = TextSelection.collapsed(
+        offset: (cursor + replacement.length).clamp(0, newText.length),
+      );
+  }
+
+  void _insertDate(TextEditingController controller) {
+    final text = controller.text;
+    final selection = controller.selection;
+    final cursor = selection.isValid ? selection.start : 0;
+    final now = DateTime.now();
+    final replacement =
+        '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final newText = text.replaceRange(cursor, cursor, replacement);
+    controller
+      ..text = newText
+      ..selection = TextSelection.collapsed(
+        offset: (cursor + replacement.length).clamp(0, newText.length),
+      );
+  }
+
+  Future<void> _convertToTask(BlockNode block) async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+    final text = block.controller.text.trim();
+    final parentUuid = block.parent?.node.uuid ?? widget.nodeUuid;
+    final isEmpty = text.isEmpty || block.node.uuid.isEmpty;
+
+    final created = await repo.createInboxBlock(
+      name: isEmpty ? '' : text,
+      isTask: true,
+      parentUuid: parentUuid,
+    );
+    if (!mounted) return;
+
+    const pendingStatus = 'Pending';
+    await repo.setNodeProperty(
+      created.uuid,
+      SystemPropertyUuids.taskStatus,
+      pendingStatus,
+    );
+    if (!mounted) return;
+
+    final taskNode = _copyNodeAsTask(
+      created,
+      status: pendingStatus,
+    );
+
+    if (isEmpty) {
+      if (block.node.uuid.isNotEmpty) {
+        _deletedBlockUuids.add(block.node.uuid);
+      }
+      block.node = taskNode;
+      block.controller.text = _nodeNameToMarkdown(taskNode);
+    } else {
+      final newBlock = BlockNode(
+        node: taskNode,
+        controller: TextEditingController(text: _nodeNameToMarkdown(taskNode)),
+        parent: block.parent,
+      );
+      final siblings = block.parent?.children ?? _roots;
+      final index = siblings.indexOf(block);
+      if (index >= 0) {
+        siblings.insert(index + 1, newBlock);
+      } else {
+        siblings.add(newBlock);
+      }
+      _focusedBlock = newBlock;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _blockTreeKey.currentState?.requestFocusFor(newBlock);
+      });
+    }
+
+    setState(() {});
+  }
+
+  Future<void> _onToggleTaskStatus(BlockNode block) async {
+    if (block.node.uuid.isEmpty) return;
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+    final current = block.node.properties[SystemPropertyUuids.taskStatus] as String?;
+    final isDone = current != null && TaskStatuses.closed.contains(current);
+    final newStatus = isDone ? 'Pending' : 'Done';
+
+    try {
+      await repo.setNodeProperty(
+        block.node.uuid,
+        SystemPropertyUuids.taskStatus,
+        newStatus,
+      );
+      if (!mounted) return;
+      setState(() {
+        block.node = _copyNodeWithProperty(
+          block.node,
+          SystemPropertyUuids.taskStatus,
+          newStatus,
+        );
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update task: $e')),
+        );
+      }
+    }
+  }
+
+  String _nodeNameToMarkdown(Node node) {
+    final ast = _tryParseAst(node.name);
+    return AstBuilder.toMarkdown(ast);
+  }
+
+  Node _copyNodeAsTask(Node node, {String? status}) {
+    final props = Map<String, dynamic>.from(node.properties);
+    if (status != null) props[SystemPropertyUuids.taskStatus] = status;
+    return Node(
+      id: node.id,
+      uuid: node.uuid,
+      name: node.name,
+      displayName: node.displayName,
+      icon: node.icon,
+      color: node.color,
+      parentUuid: node.parentUuid,
+      pageUuid: node.pageUuid,
+      sequence: node.sequence,
+      isPage: node.isPage,
+      isTask: true,
+      isDaily: node.isDaily,
+      isMonthly: node.isMonthly,
+      isYearly: node.isYearly,
+      isTable: node.isTable,
+      isAsset: node.isAsset,
+      isComment: node.isComment,
+      isPrivate: node.isPrivate,
+      classes: node.classes,
+      classesUuid: node.classesUuid,
+      tags: node.tags,
+      tagsUuid: node.tagsUuid,
+      properties: props,
+      children: node.children,
+      createDate: node.createDate,
+      writeDate: node.writeDate,
+    );
+  }
+
+  Node _copyNodeWithProperty(Node node, String key, dynamic value) {
+    final props = Map<String, dynamic>.from(node.properties)..[key] = value;
+    return Node(
+      id: node.id,
+      uuid: node.uuid,
+      name: node.name,
+      displayName: node.displayName,
+      icon: node.icon,
+      color: node.color,
+      parentUuid: node.parentUuid,
+      pageUuid: node.pageUuid,
+      sequence: node.sequence,
+      isPage: node.isPage,
+      isTask: node.isTask,
+      isDaily: node.isDaily,
+      isMonthly: node.isMonthly,
+      isYearly: node.isYearly,
+      isTable: node.isTable,
+      isAsset: node.isAsset,
+      isComment: node.isComment,
+      isPrivate: node.isPrivate,
+      classes: node.classes,
+      classesUuid: node.classesUuid,
+      tags: node.tags,
+      tagsUuid: node.tagsUuid,
+      properties: props,
+      children: node.children,
+      createDate: node.createDate,
+      writeDate: node.writeDate,
+    );
   }
 
   Future<void> _insertNodeLink(BlockNode block, EditorAction action) async {
@@ -813,6 +1133,11 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         title: _breadcrumbs.isEmpty ? null : _buildBreadcrumbRow(),
         actions: [
           IconButton(
+            icon: Icon(_readerMode ? MdiIcons.pencil : MdiIcons.eye),
+            tooltip: _readerMode ? 'Edit' : 'Read',
+            onPressed: () => setState(() => _readerMode = !_readerMode),
+          ),
+          IconButton(
             icon: Badge(
               isLabelVisible: _commentCount > 0,
               label: Text('$_commentCount'),
@@ -859,47 +1184,105 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: _loadPage,
-                    child: ListView(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.all(20),
-                      children: [
-                        if (_error != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: FleetCard(
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Text(
-                                  _error!,
-                                  style: TextStyle(color: colors.error),
+          : _readerMode
+              ? _buildReaderBody()
+              : Column(
+                  children: [
+                    Expanded(
+                      child: RefreshIndicator(
+                        onRefresh: _loadPage,
+                        child: ListView(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.all(20),
+                          children: [
+                            if (_error != null)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: FleetCard(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Text(
+                                      _error!,
+                                      style: TextStyle(color: colors.error),
+                                    ),
+                                  ),
                                 ),
                               ),
+                            _buildTitleField(),
+                            const SizedBox(height: 20),
+                            _buildBlockTree(colors),
+                            TextButton.icon(
+                              onPressed: _addBlock,
+                              icon: Icon(MdiIcons.plus),
+                              label: const Text('Add block'),
                             ),
-                          ),
-                        _buildTitleField(),
-                        const SizedBox(height: 20),
-                        _buildBlockTree(colors),
-                        TextButton.icon(
-                          onPressed: _addBlock,
-                          icon: Icon(MdiIcons.plus),
-                          label: const Text('Add block'),
+                            const SizedBox(height: 20),
+                            _buildPropertiesSection(colors),
+                            _buildLinkedReferencesSection(colors),
+                          ],
                         ),
-                        const SizedBox(height: 20),
-                        _buildPropertiesSection(colors),
-                        _buildLinkedReferencesSection(colors),
-                      ],
+                      ),
                     ),
-                  ),
+                    if (keyboardVisible)
+                      EditorInlineToolbar(onAction: _onToolbarAction),
+                  ],
                 ),
-                if (keyboardVisible)
-                  EditorInlineToolbar(onAction: _onToolbarAction),
+      bottomNavigationBar: _readerMode ? _buildReaderBottomBar(colors) : null,
+    );
+  }
+
+  /// Clean, read-only view of the page content.
+  Widget _buildReaderBody() {
+    return _PageReaderView(
+      title: _titleController.text,
+      roots: _roots,
+      classNames: _classNames,
+      linkColors: _linkColors,
+      onBlockTap: _onReaderBlockTap,
+      onToggleCollapse: _onToggleCollapse,
+      onNodeLinkTap: _onNodeLinkTap,
+      onToggleTask: _onToggleTaskStatus,
+    );
+  }
+
+  /// Floating action bar shown only in reader mode.
+  Widget _buildReaderBottomBar(ColorScheme colors) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Material(
+          color: colors.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _ReaderBarButton(
+                  icon: MdiIcons.plus,
+                  label: 'Add',
+                  onPressed: _onReaderAddBlock,
+                ),
+                _ReaderBarButton(
+                  icon: MdiIcons.checkboxMarkedOutline,
+                  label: 'Task',
+                  onPressed: _onReaderAddTask,
+                ),
+                _ReaderBarButton(
+                  icon: MdiIcons.shareOutline,
+                  label: 'Share',
+                  onPressed: _sharePage,
+                ),
+                _ReaderBarButton(
+                  icon: _isFavorite ? MdiIcons.star : MdiIcons.starOutline,
+                  label: 'Favorite',
+                  onPressed: _toggleFavorite,
+                ),
               ],
             ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1023,6 +1406,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           onToggleCollapse: _onToggleCollapse,
           onNodeLinkTap: _onNodeLinkTap,
           onContentChanged: _markDirty,
+          onToggleTask: _onToggleTaskStatus,
           linkColors: _linkColors,
         ),
       ),
@@ -1031,6 +1415,13 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
   Widget _buildPropertiesSection(ColorScheme colors) {
     if (_properties.isEmpty) return const SizedBox.shrink();
+
+    final visible = <NodePropertyValue>[];
+    final hidden = <NodePropertyValue>[];
+    for (final p in _properties) {
+      final isHidden = _classProperties[p.property.uuid]?.hidden ?? false;
+      (isHidden ? hidden : visible).add(p);
+    }
 
     return FleetCard(
       child: Padding(
@@ -1045,19 +1436,88 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                   ),
             ),
             const SizedBox(height: 12),
-            ..._properties.map((p) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: PropertyValueCell(
-                  property: p.property,
-                  values: p.values,
+            ...visible.map(_buildPropertyCell),
+            if (hidden.isNotEmpty)
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: EdgeInsets.zero,
+                title: Text(
+                  'Hidden properties (${hidden.length})',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
                 ),
-              );
-            }),
+                children: hidden.map(_buildPropertyCell).toList(),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildPropertyCell(NodePropertyValue p) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: PropertyValueCell(
+        property: p.property,
+        values: p.values,
+        readOnly: p.property.isReadOnly,
+        required: _classProperties[p.property.uuid]?.required ?? false,
+        onChanged: (value) => _setPropertyValue(p.property, value),
+        onPickDate: _pickDateNode,
+      ),
+    );
+  }
+
+  /// Merges node property values with class-property bindings: drops internal
+  /// `_`-prefixed system props and appends required/defaulted class props that
+  /// have no value yet so they render editable/empty (matches the web).
+  List<NodePropertyValue> _buildDisplayProperties(
+    List<NodePropertyValue> base,
+    Map<String, ClassProperty> classProps,
+    List<Property> available,
+  ) {
+    final display = base.where((p) => !p.property.isHiddenSystem).toList();
+    final present = display.map((p) => p.property.uuid).toSet();
+    final byUuid = {for (final p in available) p.uuid: p};
+    for (final cp in classProps.values) {
+      if (present.contains(cp.propertyUuid)) continue;
+      if (!(cp.required || cp.defaultValue != null)) continue;
+      final def = byUuid[cp.propertyUuid];
+      if (def == null || def.isHiddenSystem) continue;
+      display.add(NodePropertyValue(property: def, values: const []));
+    }
+    return display;
+  }
+
+  Future<void> _setPropertyValue(Property property, dynamic value) async {
+    if (!mounted) return;
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+    try {
+      await repo.setNodeProperty(widget.nodeUuid, property.uuid, value);
+      final refreshed = await repo.fetchNodeProperties(widget.nodeUuid);
+      if (!mounted) return;
+      setState(() {
+        _properties = _buildDisplayProperties(refreshed, _classProperties, _availableProperties);
+      });
+    } on DioException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save ${property.name}: ${e.message ?? 'error'}')),
+      );
+    }
+  }
+
+  /// Resolves a date to its journal (day-page) node id for date-typed properties.
+  Future<int> _pickDateNode(DateTime date) async {
+    if (!mounted) return 0;
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return 0;
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+    final node = await repo.getOrCreateDailyJournal(date);
+    return node.id;
   }
 
   Widget _buildLinkedReferencesSection(ColorScheme colors) {
@@ -1103,5 +1563,250 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         ],
       ),
     );
+  }
+}
+
+/// A compact tappable button for the reader-mode floating bottom bar.
+class _ReaderBarButton extends StatelessWidget {
+  const _ReaderBarButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: 64,
+        height: 48,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 22, color: colors.onSurfaceVariant),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Read-only rendering of a page tree.
+///
+/// Displays the title as a warm, serif headline and the blocks as styled
+/// paragraphs, headings, bullets, and task checkboxes. Collapsible children
+/// are honored, node/class links render as tappable pills, and tapping any
+/// block returns the caller to edit mode for that block.
+class _PageReaderView extends StatelessWidget {
+  const _PageReaderView({
+    required this.title,
+    required this.roots,
+    required this.classNames,
+    this.linkColors,
+    required this.onBlockTap,
+    required this.onToggleCollapse,
+    required this.onNodeLinkTap,
+    required this.onToggleTask,
+  });
+
+  final String title;
+  final List<BlockNode> roots;
+  final Map<String, String> classNames;
+  final Map<String, Color>? linkColors;
+  final ValueChanged<BlockNode> onBlockTap;
+  final ValueChanged<BlockNode> onToggleCollapse;
+  final ValueChanged<String> onNodeLinkTap;
+  final ValueChanged<BlockNode> onToggleTask;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final paperColor = isDark ? const Color(0xFF1C1915) : const Color(0xFFFDFBF7);
+
+    return Container(
+      color: paperColor,
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          children: [
+            Text(
+              title.isNotEmpty ? title : 'Untitled',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(height: 24),
+            ..._buildBlocks(context, roots, 0),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildBlocks(BuildContext context, List<BlockNode> nodes, int depth) {
+    final rows = <Widget>[];
+    for (final block in nodes) {
+      rows.add(_buildBlockRow(context, block, depth));
+      if (!block.collapsed) {
+        rows.addAll(_buildBlocks(context, block.children, depth + 1));
+      }
+    }
+    return rows;
+  }
+
+  Widget _buildBlockRow(BuildContext context, BlockNode block, int depth) {
+    final blockColor = ColorPresets.tryResolve(block.node.color);
+
+    Widget row = GestureDetector(
+      onTap: () => onBlockTap(block),
+      behavior: HitTestBehavior.translucent,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(width: depth * 24.0),
+            SizedBox(width: 32, child: _leadingMarker(context, block)),
+            Expanded(child: _buildContent(context, block)),
+          ],
+        ),
+      ),
+    );
+
+    if (blockColor != null) {
+      row = Container(
+        decoration: BoxDecoration(
+          border: Border(left: BorderSide(color: blockColor, width: 3)),
+        ),
+        padding: const EdgeInsets.only(left: 6),
+        child: row,
+      );
+    }
+
+    return row;
+  }
+
+  Widget _leadingMarker(BuildContext context, BlockNode block) {
+    final colors = Theme.of(context).colorScheme;
+
+    if (block.children.isNotEmpty) {
+      return IconButton(
+        icon: Icon(
+          block.collapsed ? MdiIcons.chevronRight : MdiIcons.chevronDown,
+          size: 18,
+          color: colors.onSurfaceVariant,
+        ),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+        onPressed: () => onToggleCollapse(block),
+      );
+    }
+
+    if (block.node.isTask) return const SizedBox.shrink();
+
+    if (_isBullet(block)) {
+      return Center(
+        child: Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: colors.onSurfaceVariant,
+            shape: BoxShape.circle,
+          ),
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildContent(BuildContext context, BlockNode block) {
+    final ast = _tryParseAst(block.node.name);
+    final isHeading = ast.isNotEmpty && ast.first['type'] == 'heading';
+    final level = isHeading ? (ast.first['level'] as int? ?? 1) : null;
+    final style = _contentStyle(context, isHeading, level);
+
+    if (block.node.isTask) {
+      final status = block.node.properties[SystemPropertyUuids.taskStatus] as String?;
+      final isDone = status != null && TaskStatuses.closed.contains(status);
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Checkbox(
+            value: isDone,
+            onChanged: (_) => onToggleTask(block),
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          Expanded(
+            child: AstRichText(
+              source: block.node.name,
+              onNodeLinkTap: onNodeLinkTap,
+              style: style,
+              linkColors: linkColors,
+            ),
+          ),
+        ],
+      );
+    }
+
+    final source = _isBullet(block)
+        ? _sourceWithoutBullet(block.node.name)
+        : block.node.name;
+
+    return AstRichText(
+      source: source,
+      onNodeLinkTap: onNodeLinkTap,
+      style: style,
+      linkColors: linkColors,
+    );
+  }
+
+  TextStyle? _contentStyle(BuildContext context, bool isHeading, int? level) {
+    final base = Theme.of(context).textTheme.bodyLarge;
+    if (base == null) return null;
+    if (isHeading) {
+      return base.copyWith(
+        fontWeight: FontWeight.w700,
+        fontSize: base.fontSize! + (4 - level!.clamp(1, 3)) * 2,
+      );
+    }
+    return base;
+  }
+
+  bool _isBullet(BlockNode block) {
+    final ast = _tryParseAst(block.node.name);
+    final markdown = AstBuilder.toMarkdown(ast);
+    return markdown.startsWith('- ');
+  }
+
+  String _sourceWithoutBullet(String name) {
+    final ast = _tryParseAst(name);
+    final markdown = AstBuilder.toMarkdown(ast);
+    final stripped = markdown.startsWith('- ') ? markdown.substring(2) : markdown;
+    return AstBuilder.serialize(AstBuilder.parseInline(stripped));
+  }
+
+  List<Map<String, dynamic>> _tryParseAst(String name) {
+    try {
+      final parsed = jsonDecode(name);
+      if (parsed is List) {
+        return parsed.cast<Map<String, dynamic>>();
+      }
+    } catch (_) {}
+    return AstBuilder.parseInline(name);
   }
 }

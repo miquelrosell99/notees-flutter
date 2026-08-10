@@ -10,7 +10,9 @@ import '../../core/constants/system.dart';
 import '../../core/routing/router.dart';
 import '../../core/utils/node_icon.dart';
 import '../../core/utils/view_mode_store.dart';
+import '../../data/local/app_database.dart';
 import '../../data/models/node.dart';
+import '../../data/repositories/node_cache_repository.dart';
 import '../../data/repositories/node_repository.dart';
 import '../../data/repositories/node_view_repository.dart';
 import '../../domain/models/search_filters.dart';
@@ -45,6 +47,10 @@ class _SearchScreenState extends State<SearchScreen> {
   final _viewModeStore = ViewModeStore();
   Timer? _debounceTimer;
 
+  NodeCacheRepository? _cacheRepo;
+  Set<String> _localResultUuids = {};
+  Set<String> _serverResultUuids = {};
+
   // Saved searches / query collections
   List<NodeView> _savedViews = [];
   bool _loadingSavedViews = true;
@@ -63,6 +69,9 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    if (AppDatabase.isSupported) {
+      _cacheRepo = NodeCacheRepository(AppDatabase());
+    }
     _loadViewMode();
     _loadSavedSearches();
     _loadSuggestions();
@@ -226,11 +235,18 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _search({bool append = false}) async {
     final auth = context.read<AuthProvider>();
-    if (auth.dio == null) return;
+    final query = _controller.text.trim();
+    final isPlainTextSearch = query.isNotEmpty && _filters.isEmpty;
+
+    if (append && _hasMore && isPlainTextSearch) {
+      // Plain text search merges local and a single server page; there is no
+      // meaningful "load more" because local results are not paginated.
+      return;
+    }
 
     final page = append ? _currentPage + 1 : 1;
     final searchFilters = _filters.copyWith(
-      query: _controller.text.trim(),
+      query: query,
       page: page,
     );
 
@@ -239,23 +255,37 @@ class _SearchScreenState extends State<SearchScreen> {
         _loadingMore = true;
       } else {
         _loading = true;
+        _localResultUuids = {};
+        _serverResultUuids = {};
       }
     });
+
     try {
-      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
-      final results = await repo.searchWithFilters(searchFilters);
-      if (mounted) {
-        setState(() {
-          if (append) {
-            _results.addAll(results);
-            _currentPage = page;
-          } else {
-            _results = results;
-            _currentPage = 1;
-          }
-          _hasMore = results.length >= searchFilters.limit;
-          _error = null;
-        });
+      if (isPlainTextSearch && _cacheRepo != null) {
+        await _searchPlainText(query, auth);
+      } else if (auth.dio != null) {
+        final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+        final results = await repo.searchWithFilters(searchFilters);
+        if (mounted) {
+          setState(() {
+            if (append) {
+              _results.addAll(results);
+              _currentPage = page;
+            } else {
+              _results = results;
+              _currentPage = 1;
+            }
+            _hasMore = results.length >= searchFilters.limit;
+            _error = null;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _results = [];
+            _hasMore = false;
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -268,6 +298,40 @@ class _SearchScreenState extends State<SearchScreen> {
           _loadingMore = false;
         });
       }
+    }
+  }
+
+  Future<void> _searchPlainText(String query, AuthProvider auth) async {
+    final localUuids = await _cacheRepo!.searchLocal(query, limit: _filters.limit);
+    final localNodes = <Node>[];
+    for (final uuid in localUuids) {
+      final node = await _cacheRepo!.getByUuid(uuid);
+      if (node != null) localNodes.add(node);
+    }
+
+    if (mounted) {
+      setState(() {
+        _results = localNodes;
+        _localResultUuids = localNodes.map((n) => n.uuid).toSet();
+        _serverResultUuids = {};
+        _hasMore = false;
+      });
+    }
+
+    final shouldFetchServer = auth.dio != null && localNodes.length < _filters.limit;
+    if (!shouldFetchServer) return;
+
+    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+    final serverResults = await repo.searchNodes(query, limit: _filters.limit);
+    final serverUuids = serverResults.map((n) => n.uuid).toSet();
+    final localOnly = localNodes.where((n) => !serverUuids.contains(n.uuid)).toList();
+
+    if (mounted) {
+      setState(() {
+        _results = [...serverResults, ...localOnly];
+        _serverResultUuids = serverUuids;
+        _hasMore = false;
+      });
     }
   }
 
@@ -449,6 +513,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 }).toList(),
               ),
             ),
+          if (_controller.text.trim().isNotEmpty) _buildSourceIndicator(colors),
           Expanded(child: _buildBody(colors)),
         ],
       ),
@@ -588,6 +653,36 @@ class _SearchScreenState extends State<SearchScreen> {
     if (node.isJournal) return MdiIcons.calendarOutline;
     if (node.isTask) return MdiIcons.checkCircleOutline;
     return MdiIcons.fileDocumentOutline;
+  }
+
+  Widget _buildSourceIndicator(ColorScheme colors) {
+    final hasLocal = _localResultUuids.isNotEmpty;
+    final hasServer = _serverResultUuids.isNotEmpty;
+    String label;
+    if (hasLocal && hasServer) {
+      label = 'Local + server results';
+    } else if (hasServer) {
+      label = 'Server results';
+    } else if (hasLocal) {
+      label = 'Local results';
+    } else if (_loading) {
+      label = 'Searching…';
+    } else {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colors.onSurfaceVariant,
+              ),
+        ),
+      ),
+    );
   }
 
   Widget _buildLoadMoreButton() {

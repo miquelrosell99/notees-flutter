@@ -1,0 +1,44 @@
+name: Android Tag Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build signed APK
+    uses: ./.github/workflows/android.yml
+    with:
+      build-mode: release
+      sign-release: true
+    secrets: inherit
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: notees-android-apk
+          path: dist
+
+      - name: Create GitHub Release
+        run: |
+          apk=$(ls dist/notees-android-*.apk)
+          sha256sum "$apk" > "$apk.sha256"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Notees $GITHUB_REF_NAME" \
+            --generate-notes \
+            "$apk" \
+            "$apk.sha256"

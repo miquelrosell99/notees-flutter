@@ -11,6 +11,7 @@ import '../../data/models/user.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../data/repositories/server_repository.dart';
 import '../../data/repositories/workspace_repository.dart';
+import '../../domain/services/onboarding_service.dart';
 import '../../domain/services/sync_v2_service.dart';
 
 /// Exposes the current server, authenticated user, and auth operations.
@@ -33,6 +34,7 @@ class AuthProvider extends ChangeNotifier {
   bool _loading = true;
   bool _busy = false;
   String? _error;
+  bool _onboardingCompleted = false;
 
   ServerProfile? get activeServer => _activeServer;
   User? get user => _user;
@@ -42,6 +44,9 @@ class AuthProvider extends ChangeNotifier {
   String? get error => _error;
   Dio? get dio => _dio;
   SyncV2Service? get syncService => _syncService;
+  bool get onboardingCompleted => _onboardingCompleted;
+
+  OnboardingService get onboardingService => OnboardingService(prefs: prefs);
 
   /// Pending 2FA challenge after a successful password step, if any.
   TwoFactorChallenge? get twoFactorChallenge => _twoFactorChallenge;
@@ -61,6 +66,7 @@ class AuthProvider extends ChangeNotifier {
         _syncService = await _buildSyncService(_dio!);
         _user = await AuthRepository(dio: _dio!, secureStorage: secureStorage).checkSession();
       }
+      _onboardingCompleted = onboardingService.isCompleted;
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -69,7 +75,11 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<SyncV2Service> _buildSyncService(Dio dio) async {
+  Future<SyncV2Service?> _buildSyncService(Dio dio) async {
+    // The local SQLite queue (sqflite_sqlcipher) only has Android/iOS
+    // implementations; elsewhere repositories talk to the API directly
+    // when there is no sync service.
+    if (!AppDatabase.isSupported) return null;
     final clientId = await getClientId(prefs);
     return SyncV2Service(
       database: AppDatabase(),
@@ -199,7 +209,17 @@ class AuthProvider extends ChangeNotifier {
     final workspaceRepo = WorkspaceRepository(dio: _dio!);
     final workspaces = await workspaceRepo.listWorkspaces();
     if (workspaces.isNotEmpty) {
-      await workspaceRepo.switchWorkspace(workspaces.first.uuid);
+      final workspaceId = workspaces.first.uuid;
+      await workspaceRepo.switchWorkspace(workspaceId);
+      await _syncService?.setWorkspaceId(workspaceId);
     }
+  }
+
+  /// Reloads the onboarding completion flag from preferences and notifies
+  /// listeners. Call this after the onboarding flow finishes so the router
+  /// redirect re-evaluates.
+  Future<void> refreshOnboarding() async {
+    _onboardingCompleted = onboardingService.isCompleted;
+    notifyListeners();
   }
 }

@@ -9,12 +9,14 @@ class FleetCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(4),
     this.margin = EdgeInsets.zero,
     this.onTap,
+    this.onLongPress,
   });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
   final EdgeInsetsGeometry margin;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -33,13 +35,21 @@ class FleetCard extends StatelessWidget {
       ),
     );
 
-    if (onTap == null) return card;
+    if (onTap == null && onLongPress == null) return card;
 
     return InkWell(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        onTap!();
-      },
+      onTap: onTap == null
+          ? null
+          : () {
+              HapticFeedback.lightImpact();
+              onTap!();
+            },
+      onLongPress: onLongPress == null
+          ? null
+          : () {
+              HapticFeedback.mediumImpact();
+              onLongPress!();
+            },
       borderRadius: BorderRadius.circular(20),
       child: card,
     );

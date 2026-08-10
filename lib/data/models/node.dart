@@ -1,3 +1,4 @@
+import '../../core/constants/system.dart';
 import '../../core/utils/ast_stringifier.dart';
 
 class Node {
@@ -22,6 +23,7 @@ class Node {
     this.isAsset = false,
     this.isComment = false,
     this.isDeleted = false,
+    this.isArchived = false,
     this.isPrivate = false,
     this.classes = const [],
     this.classesUuid = const [],
@@ -55,6 +57,7 @@ class Node {
   final bool isAsset;
   final bool isComment;
   final bool isDeleted;
+  final bool isArchived;
   final bool isPrivate;
   final List<int> classes;
   final List<String> classesUuid;
@@ -88,6 +91,7 @@ class Node {
       isAsset: json['is_asset'] as bool? ?? false,
       isComment: json['is_comment'] as bool? ?? false,
       isDeleted: json['is_deleted'] as bool? ?? false,
+      isArchived: json['is_archived'] as bool? ?? false,
       isPrivate: json['is_private'] as bool? ?? false,
       classes: (json['classes'] as List<dynamic>?)?.cast<int>() ?? const [],
       classesUuid: (json['classes_uuid'] as List<dynamic>?)?.cast<String>() ?? const [],
@@ -97,6 +101,83 @@ class Node {
       children: childrenJson?.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList() ?? const [],
       createDate: json['create_date'] as String?,
       writeDate: json['write_date'] as String?,
+    );
+  }
+
+  /// Returns a copy of this node with [dueDate] added/updated in the task
+  /// deadline system property. Used by the UI to reflect local edits before the
+  /// server round-trip completes.
+  Node copyWithDueDate(DateTime dueDate) {
+    final formatted =
+        '${dueDate.year.toString().padLeft(4, '0')}-${dueDate.month.toString().padLeft(2, '0')}-${dueDate.day.toString().padLeft(2, '0')}';
+    final updatedProperties = Map<String, dynamic>.from(properties);
+    updatedProperties[SystemPropertyUuids.taskDeadline] = formatted;
+    return Node(
+      id: id,
+      uuid: uuid,
+      name: name,
+      displayName: displayName,
+      icon: icon,
+      color: color,
+      parentId: parentId,
+      parentUuid: parentUuid,
+      pageId: pageId,
+      pageUuid: pageUuid,
+      sequence: sequence,
+      isPage: isPage,
+      isTask: isTask,
+      isDaily: isDaily,
+      isMonthly: isMonthly,
+      isYearly: isYearly,
+      isTable: isTable,
+      isAsset: isAsset,
+      isComment: isComment,
+      isDeleted: isDeleted,
+      isPrivate: isPrivate,
+      classes: classes,
+      classesUuid: classesUuid,
+      tags: tags,
+      tagsUuid: tagsUuid,
+      properties: updatedProperties,
+      children: children,
+      createDate: createDate,
+      writeDate: writeDate,
+    );
+  }
+
+  /// Returns a copy of this node with [isArchived] updated.
+  Node copyWithIsArchived(bool isArchived) {
+    return Node(
+      id: id,
+      uuid: uuid,
+      name: name,
+      displayName: displayName,
+      icon: icon,
+      color: color,
+      parentId: parentId,
+      parentUuid: parentUuid,
+      pageId: pageId,
+      pageUuid: pageUuid,
+      sequence: sequence,
+      isPage: isPage,
+      isTask: isTask,
+      isDaily: isDaily,
+      isMonthly: isMonthly,
+      isYearly: isYearly,
+      isTable: isTable,
+      isAsset: isAsset,
+      isComment: isComment,
+      isDeleted: isDeleted,
+      isArchived: isArchived,
+      isPrivate: isPrivate,
+      classes: classes,
+      classesUuid: classesUuid,
+      tags: tags,
+      tagsUuid: tagsUuid,
+      properties: properties,
+      children: children,
+      createDate: createDate,
+      writeDate: writeDate,
     );
   }
 
@@ -121,6 +202,7 @@ class Node {
         'is_asset': isAsset,
         'is_comment': isComment,
         'is_deleted': isDeleted,
+        'is_archived': isArchived,
         'is_private': isPrivate,
         'classes': classes,
         'classes_uuid': classesUuid,

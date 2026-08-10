@@ -28,22 +28,79 @@ class SlashCommandPalette extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final commands = <({IconData icon, String label, EditorAction action})>[
-      (icon: MdiIcons.formatHeader1, label: 'Heading 1', action: EditorAction.heading1),
-      (icon: MdiIcons.formatHeader2, label: 'Heading 2', action: EditorAction.heading2),
-      (icon: MdiIcons.formatHeader3, label: 'Heading 3', action: EditorAction.heading3),
-      (icon: MdiIcons.formatBold, label: 'Bold', action: EditorAction.bold),
-      (icon: MdiIcons.formatItalic, label: 'Italic', action: EditorAction.italic),
-      (icon: MdiIcons.checkCircleOutline, label: 'Task', action: EditorAction.task),
-      (icon: MdiIcons.codeBraces, label: 'Code', action: EditorAction.code),
-      (icon: MdiIcons.image, label: 'Image', action: EditorAction.image),
-      (icon: MdiIcons.link, label: 'Link', action: EditorAction.link),
-      (icon: MdiIcons.tag, label: 'Tag', action: EditorAction.tagLink),
-      (icon: MdiIcons.shapeOutline, label: 'Class', action: EditorAction.classLink),
-      (icon: MdiIcons.tune, label: 'Property', action: EditorAction.property),
-      (icon: MdiIcons.table, label: 'Table', action: EditorAction.table),
-      (icon: MdiIcons.fileDocumentOutline, label: 'Template', action: EditorAction.template),
+    final groups = <({String label, List<({IconData icon, String label, EditorAction action})> commands})>[
+      (
+        label: 'Structure',
+        commands: [
+          (icon: MdiIcons.formatHeaderPound, label: 'Heading', action: EditorAction.heading),
+          (icon: MdiIcons.formatHeader1, label: 'Heading 1', action: EditorAction.heading1),
+          (icon: MdiIcons.formatHeader2, label: 'Heading 2', action: EditorAction.heading2),
+          (icon: MdiIcons.formatHeader3, label: 'Heading 3', action: EditorAction.heading3),
+          (icon: MdiIcons.formatListBulleted, label: 'Bullet', action: EditorAction.bullet),
+          (icon: MdiIcons.checkCircleOutline, label: 'Task', action: EditorAction.task),
+        ],
+      ),
+      (
+        label: 'Formatting',
+        commands: [
+          (icon: MdiIcons.formatBold, label: 'Bold', action: EditorAction.bold),
+          (icon: MdiIcons.formatItalic, label: 'Italic', action: EditorAction.italic),
+          (icon: MdiIcons.codeBraces, label: 'Code', action: EditorAction.code),
+          (icon: MdiIcons.marker, label: 'Highlight', action: EditorAction.highlight),
+        ],
+      ),
+      (
+        label: 'Insert',
+        commands: [
+          (icon: MdiIcons.calendar, label: 'Date', action: EditorAction.date),
+          (icon: MdiIcons.image, label: 'Image', action: EditorAction.image),
+          (icon: MdiIcons.microphone, label: 'Audio', action: EditorAction.audio),
+          (icon: MdiIcons.table, label: 'Table', action: EditorAction.table),
+          (icon: MdiIcons.fileDocumentOutline, label: 'Template', action: EditorAction.template),
+        ],
+      ),
+      (
+        label: 'Links',
+        commands: [
+          (icon: MdiIcons.link, label: 'Link', action: EditorAction.link),
+          (icon: MdiIcons.tag, label: 'Tag', action: EditorAction.tagLink),
+          (icon: MdiIcons.shapeOutline, label: 'Class', action: EditorAction.classLink),
+          (icon: MdiIcons.tune, label: 'Property', action: EditorAction.property),
+        ],
+      ),
     ];
+
+    final children = <Widget>[];
+    for (var i = 0; i < groups.length; i++) {
+      final group = groups[i];
+      children.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+          child: Text(
+            group.label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: colors.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ),
+      );
+      for (final command in group.commands) {
+        children.add(
+          ListTile(
+            leading: Icon(command.icon, color: colors.onSurfaceVariant),
+            title: Text(command.label),
+            onTap: () {
+              HapticFeedback.lightImpact();
+              Navigator.of(context).pop(command.action);
+            },
+          ),
+        );
+      }
+      if (i < groups.length - 1) {
+        children.add(const Divider(indent: 56, endIndent: 16));
+      }
+    }
 
     return SafeArea(
       child: Column(
@@ -63,26 +120,16 @@ class SlashCommandPalette extends StatelessWidget {
                 ),
                 IconButton(
                   icon: Icon(MdiIcons.close),
+                  tooltip: 'Close',
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
             ),
           ),
           Expanded(
-            child: ListView.builder(
+            child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: commands.length,
-              itemBuilder: (context, index) {
-                final command = commands[index];
-                return ListTile(
-                  leading: Icon(command.icon, color: colors.onSurfaceVariant),
-                  title: Text(command.label),
-                  onTap: () {
-                    HapticFeedback.lightImpact();
-                    Navigator.of(context).pop(command.action);
-                  },
-                );
-              },
+              children: children,
             ),
           ),
         ],

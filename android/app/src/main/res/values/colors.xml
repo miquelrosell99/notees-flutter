@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#111111</color>
+
+    <!-- Notees widget palette -->
+    <color name="notees_sage">#5B7D5B</color>
+    <color name="widget_paper">#FFF7F3EC</color>
+    <color name="widget_on_paper">#FF1C1C1C</color>
+    <color name="widget_on_paper_muted">#991C1C1C</color>
 </resources>
