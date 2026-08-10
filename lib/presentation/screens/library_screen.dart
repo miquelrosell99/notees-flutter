@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/routing/router.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../core/utils/view_mode_store.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
@@ -33,7 +34,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   List<Node> _rootPages = [];
   List<Node> _recents = [];
   List<Node> _recentJournals = [];
-  List<Node> _tags = [];
+  List<Node> _classes = [];
   List<Node> _alphabeticalNodes = [];
   Set<String> _favoriteUuids = {};
   Map<String, Node> _classIndex = {};
@@ -104,7 +105,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           final classes = results[3] as List<Node>;
           _classIndex = {for (final c in classes) c.uuid: c};
           _recentJournals = results[4] as List<Node>;
-          _tags = classes.where((c) => _looksLikeTag(c)).toList();
+          _classes = classes;
           final pages = results[5] as List<Node>;
           _alphabeticalNodes = pages
             ..sort(
@@ -118,12 +119,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  bool _looksLikeTag(Node node) {
-    // Classes that are used as tags often have a simple naming convention or
-    // specific UUIDs; without explicit metadata we surface all classes as tags.
-    return node.displayName.isNotEmpty;
   }
 
   void _openNode(Node node) {
@@ -177,7 +172,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       await repo.archiveNode(node.uuid);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${node.displayName} archived')),
+          SnackBar(content: Text('${resolveNodeDisplayName(node)} archived')),
         );
         await _loadLibrary();
       }
@@ -234,7 +229,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Future<void> _showTagNodes(Node tag) async {
+  Future<void> _showClassNodes(Node cls) async {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
 
@@ -245,8 +240,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (context) => _TagNodesSheet(
-        tag: tag,
+      builder: (context) => _ClassNodesSheet(
+        cls: cls,
         dio: auth.dio!,
         syncService: auth.syncService,
         favoriteUuids: _favoriteUuids,
@@ -400,7 +395,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        _buildRecentPins(colors),
+        _buildRecentPins(colors, dateFormat),
         const SizedBox(height: 28),
         SectionTitle(icon: MdiIcons.folderOutline, label: 'Pages'),
         const SizedBox(height: 8),
@@ -454,21 +449,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
         ),
         const SizedBox(height: 28),
-        SectionTitle(icon: MdiIcons.tagOutline, label: 'Tags'),
+        SectionTitle(icon: MdiIcons.tagOutline, label: 'Classes'),
         const SizedBox(height: 8),
         FleetCard(
-          child: _tags.isEmpty
-              ? _buildEmptyTile('No tags yet')
+          child: _classes.isEmpty
+              ? _buildEmptyTile('No classes yet')
               : Padding(
                   padding: const EdgeInsets.all(16),
                   child: Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: _tags.map((tag) {
+                    children: _classes.map((cls) {
                       return ActionChip(
                         avatar: Icon(MdiIcons.tagOutline, size: 16),
-                        label: Text(tag.displayName),
-                        onPressed: () => _showTagNodes(tag),
+                        label: Text(cls.displayName),
+                        onPressed: () => _showClassNodes(cls),
                       );
                     }).toList(),
                   ),
@@ -477,15 +472,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
         const SizedBox(height: 28),
         SectionTitle(icon: MdiIcons.formatListBulleted, label: 'Alphabetical'),
         const SizedBox(height: 8),
-        _buildAlphabeticalIndex(colors),
+        _buildAlphabeticalIndex(colors, dateFormat),
       ],
     );
   }
 
-  Map<String, List<Node>> _groupAlphabetically() {
+  Map<String, List<Node>> _groupAlphabetically(String dateFormat) {
     final groups = <String, List<Node>>{};
     for (final node in _alphabeticalNodes) {
-      final first = node.displayName.isEmpty ? '#' : node.displayName[0].toUpperCase();
+      final name = resolveNodeDisplayName(node, dateFormat: dateFormat);
+      final first = name.isEmpty ? '#' : name[0].toUpperCase();
       final letter = RegExp(r'[A-Z]').hasMatch(first) ? first : '#';
       groups.putIfAbsent(letter, () => []).add(node);
     }
@@ -493,8 +489,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return {for (final k in sortedKeys) k: groups[k]!};
   }
 
-  Widget _buildAlphabeticalIndex(ColorScheme colors) {
-    final groups = _groupAlphabetically();
+  Widget _buildAlphabeticalIndex(ColorScheme colors, String dateFormat) {
+    final groups = _groupAlphabetically(dateFormat);
     if (groups.isEmpty) {
       return FleetCard(child: _buildEmptyTile('No pages'));
     }
@@ -510,7 +506,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   node.isJournal ? MdiIcons.calendarOutline : MdiIcons.fileDocumentOutline,
                   color: colors.onSurfaceVariant,
                 ),
-                title: Text(node.displayName),
+                title: Text(resolveNodeDisplayName(node, dateFormat: dateFormat)),
                 trailing: Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
                 onTap: () => _openNode(node),
                 onLongPress: () => _showNodeActions(node),
@@ -522,7 +518,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Widget _buildRecentPins(ColorScheme colors) {
+  Widget _buildRecentPins(ColorScheme colors, String dateFormat) {
     final pins = _recents.where((n) => _favoriteUuids.contains(n.uuid)).toList();
     final displayPins = pins.isEmpty ? _recents.take(3).toList() : pins.take(4).toList();
 
@@ -554,6 +550,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   onLongPress: _showNodeActions,
                   isFavorite: _favoriteUuids.contains(node.uuid),
                   onFavoriteToggle: _toggleFavorite,
+                  dateFormat: dateFormat,
                 ),
               );
             },
@@ -578,6 +575,7 @@ class _PinCard extends StatelessWidget {
     required this.onLongPress,
     required this.isFavorite,
     required this.onFavoriteToggle,
+    this.dateFormat,
   });
 
   final Node node;
@@ -585,6 +583,7 @@ class _PinCard extends StatelessWidget {
   final ValueChanged<Node> onLongPress;
   final bool isFavorite;
   final ValueChanged<Node> onFavoriteToggle;
+  final String? dateFormat;
 
   @override
   Widget build(BuildContext context) {
@@ -622,7 +621,7 @@ class _PinCard extends StatelessWidget {
             const SizedBox(height: 12),
             Expanded(
               child: Text(
-                node.displayName,
+                resolveNodeDisplayName(node, dateFormat: dateFormat),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -637,24 +636,24 @@ class _PinCard extends StatelessWidget {
   }
 }
 
-class _TagNodesSheet extends StatefulWidget {
-  const _TagNodesSheet({
-    required this.tag,
+class _ClassNodesSheet extends StatefulWidget {
+  const _ClassNodesSheet({
+    required this.cls,
     required this.dio,
     this.syncService,
     required this.favoriteUuids,
   });
 
-  final Node tag;
+  final Node cls;
   final Dio dio;
   final SyncV2Service? syncService;
   final Set<String> favoriteUuids;
 
   @override
-  State<_TagNodesSheet> createState() => _TagNodesSheetState();
+  State<_ClassNodesSheet> createState() => _ClassNodesSheetState();
 }
 
-class _TagNodesSheetState extends State<_TagNodesSheet> {
+class _ClassNodesSheetState extends State<_ClassNodesSheet> {
   List<Node> _nodes = [];
   bool _loading = true;
   String? _error;
@@ -670,7 +669,7 @@ class _TagNodesSheetState extends State<_TagNodesSheet> {
       final repo = NodeRepository(dio: widget.dio, syncService: widget.syncService);
       final results = await repo.searchWithFilters(
         SearchFilters(
-          classUuids: [widget.tag.uuid],
+          classUuids: [widget.cls.uuid],
           sortBy: SortBy.name,
           order: SortOrder.asc,
           limit: 100,
@@ -720,7 +719,7 @@ class _TagNodesSheetState extends State<_TagNodesSheet> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        widget.tag.displayName,
+                        widget.cls.displayName,
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
@@ -745,7 +744,7 @@ class _TagNodesSheetState extends State<_TagNodesSheet> {
                             ),
                           )
                         : _nodes.isEmpty
-                            ? const Center(child: Text('No pages or journals with this tag'))
+                            ? const Center(child: Text('No pages or journals with this class'))
                             : ListView.builder(
                                 controller: scrollController,
                                 itemCount: _nodes.length,
@@ -757,7 +756,7 @@ class _TagNodesSheetState extends State<_TagNodesSheet> {
                                       node.isJournal ? MdiIcons.calendarOutline : MdiIcons.fileDocumentOutline,
                                       color: colors.onSurfaceVariant,
                                     ),
-                                    title: Text(node.displayName),
+                                    title: Text(resolveNodeDisplayName(node)),
                                     trailing: Icon(
                                       isFavorite ? MdiIcons.star : MdiIcons.starOutline,
                                       color: isFavorite ? colors.primary : colors.onSurfaceVariant,

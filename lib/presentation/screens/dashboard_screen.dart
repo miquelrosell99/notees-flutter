@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 
 import '../../core/routing/router.dart';
 import '../../core/utils/color_presets.dart';
-import '../../core/utils/node_display_name.dart';
 import '../../core/utils/view_mode_store.dart';
 import '../../data/models/node.dart';
 import '../../data/models/page_content.dart';
@@ -20,7 +19,6 @@ import '../widgets/empty_state.dart';
 import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/node_picker.dart';
-import '../widgets/section_title.dart';
 import '../widgets/view_mode_sheet.dart';
 
 /// The workspace Inbox, shown as the default Home tab.
@@ -40,7 +38,6 @@ class DashboardScreenState extends State<DashboardScreen> {
   /// successful quick capture so the new note appears immediately.
   void reload() => _loadDashboard();
   List<Node> _inboxBlocks = [];
-  List<Node> _recentPages = [];
   Map<String, Node> _classIndex = {};
   bool _loading = true;
   String? _error;
@@ -98,7 +95,6 @@ class DashboardScreenState extends State<DashboardScreen> {
       final results = await Future.wait([
         repo.fetchInboxContent(),
         repo.fetchClasses(),
-        repo.fetchRecentPages(limit: 6),
       ]);
       final inboxContent = results[0] as PageContent;
       final classes = results[1] as List<Node>;
@@ -106,7 +102,6 @@ class DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           _inboxBlocks = inboxContent.node.children;
           _classIndex = {for (final c in classes) c.uuid: c};
-          _recentPages = results[2] as List<Node>;
           _error = null;
         });
       }
@@ -393,29 +388,14 @@ class DashboardScreenState extends State<DashboardScreen> {
     }
 
     if (_inboxBlocks.isEmpty) {
-      if (_recentPages.isEmpty) {
-        return ListView(
-          children: [
-            EmptyState(
-              icon: MdiIcons.lightbulbOutline,
-              title: 'Nothing here yet',
-              subtitle: 'Tap + to capture a note, task, photo, or voice memo.',
-            ),
-          ],
-        );
-      }
-      return SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildRecentPagesSection(colors, settings.dateFormat),
-            EmptyState(
-              icon: MdiIcons.lightbulbOutline,
-              title: 'Nothing here yet',
-              subtitle: 'Tap + to capture a note, task, photo, or voice memo.',
-            ),
-          ],
-        ),
+      return ListView(
+        children: [
+          EmptyState(
+            icon: MdiIcons.lightbulbOutline,
+            title: 'Nothing here yet',
+            subtitle: 'Tap + to capture a note, task, photo, or voice memo.',
+          ),
+        ],
       );
     }
 
@@ -423,9 +403,6 @@ class DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_recentPages.isNotEmpty) ...[
-            _buildRecentPagesSection(colors, settings.dateFormat),
-          ],
           if (_viewMode == NodeViewMode.card)
             InboxCardView(
               blocks: _inboxBlocks,
@@ -502,60 +479,6 @@ class DashboardScreenState extends State<DashboardScreen> {
                 );
               },
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRecentPagesSection(ColorScheme colors, String dateFormat) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SectionTitle(icon: MdiIcons.clockOutline, label: 'Recent pages'),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 120,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: _recentPages.length,
-              separatorBuilder: (context, index) => const SizedBox(width: 12),
-              itemBuilder: (context, index) {
-                final node = _recentPages[index];
-                return SizedBox(
-                  width: 160,
-                  child: FleetCard(
-                    onTap: () => _openNode(node),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            node.isJournal ? MdiIcons.calendarOutline : MdiIcons.fileDocumentOutline,
-                            size: 20,
-                            color: colors.onSurfaceVariant,
-                          ),
-                          const SizedBox(height: 12),
-                          Expanded(
-                            child: Text(
-                              resolveNodeDisplayName(node, dateFormat: dateFormat),
-                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
         ],
       ),
     );
