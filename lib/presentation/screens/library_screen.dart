@@ -106,8 +106,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           _recentJournals = results[4] as List<Node>;
           _tags = classes.where((c) => _looksLikeTag(c)).toList();
           final pages = results[5] as List<Node>;
-          final journals = results[6] as List<Node>;
-          _alphabeticalNodes = [...pages, ...journals]
+          _alphabeticalNodes = pages
             ..sort(
               (a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
             );
@@ -385,7 +384,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
       final allNodes = <String, Node>{
         for (final n in _rootPages) n.uuid: n,
         for (final n in _recents) n.uuid: n,
-        for (final n in _recentJournals) n.uuid: n,
       }.values.toList();
       return NodeCollection(
         mode: _viewMode,
@@ -498,7 +496,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget _buildAlphabeticalIndex(ColorScheme colors) {
     final groups = _groupAlphabetically();
     if (groups.isEmpty) {
-      return FleetCard(child: _buildEmptyTile('No pages or journals'));
+      return FleetCard(child: _buildEmptyTile('No pages'));
     }
 
     return FleetCard(

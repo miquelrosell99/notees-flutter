@@ -28,7 +28,14 @@ import '../widgets/view_mode_sheet.dart';
 
 /// Live search across nodes with advanced filters.
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({
+    super.key,
+    this.initialQuery,
+    this.initialFilters,
+  });
+
+  final String? initialQuery;
+  final SearchFilters? initialFilters;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -79,10 +86,25 @@ class _SearchScreenState extends State<SearchScreen> {
     if (AppDatabase.isSupported) {
       _cacheRepo = NodeCacheRepository(AppDatabase());
     }
+    final initialQuery = widget.initialQuery;
+    final initialFilters = widget.initialFilters;
+    if (initialQuery != null && initialQuery.isNotEmpty) {
+      _controller.text = initialQuery;
+      _filters = _filters.copyWith(query: initialQuery);
+    }
+    if (initialFilters != null) {
+      _filters = initialFilters;
+      if (initialQuery != null && initialQuery.isNotEmpty) {
+        _filters = _filters.copyWith(query: initialQuery);
+      }
+    }
     _loadViewMode();
     _loadSavedSearches();
     _loadSuggestions();
     _loadSearchHistory();
+    if (!_filters.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _search());
+    }
   }
 
   Future<void> _loadViewMode() async {

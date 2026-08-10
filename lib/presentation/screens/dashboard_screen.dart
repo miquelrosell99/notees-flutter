@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/localization/material_localizations_override.dart';
 import '../../core/routing/router.dart';
 import '../../core/utils/color_presets.dart';
 import '../../core/utils/node_display_name.dart';
@@ -13,11 +11,13 @@ import '../../core/utils/view_mode_store.dart';
 import '../../data/models/node.dart';
 import '../../data/models/page_content.dart';
 import '../../data/repositories/node_repository.dart';
+import '../../domain/models/search_filters.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import '../views/inbox_card_view.dart';
 import '../views/node_view_mode.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/node_picker.dart';
 import '../widgets/section_title.dart';
@@ -41,18 +41,41 @@ class DashboardScreenState extends State<DashboardScreen> {
   void reload() => _loadDashboard();
   List<Node> _inboxBlocks = [];
   List<Node> _recentPages = [];
-  Node? _todayJournal;
   Map<String, Node> _classIndex = {};
   bool _loading = true;
   String? _error;
   NodeViewMode _viewMode = NodeViewMode.card;
   final _viewModeStore = ViewModeStore();
+  final _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadDashboard();
     _loadViewMode();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchSubmitted(String query) {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return;
+    context.push(Routes.search, extra: {'query': trimmed});
+  }
+
+  Future<void> _openQueryBuilder() async {
+    HapticFeedback.lightImpact();
+    final filters = await FilterBottomSheet.show(
+      context,
+      const SearchFilters(),
+    );
+    if (filters == null) return;
+    if (!mounted) return;
+    context.push(Routes.search, extra: {'filters': filters});
   }
 
   Future<void> _loadViewMode() async {
@@ -74,18 +97,16 @@ class DashboardScreenState extends State<DashboardScreen> {
     try {
       final results = await Future.wait([
         repo.fetchInboxContent(),
-        repo.getOrCreateDailyJournal(DateTime.now()),
         repo.fetchClasses(),
         repo.fetchRecentPages(limit: 6),
       ]);
       final inboxContent = results[0] as PageContent;
-      final classes = results[2] as List<Node>;
+      final classes = results[1] as List<Node>;
       if (mounted) {
         setState(() {
           _inboxBlocks = inboxContent.node.children;
-          _todayJournal = results[1] as Node;
           _classIndex = {for (final c in classes) c.uuid: c};
-          _recentPages = results[3] as List<Node>;
+          _recentPages = results[2] as List<Node>;
           _error = null;
         });
       }
@@ -94,12 +115,6 @@ class DashboardScreenState extends State<DashboardScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  Future<Node> _getOrCreateJournal(DateTime date) async {
-    final auth = context.read<AuthProvider>();
-    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
-    return repo.getOrCreateDailyJournal(date);
   }
 
   void _openNode(Node node) {
@@ -301,101 +316,33 @@ class DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  void _openJournal({Node? journal}) {
-    final target = journal ?? _todayJournal;
-    if (target == null) return;
-    HapticFeedback.lightImpact();
-    context.push('${Routes.editor}/${target.uuid}');
-  }
-
-  void _openCalendar() {
-    HapticFeedback.lightImpact();
-    final now = DateTime.now();
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (ctx) {
-        final settings = ctx.read<SettingsProvider>();
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Jump to journal',
-                      style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    IconButton(
-                      icon: Icon(MdiIcons.close),
-                      tooltip: 'Close',
-                      onPressed: () => Navigator.of(ctx).pop(),
-                    ),
-                  ],
-                ),
-              ),
-              Localizations.override(
-                context: ctx,
-                delegates: [
-                  GlobalMaterialLocalizations.delegate,
-                  GlobalCupertinoLocalizations.delegate,
-                  GlobalWidgetsLocalizations.delegate,
-                  FirstDayOfWeekLocalizationsDelegate(settings.firstDayOfWeek),
-                ],
-                child: CalendarDatePicker(
-                  initialDate: now,
-                  firstDate: DateTime(2000),
-                  lastDate: DateTime(2100),
-                  onDateChanged: (date) async {
-                    Navigator.of(ctx).pop();
-                    setState(() => _loading = true);
-                    try {
-                      final journal = await _getOrCreateJournal(date);
-                      if (mounted) _openJournal(journal: journal);
-                    } catch (e) {
-                      if (mounted) setState(() => _error = e.toString());
-                    } finally {
-                      if (mounted) setState(() => _loading = false);
-                    }
-                  },
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final settings = context.watch<SettingsProvider>();
-    final todayLabel = formatDateWithSettings(DateTime.now(), settings.dateFormat);
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Inbox'),
-            Text(
-              todayLabel,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
+        title: TextField(
+          controller: _searchController,
+          textAlignVertical: TextAlignVertical.center,
+          decoration: InputDecoration(
+            hintText: 'Search notes, tasks, pages...',
+            prefixIcon: Icon(MdiIcons.magnify),
+            suffixIcon: IconButton(
+              icon: Icon(MdiIcons.tune),
+              tooltip: 'Advanced search',
+              onPressed: _openQueryBuilder,
             ),
-          ],
+            filled: true,
+            fillColor: colors.surfaceContainerHighest,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(28),
+              borderSide: BorderSide.none,
+            ),
+            contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          ),
+          onSubmitted: _onSearchSubmitted,
         ),
         actions: [
           IconButton(
@@ -407,11 +354,9 @@ class DashboardScreenState extends State<DashboardScreen> {
             },
           ),
           _HomeOverflowMenu(
-            onOpenJournal: _openCalendar,
-            onOpenTodayJournal: _openJournal,
+            onOpenJournal: () => context.push(Routes.journals),
             onOpenSettings: () => context.push(Routes.settings),
             onOpenArchived: () => context.push(Routes.archived),
-            onOpenAdvancedView: (route) => context.push(route),
           ),
         ],
       ),
@@ -927,42 +872,17 @@ class _ColorOption extends StatelessWidget {
   }
 }
 
-class _AdvancedView {
-  _AdvancedView({required this.label, required this.icon});
-
-  final String label;
-  final IconData icon;
-
-  static final whiteboard = _AdvancedView(label: 'Whiteboard', icon: MdiIcons.draw);
-  static final timeline = _AdvancedView(label: 'Timeline', icon: MdiIcons.timeline);
-  static final chart = _AdvancedView(label: 'Chart', icon: MdiIcons.chartBar);
-  static final pivot = _AdvancedView(label: 'Pivot', icon: MdiIcons.tablePivot);
-  static final query = _AdvancedView(label: 'Query builder', icon: MdiIcons.fileTree);
-}
-
 /// Overflow menu for the Home app bar, shown as a bottom sheet.
 class _HomeOverflowMenu extends StatelessWidget {
   const _HomeOverflowMenu({
     required this.onOpenJournal,
-    required this.onOpenTodayJournal,
     required this.onOpenSettings,
     required this.onOpenArchived,
-    required this.onOpenAdvancedView,
   });
 
   final VoidCallback onOpenJournal;
-  final VoidCallback onOpenTodayJournal;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenArchived;
-  final ValueChanged<String> onOpenAdvancedView;
-
-  static final _advancedViews = <({_AdvancedView view, String route})>[
-    (view: _AdvancedView.timeline, route: Routes.timeline),
-    (view: _AdvancedView.chart, route: Routes.chart),
-    (view: _AdvancedView.pivot, route: Routes.pivot),
-    (view: _AdvancedView.whiteboard, route: Routes.whiteboard),
-    (view: _AdvancedView.query, route: Routes.query),
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -995,13 +915,8 @@ class _HomeOverflowMenu extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _menuTile(
-                    icon: MdiIcons.calendarEditOutline,
-                    label: "Today's journal",
-                    onTap: () => select(onOpenTodayJournal),
-                  ),
-                  _menuTile(
                     icon: MdiIcons.calendarOutline,
-                    label: 'Jump to journal',
+                    label: 'Journal entries',
                     onTap: () => select(onOpenJournal),
                   ),
                   _menuTile(
@@ -1013,14 +928,6 @@ class _HomeOverflowMenu extends StatelessWidget {
                     icon: MdiIcons.cogOutline,
                     label: 'Settings',
                     onTap: () => select(onOpenSettings),
-                  ),
-                  const Divider(),
-                  ..._advancedViews.map(
-                    (item) => _menuTile(
-                      icon: item.view.icon,
-                      label: item.view.label,
-                      onTap: () => select(() => onOpenAdvancedView(item.route)),
-                    ),
                   ),
                 ],
               ),

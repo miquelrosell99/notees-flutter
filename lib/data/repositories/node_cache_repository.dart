@@ -242,25 +242,25 @@ class NodeCacheRepository {
 
   // === Local read queries used when the relay sync service is active ===
 
-  /// Recently touched pages, newest first. Excludes daily journal date pages,
+  /// Recently touched pages, newest first. Excludes journal date pages,
   /// which live in the dedicated Journals section.
   Future<List<Node>> getRecentPages({int limit = 10}) async {
     final db = await _database.database;
     final rows = await db.query(
       'node_cache',
-      where: 'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND is_daily = 0',
+      where: 'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND is_daily = 0 AND is_monthly = 0 AND is_yearly = 0',
       orderBy: "COALESCE(write_date, '') DESC, synced_at DESC",
       limit: limit,
     );
     return rows.map(_nodeFromRow).toList();
   }
 
-  /// Top-level pages with no parent. Excludes daily journal date pages.
+  /// Top-level pages with no parent. Excludes journal date pages.
   Future<List<Node>> getRootPages() async {
     final db = await _database.database;
     final rows = await db.query(
       'node_cache',
-      where: 'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND parent_uuid IS NULL AND is_daily = 0',
+      where: 'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND parent_uuid IS NULL AND is_daily = 0 AND is_monthly = 0 AND is_yearly = 0',
       orderBy: "COALESCE(write_date, '') DESC",
     );
     return rows.map(_nodeFromRow).toList();
