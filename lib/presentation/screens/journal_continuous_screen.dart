@@ -197,7 +197,7 @@ class _JournalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final date = _parseDate(journal.displayName);
+    final date = _parseDate(journal);
     final preview = _buildPreview(journal);
 
     return FleetCard(
@@ -239,13 +239,60 @@ class _JournalCard extends StatelessWidget {
     );
   }
 
-  String _parseDate(String displayName) {
-    try {
-      final parsed = DateTime.parse(displayName);
-      return DateFormat.yMMMMEEEEd().format(parsed);
-    } catch (_) {
-      return displayName;
+  String _parseDate(Node journal) {
+    // Daily journal UUIDs encode the date as
+    // 00000000-0000-0000-00dd-YYYYMMDD0000. Try the UUID first, then the
+    // node's create date, then the display name as a last resort.
+    final fromUuid = _dateFromJournalUuid(journal.uuid);
+    if (fromUuid != null) {
+      return DateFormat.yMMMMEEEEd().format(fromUuid);
     }
+
+    final createDate = journal.createDate;
+    if (createDate != null && createDate.isNotEmpty) {
+      try {
+        return DateFormat.yMMMMEEEEd().format(DateTime.parse(createDate));
+      } catch (_) {}
+    }
+
+    final displayName = journal.displayName;
+    if (displayName.isNotEmpty) {
+      try {
+        return DateFormat.yMMMMEEEEd().format(DateTime.parse(displayName));
+      } catch (_) {
+        return displayName;
+      }
+    }
+
+    return 'Untitled journal';
+  }
+
+  DateTime? _dateFromJournalUuid(String uuid) {
+    // Daily:  00000000-0000-0000-00dd-YYYYMMDD0000
+    // Monthly: 00000000-0000-0000-00mm-YYYYMM000000
+    // Yearly:  00000000-0000-0000-00yy-YYYY00000000
+    final clean = uuid.replaceAll('-', '');
+    if (clean.length < 28) return null;
+    final prefix = clean.substring(18, 22);
+    final suffix = clean.substring(22);
+    try {
+      if (prefix == '00dd' && suffix.length >= 8) {
+        final year = int.parse(suffix.substring(0, 4));
+        final month = int.parse(suffix.substring(4, 6));
+        final day = int.parse(suffix.substring(6, 8));
+        return DateTime(year, month, day);
+      }
+      if (prefix == '00mm' && suffix.length >= 6) {
+        final year = int.parse(suffix.substring(0, 4));
+        final month = int.parse(suffix.substring(4, 6));
+        return DateTime(year, month);
+      }
+      if (prefix == '00yy' && suffix.length >= 4) {
+        final year = int.parse(suffix.substring(0, 4));
+        return DateTime(year);
+      }
+    } catch (_) {}
+    return null;
   }
 
   String _buildPreview(Node journal) {
