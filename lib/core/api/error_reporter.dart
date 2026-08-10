@@ -33,7 +33,9 @@ class ApiErrorReporter extends Interceptor {
 
     await _appendLog(message);
 
-    if (status != null && status >= 400) {
+    // 404s are often expected (removed endpoints, optional features). Log them
+    // but do not show a disruptive dialog; callers should handle them gracefully.
+    if (status != null && status >= 400 && status != 404) {
       _showDialog(method, status, uri, detail);
     }
 

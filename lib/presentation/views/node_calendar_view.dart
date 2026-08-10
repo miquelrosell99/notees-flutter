@@ -106,6 +106,7 @@ class _NodeCalendarViewState extends State<NodeCalendarView> {
 
     final result = await showModalBottomSheet<String>(
       context: context,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -147,6 +148,7 @@ class _NodeCalendarViewState extends State<NodeCalendarView> {
         '${date.day.toString().padLeft(2, '0')}';
     showModalBottomSheet(
       context: context,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),

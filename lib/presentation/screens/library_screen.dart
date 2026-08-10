@@ -195,6 +195,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final isFavorite = _favoriteUuids.contains(node.uuid);
     showModalBottomSheet<void>(
       context: context,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -241,6 +242,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),

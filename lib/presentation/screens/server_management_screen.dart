@@ -57,6 +57,7 @@ class _ServerManagementScreenState extends State<ServerManagementScreen> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (context) => _ServerFormSheet(
         server: server,
         onSaved: _loadServers,
