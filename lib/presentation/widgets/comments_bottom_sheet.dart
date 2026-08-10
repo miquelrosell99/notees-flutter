@@ -54,7 +54,10 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
 
     setState(() => _loading = true);
     try {
-      final repo = CommentRepository(dio: auth.dio!);
+      final repo = CommentRepository(
+        dio: auth.dio!,
+        cache: auth.syncService?.cache,
+      );
       final comments = await repo.fetchComments(widget.nodeUuid);
       if (mounted) {
         setState(() {
@@ -78,7 +81,10 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
 
     setState(() => _loading = true);
     try {
-      final repo = CommentRepository(dio: auth.dio!);
+      final repo = CommentRepository(
+        dio: auth.dio!,
+        cache: auth.syncService?.cache,
+      );
       await repo.createComment(widget.nodeUuid, name: text);
       _controller.clear();
       await _loadComments();
@@ -95,7 +101,10 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
 
     setState(() => _loading = true);
     try {
-      final repo = CommentRepository(dio: auth.dio!);
+      final repo = CommentRepository(
+        dio: auth.dio!,
+        cache: auth.syncService?.cache,
+      );
       await repo.deleteComment(widget.nodeUuid, comment.uuid);
       await _loadComments();
     } catch (e) {

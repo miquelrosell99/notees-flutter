@@ -4,6 +4,7 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 
 import '../../core/utils/ast_stringifier.dart';
 import '../../core/utils/color_presets.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../data/models/node.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/responsive_card_grid_delegate.dart';
@@ -268,16 +269,14 @@ class _InboxCard extends StatelessWidget {
 
     return FleetCard(
       onTap: onTap,
-      child: InkWell(
-        onLongPress: onLongPress,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          padding: const EdgeInsets.all(16),
-          child: Column(
+      onLongPress: onLongPress,
+      child: Container(
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
@@ -298,7 +297,7 @@ class _InboxCard extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                block.displayName,
+                resolveNodeDisplayName(block),
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: fgColor,
@@ -325,8 +324,7 @@ class _InboxCard extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildClassChips(Color fgColor) {

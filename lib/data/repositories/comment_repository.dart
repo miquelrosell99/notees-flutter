@@ -3,11 +3,13 @@
 import 'package:dio/dio.dart';
 
 import '../models/node.dart';
+import 'node_cache_repository.dart';
 
 class CommentRepository {
-  CommentRepository({required this.dio});
+  CommentRepository({required this.dio, this.cache});
 
   final Dio dio;
+  final NodeCacheRepository? cache;
 
   Future<List<Node>> fetchComments(String nodeUuid, {int page = 1, int pageSize = 50}) async {
     final response = await dio.get<Map<String, dynamic>>(
@@ -40,7 +42,12 @@ class CommentRepository {
   }
 
   Future<int> fetchCommentCount(String nodeUuid) async {
-    final response = await dio.get<Map<String, dynamic>>('/nodes/$nodeUuid/comment-count');
-    return response.data?['count'] as int? ?? 0;
+    final cache = this.cache;
+    if (cache != null) {
+      return cache.countComments(nodeUuid);
+    }
+    // Fallback for server-only mode: the legacy endpoint was removed, so
+    // return 0 rather than failing with a 404.
+    return 0;
   }
 }

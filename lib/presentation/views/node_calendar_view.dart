@@ -18,12 +18,16 @@ class NodeCalendarView extends StatefulWidget {
     required this.onNodeTap,
     this.favoriteUuids,
     this.onFavoriteToggle,
+    this.dateFormat,
   });
 
   final List<Node> nodes;
   final ValueChanged<Node> onNodeTap;
   final Set<String>? favoriteUuids;
   final ValueChanged<Node>? onFavoriteToggle;
+
+  /// Optional user date-format preference; forwarded to the day list.
+  final String? dateFormat;
 
   @override
   State<NodeCalendarView> createState() => _NodeCalendarViewState();
@@ -183,6 +187,7 @@ class _NodeCalendarViewState extends State<NodeCalendarView> {
                   shrinkWrap: true,
                   favoriteUuids: widget.favoriteUuids,
                   onFavoriteToggle: widget.onFavoriteToggle,
+                  dateFormat: widget.dateFormat,
                 ),
               ),
             ],

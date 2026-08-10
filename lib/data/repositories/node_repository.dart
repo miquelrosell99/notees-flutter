@@ -37,7 +37,10 @@ class NodeRepository {
     final data = response.data;
     if (data == null) return [];
     final items = data['nodes'] as List<dynamic>? ?? [];
-    return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
+    return items
+        .map((e) => Node.fromJson(e as Map<String, dynamic>))
+        .where((n) => !n.isDaily)
+        .toList();
   }
 
   Future<List<Node>> fetchFavorites({int limit = 50}) async {
@@ -148,7 +151,10 @@ class NodeRepository {
     final data = response.data;
     if (data == null) return [];
     final items = (data['items'] ?? data['nodes']) as List<dynamic>? ?? [];
-    return items.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList();
+    return items
+        .map((e) => Node.fromJson(e as Map<String, dynamic>))
+        .where((n) => !n.isDaily)
+        .toList();
   }
 
   Future<List<Node>> searchNodes(String query, {int limit = 20}) async {

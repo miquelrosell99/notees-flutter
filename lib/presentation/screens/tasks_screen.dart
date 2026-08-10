@@ -22,6 +22,8 @@ enum TaskSegment {
   today,
   upcoming,
   someday,
+  all,
+  undated,
   completed;
 
   String get label {
@@ -32,6 +34,10 @@ enum TaskSegment {
         return 'Upcoming';
       case TaskSegment.someday:
         return 'Someday';
+      case TaskSegment.all:
+        return 'All';
+      case TaskSegment.undated:
+        return 'Undated';
       case TaskSegment.completed:
         return 'Completed';
     }
@@ -82,9 +88,11 @@ class _TasksScreenState extends State<TasksScreen> {
       final segment = _focusMode ? TaskSegment.today : _segment;
       final filters = _filtersFor(segment);
       final fetched = await repo.searchWithFilters(filters);
-      var processed = segment == TaskSegment.someday
-          ? fetched.where((t) => _taskDueDate(t) == null).toList()
-          : List<Node>.from(fetched);
+      var processed = switch (segment) {
+        TaskSegment.someday || TaskSegment.undated =>
+          fetched.where((t) => _taskDueDate(t) == null).toList(),
+        _ => List<Node>.from(fetched),
+      };
       _applyClientSort(processed);
       if (mounted) {
         setState(() {
@@ -126,8 +134,11 @@ class _TasksScreenState extends State<TasksScreen> {
           limit: limit,
         );
       case TaskSegment.someday:
+      case TaskSegment.all:
+      case TaskSegment.undated:
         // Fetch all open tasks; we filter out tasks that carry a due date
-        // client-side because SearchFilters only expresses date ranges.
+        // client-side for someday/undated because SearchFilters only expresses
+        // date ranges.
         return SearchFilters(
           nodeType: NodeType.task,
           taskState: TaskState.open,
@@ -1028,12 +1039,19 @@ class _TasksScreenState extends State<TasksScreen> {
     }
 
     if (_tasks.isEmpty) {
+      final message = _focusMode
+          ? 'No tasks for today'
+          : switch (_segment) {
+              TaskSegment.all => 'No tasks',
+              TaskSegment.undated => 'No undated tasks',
+              _ => 'No ${_segment.label.toLowerCase()} tasks',
+            };
       return ListView(
         children: [
           const SizedBox(height: 120),
           Center(
             child: Text(
-              _focusMode ? 'No tasks for today' : 'No ${_segment.label.toLowerCase()} tasks',
+              message,
               style: TextStyle(color: colors.onSurfaceVariant),
             ),
           ),

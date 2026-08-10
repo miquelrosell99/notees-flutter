@@ -21,6 +21,7 @@ class NodeCollection extends StatelessWidget {
     this.favoriteUuids,
     this.onFavoriteToggle,
     this.classIndex,
+    this.dateFormat,
   });
 
   final NodeViewMode mode;
@@ -33,6 +34,9 @@ class NodeCollection extends StatelessWidget {
 
   /// Class uuid → class node, forwarded to the card view for colored pills.
   final Map<String, Node>? classIndex;
+
+  /// Optional user date-format preference; forwarded to child views.
+  final String? dateFormat;
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +52,7 @@ class NodeCollection extends StatelessWidget {
           footer: footer,
           favoriteUuids: favoriteUuids,
           onFavoriteToggle: onFavoriteToggle,
+          dateFormat: dateFormat,
         );
       case NodeViewMode.card:
         return NodeCardView(
@@ -56,6 +61,7 @@ class NodeCollection extends StatelessWidget {
           favoriteUuids: favoriteUuids,
           onFavoriteToggle: onFavoriteToggle,
           classIndex: classIndex,
+          dateFormat: dateFormat,
         );
       case NodeViewMode.table:
         return NodeTableView(
@@ -63,6 +69,7 @@ class NodeCollection extends StatelessWidget {
           onNodeTap: onNodeTap,
           favoriteUuids: favoriteUuids,
           onFavoriteToggle: onFavoriteToggle,
+          dateFormat: dateFormat,
         );
       case NodeViewMode.kanban:
         return NodeKanbanView(
@@ -70,6 +77,7 @@ class NodeCollection extends StatelessWidget {
           onNodeTap: onNodeTap,
           favoriteUuids: favoriteUuids,
           onFavoriteToggle: onFavoriteToggle,
+          dateFormat: dateFormat,
         );
       case NodeViewMode.calendar:
         return NodeCalendarView(
@@ -77,6 +85,7 @@ class NodeCollection extends StatelessWidget {
           onNodeTap: onNodeTap,
           favoriteUuids: favoriteUuids,
           onFavoriteToggle: onFavoriteToggle,
+          dateFormat: dateFormat,
         );
     }
   }

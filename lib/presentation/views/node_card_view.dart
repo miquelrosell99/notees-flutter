@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
-import '../../data/models/node.dart';
 import '../../core/utils/color_presets.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../core/utils/node_icon.dart';
+import '../../data/models/node.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/responsive_card_grid_delegate.dart';
 
@@ -17,6 +18,7 @@ class NodeCardView extends StatelessWidget {
     this.favoriteUuids,
     this.onFavoriteToggle,
     this.classIndex,
+    this.dateFormat,
   });
 
   final List<Node> nodes;
@@ -26,6 +28,9 @@ class NodeCardView extends StatelessWidget {
 
   /// Class uuid → class node, used to render named, colored class pills.
   final Map<String, Node>? classIndex;
+
+  /// Optional user date-format preference; used to format journal dates.
+  final String? dateFormat;
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +76,7 @@ class NodeCardView extends StatelessWidget {
                 const SizedBox(height: 12),
                 Expanded(
                   child: Text(
-                    node.displayName,
+                    resolveNodeDisplayName(node, dateFormat: dateFormat),
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w600,
                         ),

@@ -12,6 +12,7 @@ import '../../data/repositories/node_repository.dart';
 import '../../domain/models/search_filters.dart';
 import '../../domain/services/sync_v2_service.dart';
 import '../providers/auth_provider.dart';
+import '../providers/settings_provider.dart';
 import '../views/node_collection.dart';
 import '../views/node_list_view.dart';
 import '../views/node_view_mode.dart';
@@ -321,6 +322,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final settings = context.watch<SettingsProvider>();
 
     return Scaffold(
       appBar: AppBar(
@@ -345,7 +347,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         onRefresh: _loadLibrary,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : _buildContent(colors),
+            : _buildContent(colors, settings.dateFormat),
       ),
       floatingActionButton: FloatingActionButton.small(
         onPressed: () => _createPage(context),
@@ -355,7 +357,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Widget _buildContent(ColorScheme colors) {
+  Widget _buildContent(ColorScheme colors, String dateFormat) {
     if (_error != null) {
       return ListView(
         padding: const EdgeInsets.all(20),
@@ -391,6 +393,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         favoriteUuids: _favoriteUuids,
         onFavoriteToggle: _toggleFavorite,
         classIndex: _classIndex,
+        dateFormat: dateFormat,
       );
     }
 
@@ -420,6 +423,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       shrinkWrap: true,
                       favoriteUuids: _favoriteUuids,
                       onFavoriteToggle: _toggleFavorite,
+                      dateFormat: dateFormat,
                     ),
             ],
           ),
@@ -444,6 +448,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       onNodeTap: _openNode,
                       onNodeLongPress: _showNodeActions,
                       shrinkWrap: true,
+                      dateFormat: dateFormat,
                     ),
             ],
           ),
