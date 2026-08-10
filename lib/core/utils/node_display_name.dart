@@ -4,19 +4,26 @@ import '../../data/models/node.dart';
 import 'date_uuid.dart';
 
 /// Returns a human-readable label for [node], using the user's [dateFormat]
-/// preference when the node is a journal whose resolved name is blank.
+/// preference when the node is a journal.
 ///
-/// Falls back to "Untitled" for non-journal nodes with no display name.
+/// Journal nodes always resolve to their canonical date label. Non-journal
+/// nodes fall back to [Node.displayName], then to "Untitled".
 String resolveNodeDisplayName(Node node, {String? dateFormat}) {
-  if (node.displayName.isNotEmpty) return node.displayName;
-
   final date = journalDateFromUuid(node.uuid);
   if (date != null) {
+    if (node.isMonthly) {
+      return DateFormat.yMMMM().format(date);
+    }
+    if (node.isYearly) {
+      return DateFormat.y().format(date);
+    }
     if (dateFormat != null) {
       return _formatWithSettings(date, dateFormat);
     }
     return DateFormat.yMMMMEEEEd().format(date);
   }
+
+  if (node.displayName.isNotEmpty) return node.displayName;
 
   return 'Untitled';
 }
