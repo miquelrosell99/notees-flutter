@@ -36,6 +36,9 @@ String dateToYearUuid(DateTime date) {
 ///
 /// Returns the date represented by a daily, monthly, or yearly journal UUID,
 /// or `null` if [uuid] does not match any known journal pattern.
+///
+/// Supports both the legacy mobile prefixes (`00mm`, `00yy`) and the current
+/// server prefixes (`00aa`, `00bb`) for month/year journals.
 DateTime? journalDateFromUuid(String uuid) {
   final clean = uuid.replaceAll('-', '');
   if (clean.length < 28) return null;
@@ -48,12 +51,12 @@ DateTime? journalDateFromUuid(String uuid) {
       final day = int.parse(suffix.substring(6, 8));
       return DateTime(year, month, day);
     }
-    if (prefix == '00mm' && suffix.length >= 6) {
+    if ((prefix == '00mm' || prefix == '00aa') && suffix.length >= 6) {
       final year = int.parse(suffix.substring(0, 4));
       final month = int.parse(suffix.substring(4, 6));
       return DateTime(year, month);
     }
-    if (prefix == '00yy' && suffix.length >= 4) {
+    if ((prefix == '00yy' || prefix == '00bb') && suffix.length >= 4) {
       final year = int.parse(suffix.substring(0, 4));
       return DateTime(year);
     }

@@ -70,11 +70,39 @@ class Node {
 
   factory Node.fromJson(Map<String, dynamic> json) {
     final childrenJson = json['children'] as List<dynamic>?;
+    final classesUuid = (json['classes_uuid'] as List<dynamic>?)?.cast<String>() ??
+        (json['class_ids'] as List<dynamic>?)?.cast<String>() ??
+        (json['class_uuids'] as List<dynamic>?)?.cast<String>() ??
+        const [];
+    final name = json['name'] as String? ?? '';
+
+    // The backend uses both legacy mobile keys (is_daily/monthly/yearly) and
+    // current server keys (is_day/month/year). Fall back to class UUIDs when
+    // neither set of flags is present.
+    final isDaily = (json['is_daily'] as bool? ?? false) ||
+        (json['is_day'] as bool? ?? false) ||
+        classesUuid.contains(SystemClassUuids.day);
+    final isMonthly = (json['is_monthly'] as bool? ?? false) ||
+        (json['is_month'] as bool? ?? false) ||
+        classesUuid.contains(SystemClassUuids.month);
+    final isYearly = (json['is_yearly'] as bool? ?? false) ||
+        (json['is_year'] as bool? ?? false) ||
+        classesUuid.contains(SystemClassUuids.year);
+
+    // Some payloads use camelCase displayName; prefer display_name then fall
+    // back to parsing the name AST/string.
+    var displayName = (json['display_name'] as String?)?.trim() ??
+        (json['displayName'] as String?)?.trim() ??
+        '';
+    if (displayName.isEmpty) {
+      displayName = astToPlainText(name);
+    }
+
     return Node(
-      id: json['id'] as int,
+      id: json['id'] as int? ?? 0,
       uuid: json['uuid'] as String,
-      name: json['name'] as String,
-      displayName: json['display_name'] as String? ?? astToPlainText(json['name'] as String?),
+      name: name,
+      displayName: displayName,
       icon: json['icon'] as String?,
       color: json['color'] as String?,
       parentId: json['parent_id'] as int?,
@@ -84,9 +112,9 @@ class Node {
       sequence: (json['sequence'] as num?)?.toDouble() ?? 0.0,
       isPage: json['is_page'] as bool? ?? false,
       isTask: json['is_task'] as bool? ?? false,
-      isDaily: json['is_daily'] as bool? ?? false,
-      isMonthly: json['is_monthly'] as bool? ?? false,
-      isYearly: json['is_yearly'] as bool? ?? false,
+      isDaily: isDaily,
+      isMonthly: isMonthly,
+      isYearly: isYearly,
       isTable: json['is_table'] as bool? ?? false,
       isAsset: json['is_asset'] as bool? ?? false,
       isComment: json['is_comment'] as bool? ?? false,
@@ -94,9 +122,12 @@ class Node {
       isArchived: json['is_archived'] as bool? ?? false,
       isPrivate: json['is_private'] as bool? ?? false,
       classes: (json['classes'] as List<dynamic>?)?.cast<int>() ?? const [],
-      classesUuid: (json['classes_uuid'] as List<dynamic>?)?.cast<String>() ?? const [],
+      classesUuid: classesUuid,
       tags: (json['tags'] as List<dynamic>?)?.cast<int>() ?? const [],
-      tagsUuid: (json['tags_uuid'] as List<dynamic>?)?.cast<String>() ?? const [],
+      tagsUuid: (json['tags_uuid'] as List<dynamic>?)?.cast<String>() ??
+          (json['tag_ids'] as List<dynamic>?)?.cast<String>() ??
+          (json['tag_uuids'] as List<dynamic>?)?.cast<String>() ??
+          const [],
       properties: (json['properties'] as Map<String, dynamic>?) ?? const {},
       children: childrenJson?.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList() ?? const [],
       createDate: json['create_date'] as String?,
