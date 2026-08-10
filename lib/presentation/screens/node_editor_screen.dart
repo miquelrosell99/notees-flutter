@@ -1426,7 +1426,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final settings = context.watch<SettingsProvider>();
-    final keyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
 
     return Scaffold(
       appBar: AppBar(
@@ -1510,7 +1509,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                     ),
                   ),
                 ),
-                if (keyboardVisible)
+                if (_focusedBlock != null)
                   EditorInlineToolbar(onAction: _onToolbarAction),
               ],
             ),
