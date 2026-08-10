@@ -18,7 +18,6 @@ import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/ast_rich_text.dart';
 import '../widgets/empty_state.dart';
-import '../widgets/fleet_card.dart';
 import '../widgets/section_title.dart';
 
 /// A continuous, scrollable view of recent journal entries.
@@ -258,13 +257,17 @@ class _JournalContinuousScreenState extends State<JournalContinuousScreen> {
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(20),
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       itemCount: _journalContents.length + 1,
+      separatorBuilder: (context, index) {
+        if (index == 0) return const SizedBox.shrink();
+        return const Divider(height: 1);
+      },
       itemBuilder: (context, index) {
         if (index == 0) {
           return Padding(
-            padding: const EdgeInsets.only(bottom: 20),
+            padding: const EdgeInsets.only(top: 20, bottom: 8),
             child: SectionTitle(
               icon: MdiIcons.history,
               label: 'Recent entries',
@@ -272,14 +275,11 @@ class _JournalContinuousScreenState extends State<JournalContinuousScreen> {
           );
         }
         final content = _journalContents[index - 1];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: _JournalDayCard(
-            content: content,
-            onHeaderTap: _openNode,
-            onBlockTap: _openNode,
-            dateFormat: settings.dateFormat,
-          ),
+        return _JournalDayCard(
+          content: content,
+          onHeaderTap: _openNode,
+          onBlockTap: _openNode,
+          dateFormat: settings.dateFormat,
         );
       },
     );
@@ -305,37 +305,31 @@ class _JournalDayCard extends StatelessWidget {
     final date = resolveNodeDisplayName(content.node, dateFormat: dateFormat);
     final children = content.node.children.where((b) => !b.isPage).toList();
 
-    return FleetCard(
+    return InkWell(
+      onTap: () => onHeaderTap(content.node),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            InkWell(
-              onTap: () => onHeaderTap(content.node),
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.all(4),
-                child: Row(
-                  children: [
-                    Icon(MdiIcons.calendarOutline, size: 18, color: colors.primary),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        date,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                    ),
-                    Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
-                  ],
+            Row(
+              children: [
+                Icon(MdiIcons.calendarOutline, size: 18, color: colors.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    date,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
                 ),
-              ),
+                Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
+              ],
             ),
             if (children.isEmpty)
               Padding(
-                padding: const EdgeInsets.only(top: 12, left: 4),
+                padding: const EdgeInsets.only(top: 12),
                 child: Text(
                   'Nothing written yet.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
