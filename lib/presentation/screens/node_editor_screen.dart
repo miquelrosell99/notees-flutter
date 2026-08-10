@@ -13,6 +13,7 @@ import '../../core/constants/system.dart';
 import '../../core/routing/router.dart';
 import '../../core/utils/ast_builder.dart';
 import '../../core/utils/color_presets.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../core/utils/node_icon.dart';
 import '../../data/models/breadcrumb_item.dart';
 import '../../data/models/linked_reference.dart';
@@ -21,6 +22,8 @@ import '../../data/models/property.dart';
 import '../../data/repositories/comment_repository.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
+import '../providers/settings_provider.dart';
+import '../views/node_list_view.dart';
 import '../widgets/ast_rich_text.dart';
 import '../widgets/block_tree_editor.dart';
 import '../widgets/comments_bottom_sheet.dart';
@@ -52,6 +55,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   final _scrollController = ScrollController();
   final _blockTreeKey = GlobalKey<BlockTreeEditorState>();
   final List<BlockNode> _roots = [];
+  List<Node> _childPages = [];
 
   List<BreadcrumbItem> _breadcrumbs = [];
   List<NodePropertyValue> _properties = [];
@@ -133,6 +137,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         block.controller.dispose();
       }
       _roots.clear();
+      _childPages = page.children.where((b) => b.isPage).toList();
       _roots.addAll(
         _nodesToBlockTree(page.children.where((b) => !b.isPage).toList()),
       );
@@ -183,9 +188,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
       if (mounted) {
         setState(() {
-          _titleController.text = page.displayName.isNotEmpty
-              ? page.displayName
-              : 'Untitled';
+          _titleController.text = resolveNodeDisplayName(page);
           _classProperties = classProps;
           _availableProperties = available;
           _properties = _buildDisplayProperties(
@@ -384,7 +387,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   }
 
   void _showPageOptionsMenu() {
-    final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
     HapticFeedback.lightImpact();
     showModalBottomSheet<void>(
       context: context,
@@ -396,15 +398,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (!isJournalDatePage)
-              ListTile(
-                leading: Icon(MdiIcons.pencilOutline),
-                title: const Text('Rename'),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  _showRenameTitleDialog();
-                },
-              ),
             ListTile(
               leading: Icon(MdiIcons.shareOutline),
               title: const Text('Share'),
@@ -1432,6 +1425,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final settings = context.watch<SettingsProvider>();
     final keyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
 
     return Scaffold(
@@ -1509,6 +1503,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                           label: const Text('Add block'),
                         ),
                         const SizedBox(height: 20),
+                        _buildChildPagesSection(colors, settings.dateFormat),
                         _buildPropertiesSection(colors),
                         _buildLinkedReferencesSection(colors),
                       ],
@@ -1678,16 +1673,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       );
     }
 
-    return FleetCard(
-      child: Container(
-        decoration: pageColor != null
-            ? BoxDecoration(
-                border: Border(left: BorderSide(color: pageColor, width: 4)),
-              )
-            : null,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: title,
-      ),
+    return Container(
+      decoration: pageColor != null
+          ? BoxDecoration(
+              border: Border(left: BorderSide(color: pageColor, width: 4)),
+            )
+          : null,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: title,
     );
   }
 
@@ -1695,30 +1688,49 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return const SizedBox.shrink();
 
-    return FleetCard(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: BlockTreeEditor(
-          key: _blockTreeKey,
-          roots: _roots,
-          classNames: _classNames,
-          dio: auth.dio!,
-          focusedNode: _focusedBlock,
-          onFocus: _onFocus,
-          onDelete: _onDelete,
-          onMove: _onMove,
-          onAddSibling: _addBlock,
-          onAddChild: _onAddChild,
-          onIndent: _onIndent,
-          onOutdent: _onOutdent,
-          onToggleCollapse: _onToggleCollapse,
-          onNodeLinkTap: _onNodeLinkTap,
-          onNodeLinkAction: _onNodeLinkAction,
-          onContentChanged: _markDirty,
-          onToggleTask: _onToggleTaskStatus,
-          linkColors: _linkColors,
+    return BlockTreeEditor(
+      key: _blockTreeKey,
+      roots: _roots,
+      classNames: _classNames,
+      dio: auth.dio!,
+      focusedNode: _focusedBlock,
+      onFocus: _onFocus,
+      onDelete: _onDelete,
+      onMove: _onMove,
+      onAddSibling: _addBlock,
+      onAddChild: _onAddChild,
+      onIndent: _onIndent,
+      onOutdent: _onOutdent,
+      onToggleCollapse: _onToggleCollapse,
+      onNodeLinkTap: _onNodeLinkTap,
+      onNodeLinkAction: _onNodeLinkAction,
+      onContentChanged: _markDirty,
+      onToggleTask: _onToggleTaskStatus,
+      linkColors: _linkColors,
+    );
+  }
+
+  Widget _buildChildPagesSection(ColorScheme colors, String dateFormat) {
+    if (_childPages.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Child pages',
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
         ),
-      ),
+        const SizedBox(height: 8),
+        NodeListView(
+          nodes: _childPages,
+          onNodeTap: (node) => context.push('${Routes.editor}/${node.uuid}'),
+          shrinkWrap: true,
+          dateFormat: dateFormat,
+        ),
+        const SizedBox(height: 20),
+      ],
     );
   }
 
