@@ -112,7 +112,7 @@ local-first, operation-log architecture:
 Added Journal as a fourth bottom-navigation destination:
 - `MainShellScreen` now has Inbox, Tasks, Journal, Library tabs.
 - Journal tab renders the existing `JournalContinuousScreen` (recent daily
-  entries, reverse-chronological, pull-to-refresh, today's-journal action).
+  entries, reverse-chronological, today's-journal action).
 - Capture FAB moved to `endFloat` to avoid clashing with four nav items.
 - Command palette `journals` now switches to the Journal tab instead of
   pushing a separate route.

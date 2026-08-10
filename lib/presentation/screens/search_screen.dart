@@ -5,6 +5,7 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/constants/system.dart';
 import '../../core/routing/router.dart';
@@ -34,6 +35,9 @@ class SearchScreen extends StatefulWidget {
 }
 
 class _SearchScreenState extends State<SearchScreen> {
+  static const _searchHistoryKey = 'search_history';
+  static const _maxHistoryItems = 10;
+
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   SearchFilters _filters = const SearchFilters();
@@ -46,6 +50,9 @@ class _SearchScreenState extends State<SearchScreen> {
   NodeViewMode _viewMode = NodeViewMode.list;
   final _viewModeStore = ViewModeStore();
   Timer? _debounceTimer;
+
+  List<String> _searchHistory = [];
+  bool _loadingHistory = true;
 
   NodeCacheRepository? _cacheRepo;
   Set<String> _localResultUuids = {};
@@ -75,6 +82,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _loadViewMode();
     _loadSavedSearches();
     _loadSuggestions();
+    _loadSearchHistory();
   }
 
   Future<void> _loadViewMode() async {
@@ -174,6 +182,54 @@ class _SearchScreenState extends State<SearchScreen> {
     } catch (_) {
       if (mounted) setState(() => _loadingSuggestions = false);
     }
+  }
+
+  Future<void> _loadSearchHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final history = prefs.getStringList(_searchHistoryKey) ?? [];
+      if (mounted) {
+        setState(() {
+          _searchHistory = history;
+          _loadingHistory = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingHistory = false);
+    }
+  }
+
+  Future<void> _saveSearchHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_searchHistoryKey, _searchHistory);
+    } catch (_) {
+      // History is best-effort; ignore persistence failures.
+    }
+  }
+
+  Future<void> _addSearchHistory(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return;
+    _searchHistory.remove(trimmed);
+    _searchHistory.insert(0, trimmed);
+    if (_searchHistory.length > _maxHistoryItems) {
+      _searchHistory = _searchHistory.take(_maxHistoryItems).toList();
+    }
+    await _saveSearchHistory();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _clearSearchHistory() async {
+    _searchHistory.clear();
+    await _saveSearchHistory();
+    if (mounted) setState(() {});
+  }
+
+  void _runHistoryQuery(String query) {
+    _controller.text = query;
+    _controller.selection = TextSelection.collapsed(offset: query.length);
+    _onQueryChanged(query);
   }
 
   Future<void> _toggleFavorite(Node node) async {
@@ -286,6 +342,9 @@ class _SearchScreenState extends State<SearchScreen> {
             _hasMore = false;
           });
         }
+      }
+      if (query.isNotEmpty && isPlainTextSearch) {
+        await _addSearchHistory(query);
       }
     } catch (e) {
       if (mounted) {
@@ -426,6 +485,10 @@ class _SearchScreenState extends State<SearchScreen> {
             contentPadding: const EdgeInsets.symmetric(vertical: 10),
           ),
           onChanged: _onQueryChanged,
+          onSubmitted: (value) {
+            _debounceTimer?.cancel();
+            _search();
+          },
         ),
         actions: [
           IconButton(
@@ -509,6 +572,51 @@ class _SearchScreenState extends State<SearchScreen> {
                     ),
                     label: Text(view.name),
                     onPressed: () => _runSavedSearch(view),
+                  );
+                }).toList(),
+              ),
+            ),
+          if (_controller.text.trim().isEmpty &&
+              _filters.isEmpty &&
+              _activeSavedView == null &&
+              !_loadingHistory &&
+              _searchHistory.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Recent searches',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(MdiIcons.closeCircleOutline),
+                    tooltip: 'Clear history',
+                    onPressed: _clearSearchHistory,
+                  ),
+                ],
+              ),
+            ),
+          if (_controller.text.trim().isEmpty &&
+              _filters.isEmpty &&
+              _activeSavedView == null &&
+              !_loadingHistory &&
+              _searchHistory.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: _searchHistory.map((query) {
+                  return ActionChip(
+                    avatar: Icon(MdiIcons.history, size: 18),
+                    label: Text(query),
+                    onPressed: () => _runHistoryQuery(query),
                   );
                 }).toList(),
               ),

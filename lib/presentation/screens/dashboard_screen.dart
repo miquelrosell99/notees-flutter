@@ -19,6 +19,7 @@ import '../views/node_view_mode.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/node_picker.dart';
+import '../widgets/section_title.dart';
 import '../widgets/view_mode_sheet.dart';
 
 /// The workspace Inbox, shown as the default Home tab.
@@ -35,6 +36,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   List<Node> _inboxBlocks = [];
+  List<Node> _recentPages = [];
   Node? _todayJournal;
   Map<String, Node> _classIndex = {};
   bool _loading = true;
@@ -70,6 +72,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         repo.fetchInboxContent(),
         repo.getOrCreateDailyJournal(DateTime.now()),
         repo.fetchClasses(),
+        repo.fetchRecentPages(limit: 6),
       ]);
       final inboxContent = results[0] as PageContent;
       final classes = results[2] as List<Node>;
@@ -78,6 +81,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _inboxBlocks = inboxContent.node.children;
           _todayJournal = results[1] as Node;
           _classIndex = {for (final c in classes) c.uuid: c};
+          _recentPages = results[3] as List<Node>;
           _error = null;
         });
       }
@@ -417,99 +421,191 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildBody(ColorScheme colors) {
     if (_error != null) {
       return ListView(
+        padding: const EdgeInsets.all(20),
         children: [
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text(_error!, style: TextStyle(color: colors.error)),
+          EmptyState(
+            icon: MdiIcons.alertCircleOutline,
+            title: 'Could not load dashboard',
+            subtitle: _error,
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: FilledButton.tonalIcon(
+              onPressed: _loadDashboard,
+              icon: Icon(MdiIcons.refresh),
+              label: const Text('Retry'),
+            ),
           ),
         ],
       );
     }
 
     if (_inboxBlocks.isEmpty) {
-      return ListView(
+      if (_recentPages.isEmpty) {
+        return ListView(
+          children: [
+            EmptyState(
+              icon: MdiIcons.lightbulbOutline,
+              title: 'Nothing in your pocket yet.',
+              subtitle: 'Tap + to capture a note, photo, or voice memo.',
+            ),
+          ],
+        );
+      }
+      return SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildRecentPagesSection(colors),
+            EmptyState(
+              icon: MdiIcons.lightbulbOutline,
+              title: 'Nothing in your pocket yet.',
+              subtitle: 'Tap + to capture a note, photo, or voice memo.',
+            ),
+          ],
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          EmptyState(
-            icon: MdiIcons.lightbulbOutline,
-            title: 'Inbox is empty',
-            subtitle: 'Tap + to capture a note, photo, or voice memo.',
-          ),
-        ],
-      );
-    }
-
-    if (_viewMode == NodeViewMode.card) {
-      return InboxCardView(
-        blocks: _inboxBlocks,
-        classIndex: _classIndex,
-        onBlockTap: _openNode,
-        onBlockLongPress: _showBlockActions,
-        onBlockArchive: _archiveBlock,
-        onBlockDelete: _deleteBlock,
-        onBlockArchiveUndo: _unarchiveBlock,
-        onBlockDeleteUndo: _restoreBlock,
-      );
-    }
-
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: _inboxBlocks.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final block = _inboxBlocks[index];
-        return Dismissible(
-          key: ValueKey(block.uuid),
-          direction: DismissDirection.horizontal,
-          confirmDismiss: (direction) async {
-            if (direction == DismissDirection.startToEnd) {
-              HapticFeedback.lightImpact();
-              await _archiveBlock(block);
-              if (mounted) {
-                _showUndoSnackBar(
-                  this.context,
-                  message: 'Note archived',
-                  onUndo: () => _unarchiveBlock(block),
+          if (_recentPages.isNotEmpty) ...[
+            _buildRecentPagesSection(colors),
+          ],
+          if (_viewMode == NodeViewMode.card)
+            InboxCardView(
+              blocks: _inboxBlocks,
+              classIndex: _classIndex,
+              onBlockTap: _openNode,
+              onBlockLongPress: _showBlockActions,
+              onBlockArchive: _archiveBlock,
+              onBlockDelete: _deleteBlock,
+              onBlockArchiveUndo: _unarchiveBlock,
+              onBlockDeleteUndo: _restoreBlock,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+            )
+          else
+            ListView.separated(
+              padding: const EdgeInsets.all(16),
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _inboxBlocks.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final block = _inboxBlocks[index];
+                return Dismissible(
+                  key: ValueKey(block.uuid),
+                  direction: DismissDirection.horizontal,
+                  confirmDismiss: (direction) async {
+                    if (direction == DismissDirection.startToEnd) {
+                      HapticFeedback.lightImpact();
+                      await _archiveBlock(block);
+                      if (mounted) {
+                        _showUndoSnackBar(
+                          this.context,
+                          message: 'Note archived',
+                          onUndo: () => _unarchiveBlock(block),
+                        );
+                      }
+                      return false;
+                    }
+                    final confirmed = await _confirmDelete(block);
+                    if (confirmed && mounted) {
+                      _showUndoSnackBar(
+                        this.context,
+                        message: 'Note deleted',
+                        onUndo: () => _restoreBlock(block),
+                      );
+                    }
+                    return false;
+                  },
+                  background: _SwipeBackground(
+                    alignment: Alignment.centerLeft,
+                    icon: MdiIcons.archiveOutline,
+                    label: 'Archive',
+                    color: colors.secondaryContainer,
+                    foregroundColor: colors.onSecondaryContainer,
+                  ),
+                  secondaryBackground: _SwipeBackground(
+                    alignment: Alignment.centerRight,
+                    icon: MdiIcons.deleteOutline,
+                    label: 'Delete',
+                    color: colors.errorContainer,
+                    foregroundColor: colors.onErrorContainer,
+                  ),
+                  child: FleetCard(
+                    child: InkWell(
+                      onTap: () => _openNode(block),
+                      onLongPress: () => _showBlockActions(block),
+                      borderRadius: BorderRadius.circular(20),
+                      child: _InboxListTile(
+                        block: block,
+                        classIndex: _classIndex,
+                      ),
+                    ),
+                  ),
                 );
-              }
-              return false;
-            }
-            final confirmed = await _confirmDelete(block);
-            if (confirmed && mounted) {
-              _showUndoSnackBar(
-                this.context,
-                message: 'Note deleted',
-                onUndo: () => _restoreBlock(block),
-              );
-            }
-            return false;
-          },
-          background: _SwipeBackground(
-            alignment: Alignment.centerLeft,
-            icon: MdiIcons.archiveOutline,
-            label: 'Archive',
-            color: colors.secondaryContainer,
-            foregroundColor: colors.onSecondaryContainer,
-          ),
-          secondaryBackground: _SwipeBackground(
-            alignment: Alignment.centerRight,
-            icon: MdiIcons.deleteOutline,
-            label: 'Delete',
-            color: colors.errorContainer,
-            foregroundColor: colors.onErrorContainer,
-          ),
-          child: FleetCard(
-            child: InkWell(
-              onTap: () => _openNode(block),
-              onLongPress: () => _showBlockActions(block),
-              borderRadius: BorderRadius.circular(20),
-              child: _InboxListTile(
-                block: block,
-                classIndex: _classIndex,
-              ),
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecentPagesSection(ColorScheme colors) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionTitle(icon: MdiIcons.clockOutline, label: 'Recent pages'),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 120,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _recentPages.length,
+              separatorBuilder: (context, index) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final node = _recentPages[index];
+                return SizedBox(
+                  width: 160,
+                  child: FleetCard(
+                    onTap: () => _openNode(node),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            node.isJournal ? MdiIcons.calendarOutline : MdiIcons.fileDocumentOutline,
+                            size: 20,
+                            color: colors.onSurfaceVariant,
+                          ),
+                          const SizedBox(height: 12),
+                          Expanded(
+                            child: Text(
+                              node.displayName,
+                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 

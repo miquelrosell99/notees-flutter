@@ -26,6 +26,8 @@ class InboxCardView extends StatelessWidget {
     this.onBlockArchiveUndo,
     this.onBlockDeleteUndo,
     this.classIndex = const {},
+    this.shrinkWrap = false,
+    this.physics,
   });
 
   final List<Node> blocks;
@@ -39,12 +41,21 @@ class InboxCardView extends StatelessWidget {
   /// Class uuid → class node, used to render named, colored class pills.
   final Map<String, Node> classIndex;
 
+  /// When true, the grid shrinks to fit its children. Useful when placing this
+  /// view inside another scrollable.
+  final bool shrinkWrap;
+
+  /// Scroll physics for the grid.
+  final ScrollPhysics? physics;
+
   @override
   Widget build(BuildContext context) {
     return GridView.builder(
       padding: const EdgeInsets.all(16),
       gridDelegate: responsiveCardGridDelegate(context),
       itemCount: blocks.length,
+      shrinkWrap: shrinkWrap,
+      physics: physics,
       itemBuilder: (context, index) {
         final block = blocks[index];
         return _DismissibleInboxCard(
