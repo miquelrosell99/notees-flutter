@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../api/error_reporter.dart';
+
 import '../../data/repositories/node_repository.dart';
 import '../../presentation/providers/auth_provider.dart';
 import '../../presentation/screens/about_screen.dart';
@@ -56,6 +58,7 @@ abstract class Routes {
 
 GoRouter createRouter({required AuthProvider authProvider}) {
   return GoRouter(
+    navigatorKey: apiErrorNavigatorKey,
     initialLocation: Routes.splash,
     refreshListenable: authProvider,
     redirect: (context, state) {

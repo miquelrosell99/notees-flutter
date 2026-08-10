@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../secure/secure_storage.dart';
 import 'auth_interceptor.dart';
+import 'error_reporter.dart';
 
 CookieJar? _sharedCookieJar;
 
@@ -49,6 +50,7 @@ Dio createApiClient({
     dio.interceptors.add(CookieManager(cookieJar));
   }
 
+  dio.interceptors.add(ApiErrorReporter());
   dio.interceptors.add(LogInterceptor(requestBody: true, responseBody: true));
 
   if (trustSelfSigned) {
