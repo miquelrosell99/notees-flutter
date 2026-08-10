@@ -349,7 +349,6 @@ class DashboardScreenState extends State<DashboardScreen> {
             },
           ),
           _HomeOverflowMenu(
-            onOpenJournal: () => context.push(Routes.journals),
             onOpenSettings: () => context.push(Routes.settings),
             onOpenArchived: () => context.push(Routes.archived),
           ),
@@ -798,12 +797,10 @@ class _ColorOption extends StatelessWidget {
 /// Overflow menu for the Home app bar, shown as a bottom sheet.
 class _HomeOverflowMenu extends StatelessWidget {
   const _HomeOverflowMenu({
-    required this.onOpenJournal,
     required this.onOpenSettings,
     required this.onOpenArchived,
   });
 
-  final VoidCallback onOpenJournal;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenArchived;
 
@@ -837,11 +834,6 @@ class _HomeOverflowMenu extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _menuTile(
-                    icon: MdiIcons.calendarOutline,
-                    label: 'Journal entries',
-                    onTap: () => select(onOpenJournal),
-                  ),
                   _menuTile(
                     icon: MdiIcons.archiveOutline,
                     label: 'Archived',
