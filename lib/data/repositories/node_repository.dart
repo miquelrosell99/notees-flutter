@@ -167,7 +167,17 @@ class NodeRepository {
 
   Future<Node> fetchNode(String uuid) async {
     if (_localMode) {
-      final node = await _cache!.getByUuid(uuid);
+      var node = await _cache!.getByUuid(uuid);
+      if (node == null) {
+        // The node may have been created on another device. Pull the latest
+        // relay operations and try again before giving up.
+        try {
+          await syncService?.pull();
+        } catch (e) {
+          debugPrint('[fetchNode] pull failed for $uuid: $e');
+        }
+        node = await _cache!.getByUuid(uuid);
+      }
       if (node == null) throw StateError('Node not found in local cache: $uuid');
       return node;
     }
@@ -177,7 +187,15 @@ class NodeRepository {
 
   Future<Node> fetchNodeByUuid(String uuid) async {
     if (_localMode) {
-      final node = await _cache!.getByUuid(uuid);
+      var node = await _cache!.getByUuid(uuid);
+      if (node == null) {
+        try {
+          await syncService?.pull();
+        } catch (e) {
+          debugPrint('[fetchNodeByUuid] pull failed for $uuid: $e');
+        }
+        node = await _cache!.getByUuid(uuid);
+      }
       if (node == null) throw StateError('Node not found in local cache: $uuid');
       return node;
     }
@@ -208,7 +226,17 @@ class NodeRepository {
 
   Future<PageContent> fetchPageContent(String uuid) async {
     if (_localMode) {
-      return _cache!.getPageContent(uuid);
+      try {
+        return await _cache!.getPageContent(uuid);
+      } on StateError {
+        // Page may exist on the server but not in the local cache yet.
+        try {
+          await syncService?.pull();
+        } catch (e) {
+          debugPrint('[fetchPageContent] pull failed for $uuid: $e');
+        }
+        return _cache!.getPageContent(uuid);
+      }
     }
     final response = await dio.get<Map<String, dynamic>>('/nodes/page/$uuid/content');
     return PageContent.fromJson(response.data!);
