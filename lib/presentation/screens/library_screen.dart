@@ -437,13 +437,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   child: Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: _classes.map((cls) {
-                      return ActionChip(
-                        avatar: Icon(MdiIcons.tagOutline, size: 16),
-                        label: Text(cls.displayName),
-                        onPressed: () => _showClassNodes(cls),
-                      );
-                    }).toList(),
+                    children: _classes
+                        .map((cls) => (cls, resolveNodeDisplayName(cls)))
+                        .where((pair) => pair.$2.isNotEmpty)
+                        .map((pair) {
+                          final (cls, label) = pair;
+                          return ActionChip(
+                            avatar: Icon(MdiIcons.shapeOutline, size: 16),
+                            label: Text(label),
+                            onPressed: () => _showClassNodes(cls),
+                          );
+                        })
+                        .toList(),
                   ),
                 ),
         ),
