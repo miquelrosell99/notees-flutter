@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/constants/system.dart';
 import '../../core/routing/router.dart';
@@ -19,14 +20,13 @@ import '../../data/models/breadcrumb_item.dart';
 import '../../data/models/linked_reference.dart';
 import '../../data/models/node.dart';
 import '../../data/models/property.dart';
-import '../../data/repositories/comment_repository.dart';
 import '../../data/repositories/node_repository.dart';
+import '../../domain/services/sync_v2_service.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import '../views/node_list_view.dart';
 import '../widgets/ast_rich_text.dart';
 import '../widgets/block_tree_editor.dart';
-import '../widgets/comments_bottom_sheet.dart';
 import '../widgets/editor_inline_toolbar.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/mention_picker.dart';
@@ -74,7 +74,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   bool _saving = false;
   String? _error;
   BlockNode? _focusedBlock;
-  int _commentCount = 0;
   List<LinkedReference> _linkedReferences = [];
   int _linkedRefsTotal = 0;
   bool _readerMode = false;
@@ -212,7 +211,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       }
       if (mounted) {
         await _loadFavoriteStatus();
-        await _loadCommentCount();
         await _loadLinkedReferences();
       }
     } on DioException catch (e) {
@@ -227,22 +225,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _loadCommentCount() async {
-    final auth = context.read<AuthProvider>();
-    if (auth.dio == null) return;
-
-    try {
-      final repo = CommentRepository(
-        dio: auth.dio!,
-        cache: auth.syncService?.cache,
-      );
-      final count = await repo.fetchCommentCount(widget.nodeUuid);
-      if (mounted) setState(() => _commentCount = count);
-    } catch (_) {
-      if (mounted) setState(() => _commentCount = 0);
     }
   }
 
@@ -452,11 +434,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     });
   }
 
-  Future<void> _openComments() async {
-    await CommentsBottomSheet.show(context, nodeUuid: widget.nodeUuid);
-    if (mounted) await _loadCommentCount();
-  }
-
   void _openShareSheet() {
     SharesBottomSheet.show(context, nodeUuid: widget.nodeUuid);
   }
@@ -505,34 +482,35 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
     setState(() => _saving = true);
     try {
-      final repo = NodeRepository(
-        dio: auth.dio!,
-        syncService: auth.syncService,
-      );
+      final service = auth.syncService;
+      if (service == null) {
+        throw StateError('Sync service not available');
+      }
 
       // Page title changes are handled explicitly via _renamePage; do not
       // rewrite the title here so autosave cannot accidentally overwrite it.
 
       // Ensure every focused block's AST is synced before serializing.
       _syncAllBlockNames();
-
-      final updates = <Map<String, dynamic>>[];
-      final creates = <Map<String, dynamic>>[];
-
       _assignSequences(_roots, 0);
-      _collectWrites(_roots, updates, creates);
 
-      if (updates.isNotEmpty) {
-        await repo.batchUpdateNodes(updates);
-      }
-      if (creates.isNotEmpty) {
-        final created = await repo.batchCreateNodes(creates);
-        _assignCreatedUuids(_roots, created);
-      }
+      // Identify new blocks before assigning UUIDs so we can emit create ops
+      // for them and update ops for existing blocks.
+      final newBlocks = _collectNewBlocks(_roots);
+
+      // Assign fresh UUIDs to every new block so creates can reference their
+      // own parent UUIDs and future saves treat them as updates.
+      _assignUuidsToNewBlocks(_roots);
+
+      // Enqueue updates for existing blocks and creates for new blocks.
+      await _enqueueBlockWrites(service, _roots, newBlocks);
+
       for (final uuid in _deletedBlockUuids) {
-        await repo.deleteNode(uuid);
+        await service.enqueue(type: 'delete', nodeUuid: uuid);
       }
       _deletedBlockUuids.clear();
+
+      await service.flush();
       _dirty = false;
 
       // Autosaves must not reload the page: that would steal focus and
@@ -574,50 +552,61 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     return sequence;
   }
 
-  void _collectWrites(
-    List<BlockNode> nodes,
-    List<Map<String, dynamic>> updates,
-    List<Map<String, dynamic>> creates,
-  ) {
+  Set<BlockNode> _collectNewBlocks(List<BlockNode> nodes) {
+    final result = <BlockNode>{};
     for (final block in nodes) {
-      final parentUuid = block.parent?.node.uuid ?? widget.nodeUuid;
-      final astJson = block.node.name;
-      if (block.node.uuid.isNotEmpty) {
-        updates.add({
-          'uuid': block.node.uuid,
-          'name': astJson,
-          'sequence': block.node.sequence,
-          'parent_uuid': parentUuid,
-          'collapsed': block.collapsed,
-        });
-      } else {
-        creates.add({
-          'parent_uuid': parentUuid,
-          'name': astJson,
-          'sequence': block.node.sequence,
-        });
+      if (block.node.uuid.isEmpty) {
+        result.add(block);
       }
-      _collectWrites(block.children, updates, creates);
+      result.addAll(_collectNewBlocks(block.children));
+    }
+    return result;
+  }
+
+  void _assignUuidsToNewBlocks(List<BlockNode> nodes) {
+    for (final block in nodes) {
+      if (block.node.uuid.isEmpty) {
+        block.node = _copyNodeWithId(
+          block.node,
+          0,
+          const Uuid().v7(),
+        );
+      }
+      _assignUuidsToNewBlocks(block.children);
     }
   }
 
-  void _assignCreatedUuids(List<BlockNode> nodes, List<Node> created) {
-    var index = 0;
-    void visit(List<BlockNode> list) {
-      for (final node in list) {
-        if (node.node.uuid.isEmpty && index < created.length) {
-          node.node = _copyNodeWithId(
-            node.node,
-            created[index].id,
-            created[index].uuid,
+  Future<void> _enqueueBlockWrites(
+    SyncV2Service service,
+    List<BlockNode> nodes,
+    Set<BlockNode> newBlocks,
+  ) async {
+    for (final block in nodes) {
+      final parentUuid = block.parent?.node.uuid ?? widget.nodeUuid;
+      final contentAst = AstBuilder.parseInline(block.controller.text);
+      if (newBlocks.contains(block)) {
+        await service.enqueue(
+          type: 'create',
+          nodeUuid: block.node.uuid,
+          parentUuid: parentUuid,
+          contentAst: contentAst,
+        );
+      } else {
+        await service.enqueue(
+          type: 'update_content',
+          nodeUuid: block.node.uuid,
+          contentAst: contentAst,
+        );
+        if (block.node.parentUuid != parentUuid) {
+          await service.enqueue(
+            type: 'move',
+            nodeUuid: block.node.uuid,
+            parentUuid: parentUuid,
           );
-          index++;
         }
-        visit(node.children);
       }
+      await _enqueueBlockWrites(service, block.children, newBlocks);
     }
-
-    visit(nodes);
   }
 
   Node _copyNodeWithId(Node node, int id, String uuid) {
@@ -1435,15 +1424,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             icon: Icon(_readerMode ? MdiIcons.pencil : MdiIcons.eye),
             tooltip: _readerMode ? 'Edit' : 'Read',
             onPressed: () => setState(() => _readerMode = !_readerMode),
-          ),
-          IconButton(
-            icon: Badge(
-              isLabelVisible: _commentCount > 0,
-              label: Text('$_commentCount'),
-              child: Icon(MdiIcons.chatOutline),
-            ),
-            tooltip: 'Comments',
-            onPressed: _openComments,
           ),
           IconButton(
             icon: Icon(MdiIcons.dotsVertical),

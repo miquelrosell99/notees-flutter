@@ -40,7 +40,6 @@ class _OfflineSyncState extends State<OfflineSync> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _queue = OfflineQueue(
       database: AppDatabase(),
-      dio: widget.dio,
       syncService: widget.syncService,
     );
     _sub = Connectivity().onConnectivityChanged.listen((results) {

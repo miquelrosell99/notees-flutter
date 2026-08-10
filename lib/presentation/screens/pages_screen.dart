@@ -238,23 +238,6 @@ class _PagesScreenState extends State<PagesScreen> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        SectionTitle(icon: MdiIcons.widgetsOutline, label: 'Templates'),
-        const SizedBox(height: 8),
-        FleetCard(
-          child: ListTile(
-            leading: Icon(
-              MdiIcons.widgetsOutline,
-              color: colors.onSurfaceVariant,
-            ),
-            title: const Text('Templates'),
-            trailing: Icon(
-              MdiIcons.chevronRight,
-              color: colors.onSurfaceVariant,
-            ),
-            onTap: () => context.push(Routes.templates),
-          ),
-        ),
-        const SizedBox(height: 28),
         if (_rootPages.isNotEmpty) ...[
           SectionTitle(icon: MdiIcons.folderOutline, label: 'Root pages'),
           const SizedBox(height: 8),

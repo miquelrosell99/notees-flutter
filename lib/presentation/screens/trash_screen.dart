@@ -12,7 +12,7 @@ import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/fleet_card.dart';
 
-/// Trashed nodes: restore or permanently delete.
+/// Trashed nodes: restore only.
 class TrashScreen extends StatefulWidget {
   const TrashScreen({super.key});
 
@@ -70,47 +70,6 @@ class _TrashScreenState extends State<TrashScreen> {
     }
   }
 
-  Future<void> _deleteNode(Node node) async {
-    HapticFeedback.lightImpact();
-    final auth = context.read<AuthProvider>();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Permanently delete?'),
-        content: Text('"${resolveNodeDisplayName(node)}" will be gone forever.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-              foregroundColor: Theme.of(ctx).colorScheme.onError,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-    if (auth.dio == null) return;
-
-    try {
-      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
-      await repo.permanentlyDeleteNode(node.uuid);
-      if (mounted) await _loadTrash();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not delete: $e')),
-        );
-      }
-    }
-  }
-
   void _openNode(Node node) {
     HapticFeedback.lightImpact();
     context.push('${Routes.editor}/${node.id}');
@@ -123,14 +82,6 @@ class _TrashScreenState extends State<TrashScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Trash'),
-        actions: [
-          if (_nodes.isNotEmpty)
-            IconButton(
-              icon: Icon(MdiIcons.deleteForeverOutline),
-              tooltip: 'Empty trash',
-              onPressed: _emptyTrash,
-            ),
-        ],
       ),
       body: RefreshIndicator(
         onRefresh: _loadTrash,
@@ -139,47 +90,6 @@ class _TrashScreenState extends State<TrashScreen> {
             : _buildContent(colors),
       ),
     );
-  }
-
-  Future<void> _emptyTrash() async {
-    HapticFeedback.lightImpact();
-    final auth = context.read<AuthProvider>();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Empty trash?'),
-        content: const Text('All trashed items will be permanently deleted.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-              foregroundColor: Theme.of(ctx).colorScheme.onError,
-            ),
-            child: const Text('Empty'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-    if (auth.dio == null) return;
-
-    try {
-      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
-      await repo.emptyTrash();
-      if (mounted) await _loadTrash();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not empty trash: $e')),
-        );
-      }
-    }
   }
 
   Widget _buildContent(ColorScheme colors) {
@@ -221,20 +131,10 @@ class _TrashScreenState extends State<TrashScreen> {
                     ),
                     title: Text(resolveNodeDisplayName(node)),
                     subtitle: node.writeDate != null ? Text(node.writeDate!) : null,
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: Icon(MdiIcons.restore, color: colors.primary),
-                          tooltip: 'Restore',
-                          onPressed: () => _restoreNode(node),
-                        ),
-                        IconButton(
-                          icon: Icon(MdiIcons.deleteForever, color: colors.error),
-                          tooltip: 'Delete permanently',
-                          onPressed: () => _deleteNode(node),
-                        ),
-                      ],
+                    trailing: IconButton(
+                      icon: Icon(MdiIcons.restore, color: colors.primary),
+                      tooltip: 'Restore',
+                      onPressed: () => _restoreNode(node),
                     ),
                     onTap: () => _openNode(node),
                   ),

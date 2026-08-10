@@ -7,16 +7,12 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../core/constants/system.dart';
 import '../../core/routing/router.dart';
 import '../../core/utils/node_display_name.dart';
 import '../../core/utils/node_icon.dart';
 import '../../core/utils/view_mode_store.dart';
-import '../../data/local/app_database.dart';
 import '../../data/models/node.dart';
-import '../../data/repositories/node_cache_repository.dart';
 import '../../data/repositories/node_repository.dart';
-import '../../data/repositories/node_view_repository.dart';
 import '../../domain/models/search_filters.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
@@ -63,15 +59,6 @@ class _SearchScreenState extends State<SearchScreen> {
   List<String> _searchHistory = [];
   bool _loadingHistory = true;
 
-  NodeCacheRepository? _cacheRepo;
-  Set<String> _localResultUuids = {};
-  Set<String> _serverResultUuids = {};
-
-  // Saved searches / query collections
-  List<NodeView> _savedViews = [];
-  bool _loadingSavedViews = true;
-  NodeView? _activeSavedView;
-
   // Recents and favorites shown when the search box is empty (like the web
   // command palette).
   List<Node> _recents = [];
@@ -85,9 +72,6 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
-    if (AppDatabase.isSupported) {
-      _cacheRepo = NodeCacheRepository(AppDatabase());
-    }
     final initialQuery = widget.initialQuery;
     final initialFilters = widget.initialFilters;
     if (initialQuery != null && initialQuery.isNotEmpty) {
@@ -101,7 +85,6 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     }
     _loadViewMode();
-    _loadSavedSearches();
     _loadSuggestions();
     _loadSearchHistory();
     if (!_filters.isEmpty) {
@@ -119,68 +102,6 @@ class _SearchScreenState extends State<SearchScreen> {
     if (mounted) setState(() => _viewMode = mode);
   }
 
-  Future<void> _loadSavedSearches() async {
-    final auth = context.read<AuthProvider>();
-    if (auth.dio == null) {
-      if (mounted) setState(() => _loadingSavedViews = false);
-      return;
-    }
-
-    final nodeRepo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
-    final viewRepo = NodeViewRepository(dio: auth.dio!);
-
-    try {
-      final classes = await nodeRepo.fetchClasses();
-      Node? queryClass;
-      for (final c in classes) {
-        if (c.uuid == SystemClassUuids.query) {
-          queryClass = c;
-          break;
-        }
-      }
-
-      if (queryClass == null) {
-        if (mounted) setState(() => _loadingSavedViews = false);
-        return;
-      }
-
-      final pages = await nodeRepo.searchWithFilters(
-        SearchFilters(
-          nodeType: NodeType.page,
-          classUuids: [queryClass.uuid],
-          limit: 50,
-        ),
-      );
-
-      final views = <NodeView>[];
-      await Future.wait(
-        pages.map((page) async {
-          try {
-            final pageViews = await viewRepo.fetchViews(page.uuid);
-            views.addAll(
-              pageViews.where(
-                (v) => v.viewType == 'list' || v.viewType == 'table',
-              ),
-            );
-          } catch (_) {
-            // Ignore per-page failures so one broken query page doesn't
-            // hide saved searches from other pages.
-          }
-        }),
-      );
-
-      if (mounted) {
-        setState(() {
-          _savedViews = views;
-          _classIndex = {for (final c in classes) c.uuid: c};
-          _loadingSavedViews = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _loadingSavedViews = false);
-    }
-  }
-
   Future<void> _loadSuggestions() async {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) {
@@ -194,12 +115,14 @@ class _SearchScreenState extends State<SearchScreen> {
         repo.fetchRecentPages(limit: 10),
         repo.fetchFavorites(limit: 50),
         repo.fetchFavoriteUuids(),
+        repo.fetchClasses(),
       ]);
       if (mounted) {
         setState(() {
           _recents = results[0] as List<Node>;
           _favorites = results[1] as List<Node>;
           _favoriteUuids = (results[2] as List<String>).toSet();
+          _classIndex = {for (final c in results[3] as List<Node>) c.uuid: c};
           _loadingSuggestions = false;
         });
       }
@@ -306,9 +229,6 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _onQueryChanged(String query) {
-    if (_activeSavedView != null) {
-      setState(() => _activeSavedView = null);
-    }
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 300), _search);
   }
@@ -316,13 +236,6 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<void> _search({bool append = false}) async {
     final auth = context.read<AuthProvider>();
     final query = _controller.text.trim();
-    final isPlainTextSearch = query.isNotEmpty && _filters.isEmpty;
-
-    if (append && _hasMore && isPlainTextSearch) {
-      // Plain text search merges local and a single server page; there is no
-      // meaningful "load more" because local results are not paginated.
-      return;
-    }
 
     final page = append ? _currentPage + 1 : 1;
     final searchFilters = _filters.copyWith(
@@ -335,15 +248,11 @@ class _SearchScreenState extends State<SearchScreen> {
         _loadingMore = true;
       } else {
         _loading = true;
-        _localResultUuids = {};
-        _serverResultUuids = {};
       }
     });
 
     try {
-      if (isPlainTextSearch && _cacheRepo != null) {
-        await _searchPlainText(query, auth);
-      } else if (auth.dio != null) {
+      if (auth.dio != null) {
         final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
         final results = await repo.searchWithFilters(searchFilters);
         if (mounted) {
@@ -367,7 +276,7 @@ class _SearchScreenState extends State<SearchScreen> {
           });
         }
       }
-      if (query.isNotEmpty && isPlainTextSearch) {
+      if (query.isNotEmpty) {
         await _addSearchHistory(query);
       }
     } catch (e) {
@@ -384,85 +293,10 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  Future<void> _searchPlainText(String query, AuthProvider auth) async {
-    final localUuids = await _cacheRepo!.searchLocal(query, limit: _filters.limit);
-    final localNodes = <Node>[];
-    for (final uuid in localUuids) {
-      final node = await _cacheRepo!.getByUuid(uuid);
-      if (node != null) localNodes.add(node);
-    }
-
-    if (mounted) {
-      setState(() {
-        _results = localNodes;
-        _localResultUuids = localNodes.map((n) => n.uuid).toSet();
-        _serverResultUuids = {};
-        _hasMore = false;
-      });
-    }
-
-    final shouldFetchServer = auth.dio != null && localNodes.length < _filters.limit;
-    if (!shouldFetchServer) return;
-
-    final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
-    final serverResults = await repo.searchNodes(query, limit: _filters.limit);
-    final serverUuids = serverResults.map((n) => n.uuid).toSet();
-    final localOnly = localNodes.where((n) => !serverUuids.contains(n.uuid)).toList();
-
-    if (mounted) {
-      setState(() {
-        _results = [...serverResults, ...localOnly];
-        _serverResultUuids = serverUuids;
-        _hasMore = false;
-      });
-    }
-  }
-
   void _loadMore() => _search(append: true);
 
   void _onFiltersChanged(SearchFilters filters) {
-    if (_activeSavedView != null) {
-      setState(() => _activeSavedView = null);
-    }
     setState(() => _filters = filters);
-    _search();
-  }
-
-  Future<void> _runSavedSearch(NodeView view) async {
-    final auth = context.read<AuthProvider>();
-    if (auth.dio == null) return;
-
-    final repo = NodeViewRepository(dio: auth.dio!);
-    setState(() {
-      _loading = true;
-      _activeSavedView = view;
-      _error = null;
-    });
-
-    try {
-      final nodes = await repo.executeView(view.uuid);
-      if (mounted) {
-        setState(() {
-          _results = nodes;
-          _viewMode = view.viewType == 'table'
-              ? NodeViewMode.table
-              : NodeViewMode.list;
-          _hasMore = false;
-          _loading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.toString();
-          _loading = false;
-        });
-      }
-    }
-  }
-
-  void _clearSavedSearch() {
-    setState(() => _activeSavedView = null);
     _search();
   }
 
@@ -541,68 +375,8 @@ class _SearchScreenState extends State<SearchScreen> {
             filters: _filters,
             onChanged: _onFiltersChanged,
           ),
-          if (_activeSavedView != null)
-            ListTile(
-              leading: Icon(MdiIcons.magnifyScan, color: colors.primary),
-              title: Text(_activeSavedView!.name),
-              subtitle: const Text('Saved search'),
-              trailing: IconButton(
-                icon: Icon(MdiIcons.close),
-                tooltip: 'Clear saved search',
-                onPressed: _clearSavedSearch,
-              ),
-            ),
           if (_controller.text.trim().isEmpty &&
               _filters.isEmpty &&
-              _savedViews.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    'Saved searches',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                  if (_loadingSavedViews)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 12),
-                      child: SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          if (_controller.text.trim().isEmpty &&
-              _filters.isEmpty &&
-              _savedViews.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: _savedViews.map((view) {
-                  return ActionChip(
-                    avatar: Icon(
-                      view.viewType == 'table'
-                          ? MdiIcons.tableRow
-                          : MdiIcons.viewList,
-                      size: 18,
-                    ),
-                    label: Text(view.name),
-                    onPressed: () => _runSavedSearch(view),
-                  );
-                }).toList(),
-              ),
-            ),
-          if (_controller.text.trim().isEmpty &&
-              _filters.isEmpty &&
-              _activeSavedView == null &&
               !_loadingHistory &&
               _searchHistory.isNotEmpty)
             Padding(
@@ -628,7 +402,6 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           if (_controller.text.trim().isEmpty &&
               _filters.isEmpty &&
-              _activeSavedView == null &&
               !_loadingHistory &&
               _searchHistory.isNotEmpty)
             Padding(
@@ -645,7 +418,6 @@ class _SearchScreenState extends State<SearchScreen> {
                 }).toList(),
               ),
             ),
-          if (_controller.text.trim().isNotEmpty) _buildSourceIndicator(colors),
           Expanded(child: _buildBody(colors)),
         ],
       ),
@@ -666,7 +438,7 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
 
-    if (_controller.text.trim().isEmpty && _filters.isEmpty && _activeSavedView == null) {
+    if (_controller.text.trim().isEmpty && _filters.isEmpty) {
       return _buildSuggestions(colors);
     }
 
@@ -793,36 +565,6 @@ class _SearchScreenState extends State<SearchScreen> {
     if (node.isJournal) return MdiIcons.calendarOutline;
     if (node.isTask) return MdiIcons.checkCircleOutline;
     return MdiIcons.fileDocumentOutline;
-  }
-
-  Widget _buildSourceIndicator(ColorScheme colors) {
-    final hasLocal = _localResultUuids.isNotEmpty;
-    final hasServer = _serverResultUuids.isNotEmpty;
-    String label;
-    if (hasLocal && hasServer) {
-      label = 'Local + server results';
-    } else if (hasServer) {
-      label = 'Server results';
-    } else if (hasLocal) {
-      label = 'Local results';
-    } else if (_loading) {
-      label = 'Searching…';
-    } else {
-      return const SizedBox.shrink();
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          label,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: colors.onSurfaceVariant,
-              ),
-        ),
-      ),
-    );
   }
 
   Widget _buildLoadMoreButton() {
