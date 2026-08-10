@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/constants/system.dart';
 import '../../core/routing/router.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../core/utils/node_icon.dart';
 import '../../core/utils/view_mode_store.dart';
 import '../../data/local/app_database.dart';
@@ -18,6 +19,7 @@ import '../../data/repositories/node_repository.dart';
 import '../../data/repositories/node_view_repository.dart';
 import '../../domain/models/search_filters.dart';
 import '../providers/auth_provider.dart';
+import '../providers/settings_provider.dart';
 import '../views/node_collection.dart';
 import '../views/node_view_mode.dart';
 import '../widgets/filter_bottom_sheet.dart';
@@ -705,7 +707,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         fallbackIcon: _iconForNode(node),
                         fallbackColor: colors.onSurfaceVariant,
                       ),
-                      title: Text(node.displayName),
+                      title: Text(resolveNodeDisplayName(node, dateFormat: _dateFormat())),
                       trailing: _favoriteTrailing(node),
                       onTap: () => _openNode(node),
                     ),
@@ -733,7 +735,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             _iconForNode(node),
                             color: colors.onSurfaceVariant,
                           ),
-                          title: Text(node.displayName),
+                          title: Text(resolveNodeDisplayName(node, dateFormat: _dateFormat())),
                           trailing: _favoriteTrailing(node),
                           onTap: () => _openNode(node),
                         ),
@@ -745,6 +747,14 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
       ],
     );
+  }
+
+  String _dateFormat() {
+    try {
+      return context.read<SettingsProvider>().dateFormat;
+    } catch (_) {
+      return '';
+    }
   }
 
   Widget _favoriteTrailing(Node node) {

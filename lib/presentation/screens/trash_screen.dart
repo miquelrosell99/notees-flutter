@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/routing/router.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../core/utils/node_icon.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
@@ -76,7 +77,7 @@ class _TrashScreenState extends State<TrashScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Permanently delete?'),
-        content: Text('"${node.displayName}" will be gone forever.'),
+        content: Text('"${resolveNodeDisplayName(node)}" will be gone forever.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -218,7 +219,7 @@ class _TrashScreenState extends State<TrashScreen> {
                       fallbackIcon: _iconForNode(node),
                       fallbackColor: colors.onSurfaceVariant,
                     ),
-                    title: Text(node.displayName),
+                    title: Text(resolveNodeDisplayName(node)),
                     subtitle: node.writeDate != null ? Text(node.writeDate!) : null,
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
