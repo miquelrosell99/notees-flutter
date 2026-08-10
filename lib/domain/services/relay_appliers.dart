@@ -41,6 +41,14 @@ class RelayAppliers {
         await _applyClassAssign(nodeId, payload);
       case 'class.unassign':
         await _applyClassUnassign(nodeId, payload);
+      case 'class.create':
+        await _applyClassCreate(payload);
+      case 'class.update':
+        await _applyClassUpdate(payload);
+      case 'class.delete':
+        await _applyClassDelete(payload);
+      case 'class.setExtends':
+        await _applyClassSetExtends(payload);
       case 'user.favorite.add':
         await _cache.applyFavoriteAdd(
           envelope.workspaceId,
@@ -323,6 +331,54 @@ class RelayAppliers {
     if (classId == null) return;
     final classesUuid = node.classesUuid.where((id) => id != classId).toList();
     await _cache.upsert(node.copyWithClassesUuid(classesUuid));
+  }
+
+  Future<void> _applyClassCreate(Map<String, dynamic> payload) async {
+    final classId = payload['classId'] as String?;
+    if (classId == null) return;
+    await _cache.upsertClass(
+      uuid: classId,
+      name: payload['name'] as String? ?? '',
+      icon: payload['icon'] as String?,
+      color: payload['color'] as String?,
+      description: payload['description'] as String?,
+      extendsUuids: _readStringList(payload['extends']),
+      active: true,
+    );
+  }
+
+  Future<void> _applyClassUpdate(Map<String, dynamic> payload) async {
+    final classId = payload['classId'] as String?;
+    if (classId == null) return;
+    final existing = await _cache.getClassByUuid(classId);
+    await _cache.upsertClass(
+      uuid: classId,
+      name: payload.containsKey('name')
+          ? payload['name'] as String?
+          : existing?.name,
+      icon: payload.containsKey('icon')
+          ? payload['icon'] as String?
+          : existing?.icon,
+      color: payload.containsKey('color')
+          ? payload['color'] as String?
+          : existing?.color,
+      description: payload['description'] as String?,
+    );
+  }
+
+  Future<void> _applyClassDelete(Map<String, dynamic> payload) async {
+    final classId = payload['classId'] as String?;
+    if (classId == null) return;
+    await _cache.deleteClass(classId);
+  }
+
+  Future<void> _applyClassSetExtends(Map<String, dynamic> payload) async {
+    final classId = payload['classId'] as String?;
+    if (classId == null) return;
+    final extendsList = _readStringList(
+      payload['extendsClassIds'] ?? payload['extends'],
+    );
+    await _cache.setClassExtends(classId, extendsList);
   }
 
   Future<Node> _loadOrCreate(String nodeId) async {

@@ -66,7 +66,7 @@ class AppDatabase {
     final path = await _path;
     return openDatabase(
       path,
-      version: 9,
+      version: 10,
       password: encryptionPassword,
       onCreate: (db, version) async {
         await _createOfflineQueue(db);
@@ -79,6 +79,7 @@ class AppDatabase {
         await _createSyncPushWatermark(db);
         await _createFavorites(db);
         await _createTaskCompletion(db);
+        await _createClassCache(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -108,6 +109,9 @@ class AppDatabase {
         }
         if (oldVersion < 9) {
           await _createTaskCompletion(db);
+        }
+        if (oldVersion < 10) {
+          await _createClassCache(db);
         }
       },
     );
@@ -305,6 +309,23 @@ class AppDatabase {
     await db.execute('CREATE INDEX idx_task_completion_created ON task_completion(node_uuid, created_at DESC)');
   }
 
+  Future<void> _createClassCache(Database db) async {
+    await db.execute('''
+      CREATE TABLE class_cache (
+        uuid TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        icon TEXT,
+        color TEXT,
+        description TEXT,
+        extends_uuid TEXT NOT NULL DEFAULT '[]',
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_class_cache_active ON class_cache(active)');
+  }
+
   /// Creates the full schema on an already-opened test database.
   Future<void> initializeSchema() async {
     final db = await database;
@@ -318,6 +339,7 @@ class AppDatabase {
     await _createSyncPushWatermark(db);
     await _createFavorites(db);
     await _createTaskCompletion(db);
+    await _createClassCache(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

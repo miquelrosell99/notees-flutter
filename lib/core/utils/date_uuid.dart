@@ -18,18 +18,18 @@ String dateToDayUuid(DateTime date) {
 
 /// Returns the deterministic UUID for a monthly journal node.
 ///
-/// Pattern: `00000000-0000-0000-00mm-YYYYMM000000`
+/// Pattern: `00000000-0000-0000-00aa-YYYYMM000000`
 String dateToMonthUuid(DateTime date) {
   final suffix = '${_pad4(date.year)}${_pad2(date.month)}000000';
-  return '00000000-0000-0000-00mm-$suffix';
+  return '00000000-0000-0000-00aa-$suffix';
 }
 
 /// Returns the deterministic UUID for a yearly journal node.
 ///
-/// Pattern: `00000000-0000-0000-00yy-YYYY00000000`
+/// Pattern: `00000000-0000-0000-00bb-YYYY00000000`
 String dateToYearUuid(DateTime date) {
   final suffix = '${_pad4(date.year)}00000000';
-  return '00000000-0000-0000-00yy-$suffix';
+  return '00000000-0000-0000-00bb-$suffix';
 }
 
 /// Reverse of the deterministic journal UUID encoders.
@@ -38,12 +38,13 @@ String dateToYearUuid(DateTime date) {
 /// or `null` if [uuid] does not match any known journal pattern.
 ///
 /// Supports both the legacy mobile prefixes (`00mm`, `00yy`) and the current
-/// server prefixes (`00aa`, `00bb`) for month/year journals.
+/// server prefixes (`00dd`, `00aa`, `00bb`) for day/month/year journals.
 DateTime? journalDateFromUuid(String uuid) {
   final clean = uuid.replaceAll('-', '');
   if (clean.length < 28) return null;
-  final prefix = clean.substring(18, 22);
-  final suffix = clean.substring(22);
+  // The fourth UUID group occupies characters 16-19 in the dash-free form.
+  final prefix = clean.substring(16, 20);
+  final suffix = clean.substring(20);
   try {
     if (prefix == '00dd' && suffix.length >= 8) {
       final year = int.parse(suffix.substring(0, 4));

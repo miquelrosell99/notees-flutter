@@ -17,6 +17,31 @@ import '../../data/models/page_content.dart';
 import '../../data/models/property.dart';
 import '../../domain/models/search_filters.dart';
 
+/// Lightweight in-memory representation of a row from the server's `class` table.
+class _ClassRow {
+  _ClassRow({
+    required this.uuid,
+    required this.name,
+    this.icon,
+    this.color,
+    this.description,
+    this.extendsUuids = const [],
+    this.active = true,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String uuid;
+  final String name;
+  final String? icon;
+  final String? color;
+  final String? description;
+  final List<String> extendsUuids;
+  final bool active;
+  final String? createdAt;
+  final String? updatedAt;
+}
+
 /// Local cache of server node state populated by pull sync.
 class NodeCacheRepository {
   NodeCacheRepository(this._database);
@@ -132,21 +157,32 @@ class NodeCacheRepository {
     try {
       snapshotDb = await openDatabase(tempPath);
       final nodes = await readNodesFromSnapshotDatabase(snapshotDb, workspaceId);
+      final classes = await _readClassesFromSnapshotDatabase(snapshotDb, workspaceId);
       final db = await _database.database;
       await db.transaction((txn) async {
         await txn.delete('node_cache');
         await txn.delete('search_index');
-        final batch = txn.batch();
+        await txn.delete('class_cache');
         final now = DateTime.now().millisecondsSinceEpoch;
+        final nodeBatch = txn.batch();
         for (final node in nodes) {
-          batch.insert(
+          nodeBatch.insert(
             'node_cache',
             _nodeToRow(node, now),
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
         }
-        await batch.commit(noResult: true);
+        await nodeBatch.commit(noResult: true);
         await _indexNodesInTxn(txn, nodes.where((n) => !n.isDeleted).toList());
+        final classBatch = txn.batch();
+        for (final cls in classes) {
+          classBatch.insert(
+            'class_cache',
+            _classToRow(cls),
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        await classBatch.commit(noResult: true);
       });
     } finally {
       await snapshotDb?.close();
@@ -240,6 +276,36 @@ class NodeCacheRepository {
     }).toList();
   }
 
+  /// Reads class rows from a server-derived snapshot database.
+  Future<List<_ClassRow>> _readClassesFromSnapshotDatabase(Database db, String workspaceId) async {
+    final rows = await db.query(
+      'class',
+      where: 'workspace_id = ? AND active = 1',
+      whereArgs: [workspaceId],
+      orderBy: 'name ASC',
+    );
+    return rows.map((row) {
+      final extendsRaw = row['extends_class_ids'] as String?;
+      List<String> extendsUuids;
+      try {
+        extendsUuids = (jsonDecode(extendsRaw ?? '[]') as List<dynamic>).cast<String>();
+      } catch (_) {
+        extendsUuids = const [];
+      }
+      return _ClassRow(
+        uuid: row['id'] as String,
+        name: _normalizeClassName(row['name'] as String?),
+        icon: row['icon'] as String?,
+        color: row['color'] as String?,
+        description: row['description'] as String?,
+        extendsUuids: extendsUuids,
+        active: (row['active'] as int? ?? 1) == 1,
+        createdAt: row['created_at'] as String?,
+        updatedAt: row['updated_at'] as String?,
+      );
+    }).toList();
+  }
+
   // === Local read queries used when the relay sync service is active ===
 
   /// Recently touched pages, newest first. Excludes journal date pages,
@@ -285,16 +351,80 @@ class NodeCacheRepository {
     return tasks.where((n) => !_isClosedTask(n)).toList();
   }
 
-  /// Class/tag nodes (nodes whose class list contains the system "class" UUID).
+  /// Classes from the dedicated `class_cache` table.
   Future<List<Node>> getClasses() async {
     final db = await _database.database;
     final rows = await db.query(
-      'node_cache',
-      where: 'is_deleted = 0 AND is_archived = 0 AND classes_uuid LIKE ?',
-      whereArgs: ['%${SystemClassUuids.class_}%'],
-      orderBy: "COALESCE(write_date, '') DESC",
+      'class_cache',
+      where: 'active = 1',
+      orderBy: 'name ASC',
     );
-    return rows.map(_nodeFromRow).toList();
+    return rows.map(_classFromRow).toList();
+  }
+
+  /// A single class by UUID, or `null` if it is not cached.
+  Future<Node?> getClassByUuid(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'class_cache',
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return _classFromRow(rows.first);
+  }
+
+  /// Creates or updates a class row in the local cache.
+  Future<void> upsertClass({
+    required String uuid,
+    String? name,
+    String? icon,
+    String? color,
+    String? description,
+    List<String>? extendsUuids,
+    bool active = true,
+    String? createdAt,
+    String? updatedAt,
+  }) async {
+    final db = await _database.database;
+    await db.insert(
+      'class_cache',
+      {
+        'uuid': uuid,
+        'name': _normalizeClassName(name),
+        'icon': icon,
+        'color': color,
+        'description': description,
+        'extends_uuid': jsonEncode(extendsUuids ?? const <String>[]),
+        'active': active ? 1 : 0,
+        'created_at': createdAt,
+        'updated_at': updatedAt,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Marks a class as deleted/inactive.
+  Future<void> deleteClass(String uuid) async {
+    final db = await _database.database;
+    await db.update(
+      'class_cache',
+      {'active': 0},
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
+  }
+
+  /// Updates the extends list for a class.
+  Future<void> setClassExtends(String uuid, List<String> extendsUuids) async {
+    final db = await _database.database;
+    await db.update(
+      'class_cache',
+      {'extends_uuid': jsonEncode(extendsUuids)},
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
   }
 
   /// Direct children of [parentUuid].
@@ -893,4 +1023,50 @@ class NodeCacheRepository {
             name: e.value,
           ))
       .toList();
+
+  // === Class cache helpers ===
+
+  Node _classFromRow(Map<String, dynamic> row) {
+    final name = _normalizeClassName(row['name'] as String?);
+    return Node(
+      id: 0,
+      uuid: row['uuid'] as String,
+      name: name,
+      displayName: name,
+      icon: row['icon'] as String?,
+      color: row['color'] as String?,
+      classesUuid: const [],
+      tagsUuid: const [],
+      properties: const {},
+      children: const [],
+      createDate: row['created_at'] as String?,
+      writeDate: row['updated_at'] as String?,
+    );
+  }
+
+  Map<String, dynamic> _classToRow(_ClassRow cls) {
+    return {
+      'uuid': cls.uuid,
+      'name': cls.name,
+      'icon': cls.icon,
+      'color': cls.color,
+      'description': cls.description,
+      'extends_uuid': jsonEncode(cls.extendsUuids),
+      'active': cls.active ? 1 : 0,
+      'created_at': cls.createdAt,
+      'updated_at': cls.updatedAt,
+    };
+  }
+
+  static String _normalizeClassName(String? name) {
+    if (name == null || name.trim().isEmpty) {
+      return 'Untitled class';
+    }
+    final trimmed = name.trim();
+    if (trimmed.startsWith('[')) {
+      final plain = astToPlainText(trimmed);
+      if (plain.isNotEmpty) return plain;
+    }
+    return trimmed.isEmpty ? 'Untitled class' : trimmed;
+  }
 }
