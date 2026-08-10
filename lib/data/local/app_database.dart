@@ -66,7 +66,7 @@ class AppDatabase {
     final path = await _path;
     return openDatabase(
       path,
-      version: 10,
+      version: 11,
       password: encryptionPassword,
       onCreate: (db, version) async {
         await _createOfflineQueue(db);
@@ -80,6 +80,8 @@ class AppDatabase {
         await _createFavorites(db);
         await _createTaskCompletion(db);
         await _createClassCache(db);
+        await _createPropertySchema(db);
+        await _createClassPropertyEdge(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -112,6 +114,10 @@ class AppDatabase {
         }
         if (oldVersion < 10) {
           await _createClassCache(db);
+        }
+        if (oldVersion < 11) {
+          await _createPropertySchema(db);
+          await _createClassPropertyEdge(db);
         }
       },
     );
@@ -326,6 +332,55 @@ class AppDatabase {
     await db.execute('CREATE INDEX idx_class_cache_active ON class_cache(active)');
   }
 
+  Future<void> _createPropertySchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE property_schema (
+        uuid TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        icon TEXT,
+        type TEXT NOT NULL DEFAULT 'text',
+        multi INTEGER NOT NULL DEFAULT 0,
+        is_system INTEGER NOT NULL DEFAULT 0,
+        scope TEXT NOT NULL DEFAULT 'global',
+        node_uuid TEXT,
+        icon_visibility TEXT,
+        validation_rules TEXT,
+        required INTEGER NOT NULL DEFAULT 0,
+        readonly INTEGER NOT NULL DEFAULT 0,
+        hide_when_empty INTEGER NOT NULL DEFAULT 0,
+        default_value TEXT,
+        class_filter_uuids TEXT NOT NULL DEFAULT '[]',
+        options TEXT NOT NULL DEFAULT '[]',
+        computed TEXT,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_property_schema_workspace ON property_schema(workspace_id)');
+    await db.execute('CREATE INDEX idx_property_schema_node ON property_schema(node_uuid)');
+    await db.execute('CREATE INDEX idx_property_schema_active ON property_schema(active)');
+  }
+
+  Future<void> _createClassPropertyEdge(Database db) async {
+    await db.execute('''
+      CREATE TABLE class_property_edge (
+        class_uuid TEXT NOT NULL,
+        property_uuid TEXT NOT NULL,
+        sequence INTEGER NOT NULL DEFAULT 0,
+        default_value TEXT,
+        hidden INTEGER NOT NULL DEFAULT 0,
+        required INTEGER,
+        readonly INTEGER,
+        hide_when_empty INTEGER,
+        PRIMARY KEY (class_uuid, property_uuid)
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_class_property_edge_class ON class_property_edge(class_uuid)');
+    await db.execute('CREATE INDEX idx_class_property_edge_property ON class_property_edge(property_uuid)');
+  }
+
   /// Creates the full schema on an already-opened test database.
   Future<void> initializeSchema() async {
     final db = await database;
@@ -340,6 +395,8 @@ class AppDatabase {
     await _createFavorites(db);
     await _createTaskCompletion(db);
     await _createClassCache(db);
+    await _createPropertySchema(db);
+    await _createClassPropertyEdge(db);
   }
 
   Future<int> enqueue(String method, String payload) async {
