@@ -96,6 +96,7 @@ class _NodeKanbanViewState extends State<NodeKanbanView> {
 
     final result = await showModalBottomSheet<String>(
       context: context,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),

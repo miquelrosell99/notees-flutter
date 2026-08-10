@@ -181,6 +181,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (_) => QuickCaptureSheet(
         onSaved: () {
           if (_currentIndex == 0) {

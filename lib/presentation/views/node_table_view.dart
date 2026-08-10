@@ -77,6 +77,7 @@ class _NodeTableViewState extends State<NodeTableView> {
 
     final result = await showModalBottomSheet<Set<String>>(
       context: context,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),

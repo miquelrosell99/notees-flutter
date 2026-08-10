@@ -20,7 +20,12 @@ class FleetCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final card = Card(
+    final content = Padding(
+      padding: padding,
+      child: child,
+    );
+
+    return Card(
       margin: margin,
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -29,29 +34,24 @@ class FleetCard extends StatelessWidget {
           color: Theme.of(context).colorScheme.outline.withAlpha((0.1 * 255).round()),
         ),
       ),
-      child: Padding(
-        padding: padding,
-        child: child,
-      ),
-    );
-
-    if (onTap == null && onLongPress == null) return card;
-
-    return InkWell(
-      onTap: onTap == null
-          ? null
-          : () {
-              HapticFeedback.lightImpact();
-              onTap!();
-            },
-      onLongPress: onLongPress == null
-          ? null
-          : () {
-              HapticFeedback.mediumImpact();
-              onLongPress!();
-            },
-      borderRadius: BorderRadius.circular(20),
-      child: card,
+      child: onTap == null && onLongPress == null
+          ? content
+          : InkWell(
+              onTap: onTap == null
+                  ? null
+                  : () {
+                      HapticFeedback.lightImpact();
+                      onTap!();
+                    },
+              onLongPress: onLongPress == null
+                  ? null
+                  : () {
+                      HapticFeedback.mediumImpact();
+                      onLongPress!();
+                    },
+              borderRadius: BorderRadius.circular(20),
+              child: content,
+            ),
     );
   }
 }

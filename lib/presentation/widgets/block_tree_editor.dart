@@ -517,6 +517,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
   void _showBlockMenu(BlockNode node) {
     showModalBottomSheet(
       context: context,
+      showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -582,6 +583,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context,
+      showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,

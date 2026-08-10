@@ -228,6 +228,7 @@ class DashboardScreenState extends State<DashboardScreen> {
 
     final color = await showModalBottomSheet<String>(
       context: context,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -254,6 +255,7 @@ class DashboardScreenState extends State<DashboardScreen> {
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -312,6 +314,7 @@ class DashboardScreenState extends State<DashboardScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -450,8 +453,8 @@ class DashboardScreenState extends State<DashboardScreen> {
           children: [
             EmptyState(
               icon: MdiIcons.lightbulbOutline,
-              title: 'Nothing in your pocket yet.',
-              subtitle: 'Tap + to capture a note, photo, or voice memo.',
+              title: 'Nothing here yet',
+              subtitle: 'Tap + to capture a note, task, photo, or voice memo.',
             ),
           ],
         );
@@ -463,8 +466,8 @@ class DashboardScreenState extends State<DashboardScreen> {
             _buildRecentPagesSection(colors, settings.dateFormat),
             EmptyState(
               icon: MdiIcons.lightbulbOutline,
-              title: 'Nothing in your pocket yet.',
-              subtitle: 'Tap + to capture a note, photo, or voice memo.',
+              title: 'Nothing here yet',
+              subtitle: 'Tap + to capture a note, task, photo, or voice memo.',
             ),
           ],
         ),
