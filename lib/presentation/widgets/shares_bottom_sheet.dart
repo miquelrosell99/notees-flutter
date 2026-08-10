@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart' as share_plus;
 import '../../data/repositories/share_repository.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/fleet_card.dart';
+import 'bottom_sheet_drag_handle.dart';
 
 /// Bottom sheet for creating and revoking public share links for a node.
 class SharesBottomSheet extends StatefulWidget {
@@ -134,14 +135,15 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const BottomSheetDragHandle(),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
                   'Share page',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 IconButton(
                   icon: Icon(MdiIcons.close),
@@ -160,9 +162,8 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
                       children: [
                         Checkbox(
                           value: _hasExpiry,
-                          onChanged: (value) => setState(
-                            () => _hasExpiry = value ?? false,
-                          ),
+                          onChanged: (value) =>
+                              setState(() => _hasExpiry = value ?? false),
                         ),
                         const Expanded(child: Text('Set expiry date')),
                       ],
@@ -193,9 +194,9 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
             const SizedBox(height: 20),
             Text(
               'Active shares',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             ConstrainedBox(
@@ -217,10 +218,7 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
 
     if (_error != null) {
       return Center(
-        child: Text(
-          _error!,
-          style: TextStyle(color: colors.error),
-        ),
+        child: Text(_error!, style: TextStyle(color: colors.error)),
       );
     }
 

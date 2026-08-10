@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
 import '../../core/constants/system.dart';
@@ -40,11 +41,13 @@ class BlockNode {
     }
     return d;
   }
-
 }
 
 /// Where a dragged block should be inserted relative to a target block.
 enum DropPosition { before, after, child }
+
+/// Actions available from the long-press context menu on a node/class link.
+enum NodeLinkAction { open, edit, delete, unlink }
 
 class BlockTreeEditor extends StatefulWidget {
   const BlockTreeEditor({
@@ -64,6 +67,7 @@ class BlockTreeEditor extends StatefulWidget {
     this.onInsertImage,
     this.onInsertAudio,
     this.onNodeLinkTap,
+    this.onNodeLinkAction,
     this.onExternalLinkTap,
     this.onContentChanged,
     this.onToggleTask,
@@ -76,7 +80,8 @@ class BlockTreeEditor extends StatefulWidget {
   final BlockNode? focusedNode;
   final ValueChanged<BlockNode?> onFocus;
   final ValueChanged<BlockNode> onDelete;
-  final void Function(BlockNode moved, BlockNode target, DropPosition position) onMove;
+  final void Function(BlockNode moved, BlockNode target, DropPosition position)
+  onMove;
   final VoidCallback onAddSibling;
   final ValueChanged<BlockNode> onAddChild;
   final ValueChanged<BlockNode> onIndent;
@@ -85,6 +90,22 @@ class BlockTreeEditor extends StatefulWidget {
   final VoidCallback? onInsertImage;
   final VoidCallback? onInsertAudio;
   final ValueChanged<String>? onNodeLinkTap;
+
+  /// Invoked when the user long-presses a node/class link inside a block.
+  ///
+  /// The parent editor receives the affected block, the chosen action, the raw
+  /// link id and the rendered label. For [NodeLinkAction.edit], [newTarget]
+  /// and [newLabel] contain the values entered by the user.
+  final void Function(
+    BlockNode block,
+    NodeLinkAction action,
+    String linkId,
+    String label, {
+    String? newTarget,
+    String? newLabel,
+  })?
+  onNodeLinkAction;
+
   final ValueChanged<String>? onExternalLinkTap;
 
   /// Invoked whenever a block's text changes (for autosave).
@@ -113,7 +134,8 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     super.dispose();
   }
 
-  GlobalKey _rowKeyFor(BlockNode node) => _rowKeys.putIfAbsent(node, GlobalKey.new);
+  GlobalKey _rowKeyFor(BlockNode node) =>
+      _rowKeys.putIfAbsent(node, GlobalKey.new);
 
   void scrollToBlock(BlockNode block) {
     final key = _rowKeys[block];
@@ -147,7 +169,11 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     );
   }
 
-  void _flatten(List<BlockNode> nodes, List<_VisibleRow> rows, [Set<BlockNode>? visited]) {
+  void _flatten(
+    List<BlockNode> nodes,
+    List<_VisibleRow> rows, [
+    Set<BlockNode>? visited,
+  ]) {
     visited ??= <BlockNode>{};
     for (final node in nodes) {
       // Skip already-visited nodes: corrupt server data can contain cycles.
@@ -172,7 +198,9 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
         child: AssetBlockWidget(
           dio: widget.dio,
           uuid: node.node.uuid,
-          filename: node.controller.text.isNotEmpty ? node.controller.text : null,
+          filename: node.controller.text.isNotEmpty
+              ? node.controller.text
+              : null,
         ),
       );
     } else if (isFocused) {
@@ -223,6 +251,8 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
         child: AstRichText(
           source: node.node.name,
           onNodeLinkTap: widget.onNodeLinkTap,
+          onNodeLinkLongPress: (linkId, label) =>
+              _showNodeLinkMenu(node, linkId, label),
           onExternalLinkTap: widget.onExternalLinkTap,
           linkColors: widget.linkColors,
           style: _isCode(node)
@@ -332,7 +362,9 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
               ? Duration.zero
               : const Duration(milliseconds: 150),
           decoration: BoxDecoration(
-            color: active ? colors.primaryContainer.withAlpha((0.25 * 255).round()) : null,
+            color: active
+                ? colors.primaryContainer.withAlpha((0.25 * 255).round())
+                : null,
             borderRadius: BorderRadius.circular(8),
           ),
           child: content,
@@ -356,7 +388,9 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
               height: 4,
               margin: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
-                color: candidateData.isNotEmpty ? colors.primary : Colors.transparent,
+                color: candidateData.isNotEmpty
+                    ? colors.primary
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(2),
               ),
             );
@@ -378,7 +412,9 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
               height: 4,
               margin: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
-                color: candidateData.isNotEmpty ? colors.primary : Colors.transparent,
+                color: candidateData.isNotEmpty
+                    ? colors.primary
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(2),
               ),
             );
@@ -451,10 +487,12 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     return 'Start writing...';
   }
 
-  bool _isCode(BlockNode node) => node.node.isTable || _hasSystemClass(node, 'code');
+  bool _isCode(BlockNode node) =>
+      node.node.isTable || _hasSystemClass(node, 'code');
 
   bool _isTaskDone(BlockNode node) {
-    final status = node.node.properties[SystemPropertyUuids.taskStatus] as String?;
+    final status =
+        node.node.properties[SystemPropertyUuids.taskStatus] as String?;
     return status != null && TaskStatuses.closed.contains(status);
   }
 
@@ -539,6 +577,137 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       ),
     );
   }
+
+  void _showNodeLinkMenu(BlockNode block, String linkId, String label) {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(MdiIcons.openInApp),
+              title: const Text('Open'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                widget.onNodeLinkAction?.call(
+                  block,
+                  NodeLinkAction.open,
+                  linkId,
+                  label,
+                );
+              },
+            ),
+            ListTile(
+              leading: Icon(MdiIcons.pencilOutline),
+              title: const Text('Edit'),
+              onTap: () async {
+                Navigator.of(ctx).pop();
+                final result = await _showEditLinkDialog(linkId, label);
+                if (result == null || !context.mounted) return;
+                widget.onNodeLinkAction?.call(
+                  block,
+                  NodeLinkAction.edit,
+                  linkId,
+                  label,
+                  newTarget: result.target,
+                  newLabel: result.label,
+                );
+              },
+            ),
+            ListTile(
+              leading: Icon(MdiIcons.deleteOutline),
+              title: const Text('Delete'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                widget.onNodeLinkAction?.call(
+                  block,
+                  NodeLinkAction.delete,
+                  linkId,
+                  label,
+                );
+              },
+            ),
+            ListTile(
+              leading: Icon(MdiIcons.linkOff),
+              title: const Text('Unlink'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                widget.onNodeLinkAction?.call(
+                  block,
+                  NodeLinkAction.unlink,
+                  linkId,
+                  label,
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<({String target, String? label})?> _showEditLinkDialog(
+    String linkId,
+    String label,
+  ) async {
+    final target = linkId.split(':').first;
+    final targetController = TextEditingController(text: target);
+    final labelController = TextEditingController(text: label);
+
+    final result = await showDialog<({String target, String? label})>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Edit link'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: targetController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Target UUID',
+                  hintText: 'uuid or node id',
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: labelController,
+                decoration: const InputDecoration(
+                  labelText: 'Label',
+                  hintText: 'Visible text',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final newTarget = targetController.text.trim();
+                if (newTarget.isEmpty) return;
+                final newLabel = labelController.text.trim();
+                Navigator.of(ctx).pop((
+                  target: newTarget,
+                  label: newLabel.isEmpty ? null : newLabel,
+                ));
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    targetController.dispose();
+    labelController.dispose();
+    return result;
+  }
 }
 
 class _VisibleRow {
@@ -622,10 +791,7 @@ class _DragHandleState extends State<_DragHandle> {
         onDragStarted: widget.onDragStarted,
         onDragEnd: (_) => widget.onDragEnded(),
         feedback: feedback,
-        childWhenDragging: Opacity(
-          opacity: 0.35,
-          child: bullet,
-        ),
+        childWhenDragging: Opacity(opacity: 0.35, child: bullet),
         child: bullet,
       ),
     );
@@ -678,7 +844,11 @@ class _Bullet extends StatelessWidget {
         height: 48,
         child: Center(
           child: collapsed
-              ? Icon(MdiIcons.chevronRight, size: 18, color: colors.onSurfaceVariant)
+              ? Icon(
+                  MdiIcons.chevronRight,
+                  size: 18,
+                  color: colors.onSurfaceVariant,
+                )
               : Container(
                   width: 6,
                   height: 6,

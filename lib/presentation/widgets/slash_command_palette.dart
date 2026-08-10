@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
+import 'bottom_sheet_drag_handle.dart';
 import 'editor_inline_toolbar.dart';
 
 /// Bottom-sheet palette of slash commands for the native editor.
@@ -28,47 +29,121 @@ class SlashCommandPalette extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final groups = <({String label, List<({IconData icon, String label, EditorAction action})> commands})>[
-      (
-        label: 'Structure',
-        commands: [
-          (icon: MdiIcons.formatHeaderPound, label: 'Heading', action: EditorAction.heading),
-          (icon: MdiIcons.formatHeader1, label: 'Heading 1', action: EditorAction.heading1),
-          (icon: MdiIcons.formatHeader2, label: 'Heading 2', action: EditorAction.heading2),
-          (icon: MdiIcons.formatHeader3, label: 'Heading 3', action: EditorAction.heading3),
-          (icon: MdiIcons.formatListBulleted, label: 'Bullet', action: EditorAction.bullet),
-          (icon: MdiIcons.checkCircleOutline, label: 'Task', action: EditorAction.task),
-        ],
-      ),
-      (
-        label: 'Formatting',
-        commands: [
-          (icon: MdiIcons.formatBold, label: 'Bold', action: EditorAction.bold),
-          (icon: MdiIcons.formatItalic, label: 'Italic', action: EditorAction.italic),
-          (icon: MdiIcons.codeBraces, label: 'Code', action: EditorAction.code),
-          (icon: MdiIcons.marker, label: 'Highlight', action: EditorAction.highlight),
-        ],
-      ),
-      (
-        label: 'Insert',
-        commands: [
-          (icon: MdiIcons.calendar, label: 'Date', action: EditorAction.date),
-          (icon: MdiIcons.image, label: 'Image', action: EditorAction.image),
-          (icon: MdiIcons.microphone, label: 'Audio', action: EditorAction.audio),
-          (icon: MdiIcons.table, label: 'Table', action: EditorAction.table),
-          (icon: MdiIcons.fileDocumentOutline, label: 'Template', action: EditorAction.template),
-        ],
-      ),
-      (
-        label: 'Links',
-        commands: [
-          (icon: MdiIcons.link, label: 'Link', action: EditorAction.link),
-          (icon: MdiIcons.tag, label: 'Tag', action: EditorAction.tagLink),
-          (icon: MdiIcons.shapeOutline, label: 'Class', action: EditorAction.classLink),
-          (icon: MdiIcons.tune, label: 'Property', action: EditorAction.property),
-        ],
-      ),
-    ];
+    final groups =
+        <
+          ({
+            String label,
+            List<({IconData icon, String label, EditorAction action})> commands,
+          })
+        >[
+          (
+            label: 'Structure',
+            commands: [
+              (
+                icon: MdiIcons.formatHeaderPound,
+                label: 'Heading',
+                action: EditorAction.heading,
+              ),
+              (
+                icon: MdiIcons.formatHeader1,
+                label: 'Heading 1',
+                action: EditorAction.heading1,
+              ),
+              (
+                icon: MdiIcons.formatHeader2,
+                label: 'Heading 2',
+                action: EditorAction.heading2,
+              ),
+              (
+                icon: MdiIcons.formatHeader3,
+                label: 'Heading 3',
+                action: EditorAction.heading3,
+              ),
+              (
+                icon: MdiIcons.formatListBulleted,
+                label: 'Bullet',
+                action: EditorAction.bullet,
+              ),
+              (
+                icon: MdiIcons.checkCircleOutline,
+                label: 'Task',
+                action: EditorAction.task,
+              ),
+            ],
+          ),
+          (
+            label: 'Formatting',
+            commands: [
+              (
+                icon: MdiIcons.formatBold,
+                label: 'Bold',
+                action: EditorAction.bold,
+              ),
+              (
+                icon: MdiIcons.formatItalic,
+                label: 'Italic',
+                action: EditorAction.italic,
+              ),
+              (
+                icon: MdiIcons.codeBraces,
+                label: 'Code',
+                action: EditorAction.code,
+              ),
+              (
+                icon: MdiIcons.marker,
+                label: 'Highlight',
+                action: EditorAction.highlight,
+              ),
+            ],
+          ),
+          (
+            label: 'Insert',
+            commands: [
+              (
+                icon: MdiIcons.calendar,
+                label: 'Date',
+                action: EditorAction.date,
+              ),
+              (
+                icon: MdiIcons.image,
+                label: 'Image',
+                action: EditorAction.image,
+              ),
+              (
+                icon: MdiIcons.microphone,
+                label: 'Audio',
+                action: EditorAction.audio,
+              ),
+              (
+                icon: MdiIcons.table,
+                label: 'Table',
+                action: EditorAction.table,
+              ),
+              (
+                icon: MdiIcons.fileDocumentOutline,
+                label: 'Template',
+                action: EditorAction.template,
+              ),
+            ],
+          ),
+          (
+            label: 'Links',
+            commands: [
+              (icon: MdiIcons.link, label: 'Link', action: EditorAction.link),
+              (icon: MdiIcons.tag, label: 'Tag', action: EditorAction.tagLink),
+              (
+                icon: MdiIcons.shapeOutline,
+                label: 'Class',
+                action: EditorAction.classLink,
+              ),
+              (
+                icon: MdiIcons.tune,
+                label: 'Property',
+                action: EditorAction.property,
+              ),
+            ],
+          ),
+        ];
 
     final children = <Widget>[];
     for (var i = 0; i < groups.length; i++) {
@@ -79,9 +154,9 @@ class SlashCommandPalette extends StatelessWidget {
           child: Text(
             group.label,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: colors.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                ),
+              color: colors.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
@@ -106,6 +181,7 @@ class SlashCommandPalette extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          const BottomSheetDragHandle(),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
             child: Row(
@@ -114,8 +190,8 @@ class SlashCommandPalette extends StatelessWidget {
                   child: Text(
                     'Commands',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 IconButton(

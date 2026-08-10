@@ -6,25 +6,21 @@ import 'package:provider/provider.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
+import 'bottom_sheet_drag_handle.dart';
 
 /// Modes for the node picker.
-enum NodePickerMode {
-  any,
-  page,
-  classNode,
-  tag,
-}
+enum NodePickerMode { any, page, classNode, tag }
 
 /// Bottom-sheet picker for selecting a node (page, class, tag, or any node).
 class NodePicker extends StatefulWidget {
-  const NodePicker({
-    super.key,
-    required this.mode,
-  });
+  const NodePicker({super.key, required this.mode});
 
   final NodePickerMode mode;
 
-  static Future<Node?> show(BuildContext context, {NodePickerMode mode = NodePickerMode.any}) {
+  static Future<Node?> show(
+    BuildContext context, {
+    NodePickerMode mode = NodePickerMode.any,
+  }) {
     return showModalBottomSheet<Node>(
       context: context,
       isScrollControlled: true,
@@ -69,7 +65,10 @@ class _NodePickerState extends State<NodePicker> {
 
     setState(() => _loading = true);
     try {
-      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+      final repo = NodeRepository(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      );
       final query = _controller.text.trim();
       List<Node> results;
 
@@ -119,6 +118,7 @@ class _NodePickerState extends State<NodePicker> {
     return SafeArea(
       child: Column(
         children: [
+          const BottomSheetDragHandle(),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
             child: Row(
@@ -127,8 +127,8 @@ class _NodePickerState extends State<NodePicker> {
                   child: Text(
                     'Select a node',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 IconButton(
@@ -174,7 +174,9 @@ class _NodePickerState extends State<NodePicker> {
                       final node = _results[index];
                       return ListTile(
                         leading: Icon(
-                          node.isTask ? MdiIcons.checkCircleOutline : MdiIcons.fileDocumentOutline,
+                          node.isTask
+                              ? MdiIcons.checkCircleOutline
+                              : MdiIcons.fileDocumentOutline,
                           color: colors.onSurfaceVariant,
                         ),
                         title: Text(node.displayName),

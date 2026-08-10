@@ -3,20 +3,21 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:flutter/services.dart';
 
 import '../../domain/models/search_filters.dart';
+import 'bottom_sheet_drag_handle.dart';
 
 /// Immich-style slide-up bottom sheet for editing search filters.
 ///
 /// Shows sections for node type, task state, date range, and sort order.
 /// Returns the updated [SearchFilters] when the user taps "Apply".
 class FilterBottomSheet extends StatefulWidget {
-  const FilterBottomSheet({
-    super.key,
-    required this.initialFilters,
-  });
+  const FilterBottomSheet({super.key, required this.initialFilters});
 
   final SearchFilters initialFilters;
 
-  static Future<SearchFilters?> show(BuildContext context, SearchFilters filters) {
+  static Future<SearchFilters?> show(
+    BuildContext context,
+    SearchFilters filters,
+  ) {
     return showModalBottomSheet<SearchFilters>(
       context: context,
       isScrollControlled: true,
@@ -56,7 +57,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
           ),
           child: Column(
             children: [
-              _buildHandle(colors),
+              const BottomSheetDragHandle(),
               Expanded(
                 child: ListView(
                   controller: scrollController,
@@ -74,7 +75,9 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: NodeType.values.map(_buildNodeTypeChip).toList(),
+                      children: NodeType.values
+                          .map(_buildNodeTypeChip)
+                          .toList(),
                     ),
                     const SizedBox(height: 24),
                     _SectionTitle('Task state'),
@@ -82,7 +85,9 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: TaskState.values.map(_buildTaskStateChip).toList(),
+                      children: TaskState.values
+                          .map(_buildTaskStateChip)
+                          .toList(),
                     ),
                     const SizedBox(height: 24),
                     _SectionTitle('Date range'),
@@ -103,20 +108,6 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     );
   }
 
-  Widget _buildHandle(ColorScheme colors) {
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.only(top: 12, bottom: 8),
-        width: 32,
-        height: 4,
-        decoration: BoxDecoration(
-          color: colors.onSurfaceVariant.withAlpha((0.35 * 255).round()),
-          borderRadius: BorderRadius.circular(2),
-        ),
-      ),
-    );
-  }
-
   Widget _buildNodeTypeChip(NodeType type) {
     final selected = _filters.nodeType == type;
     return ChoiceChip(
@@ -134,8 +125,8 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     final label = state == TaskState.any
         ? 'Any'
         : state == TaskState.open
-            ? 'Open'
-            : 'Completed';
+        ? 'Open'
+        : 'Completed';
     return ChoiceChip(
       label: Text(label),
       selected: selected,
@@ -152,10 +143,10 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     final label = from == null && to == null
         ? 'Any date'
         : from != null && to != null
-            ? '${_formatDate(from)} – ${_formatDate(to)}'
-            : from != null
-                ? 'From ${_formatDate(from)}'
-                : 'Until ${_formatDate(to!)}';
+        ? '${_formatDate(from)} – ${_formatDate(to)}'
+        : from != null
+        ? 'From ${_formatDate(from)}'
+        : 'Until ${_formatDate(to!)}';
 
     return ListTile(
       contentPadding: EdgeInsets.zero,
@@ -164,7 +155,9 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: Theme.of(context).colorScheme.outline.withAlpha((0.2 * 255).round()),
+          color: Theme.of(
+            context,
+          ).colorScheme.outline.withAlpha((0.2 * 255).round()),
         ),
       ),
       onTap: () {
@@ -202,12 +195,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
         contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
       items: SortBy.values
-          .map(
-            (sort) => DropdownMenuItem(
-              value: sort,
-              child: Text(sort.label),
-            ),
-          )
+          .map((sort) => DropdownMenuItem(value: sort, child: Text(sort.label)))
           .toList(),
       onChanged: (value) {
         if (value != null) {
@@ -254,9 +242,9 @@ class _SectionTitle extends StatelessWidget {
     return Text(
       text,
       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+        fontWeight: FontWeight.w600,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
     );
   }
 }

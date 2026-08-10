@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/comment_repository.dart';
 import '../providers/auth_provider.dart';
+import 'bottom_sheet_drag_handle.dart';
 
 /// Bottom sheet for viewing and managing comments on a node.
 class CommentsBottomSheet extends StatefulWidget {
@@ -115,6 +116,7 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            const BottomSheetDragHandle(),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
               child: Row(
@@ -123,8 +125,8 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
                   Text(
                     'Comments',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   IconButton(
                     icon: Icon(MdiIcons.close),
@@ -179,10 +181,7 @@ class _CommentsBottomSheetState extends State<CommentsBottomSheet> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(20),
-          child: Text(
-            _error!,
-            style: TextStyle(color: colors.error),
-          ),
+          child: Text(_error!, style: TextStyle(color: colors.error)),
         ),
       );
     }
