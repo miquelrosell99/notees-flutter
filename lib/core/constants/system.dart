@@ -4,6 +4,7 @@ class SystemClassUuids {
   SystemClassUuids._();
 
   static const String class_ = '00000000-0000-0000-0001-000000000001';
+  static const String page = '00000000-0000-0000-0001-000000000002';
   static const String year = '00000000-0000-0000-0001-000000000003';
   static const String month = '00000000-0000-0000-0001-000000000004';
   static const String day = '00000000-0000-0000-0001-000000000005';

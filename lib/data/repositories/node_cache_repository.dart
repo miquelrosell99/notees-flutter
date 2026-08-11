@@ -547,6 +547,7 @@ class NodeCacheRepository {
     );
     const hidden = <String>{
       SystemClassUuids.class_,
+      SystemClassUuids.page,
     };
     return rows
         .map(_classFromRow)
