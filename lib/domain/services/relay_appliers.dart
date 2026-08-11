@@ -111,6 +111,7 @@ class RelayAppliers {
         : '';
     final displayName = astToPlainText(name);
     final classIds = _readStringList(payload['classIds']);
+    final kind = payload['kind'] as String?;
 
     final node = Node(
       id: 0,
@@ -121,7 +122,7 @@ class RelayAppliers {
       classesUuid: classIds,
       isDeleted: false,
       properties: const {},
-      isPage: classIds.contains(SystemClassUuids.page),
+      isPage: kind == 'page',
       isTask: classIds.contains(SystemClassUuids.task),
       isDaily: classIds.contains(SystemClassUuids.day),
       isMonthly: classIds.contains(SystemClassUuids.month),
@@ -649,7 +650,7 @@ extension _NodeCopyWith on Node {
       pageId: pageId,
       pageUuid: pageUuid,
       sequence: sequence,
-      isPage: flags.isPage,
+      isPage: isPage,
       isTask: flags.isTask,
       isDaily: flags.isDaily,
       isMonthly: flags.isMonthly,
@@ -672,10 +673,9 @@ extension _NodeCopyWith on Node {
   }
 }
 
-({bool isPage, bool isTask, bool isDaily, bool isMonthly, bool isYearly})
+({bool isTask, bool isDaily, bool isMonthly, bool isYearly})
     _deriveFlags(List<String> classIds) {
   return (
-    isPage: classIds.contains(SystemClassUuids.page),
     isTask: classIds.contains(SystemClassUuids.task),
     isDaily: classIds.contains(SystemClassUuids.day),
     isMonthly: classIds.contains(SystemClassUuids.month),

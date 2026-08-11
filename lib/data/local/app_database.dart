@@ -66,7 +66,7 @@ class AppDatabase {
     final path = await _path;
     return openDatabase(
       path,
-      version: 11,
+      version: 12,
       password: encryptionPassword,
       onCreate: (db, version) async {
         await _createOfflineQueue(db);
@@ -118,6 +118,9 @@ class AppDatabase {
         if (oldVersion < 11) {
           await _createPropertySchema(db);
           await _createClassPropertyEdge(db);
+        }
+        if (oldVersion < 12) {
+          await _migrateNodeCacheV12(db);
         }
       },
     );
@@ -214,6 +217,33 @@ class AppDatabase {
 
   Future<void> _migrateNodeCacheV8(Database db) async {
     await db.execute('ALTER TABLE node_cache ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0');
+  }
+
+  Future<void> _migrateNodeCacheV12(Database db) async {
+    // The `page` system class is no longer emitted; page status is now derived
+    // from `kind == 'page'` / the `is_page` column. Strip the obsolete page
+    // class UUID from any cached class lists.
+    const pageClassUuid = '00000000-0000-0000-0001-000000000002';
+    final rows = await db.query(
+      'node_cache',
+      columns: ['uuid', 'classes_uuid'],
+      where: "classes_uuid LIKE ?",
+      whereArgs: ['%$pageClassUuid%'],
+    );
+    for (final row in rows) {
+      final uuid = row['uuid'] as String?;
+      final classesJson = row['classes_uuid'] as String?;
+      if (uuid == null || classesJson == null) continue;
+      final classIds = (jsonDecode(classesJson) as List<dynamic>).cast<String>();
+      if (!classIds.contains(pageClassUuid)) continue;
+      classIds.remove(pageClassUuid);
+      await db.update(
+        'node_cache',
+        {'classes_uuid': jsonEncode(classIds)},
+        where: 'uuid = ?',
+        whereArgs: [uuid],
+      );
+    }
   }
 
   Future<void> _createFavorites(Database db) async {

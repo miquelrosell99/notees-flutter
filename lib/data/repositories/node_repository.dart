@@ -192,9 +192,7 @@ class NodeRepository {
     _requireCache();
     final nodeUuid = const Uuid().v7();
     final isTask = additionalTypes.contains('task');
-    final classUuids = isTask
-        ? [SystemClassUuids.task]
-        : [SystemClassUuids.page];
+    final classUuids = isTask ? [SystemClassUuids.task] : <String>[];
     await syncService!.enqueue(
       type: 'create',
       nodeUuid: nodeUuid,
