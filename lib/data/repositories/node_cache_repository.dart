@@ -536,6 +536,8 @@ class NodeCacheRepository {
   }
 
   /// Classes from the dedicated `class_cache` table.
+  /// Filters out system/structural classes (e.g. `page`, `class`) that are not
+  /// meaningful as user-facing class categories.
   Future<List<Node>> getClasses() async {
     final db = await _database.database;
     final rows = await db.query(
@@ -543,7 +545,14 @@ class NodeCacheRepository {
       where: 'active = 1',
       orderBy: 'name ASC',
     );
-    return rows.map(_classFromRow).toList();
+    const hidden = <String>{
+      SystemClassUuids.page,
+      SystemClassUuids.class_,
+    };
+    return rows
+        .map(_classFromRow)
+        .where((c) => !hidden.contains(c.uuid))
+        .toList();
   }
 
   /// Number of active classes currently cached.
