@@ -93,14 +93,18 @@ class _NodePickerState extends State<NodePicker> {
           }
       }
 
+      if (!mounted) return;
       setState(() {
         _results = results;
         _error = null;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _error = e.toString());
     } finally {
-      setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 

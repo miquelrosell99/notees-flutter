@@ -51,6 +51,7 @@ class EditorInlineToolbar extends StatelessWidget {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
+              // Inline formatting
               _ToolbarButton(
                 icon: MdiIcons.formatBold,
                 tooltip: 'Bold',
@@ -72,31 +73,34 @@ class EditorInlineToolbar extends StatelessWidget {
                 onPressed: () => onAction(EditorAction.strikethrough),
               ),
               _ToolbarButton(
-                icon: MdiIcons.codeBraces,
-                tooltip: 'Code',
-                onPressed: () => onAction(EditorAction.code),
-              ),
-              _ToolbarButton(
                 icon: MdiIcons.marker,
                 tooltip: 'Highlight',
                 onPressed: () => onAction(EditorAction.highlight),
               ),
+              const VerticalDivider(width: 16),
+              // Block types
               _ToolbarButton(
                 icon: MdiIcons.formatHeader1,
-                tooltip: 'Heading 1',
-                onPressed: () => onAction(EditorAction.heading1),
+                tooltip: 'Heading',
+                onPressed: () => onAction(EditorAction.heading),
               ),
               _ToolbarButton(
-                icon: MdiIcons.formatHeader2,
-                tooltip: 'Heading 2',
-                onPressed: () => onAction(EditorAction.heading2),
+                icon: MdiIcons.formatListBulleted,
+                tooltip: 'Bullet list',
+                onPressed: () => onAction(EditorAction.bullet),
               ),
               _ToolbarButton(
-                icon: MdiIcons.formatHeader3,
-                tooltip: 'Heading 3',
-                onPressed: () => onAction(EditorAction.heading3),
+                icon: MdiIcons.checkboxMarkedOutline,
+                tooltip: 'Task',
+                onPressed: () => onAction(EditorAction.task),
+              ),
+              _ToolbarButton(
+                icon: MdiIcons.calendar,
+                tooltip: 'Insert date',
+                onPressed: () => onAction(EditorAction.date),
               ),
               const VerticalDivider(width: 16),
+              // Links and mentions
               _ToolbarButton(
                 icon: MdiIcons.link,
                 tooltip: 'Link to node',
@@ -108,11 +112,12 @@ class EditorInlineToolbar extends StatelessWidget {
                 onPressed: () => onAction(EditorAction.classLink),
               ),
               _ToolbarButton(
-                icon: MdiIcons.tag,
-                tooltip: 'Link to tag',
-                onPressed: () => onAction(EditorAction.tagLink),
+                icon: MdiIcons.at,
+                tooltip: 'Mention',
+                onPressed: () => onAction(EditorAction.mention),
               ),
               const VerticalDivider(width: 16),
+              // Inserts
               _ToolbarButton(
                 icon: MdiIcons.image,
                 tooltip: 'Insert image',
@@ -123,16 +128,10 @@ class EditorInlineToolbar extends StatelessWidget {
                 tooltip: 'Insert audio',
                 onPressed: () => onAction(EditorAction.audio),
               ),
-              const VerticalDivider(width: 16),
               _ToolbarButton(
-                icon: MdiIcons.formatListBulleted,
-                tooltip: 'Slash command',
+                icon: MdiIcons.dotsHorizontal,
+                tooltip: 'More commands',
                 onPressed: () => onAction(EditorAction.slash),
-              ),
-              _ToolbarButton(
-                icon: MdiIcons.at,
-                tooltip: 'Mention',
-                onPressed: () => onAction(EditorAction.mention),
               ),
             ],
           ),

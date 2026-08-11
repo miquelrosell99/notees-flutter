@@ -212,6 +212,7 @@ class _ShareListenerState extends State<ShareListener> {
     showModalBottomSheet(
       context: ctx,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (_) => QuickCaptureSheet(
         initialText: payload.text ?? '',
         imagePath: payload.imagePath,
@@ -286,21 +287,9 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
       case 'journals':
         router.push(Routes.journals);
       case 'pages':
-        router.push(Routes.pages);
+        router.push(Routes.library);
       case 'tasks':
         router.push(Routes.tasks);
-      case 'whiteboard':
-        final uuid = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : null;
-        router.push(uuid != null ? '${Routes.whiteboard}/$uuid' : Routes.whiteboard);
-      case 'timeline':
-        router.push(Routes.timeline);
-      case 'chart':
-        router.push(Routes.chart);
-      case 'pivot':
-        router.push(Routes.pivot);
-      case 'query':
-        final nodeUuid = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '';
-        if (nodeUuid.isNotEmpty) router.push('${Routes.query}/$nodeUuid');
       case 'shortcut':
         final action = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '';
         _handleShortcut(action);
@@ -320,18 +309,21 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
         showModalBottomSheet(
           context: ctx,
           isScrollControlled: true,
+          showDragHandle: true,
           builder: (_) => const QuickCaptureSheet(initialType: QuickCaptureType.note),
         );
       case 'task':
         showModalBottomSheet(
           context: ctx,
           isScrollControlled: true,
+          showDragHandle: true,
           builder: (_) => const QuickCaptureSheet(initialType: QuickCaptureType.task),
         );
       case 'journal':
         showModalBottomSheet(
           context: ctx,
           isScrollControlled: true,
+          showDragHandle: true,
           builder: (_) => const QuickCaptureSheet(initialType: QuickCaptureType.journal),
         );
     }
@@ -378,6 +370,7 @@ class _QuickNoteTileListenerState extends State<QuickNoteTileListener> {
     showModalBottomSheet(
       context: ctx,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (_) => const QuickCaptureSheet(),
     );
   }
@@ -421,6 +414,7 @@ class _AudioNoteTileListenerState extends State<AudioNoteTileListener> {
     final file = await showModalBottomSheet<File>(
       context: ctx,
       isScrollControlled: true,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),

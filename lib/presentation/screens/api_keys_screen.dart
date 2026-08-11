@@ -35,9 +35,12 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
     try {
       if (auth.dio == null) throw const AuthException('No server configured');
       final repo = AuthRepository(dio: auth.dio!, secureStorage: secureStorage);
-      _keys = await repo.listApiKeys();
+      final loadedKeys = await repo.listApiKeys();
+      if (!mounted) return;
+      _keys = loadedKeys;
       _error = null;
     } catch (e) {
+      if (!mounted) return;
       _error = e.toString();
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -51,13 +54,16 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
       builder: (context) => const _CreateKeyDialog(),
     );
     if (name == null || name.trim().isEmpty) return;
+    if (!mounted) return;
 
     HapticFeedback.lightImpact();
     setState(() => _loading = true);
     try {
       final repo = AuthRepository(dio: auth.dio!, secureStorage: auth.secureStorage);
-      _justCreated = await repo.createApiKey(name: name.trim());
-      if (mounted) await _loadKeys();
+      final justCreated = await repo.createApiKey(name: name.trim());
+      if (!mounted) return;
+      _justCreated = justCreated;
+      await _loadKeys();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     }
@@ -83,6 +89,7 @@ class _ApiKeysScreenState extends State<ApiKeysScreen> {
       ),
     );
     if (confirmed != true) return;
+    if (!mounted) return;
 
     HapticFeedback.mediumImpact();
     setState(() => _loading = true);

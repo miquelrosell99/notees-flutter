@@ -40,7 +40,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadVersion() async {
     final info = await PackageInfo.fromPlatform();
-    if (mounted) setState(() => _version = '${info.version}+${info.buildNumber}');
+    if (!mounted) return;
+    setState(() => _version = '${info.version}+${info.buildNumber}');
   }
 
   Future<void> _loadWorkspaces() async {
@@ -51,19 +52,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final repo = WorkspaceRepository(dio: auth.dio!);
       final workspaces = await repo.listWorkspaces();
-      if (mounted) {
-        setState(() {
-          _workspaces = workspaces;
-          _loadingWorkspaces = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _workspaces = workspaces;
+        _loadingWorkspaces = false;
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _workspaces = [];
-          _loadingWorkspaces = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _workspaces = [];
+        _loadingWorkspaces = false;
+      });
     }
   }
 
@@ -75,15 +74,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final repo = WorkspaceRepository(dio: auth.dio!);
       await repo.switchWorkspace(workspace.uuid);
-      if (mounted) {
-        context.go('/dashboard');
-      }
+      if (!mounted) return;
+      context.go('/dashboard');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not switch workspace: $e')),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not switch workspace: $e')),
+      );
     }
   }
 
@@ -91,7 +88,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     HapticFeedback.mediumImpact();
     final auth = context.read<AuthProvider>();
     await auth.logout();
-    if (mounted) context.go('/login');
+    if (!mounted) return;
+    context.go('/login');
   }
 
   Future<void> _showEncryptionDialog(BuildContext context) async {
@@ -419,63 +417,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
           ),
           const SizedBox(height: 28),
-          SectionTitle(icon: MdiIcons.viewDashboardOutline, label: 'Graph & sidebar'),
+          SectionTitle(icon: MdiIcons.deleteClockOutline, label: 'Trash'),
           const SizedBox(height: 8),
           FleetCard(
-            child: Column(
-              children: [
-                _ToggleTile(
-                  icon: MdiIcons.starOutline,
-                  label: 'Show favorites',
-                  value: settings.showSidebarFavorites,
-                  onChanged: settings.setShowSidebarFavorites,
-                ),
-                const Divider(height: 1),
-                _ToggleTile(
-                  icon: MdiIcons.clockOutline,
-                  label: 'Show recents',
-                  value: settings.showSidebarRecents,
-                  onChanged: settings.setShowSidebarRecents,
-                ),
-                const Divider(height: 1),
-                _ToggleTile(
-                  icon: MdiIcons.calendarOutline,
-                  label: 'Show journals',
-                  value: settings.showSidebarJournals,
-                  onChanged: settings.setShowSidebarJournals,
-                ),
-                const Divider(height: 1),
-                _ToggleTile(
-                  icon: MdiIcons.checkCircleOutline,
-                  label: 'Show tasks',
-                  value: settings.showSidebarTasks,
-                  onChanged: settings.setShowSidebarTasks,
-                ),
-                const Divider(height: 1),
-                _ToggleTile(
-                  icon: MdiIcons.fileDocumentOutline,
-                  label: 'Show pages',
-                  value: settings.showSidebarPages,
-                  onChanged: settings.setShowSidebarPages,
-                ),
-                const Divider(height: 1),
-                _ToggleTile(
-                  icon: MdiIcons.lanConnect,
-                  label: 'Show graph',
-                  value: settings.showSidebarGraph,
-                  onChanged: settings.setShowSidebarGraph,
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(MdiIcons.deleteClockOutline),
-                  title: const Text('Trash retention days'),
-                  trailing: Text(
-                    '${settings.trashRetentionDays} days',
-                    style: TextStyle(color: colors.onSurfaceVariant),
-                  ),
-                  onTap: () => _showTrashRetentionPicker(context, settings),
-                ),
-              ],
+            child: ListTile(
+              leading: Icon(MdiIcons.deleteClockOutline),
+              title: const Text('Trash retention days'),
+              trailing: Text(
+                '${settings.trashRetentionDays} days',
+                style: TextStyle(color: colors.onSurfaceVariant),
+              ),
+              onTap: () => _showTrashRetentionPicker(context, settings),
             ),
           ),
           const SizedBox(height: 28),
@@ -550,49 +502,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onConfigure: () => _showEncryptionDialog(context),
             ),
           ),
-          const SizedBox(height: 28),
-          SectionTitle(icon: MdiIcons.layersOutline, label: 'Advanced views'),
-          const SizedBox(height: 8),
-          FleetCard(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: Icon(MdiIcons.draw),
-                  title: const Text('Whiteboard'),
-                  trailing: Icon(MdiIcons.chevronRight),
-                  onTap: () => context.push(Routes.whiteboard),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(MdiIcons.timeline),
-                  title: const Text('Timeline'),
-                  trailing: Icon(MdiIcons.chevronRight),
-                  onTap: () => context.push(Routes.timeline),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(MdiIcons.chartBar),
-                  title: const Text('Chart'),
-                  trailing: Icon(MdiIcons.chevronRight),
-                  onTap: () => context.push(Routes.chart),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(MdiIcons.tablePivot),
-                  title: const Text('Pivot'),
-                  trailing: Icon(MdiIcons.chevronRight),
-                  onTap: () => context.push(Routes.pivot),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(MdiIcons.fileTree),
-                  title: const Text('Query builder'),
-                  trailing: Icon(MdiIcons.chevronRight),
-                  onTap: () => context.push(Routes.query),
-                ),
-              ],
-            ),
-          ),
+
           const SizedBox(height: 28),
           SectionTitle(icon: MdiIcons.informationOutline, label: 'About'),
           const SizedBox(height: 8),
@@ -1081,9 +991,9 @@ class _AccentRow extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           _AccentSwatch(
-            color: noteesAccentOrange,
-            selected: accent == AppAccent.orange,
-            onTap: () => onChanged(AppAccent.orange),
+            color: noteesAccentCream,
+            selected: accent == AppAccent.cream,
+            onTap: () => onChanged(AppAccent.cream),
           ),
           const SizedBox(width: 10),
           _AccentSwatch(
@@ -1192,31 +1102,3 @@ class _PureBlackRow extends StatelessWidget {
   }
 }
 
-class _ToggleTile extends StatelessWidget {
-  const _ToggleTile({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(label),
-      trailing: Switch(
-        value: value,
-        onChanged: (v) {
-          HapticFeedback.lightImpact();
-          onChanged(v);
-        },
-      ),
-    );
-  }
-}

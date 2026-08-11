@@ -583,7 +583,8 @@ class _TasksScreenState extends State<TasksScreen> {
     if (due == null) return;
 
     // Only schedule for tasks that are not already closed.
-    final properties = await _repo(context).fetchNodeProperties(task.uuid);
+    final repo = _repo(context);
+    final properties = await repo.fetchNodeProperties(task.uuid);
     final statusValue = properties.cast<NodePropertyValue?>().firstWhere(
           (p) => p?.property.uuid == SystemPropertyUuids.taskStatus,
           orElse: () => null,
@@ -718,6 +719,7 @@ class _TasksScreenState extends State<TasksScreen> {
           await _scheduleReminderIfOpen(task.copyWithDueDate(picked));
         }
       }
+      if (!mounted) return;
       _clearSelection();
       if (mounted) await _loadTasks();
     } catch (e) {
@@ -743,6 +745,7 @@ class _TasksScreenState extends State<TasksScreen> {
       for (final uuid in _selected) {
         await repo.addTag(uuid, tag.uuid);
       }
+      if (!mounted) return;
       _clearSelection();
       if (mounted) await _loadTasks();
     } catch (e) {
@@ -915,6 +918,7 @@ class _TasksScreenState extends State<TasksScreen> {
         );
       },
     );
+    if (!mounted) return;
     if (picked != null && picked != _sortBy) {
       setState(() => _sortBy = picked);
       await _loadTasks();
@@ -1050,9 +1054,19 @@ class _TasksScreenState extends State<TasksScreen> {
         children: [
           const SizedBox(height: 120),
           Center(
-            child: Text(
-              message,
-              style: TextStyle(color: colors.onSurfaceVariant),
+            child: Column(
+              children: [
+                Text(
+                  message,
+                  style: TextStyle(color: colors.onSurfaceVariant),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: _createTask,
+                  icon: Icon(MdiIcons.plus),
+                  label: const Text('Create task'),
+                ),
+              ],
             ),
           ),
         ],

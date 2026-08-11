@@ -556,6 +556,16 @@ class NodeCacheRepository {
     return (count is int ? count : int.tryParse(count.toString()) ?? 0);
   }
 
+  /// Number of active property schemas currently cached.
+  Future<int> propertySchemaCacheCount() async {
+    final db = await _database.database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS count FROM property_schema WHERE active = 1',
+    );
+    final count = result.firstOrNull?['count'];
+    return (count is int ? count : int.tryParse(count.toString()) ?? 0);
+  }
+
   /// A single class by UUID, or `null` if it is not cached.
   Future<Node?> getClassByUuid(String uuid) async {
     final db = await _database.database;
@@ -631,18 +641,6 @@ class NodeCacheRepository {
       orderBy: 'sequence ASC, synced_at DESC',
     );
     return rows.map(_nodeFromRow).toList();
-  }
-
-  /// Counts non-deleted comments attached to [parentUuid].
-  Future<int> countComments(String parentUuid) async {
-    final db = await _database.database;
-    final result = await db.rawQuery(
-      'SELECT COUNT(*) AS count FROM node_cache '
-      'WHERE parent_uuid = ? AND is_comment = 1 AND is_deleted = 0 AND is_archived = 0',
-      [parentUuid],
-    );
-    final count = result.firstOrNull?['count'];
-    return (count is int ? count : int.tryParse(count.toString()) ?? 0);
   }
 
   /// Deleted nodes.
@@ -1116,15 +1114,19 @@ class NodeCacheRepository {
   }
 
   bool _matchesFilters(Node node, SearchFilters filters) {
+    final isDatePage = node.isDaily || node.isMonthly || node.isYearly;
     switch (filters.nodeType) {
       case NodeType.page:
-        if (!node.isPage) return false;
+        if (!node.isPage || isDatePage) return false;
       case NodeType.task:
         if (!node.isTask) return false;
       case NodeType.journal:
-        if (!node.isDaily && !node.isMonthly && !node.isYearly) return false;
+        if (!isDatePage) return false;
       case NodeType.any:
-        break;
+        // Date pages are intentionally scoped to journal views; do not surface
+        // them in generic "any" searches unless the user is explicitly looking
+        // for a date by query text.
+        if (isDatePage) return false;
     }
 
     if (filters.classUuids.isNotEmpty) {
@@ -1222,7 +1224,7 @@ class NodeCacheRepository {
     return Property(
       id: 0,
       uuid: uuid,
-      name: 'Property',
+      name: uuid,
       type: 'text',
       isSystem: false,
     );

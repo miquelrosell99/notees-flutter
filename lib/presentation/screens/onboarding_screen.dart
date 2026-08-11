@@ -55,6 +55,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
       builder: (_) => const QuickCaptureSheet(),
     );
   }

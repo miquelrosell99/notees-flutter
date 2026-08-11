@@ -722,7 +722,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
               onTap: () async {
                 Navigator.of(ctx).pop();
                 final result = await _showEditLinkDialog(linkId, label);
-                if (result == null || !context.mounted) return;
+                if (result == null || !mounted) return;
                 widget.onNodeLinkAction?.call(
                   block,
                   NodeLinkAction.edit,

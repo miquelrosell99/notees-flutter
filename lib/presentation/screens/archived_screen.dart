@@ -5,9 +5,11 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/routing/router.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
+import '../providers/settings_provider.dart';
 import '../widgets/empty_state.dart';
 
 /// Screen showing archived nodes. Users can unarchive items or open them.
@@ -167,7 +169,7 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
                 node.isTask ? MdiIcons.checkCircleOutline : MdiIcons.fileDocumentOutline,
                 color: colors.onSurfaceVariant,
               ),
-              title: Text(node.displayName),
+              title: Text(resolveNodeDisplayName(node, dateFormat: context.read<SettingsProvider>().dateFormat)),
               subtitle: Text(
                 node.isPage ? 'Page' : 'Block',
                 style: TextStyle(color: colors.onSurfaceVariant),

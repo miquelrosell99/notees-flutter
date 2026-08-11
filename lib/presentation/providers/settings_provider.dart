@@ -116,63 +116,7 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // --- Graph / Workspace ----------------------------------------------------
-
-  bool get showSidebarFavorites =>
-      _prefs.getBool(_showSidebarFavoritesKey) ?? true;
-
-  bool get showSidebarRecents =>
-      _prefs.getBool(_showSidebarRecentsKey) ?? true;
-
-  bool get showSidebarJournals =>
-      _prefs.getBool(_showSidebarJournalsKey) ?? true;
-
-  bool get showSidebarTasks =>
-      _prefs.getBool(_showSidebarTasksKey) ?? true;
-
-  bool get showSidebarPages =>
-      _prefs.getBool(_showSidebarPagesKey) ?? true;
-
-  bool get showSidebarGraph =>
-      _prefs.getBool(_showSidebarGraphKey) ?? true;
-
   int get trashRetentionDays => _prefs.getInt(_trashRetentionDaysKey) ?? 30;
-
-  Future<void> setShowSidebarFavorites(bool value) async {
-    await _prefs.setBool(_showSidebarFavoritesKey, value);
-    HapticFeedback.lightImpact();
-    notifyListeners();
-  }
-
-  Future<void> setShowSidebarRecents(bool value) async {
-    await _prefs.setBool(_showSidebarRecentsKey, value);
-    HapticFeedback.lightImpact();
-    notifyListeners();
-  }
-
-  Future<void> setShowSidebarJournals(bool value) async {
-    await _prefs.setBool(_showSidebarJournalsKey, value);
-    HapticFeedback.lightImpact();
-    notifyListeners();
-  }
-
-  Future<void> setShowSidebarTasks(bool value) async {
-    await _prefs.setBool(_showSidebarTasksKey, value);
-    HapticFeedback.lightImpact();
-    notifyListeners();
-  }
-
-  Future<void> setShowSidebarPages(bool value) async {
-    await _prefs.setBool(_showSidebarPagesKey, value);
-    HapticFeedback.lightImpact();
-    notifyListeners();
-  }
-
-  Future<void> setShowSidebarGraph(bool value) async {
-    await _prefs.setBool(_showSidebarGraphKey, value);
-    HapticFeedback.lightImpact();
-    notifyListeners();
-  }
 
   Future<void> setTrashRetentionDays(int value) async {
     await _prefs.setInt(_trashRetentionDaysKey, value);
@@ -187,12 +131,6 @@ class SettingsProvider extends ChangeNotifier {
   static const _firstDayOfWeekKey = 'first_day_of_week';
   static const _dateFormatKey = 'date_format';
 
-  static const _showSidebarFavoritesKey = 'show_sidebar_favorites';
-  static const _showSidebarRecentsKey = 'show_sidebar_recents';
-  static const _showSidebarJournalsKey = 'show_sidebar_journals';
-  static const _showSidebarTasksKey = 'show_sidebar_tasks';
-  static const _showSidebarPagesKey = 'show_sidebar_pages';
-  static const _showSidebarGraphKey = 'show_sidebar_graph';
   static const _trashRetentionDaysKey = 'trash_retention_days';
   static const _quickCaptureDestinationKey = 'quick_capture_destination';
   static const _homePageKey = 'home_page';

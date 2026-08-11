@@ -63,19 +63,17 @@ class _AssetBlockWidgetState extends State<AssetBlockWidget> {
         _audioPath = path;
       }
 
-      if (mounted) {
-        setState(() {
-          _asset = info;
-          _loading = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _asset = info;
+        _loading = false;
+      });
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.toString();
-          _loading = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
     }
   }
 

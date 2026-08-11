@@ -37,6 +37,7 @@ class _AudioRecorderSheetState extends State<AudioRecorderSheet> {
     }
 
     final hasPermission = await _recorder.hasPermission();
+    if (!mounted) return;
     if (!hasPermission) {
       setState(() => _error = 'Microphone permission denied');
       return;
@@ -47,6 +48,7 @@ class _AudioRecorderSheetState extends State<AudioRecorderSheet> {
         '${tempDir.path}/notees_audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
 
     await _recorder.start(const RecordConfig(), path: path);
+    if (!mounted) return;
 
     setState(() {
       _isRecording = true;
@@ -64,6 +66,7 @@ class _AudioRecorderSheetState extends State<AudioRecorderSheet> {
 
   Future<void> _stopRecording() async {
     final path = await _recorder.stop();
+    if (!mounted) return;
     _timer?.cancel();
     setState(() {
       _isRecording = false;

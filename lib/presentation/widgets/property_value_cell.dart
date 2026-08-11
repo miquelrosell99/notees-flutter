@@ -18,6 +18,7 @@ class PropertyValueCell extends StatefulWidget {
     this.onPickDate,
     this.readOnly = false,
     this.required = false,
+    this.displayNameResolver,
   });
 
   final Property property;
@@ -30,6 +31,10 @@ class PropertyValueCell extends StatefulWidget {
 
   /// Shows a required indicator next to the label (display-only; matches the web).
   final bool required;
+
+  /// Resolves node ids/uuids referenced by relation, date, image and text
+  /// properties into human-readable display names. Falls back to the raw value.
+  final String? Function(dynamic value)? displayNameResolver;
 
   @override
   State<PropertyValueCell> createState() => _PropertyValueCellState();
@@ -80,12 +85,12 @@ class _PropertyValueCellState extends State<PropertyValueCell> {
     return v;
   }
 
-  int? _relationTargetId() {
+  dynamic _relationTargetId() {
     if (widget.values.isEmpty) return null;
     final v = widget.values.first;
-    if (v is int) return v;
+    if (v is int || v is String) return v;
     if (v is Map<String, dynamic>) {
-      return v['target_node_id'] as int? ?? v['target_id'] as int?;
+      return v['target_node_id'] ?? v['target_id'] ?? v['node_id'] ?? v['uuid'];
     }
     return null;
   }
@@ -246,6 +251,12 @@ class _PropertyValueCellState extends State<PropertyValueCell> {
     );
   }
 
+  String _resolveDisplayName(dynamic value) {
+    final resolved = widget.displayNameResolver?.call(value);
+    if (resolved != null && resolved.isNotEmpty) return resolved;
+    return value?.toString() ?? '';
+  }
+
   Widget _buildNodePicker() {
     final currentId = _relationTargetId();
     return TextButton.icon(
@@ -254,7 +265,13 @@ class _PropertyValueCellState extends State<PropertyValueCell> {
         if (node != null) _onChanged(node.id);
       },
       icon: Icon(MdiIcons.link, size: 18),
-      label: Text(currentId == null ? 'Select node' : 'Node $currentId'),
+      label: Text(
+        currentId == null
+            ? 'Select node'
+            : _resolveDisplayName(currentId),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       style: TextButton.styleFrom(
         padding: EdgeInsets.zero,
         alignment: Alignment.centerLeft,
@@ -278,7 +295,13 @@ class _PropertyValueCellState extends State<PropertyValueCell> {
         if (nodeId != null) _onChanged(nodeId);
       },
       icon: Icon(MdiIcons.calendar, size: 18),
-      label: Text(currentId == null ? 'Select date' : 'Date node $currentId'),
+      label: Text(
+        currentId == null
+            ? 'Select date'
+            : _resolveDisplayName(currentId),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       style: TextButton.styleFrom(
         padding: EdgeInsets.zero,
         alignment: Alignment.centerLeft,
@@ -311,15 +334,15 @@ class _PropertyValueCellState extends State<PropertyValueCell> {
       case 'node':
       case 'image':
         final id = _relationTargetId();
-        return id == null ? '' : 'Node $id';
+        return id == null ? '' : _resolveDisplayName(id);
       case 'date':
         final id = _relationTargetId();
-        return id == null ? '' : 'Date node $id';
+        return id == null ? '' : _resolveDisplayName(id);
       case 'date_range':
         return _formatDateRange();
       default:
         final v = _scalarValue();
-        return v == null ? '' : v.toString();
+        return v == null ? '' : _resolveDisplayName(v);
     }
   }
 
@@ -394,6 +417,7 @@ class _PropertyValueCellState extends State<PropertyValueCell> {
       lastDate: DateTime(2100),
     );
     if (date == null) return;
+    if (!mounted) return;
     setState(() {
       if (isStart) {
         _rangeStart = date;

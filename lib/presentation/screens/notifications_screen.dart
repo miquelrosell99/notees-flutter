@@ -33,16 +33,18 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     try {
       final repo = NotificationRepository(dio: auth.dio!);
       final items = await repo.fetchNotifications(includeRead: true);
-      if (mounted) {
-        setState(() {
-          _notifications = items;
-          _error = null;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _notifications = items;
+        _error = null;
+      });
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (!mounted) return;
+      setState(() => _error = e.toString());
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -54,11 +56,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     try {
       final repo = NotificationRepository(dio: auth.dio!);
       await repo.markRead(notification.id);
-      if (mounted) await _loadNotifications();
+      if (!mounted) return;
+      await _loadNotifications();
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (!mounted) return;
+      setState(() => _error = e.toString());
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -70,11 +76,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     try {
       final repo = NotificationRepository(dio: auth.dio!);
       await repo.markAllRead();
-      if (mounted) await _loadNotifications();
+      if (!mounted) return;
+      await _loadNotifications();
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (!mounted) return;
+      setState(() => _error = e.toString());
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 

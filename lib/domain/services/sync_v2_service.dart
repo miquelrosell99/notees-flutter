@@ -230,9 +230,11 @@ class SyncV2Service {
       await _watermarks.resetWorkspace(workspaceId);
     }
 
-    // If the class cache is empty (e.g. after a schema migration that added
-    // the table), force a fresh snapshot restore so classes get populated.
-    if (await _cache.classCacheCount() == 0) {
+    // If the class or property-schema cache is empty (e.g. after a schema
+    // migration that added the tables), force a fresh snapshot restore so
+    // metadata gets populated.
+    if (await _cache.classCacheCount() == 0 ||
+        await _cache.propertySchemaCacheCount() == 0) {
       await _watermarks.resetWorkspace(workspaceId);
     }
 

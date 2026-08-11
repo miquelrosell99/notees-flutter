@@ -122,7 +122,8 @@ class _FloatingCaptureBubbleState extends State<FloatingCaptureBubble>
       ),
     );
 
-    if (mounted && saved) {
+    if (!mounted) return;
+    if (saved) {
       _bounceController.forward(from: 0);
       _showToast(scaffoldMessenger, 'Saved to Inbox.');
     }
