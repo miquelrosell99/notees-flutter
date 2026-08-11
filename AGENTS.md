@@ -48,7 +48,9 @@ notees-flutter/
 
 CI uses directly-installed tooling (`actions/setup-java`, `subosito/flutter-action`, `android-actions/setup-android`) with cached `~/.pub-cache` and Gradle homes, following the same pattern as Logseq's Android workflow. It builds an unsigned release APK and then signs it with `apksigner` using the production keystore.
 
-To request a CI build manually:
+Pushing to `main` automatically triggers the Android Build workflow, so a manual trigger is usually unnecessary.
+
+To request a CI build manually (optional):
 
 ```bash
 # Trigger a workflow dispatch and print the run URL
@@ -57,7 +59,7 @@ To request a CI build manually:
 
 Then download the artifact from the printed workflow run.
 
-**Always commit and push snapshots before triggering CI.** The workflow checks out `main` (or the configured git ref), so uncommitted local changes are not included in the APK. Pushing to `main` also triggers the workflow automatically.
+**Always commit and push snapshots before expecting them in a CI APK.** The workflow checks out `main` (or the configured git ref), so uncommitted local changes are not included in the build.
 
 **Tag releases**: pushing a `v*` tag (e.g. `v1.2.3`) runs
 `.github/workflows/release.yml`, which reuses `android.yml` to build a
