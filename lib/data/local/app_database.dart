@@ -6,6 +6,8 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
+import '../../core/constants/system.dart';
+
 /// Simple SQLite database for the offline queue and v2 sync outbox.
 ///
 /// The database is a singleton so all callers share the same connection and
@@ -223,7 +225,7 @@ class AppDatabase {
     // The `page` system class is no longer emitted; page status is now derived
     // from `kind == 'page'` / the `is_page` column. Strip the obsolete page
     // class UUID from any cached class lists.
-    const pageClassUuid = '00000000-0000-0000-0001-000000000002';
+    const pageClassUuid = SystemClassUuids.page;
     final rows = await db.query(
       'node_cache',
       columns: ['uuid', 'classes_uuid'],
