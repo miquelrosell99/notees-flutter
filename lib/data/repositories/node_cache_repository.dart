@@ -1307,6 +1307,13 @@ class NodeCacheRepository {
 
   Node _classFromRow(Map<String, dynamic> row) {
     final name = _normalizeClassName(row['name'] as String?);
+    final extendsJson = row['extends_uuid'] as String?;
+    List<String> extendsUuid = const [];
+    if (extendsJson != null && extendsJson.isNotEmpty) {
+      try {
+        extendsUuid = (jsonDecode(extendsJson) as List<dynamic>).cast<String>();
+      } catch (_) {}
+    }
     return Node(
       id: 0,
       uuid: row['uuid'] as String,
@@ -1320,6 +1327,7 @@ class NodeCacheRepository {
       children: const [],
       createDate: row['created_at'] as String?,
       writeDate: row['updated_at'] as String?,
+      extendsUuid: extendsUuid,
     );
   }
 

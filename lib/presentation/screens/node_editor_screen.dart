@@ -12,6 +12,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/constants/system.dart';
 import '../../core/routing/router.dart';
 import '../../core/utils/ast_builder.dart';
+import '../../core/utils/class_icon_resolver.dart';
 import '../../core/utils/color_presets.dart';
 import '../../core/utils/node_display_name.dart';
 import '../../core/utils/node_icon.dart';
@@ -27,7 +28,9 @@ import '../views/node_list_view.dart';
 import '../widgets/block_tree_editor.dart';
 import '../widgets/editor_inline_toolbar.dart';
 import '../widgets/fleet_card.dart';
+import '../widgets/bottom_sheet_drag_handle.dart';
 import '../widgets/mention_picker.dart';
+import '../widgets/node_edit_modal.dart';
 import '../widgets/node_picker.dart';
 import '../widgets/property_value_cell.dart';
 import '../widgets/shares_bottom_sheet.dart';
@@ -62,6 +65,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   List<Node> _classes = [];
   Map<String, String> _classNames = {};
   Map<String, Color> _linkColors = {};
+  Map<String, ResolvedClassStyle> _classStyles = {};
   Map<dynamic, String> _propertyValueNames = {};
   String? _pageColor;
   String? _pageIcon;
@@ -202,6 +206,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           _classes = classes;
           _classNames = classNames;
           _linkColors = linkColors;
+          _classStyles = resolveClassStyles(classes);
           _propertyValueNames = propertyValueNames;
           _pageColor = page.color;
           _pageIcon = page.icon;
@@ -305,33 +310,18 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
     if (isJournalDatePage) return;
 
-    final controller = TextEditingController(text: _titleController.text);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename page'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(hintText: 'Page title'),
-          onSubmitted: (value) => Navigator.of(ctx).pop(value.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: const Text('Rename'),
-          ),
-        ],
-      ),
+    final result = await NodeEditModal.show(
+      context,
+      title: 'Rename page',
+      initialName: _titleController.text,
+      initialIcon: _pageIcon,
+      initialColor: _pageColor,
+      allowIconColor: false,
+      confirmLabel: 'Rename',
     );
-    controller.dispose();
-
-    if (name == null || name.isEmpty || name == _titleController.text) return;
+    if (result == null) return;
+    final name = result.name;
+    if (name.isEmpty || name == _titleController.text) return;
     await _renamePage(name);
   }
 
@@ -1579,20 +1569,163 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         children: _pageClassUuids.map((uuid) {
           final cls = classByUuid[uuid];
           final name = cls?.displayName ?? _classNames[uuid] ?? 'class';
-          final chipColor = _linkColors[uuid] ?? colors.primary;
-          return ActionChip(
-            avatar: Icon(MdiIcons.tagOutline, size: 16, color: chipColor),
-            label: Text(name),
-            labelStyle: TextStyle(color: chipColor),
-            backgroundColor: chipColor.withAlpha((0.10 * 255).round()),
-            side: BorderSide(color: chipColor.withAlpha((0.30 * 255).round())),
-            padding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-            onPressed: () {},
+          final style = _classStyles[uuid];
+          final chipColor = style?.color ?? _linkColors[uuid] ?? colors.primary;
+          final icon = style?.icon;
+          return GestureDetector(
+            onLongPress: () => _onClassLongPress(uuid),
+            child: ActionChip(
+              avatar: icon != null && (icon.iconData != null || icon.emoji != null)
+                  ? _ResolvedClassAvatar(icon: icon, size: 16, color: chipColor)
+                  : Icon(MdiIcons.tagOutline, size: 16, color: chipColor),
+              label: Text(name),
+              labelStyle: TextStyle(color: chipColor),
+              backgroundColor: chipColor.withAlpha((0.10 * 255).round()),
+              side: BorderSide(color: chipColor.withAlpha((0.30 * 255).round())),
+              padding: EdgeInsets.zero,
+              visualDensity: VisualDensity.compact,
+              onPressed: () => _onClassTap(uuid),
+            ),
           );
         }).toList(),
       ),
     );
+  }
+
+  void _onClassTap(String classUuid) {
+    HapticFeedback.lightImpact();
+    context.push('${Routes.editor}/$classUuid');
+  }
+
+  void _onClassLongPress(String classUuid) {
+    HapticFeedback.mediumImpact();
+    _showClassOptions(classUuid);
+  }
+
+  void _showClassOptions(String classUuid) {
+    final cls = _classes.where((c) => c.uuid == classUuid).firstOrNull;
+    if (cls == null) return;
+
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const BottomSheetDragHandle(),
+            ListTile(
+              leading: NodeIcon(
+                iconField: cls.icon,
+                size: 22,
+                fallbackIcon: MdiIcons.tagOutline,
+              ),
+              title: Text(cls.displayName),
+              subtitle: const Text('Class'),
+            ),
+            const Divider(),
+            ListTile(
+              leading: Icon(MdiIcons.openInApp),
+              title: const Text('Open'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _onClassTap(classUuid);
+              },
+            ),
+            ListTile(
+              leading: Icon(MdiIcons.pencilOutline),
+              title: const Text('Edit'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _editClass(classUuid);
+              },
+            ),
+            ListTile(
+              leading: Icon(MdiIcons.linkOff),
+              title: const Text('Remove'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _removeClass(classUuid);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editClass(String classUuid) async {
+    final cls = _classes.where((c) => c.uuid == classUuid).firstOrNull;
+    if (cls == null) return;
+
+    final result = await NodeEditModal.show(
+      context,
+      title: 'Edit class',
+      initialName: cls.displayName,
+      initialIcon: cls.icon,
+      initialColor: cls.color,
+      allowIconColor: true,
+      confirmLabel: 'Save',
+    );
+    if (result == null) return;
+    if (!mounted) return;
+
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    setState(() => _saving = true);
+    try {
+      final repo = NodeRepository(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      );
+      await repo.updateNode(
+        classUuid,
+        name: result.name,
+        icon: result.icon,
+        color: result.color,
+      );
+      if (!mounted) return;
+      await _loadPage();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Class updated')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update class: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _removeClass(String classUuid) async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+    if (auth.syncService == null) return;
+
+    try {
+      await auth.syncService!.enqueue(
+        type: 'remove_tag',
+        nodeUuid: widget.nodeUuid,
+        tagUuid: classUuid,
+      );
+      await auth.syncService!.flush();
+      if (!mounted) return;
+      await _loadPage();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not remove class: $e')),
+        );
+      }
+    }
   }
 
   Widget _buildBlockTree(ColorScheme colors) {
@@ -1869,6 +2002,22 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         ],
       ),
     );
+  }
+}
+
+class _ResolvedClassAvatar extends StatelessWidget {
+  const _ResolvedClassAvatar({required this.icon, required this.size, required this.color});
+
+  final ParsedNodeIcon icon;
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    if (icon.emoji != null) {
+      return Text(icon.emoji!, style: TextStyle(fontSize: size * 0.9, height: 1.1));
+    }
+    return Icon(icon.iconData ?? MdiIcons.tagOutline, size: size, color: color);
   }
 }
 

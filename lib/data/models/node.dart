@@ -33,6 +33,7 @@ class Node {
     this.children = const [],
     this.createDate,
     this.writeDate,
+    this.extendsUuid = const [],
   });
 
   final int id;
@@ -65,6 +66,9 @@ class Node {
   final List<String> tagsUuid;
   final Map<String, dynamic> properties;
   final List<Node> children;
+
+  /// For class-definition nodes: UUIDs of classes this class extends.
+  final List<String> extendsUuid;
 
   bool get isJournal => isDaily || isMonthly || isYearly;
 
@@ -132,6 +136,9 @@ class Node {
       children: childrenJson?.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList() ?? const [],
       createDate: json['create_date'] as String?,
       writeDate: json['write_date'] as String?,
+      extendsUuid: (json['extends_uuid'] as List<dynamic>?)?.cast<String>() ??
+          (json['extends'] as List<dynamic>?)?.cast<String>() ??
+          const [],
     );
   }
 
@@ -173,6 +180,7 @@ class Node {
       children: children,
       createDate: createDate,
       writeDate: writeDate,
+      extendsUuid: extendsUuid,
     );
   }
 
@@ -209,6 +217,7 @@ class Node {
       children: children,
       createDate: createDate,
       writeDate: writeDate,
+      extendsUuid: extendsUuid,
     );
   }
 
@@ -243,5 +252,6 @@ class Node {
         'children': children.map((e) => e.toJson()).toList(),
         'create_date': createDate,
         'write_date': writeDate,
+        'extends_uuid': extendsUuid,
       };
 }
