@@ -354,7 +354,7 @@ class NodeCacheRepository {
         color: row['color'] as String?,
         parentUuid: row['parent_id'] as String?,
         sequence: sequenceByNode[uuid] ?? 0.0,
-        isPage: kind == 'page' || classIds.contains(SystemClassUuids.page),
+        isPage: kind == 'page',
         isTask: classIds.contains(SystemClassUuids.task),
         isDaily: classIds.contains(SystemClassUuids.day),
         isMonthly: classIds.contains(SystemClassUuids.month),
@@ -546,7 +546,6 @@ class NodeCacheRepository {
       orderBy: 'name ASC',
     );
     const hidden = <String>{
-      SystemClassUuids.page,
       SystemClassUuids.class_,
     };
     return rows

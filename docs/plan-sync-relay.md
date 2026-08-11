@@ -71,7 +71,7 @@ Minimum viable migration that keeps the existing UI and tests green:
 - `NodeRepository` and editor/task/capture flows that emit `OperationIntent` must set `classUuids`/`properties` correctly:
   - Tasks: `classUuids: [SystemClassUuids.task]` + `property.set` for status/deadline/scheduled/priority.
   - Daily journal: deterministic UUIDs + `SystemClassUuids.day`/`month`/`year`.
-  - Pages: `classUuids: [SystemClassUuids.page]`.
+  - Pages: `kind: 'page'` and `isPage: true` (no system class UUID).
 
 ### Phase F — Tests & validation
 - Unit tests for HLC clock, envelope serialization, appliers.

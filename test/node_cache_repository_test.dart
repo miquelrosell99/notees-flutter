@@ -268,7 +268,7 @@ void main() {
         'id': 'page-1',
         'workspace_id': workspaceId,
         'kind': 'page',
-        'class_ids': '["${SystemClassUuids.page}"]',
+        'class_ids': '[]',
         'parent_id': null,
         'content': '[{"type":"paragraph","children":[{"type":"text","text":"Hello"}]}]',
         'icon': '📄',
@@ -290,7 +290,7 @@ void main() {
         'id': 'archived-1',
         'workspace_id': workspaceId,
         'kind': 'page',
-        'class_ids': '["${SystemClassUuids.page}"]',
+        'class_ids': '[]',
         'active': 0,
         'updated_at': '2026-01-01T00:00:00Z',
       });

@@ -318,9 +318,6 @@ class SyncV2Service {
     switch (op.type) {
       case 'create':
         final classIds = List<String>.from(op.classUuids ?? []);
-        if (op.isPage && !classIds.contains(SystemClassUuids.page)) {
-          classIds.add(SystemClassUuids.page);
-        }
         if (op.isTask && !classIds.contains(SystemClassUuids.task)) {
           classIds.add(SystemClassUuids.task);
         }
