@@ -429,6 +429,7 @@ class _JournalCalendarPickerState extends State<_JournalCalendarPicker> {
             children: [
               IconButton(
                 icon: Icon(MdiIcons.chevronLeft),
+                tooltip: 'Previous month',
                 onPressed: _previousMonth,
               ),
               Text(
@@ -437,6 +438,7 @@ class _JournalCalendarPickerState extends State<_JournalCalendarPicker> {
               ),
               IconButton(
                 icon: Icon(MdiIcons.chevronRight),
+                tooltip: 'Next month',
                 onPressed: _nextMonth,
               ),
             ],

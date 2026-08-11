@@ -336,6 +336,7 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),

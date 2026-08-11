@@ -94,12 +94,14 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _loadViewMode() async {
     final mode = await _viewModeStore.getMode('search', NodeViewMode.list);
-    if (mounted) setState(() => _viewMode = mode);
+    if (!mounted) return;
+    setState(() => _viewMode = mode);
   }
 
   Future<void> _setViewMode(NodeViewMode mode) async {
     await _viewModeStore.setMode('search', mode);
-    if (mounted) setState(() => _viewMode = mode);
+    if (!mounted) return;
+    setState(() => _viewMode = mode);
   }
 
   Future<void> _loadSuggestions() async {
@@ -117,17 +119,17 @@ class _SearchScreenState extends State<SearchScreen> {
         repo.fetchFavoriteUuids(),
         repo.fetchClasses(),
       ]);
-      if (mounted) {
-        setState(() {
-          _recents = results[0] as List<Node>;
-          _favorites = results[1] as List<Node>;
-          _favoriteUuids = (results[2] as List<String>).toSet();
-          _classIndex = {for (final c in results[3] as List<Node>) c.uuid: c};
-          _loadingSuggestions = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _recents = results[0] as List<Node>;
+        _favorites = results[1] as List<Node>;
+        _favoriteUuids = (results[2] as List<String>).toSet();
+        _classIndex = {for (final c in results[3] as List<Node>) c.uuid: c};
+        _loadingSuggestions = false;
+      });
     } catch (_) {
-      if (mounted) setState(() => _loadingSuggestions = false);
+      if (!mounted) return;
+      setState(() => _loadingSuggestions = false);
     }
   }
 
@@ -135,14 +137,14 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final history = prefs.getStringList(_searchHistoryKey) ?? [];
-      if (mounted) {
-        setState(() {
-          _searchHistory = history;
-          _loadingHistory = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _searchHistory = history;
+        _loadingHistory = false;
+      });
     } catch (_) {
-      if (mounted) setState(() => _loadingHistory = false);
+      if (!mounted) return;
+      setState(() => _loadingHistory = false);
     }
   }
 
@@ -164,13 +166,15 @@ class _SearchScreenState extends State<SearchScreen> {
       _searchHistory = _searchHistory.take(_maxHistoryItems).toList();
     }
     await _saveSearchHistory();
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> _clearSearchHistory() async {
     _searchHistory.clear();
     await _saveSearchHistory();
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
   }
 
   void _runHistoryQuery(String query) {
@@ -203,20 +207,19 @@ class _SearchScreenState extends State<SearchScreen> {
         await repo.addFavorite(node.uuid);
       }
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          if (isFavorite) {
-            _favoriteUuids.add(node.uuid);
-            _favorites.add(node);
-          } else {
-            _favoriteUuids.remove(node.uuid);
-            _favorites.removeWhere((n) => n.uuid == node.uuid);
-          }
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not update favorite: $e')),
-        );
-      }
+      if (!mounted) return;
+      setState(() {
+        if (isFavorite) {
+          _favoriteUuids.add(node.uuid);
+          _favorites.add(node);
+        } else {
+          _favoriteUuids.remove(node.uuid);
+          _favorites.removeWhere((n) => n.uuid == node.uuid);
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update favorite: $e')),
+      );
     }
   }
 
@@ -255,19 +258,18 @@ class _SearchScreenState extends State<SearchScreen> {
       if (auth.dio != null) {
         final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
         final results = await repo.searchWithFilters(searchFilters);
-        if (mounted) {
-          setState(() {
-            if (append) {
-              _results.addAll(results);
-              _currentPage = page;
-            } else {
-              _results = results;
-              _currentPage = 1;
-            }
-            _hasMore = results.length >= searchFilters.limit;
-            _error = null;
-          });
-        }
+        if (!mounted) return;
+        setState(() {
+          if (append) {
+            _results.addAll(results);
+            _currentPage = page;
+          } else {
+            _results = results;
+            _currentPage = 1;
+          }
+          _hasMore = results.length >= searchFilters.limit;
+          _error = null;
+        });
       } else {
         if (mounted) {
           setState(() {
@@ -280,9 +282,8 @@ class _SearchScreenState extends State<SearchScreen> {
         await _addSearchHistory(query);
       }
     } catch (e) {
-      if (mounted) {
-        setState(() => _error = e.toString());
-      }
+      if (!mounted) return;
+      setState(() => _error = e.toString());
     } finally {
       if (mounted) {
         setState(() {
@@ -354,6 +355,7 @@ class _SearchScreenState extends State<SearchScreen> {
             tooltip: 'Change view',
             onPressed: () async {
               final mode = await ViewModeSheet.show(context, _viewMode);
+              if (!mounted) return;
               if (mode != null) await _setViewMode(mode);
             },
           ),
@@ -362,6 +364,7 @@ class _SearchScreenState extends State<SearchScreen> {
             tooltip: 'Filter',
             onPressed: () async {
               final updated = await FilterBottomSheet.show(context, _filters);
+              if (!mounted) return;
               if (updated != null) {
                 _onFiltersChanged(updated);
               }

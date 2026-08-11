@@ -7,7 +7,6 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/constants/system.dart';
@@ -25,7 +24,6 @@ import '../../domain/services/sync_v2_service.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import '../views/node_list_view.dart';
-import '../widgets/ast_rich_text.dart';
 import '../widgets/block_tree_editor.dart';
 import '../widgets/editor_inline_toolbar.dart';
 import '../widgets/fleet_card.dart';
@@ -61,14 +59,17 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   List<NodePropertyValue> _properties = [];
   Map<String, ClassProperty> _classProperties = {};
   List<Property> _availableProperties = [];
+  List<Node> _classes = [];
   Map<String, String> _classNames = {};
   Map<String, Color> _linkColors = {};
+  Map<dynamic, String> _propertyValueNames = {};
   String? _pageColor;
   String? _pageIcon;
   bool _pageIsPrivate = false;
   bool _isDaily = false;
   bool _isMonthly = false;
   bool _isYearly = false;
+  List<String> _pageClassUuids = const [];
   final Set<String> _deletedBlockUuids = {};
   bool _loading = true;
   bool _saving = false;
@@ -76,8 +77,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   BlockNode? _focusedBlock;
   List<LinkedReference> _linkedReferences = [];
   int _linkedRefsTotal = 0;
-  bool _readerMode = false;
   bool _isFavorite = false;
+  bool _propertiesExpanded = false;
 
   /// Autosave: edits mark the page dirty and debounce a background save.
   Timer? _autosaveTimer;
@@ -122,6 +123,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   Future<void> _loadPage() async {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
+    final dateFormat = context.read<SettingsProvider>().dateFormat;
 
     setState(() => _loading = true);
     try {
@@ -164,6 +166,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         } catch (_) {}
       }
 
+      final propertyValueNames = await _buildPropertyValueNameMap(repo, properties, dateFormat);
+
       final classNames = {
         for (final c in classes)
           if (c.uuid.isNotEmpty) c.uuid: c.displayName.toLowerCase(),
@@ -195,14 +199,17 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             classProps,
             available,
           );
+          _classes = classes;
           _classNames = classNames;
           _linkColors = linkColors;
+          _propertyValueNames = propertyValueNames;
           _pageColor = page.color;
           _pageIcon = page.icon;
           _pageIsPrivate = page.isPrivate;
           _isDaily = page.isDaily;
           _isMonthly = page.isMonthly;
           _isYearly = page.isYearly;
+          _pageClassUuids = page.classesUuid;
           _breadcrumbs = breadcrumbs;
           _deletedBlockUuids.clear();
           _error = null;
@@ -294,17 +301,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     }
   }
 
-  Future<void> _sharePage() async {
-    final auth = context.read<AuthProvider>();
-    final server = auth.activeServer;
-    final path = '${Routes.editor}/${widget.nodeUuid}';
-    final url = server != null
-        ? Uri.parse(server.url).replace(path: path).toString()
-        : path;
-    final text = '${_titleController.text.trim()}\n$url';
-    await SharePlus.instance.share(ShareParams(text: text));
-  }
-
   Future<void> _showRenameTitleDialog() async {
     final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
     if (isJournalDatePage) return;
@@ -340,6 +336,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   }
 
   Future<void> _renamePage(String name) async {
+    if (!mounted) return;
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
 
@@ -381,6 +378,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
+              leading: Icon(_isFavorite ? MdiIcons.star : MdiIcons.starOutline),
+              title: Text(_isFavorite ? 'Remove favorite' : 'Add favorite'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _toggleFavorite();
+              },
+            ),
+            ListTile(
               leading: Icon(MdiIcons.shareOutline),
               title: const Text('Share'),
               onTap: () {
@@ -392,46 +397,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         ),
       ),
     );
-  }
-
-  void _onReaderAddBlock() {
-    HapticFeedback.lightImpact();
-    setState(() => _readerMode = false);
-    _addBlock();
-  }
-
-  Future<void> _onReaderAddTask() async {
-    HapticFeedback.lightImpact();
-    setState(() => _readerMode = false);
-
-    final newBlock = BlockNode(
-      node: Node(id: 0, uuid: '', name: '', displayName: ''),
-      controller: TextEditingController(),
-      parent: null,
-      isNew: true,
-    );
-    setState(() {
-      _roots.add(newBlock);
-      _focusedBlock = newBlock;
-    });
-    _markDirty();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _blockTreeKey.currentState?.requestFocusFor(newBlock);
-    });
-
-    await _convertToTask(newBlock);
-  }
-
-  void _onReaderBlockTap(BlockNode block) {
-    HapticFeedback.lightImpact();
-    setState(() {
-      _readerMode = false;
-      _focusedBlock = block;
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _blockTreeKey.currentState?.requestFocusFor(block);
-      _blockTreeKey.currentState?.scrollToBlock(block);
-    });
   }
 
   void _openShareSheet() {
@@ -511,6 +476,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       _deletedBlockUuids.clear();
 
       await service.flush();
+      if (!mounted) return;
       _dirty = false;
 
       // Autosaves must not reload the page: that would steal focus and
@@ -1062,8 +1028,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       case EditorAction.property:
       case EditorAction.template:
         await _insertNodeLink(block, action);
+        if (!mounted) return;
       case EditorAction.task:
         await _convertToTask(block);
+        if (!mounted) return;
       case EditorAction.table:
         final cursor = selection.isValid ? selection.start : 0;
         const replacement =
@@ -1317,6 +1285,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         : NodePickerMode.any;
     if (!mounted) return;
     final node = await NodePicker.show(context, mode: mode);
+    if (!mounted) return;
     if (node == null) return;
 
     final controller = block.controller;
@@ -1421,11 +1390,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         title: _breadcrumbs.isEmpty ? null : _buildBreadcrumbRow(),
         actions: [
           IconButton(
-            icon: Icon(_readerMode ? MdiIcons.pencil : MdiIcons.eye),
-            tooltip: _readerMode ? 'Edit' : 'Read',
-            onPressed: () => setState(() => _readerMode = !_readerMode),
-          ),
-          IconButton(
             icon: Icon(MdiIcons.dotsVertical),
             tooltip: 'More options',
             onPressed: _showPageOptionsMenu,
@@ -1449,8 +1413,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _readerMode
-          ? _buildReaderBody()
           : Column(
               children: [
                 Expanded(
@@ -1474,16 +1436,13 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                             ),
                           ),
                         _buildTitleField(),
-                        const SizedBox(height: 20),
-                        _buildBlockTree(colors),
-                        TextButton.icon(
-                          onPressed: _addBlock,
-                          icon: Icon(MdiIcons.plus),
-                          label: const Text('Add block'),
-                        ),
-                        const SizedBox(height: 20),
-                        _buildChildPagesSection(colors, settings.dateFormat),
+                        _buildClassPills(colors),
+                        const SizedBox(height: 8),
                         _buildPropertiesSection(colors),
+                        const SizedBox(height: 8),
+                        _buildBlockTree(colors),
+                        const SizedBox(height: 80),
+                        _buildChildPagesSection(colors, settings.dateFormat),
                         _buildLinkedReferencesSection(colors),
                       ],
                     ),
@@ -1493,74 +1452,29 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                   EditorInlineToolbar(onAction: _onToolbarAction),
               ],
             ),
-      bottomNavigationBar: _readerMode ? _buildReaderBottomBar(colors) : null,
-    );
-  }
-
-  /// Clean, read-only view of the page content.
-  Widget _buildReaderBody() {
-    return _PageReaderView(
-      title: _titleController.text,
-      roots: _roots,
-      classNames: _classNames,
-      linkColors: _linkColors,
-      onBlockTap: _onReaderBlockTap,
-      onToggleCollapse: _onToggleCollapse,
-      onNodeLinkTap: _onNodeLinkTap,
-      onToggleTask: _onToggleTaskStatus,
-    );
-  }
-
-  /// Floating action bar shown only in reader mode.
-  Widget _buildReaderBottomBar(ColorScheme colors) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: Material(
-          color: colors.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _ReaderBarButton(
-                  icon: MdiIcons.plus,
-                  label: 'Add',
-                  onPressed: _onReaderAddBlock,
-                ),
-                _ReaderBarButton(
-                  icon: MdiIcons.checkboxMarkedOutline,
-                  label: 'Task',
-                  onPressed: _onReaderAddTask,
-                ),
-                _ReaderBarButton(
-                  icon: MdiIcons.shareOutline,
-                  label: 'Share',
-                  onPressed: _sharePage,
-                ),
-                _ReaderBarButton(
-                  icon: _isFavorite ? MdiIcons.star : MdiIcons.starOutline,
-                  label: 'Favorite',
-                  onPressed: _toggleFavorite,
-                ),
-              ],
+      floatingActionButton: _loading
+          ? null
+          : FloatingActionButton.small(
+              onPressed: _addBlock,
+              tooltip: 'Add block',
+              child: Icon(MdiIcons.plus),
             ),
-          ),
-        ),
-      ),
     );
   }
 
   /// Compact breadcrumb row shown in the app bar title slot.
   Widget _buildBreadcrumbRow() {
     final colors = Theme.of(context).colorScheme;
+    final dateFormat = context.read<SettingsProvider>().dateFormat;
     final items = <Widget>[];
 
     for (var i = 0; i < _breadcrumbs.length; i++) {
       final item = _breadcrumbs[i];
       final isLast = i == _breadcrumbs.length - 1;
-      final label = item.displayName.isNotEmpty ? item.displayName : 'Untitled';
+      final label = resolveNodeDisplayName(
+        Node(id: 0, uuid: item.uuid, name: item.name, displayName: item.displayName, icon: item.icon),
+        dateFormat: dateFormat,
+      );
 
       items.add(
         InkWell(
@@ -1652,6 +1566,35 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     );
   }
 
+  Widget _buildClassPills(ColorScheme colors) {
+    if (_pageClassUuids.isEmpty) return const SizedBox.shrink();
+
+    final classByUuid = {for (final c in _classes) c.uuid: c};
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 4),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: _pageClassUuids.map((uuid) {
+          final cls = classByUuid[uuid];
+          final name = cls?.displayName ?? _classNames[uuid] ?? 'class';
+          final chipColor = _linkColors[uuid] ?? colors.primary;
+          return ActionChip(
+            avatar: Icon(MdiIcons.tagOutline, size: 16, color: chipColor),
+            label: Text(name),
+            labelStyle: TextStyle(color: chipColor),
+            backgroundColor: chipColor.withAlpha((0.10 * 255).round()),
+            side: BorderSide(color: chipColor.withAlpha((0.30 * 255).round())),
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            onPressed: () {},
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   Widget _buildBlockTree(ColorScheme colors) {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return const SizedBox.shrink();
@@ -1718,26 +1661,52 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Properties',
-              style: Theme.of(
-                context,
-              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 12),
-            ...visible.map(_buildPropertyCell),
-            if (hidden.isNotEmpty)
-              ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                childrenPadding: EdgeInsets.zero,
-                title: Text(
-                  'Hidden properties (${hidden.length})',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
+            InkWell(
+              onTap: () => setState(() => _propertiesExpanded = !_propertiesExpanded),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Icon(
+                      _propertiesExpanded ? MdiIcons.chevronDown : MdiIcons.chevronRight,
+                      size: 18,
+                      color: colors.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Properties',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${visible.length}',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
-                children: hidden.map(_buildPropertyCell).toList(),
               ),
+            ),
+            if (_propertiesExpanded) ...[
+              const SizedBox(height: 12),
+              ...visible.map(_buildPropertyCell),
+              if (hidden.isNotEmpty)
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: EdgeInsets.zero,
+                  title: Text(
+                    'Hidden properties (${hidden.length})',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                  children: hidden.map(_buildPropertyCell).toList(),
+                ),
+            ],
           ],
         ),
       ),
@@ -1754,6 +1723,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         required: _classProperties[p.property.uuid]?.required ?? false,
         onChanged: (value) => _setPropertyValue(p.property, value),
         onPickDate: _pickDateNode,
+        displayNameResolver: (value) => _propertyValueNames[value],
       ),
     );
   }
@@ -1784,9 +1754,11 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
     final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+    final dateFormat = context.read<SettingsProvider>().dateFormat;
     try {
       await repo.setNodeProperty(widget.nodeUuid, property.uuid, value);
       final refreshed = await repo.fetchNodeProperties(widget.nodeUuid);
+      final refreshedNames = await _buildPropertyValueNameMap(repo, refreshed, dateFormat);
       if (!mounted) return;
       setState(() {
         _properties = _buildDisplayProperties(
@@ -1794,6 +1766,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           _classProperties,
           _availableProperties,
         );
+        _propertyValueNames = refreshedNames;
       });
     } on DioException catch (e) {
       if (!mounted) return;
@@ -1805,6 +1778,42 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         ),
       );
     }
+  }
+
+  /// Builds a lookup table from raw property values (uuids/ids) to human-readable
+  /// node display names so relation, date, image and text properties do not
+  /// render as raw identifiers.
+  Future<Map<dynamic, String>> _buildPropertyValueNameMap(
+    NodeRepository repo,
+    List<NodePropertyValue> properties,
+    String dateFormat,
+  ) async {
+    final targetUuids = <String>{};
+    for (final p in properties) {
+      for (final v in p.values) {
+        final target = _extractPropertyTargetUuid(v);
+        if (target != null) targetUuids.add(target);
+      }
+    }
+    if (targetUuids.isEmpty) return const {};
+
+    final nodes = await repo.fetchNodesByUuids(targetUuids.toList());
+    return {
+      for (final node in nodes)
+        if (node.uuid.isNotEmpty) node.uuid: resolveNodeDisplayName(node, dateFormat: dateFormat),
+    };
+  }
+
+  String? _extractPropertyTargetUuid(dynamic value) {
+    if (value is String && _looksLikeUuid(value)) return value;
+    if (value is Map<String, dynamic>) {
+      final candidate = value['target_node_id'] ??
+          value['target_id'] ??
+          value['node_id'] ??
+          value['uuid'];
+      if (candidate is String && _looksLikeUuid(candidate)) return candidate;
+    }
+    return null;
   }
 
   /// Resolves a date to its journal (day-page) node id for date-typed properties.
@@ -1819,6 +1828,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
   Widget _buildLinkedReferencesSection(ColorScheme colors) {
     if (_linkedReferences.isEmpty) return const SizedBox.shrink();
+    final dateFormat = context.read<SettingsProvider>().dateFormat;
 
     return Padding(
       padding: const EdgeInsets.only(top: 20),
@@ -1835,7 +1845,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           ..._linkedReferences.map((ref) {
             final page = ref.sourcePage;
             final subtitle = page != null && page.uuid != ref.sourceNode.uuid
-                ? page.displayName
+                ? resolveNodeDisplayName(page, dateFormat: dateFormat)
                 : null;
             return ListTile(
               contentPadding: EdgeInsets.zero,
@@ -1845,9 +1855,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                 size: 22,
               ),
               title: Text(
-                ref.sourceNode.displayName.isNotEmpty
-                    ? ref.sourceNode.displayName
-                    : 'Untitled',
+                resolveNodeDisplayName(ref.sourceNode, dateFormat: dateFormat),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1864,256 +1872,4 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   }
 }
 
-/// A compact tappable button for the reader-mode floating bottom bar.
-class _ReaderBarButton extends StatelessWidget {
-  const _ReaderBarButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-  });
 
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onPressed,
-      borderRadius: BorderRadius.circular(12),
-      child: SizedBox(
-        width: 64,
-        height: 48,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 22, color: colors.onSurfaceVariant),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: Theme.of(
-                context,
-              ).textTheme.labelSmall?.copyWith(color: colors.onSurfaceVariant),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Read-only rendering of a page tree.
-///
-/// Displays the title as a warm, serif headline and the blocks as styled
-/// paragraphs, headings, bullets, and task checkboxes. Collapsible children
-/// are honored, node/class links render as tappable pills, and tapping any
-/// block returns the caller to edit mode for that block.
-class _PageReaderView extends StatelessWidget {
-  const _PageReaderView({
-    required this.title,
-    required this.roots,
-    required this.classNames,
-    this.linkColors,
-    required this.onBlockTap,
-    required this.onToggleCollapse,
-    required this.onNodeLinkTap,
-    required this.onToggleTask,
-  });
-
-  final String title;
-  final List<BlockNode> roots;
-  final Map<String, String> classNames;
-  final Map<String, Color>? linkColors;
-  final ValueChanged<BlockNode> onBlockTap;
-  final ValueChanged<BlockNode> onToggleCollapse;
-  final ValueChanged<String> onNodeLinkTap;
-  final ValueChanged<BlockNode> onToggleTask;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final paperColor = isDark
-        ? const Color(0xFF1C1915)
-        : const Color(0xFFFDFBF7);
-
-    return Container(
-      color: paperColor,
-      child: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          children: [
-            Text(
-              title.isNotEmpty ? title : 'Untitled',
-              style: Theme.of(
-                context,
-              ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 24),
-            ..._buildBlocks(context, roots, 0),
-          ],
-        ),
-      ),
-    );
-  }
-
-  List<Widget> _buildBlocks(
-    BuildContext context,
-    List<BlockNode> nodes,
-    int depth,
-  ) {
-    final rows = <Widget>[];
-    for (final block in nodes) {
-      rows.add(_buildBlockRow(context, block, depth));
-      if (!block.collapsed) {
-        rows.addAll(_buildBlocks(context, block.children, depth + 1));
-      }
-    }
-    return rows;
-  }
-
-  Widget _buildBlockRow(BuildContext context, BlockNode block, int depth) {
-    final blockColor = ColorPresets.tryResolve(block.node.color);
-
-    Widget row = GestureDetector(
-      onTap: () => onBlockTap(block),
-      behavior: HitTestBehavior.translucent,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(width: depth * 24.0),
-            SizedBox(width: 32, child: _leadingMarker(context, block)),
-            Expanded(child: _buildContent(context, block)),
-          ],
-        ),
-      ),
-    );
-
-    if (blockColor != null) {
-      row = Container(
-        decoration: BoxDecoration(
-          border: Border(left: BorderSide(color: blockColor, width: 3)),
-        ),
-        padding: const EdgeInsets.only(left: 6),
-        child: row,
-      );
-    }
-
-    return row;
-  }
-
-  Widget _leadingMarker(BuildContext context, BlockNode block) {
-    final colors = Theme.of(context).colorScheme;
-
-    if (block.children.isNotEmpty) {
-      return IconButton(
-        icon: Icon(
-          block.collapsed ? MdiIcons.chevronRight : MdiIcons.chevronDown,
-          size: 18,
-          color: colors.onSurfaceVariant,
-        ),
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-        onPressed: () => onToggleCollapse(block),
-      );
-    }
-
-    if (block.node.isTask) return const SizedBox.shrink();
-
-    if (_isBullet(block)) {
-      return Center(
-        child: Container(
-          width: 6,
-          height: 6,
-          decoration: BoxDecoration(
-            color: colors.onSurfaceVariant,
-            shape: BoxShape.circle,
-          ),
-        ),
-      );
-    }
-
-    return const SizedBox.shrink();
-  }
-
-  Widget _buildContent(BuildContext context, BlockNode block) {
-    final ast = _tryParseAst(block.node.name);
-    final isHeading = ast.isNotEmpty && ast.first['type'] == 'heading';
-    final level = isHeading ? (ast.first['level'] as int? ?? 1) : null;
-    final style = _contentStyle(context, isHeading, level);
-
-    if (block.node.isTask) {
-      final status =
-          block.node.properties[SystemPropertyUuids.taskStatus] as String?;
-      final isDone = status != null && TaskStatuses.closed.contains(status);
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Checkbox(
-            value: isDone,
-            onChanged: (_) => onToggleTask(block),
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          Expanded(
-            child: AstRichText(
-              source: block.node.name,
-              onNodeLinkTap: onNodeLinkTap,
-              style: style,
-              linkColors: linkColors,
-            ),
-          ),
-        ],
-      );
-    }
-
-    final source = _isBullet(block)
-        ? _sourceWithoutBullet(block.node.name)
-        : block.node.name;
-
-    return AstRichText(
-      source: source,
-      onNodeLinkTap: onNodeLinkTap,
-      style: style,
-      linkColors: linkColors,
-    );
-  }
-
-  TextStyle? _contentStyle(BuildContext context, bool isHeading, int? level) {
-    final base = Theme.of(context).textTheme.bodyLarge;
-    if (base == null) return null;
-    if (isHeading) {
-      return base.copyWith(
-        fontWeight: FontWeight.w700,
-        fontSize: base.fontSize! + (4 - level!.clamp(1, 3)) * 2,
-      );
-    }
-    return base;
-  }
-
-  bool _isBullet(BlockNode block) {
-    final ast = _tryParseAst(block.node.name);
-    final markdown = AstBuilder.toMarkdown(ast);
-    return markdown.startsWith('- ');
-  }
-
-  String _sourceWithoutBullet(String name) {
-    final ast = _tryParseAst(name);
-    final markdown = AstBuilder.toMarkdown(ast);
-    final stripped = markdown.startsWith('- ')
-        ? markdown.substring(2)
-        : markdown;
-    return AstBuilder.serialize(AstBuilder.parseInline(stripped));
-  }
-
-  List<Map<String, dynamic>> _tryParseAst(String name) {
-    try {
-      final parsed = jsonDecode(name);
-      if (parsed is List) {
-        return parsed.cast<Map<String, dynamic>>();
-      }
-    } catch (_) {}
-    return AstBuilder.parseInline(name);
-  }
-}

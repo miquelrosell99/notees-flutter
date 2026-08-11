@@ -19,7 +19,6 @@ import '../views/node_list_view.dart';
 import '../views/node_view_mode.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/fleet_card.dart';
-import '../widgets/section_title.dart';
 import '../widgets/view_mode_sheet.dart';
 
 /// Unified Library tab: browse pages, journals, and tags with recent pins.
@@ -260,6 +259,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
     if (name == null || name.isEmpty) return;
     if (auth.dio == null) return;
+    if (!mounted) return;
 
     setState(() => _loading = true);
     try {
@@ -287,11 +287,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     context.push(Routes.journals);
   }
 
-  void _openPages() {
-    HapticFeedback.lightImpact();
-    context.push(Routes.pages);
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -312,6 +307,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             tooltip: 'Change view',
             onPressed: () async {
               final mode = await ViewModeSheet.show(context, _viewMode);
+              if (!mounted) return;
               if (mode != null) await _setViewMode(mode);
             },
           ),
@@ -375,17 +371,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
       children: [
         _buildRecentPins(colors, dateFormat),
         const SizedBox(height: 28),
-        SectionTitle(icon: MdiIcons.folderOutline, label: 'Pages'),
-        const SizedBox(height: 8),
         FleetCard(
           child: Column(
             children: [
-              ListTile(
-                leading: Icon(MdiIcons.fileDocumentOutline, color: colors.onSurfaceVariant),
-                title: const Text('All pages'),
-                trailing: Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
-                onTap: _openPages,
-              ),
+              _SectionHeader(icon: MdiIcons.folderOutline, label: 'Pages'),
               const Divider(height: 1),
               _rootPages.isEmpty
                   ? _buildEmptyTile('No root pages')
@@ -396,17 +385,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       shrinkWrap: true,
                       favoriteUuids: _favoriteUuids,
                       onFavoriteToggle: _toggleFavorite,
+                      onArchive: _archiveNode,
                       dateFormat: dateFormat,
+                      continuous: true,
                     ),
             ],
           ),
         ),
         const SizedBox(height: 28),
-        SectionTitle(icon: MdiIcons.calendarOutline, label: 'Journals'),
-        const SizedBox(height: 8),
         FleetCard(
           child: Column(
             children: [
+              _SectionHeader(icon: MdiIcons.calendarOutline, label: 'Journals'),
+              const Divider(height: 1),
               ListTile(
                 leading: Icon(MdiIcons.calendarMonthOutline, color: colors.onSurfaceVariant),
                 title: const Text('All journals'),
@@ -421,36 +412,48 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       onNodeTap: _openNode,
                       onNodeLongPress: _showNodeActions,
                       shrinkWrap: true,
+                      favoriteUuids: _favoriteUuids,
+                      onFavoriteToggle: _toggleFavorite,
+                      onArchive: _archiveNode,
                       dateFormat: dateFormat,
+                      continuous: true,
                     ),
             ],
           ),
         ),
         const SizedBox(height: 28),
-        SectionTitle(icon: MdiIcons.tagOutline, label: 'Classes'),
-        const SizedBox(height: 8),
         FleetCard(
-          child: _classes.isEmpty
-              ? _buildEmptyTile('No classes yet')
-              : Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _classes
-                        .map((cls) => (cls, resolveNodeDisplayName(cls)))
-                        .where((pair) => pair.$2.isNotEmpty)
-                        .map((pair) {
-                          final (cls, label) = pair;
-                          return ActionChip(
-                            avatar: Icon(MdiIcons.shapeOutline, size: 16),
-                            label: Text(label),
-                            onPressed: () => _showClassNodes(cls),
-                          );
-                        })
-                        .toList(),
-                  ),
-                ),
+          child: Column(
+            children: [
+              _SectionHeader(icon: MdiIcons.shapeOutline, label: 'Classes'),
+              const Divider(height: 1),
+              _classes.isEmpty
+                  ? _buildEmptyTile('No classes yet')
+                  : Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _classes
+                            .map((cls) => (cls, resolveNodeDisplayName(cls)))
+                            .where((pair) => pair.$2.isNotEmpty)
+                            .map((pair) {
+                              final (cls, label) = pair;
+                              return GestureDetector(
+                                onLongPress: () => HapticFeedback.mediumImpact(),
+                                behavior: HitTestBehavior.translucent,
+                                child: ActionChip(
+                                  avatar: Icon(MdiIcons.shapeOutline, size: 16),
+                                  label: Text(label),
+                                  onPressed: () => _showClassNodes(cls),
+                                ),
+                              );
+                            })
+                            .toList(),
+                      ),
+                    ),
+            ],
+          ),
         ),
       ],
     );
@@ -467,7 +470,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SectionTitle(
+        _SectionHeader(
           icon: pins.isEmpty ? MdiIcons.clockOutline : MdiIcons.star,
           label: pins.isEmpty ? 'Recent' : 'Pinned',
         ),
@@ -502,6 +505,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Center(child: Text(message)),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: colors.primary),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: colors.onSurface,
+                ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -653,7 +684,7 @@ class _ClassNodesSheetState extends State<_ClassNodesSheet> {
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
                 child: Row(
                   children: [
-                    Icon(MdiIcons.tagOutline, color: colors.primary),
+                    Icon(MdiIcons.shapeOutline, color: colors.primary),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(

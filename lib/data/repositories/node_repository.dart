@@ -145,6 +145,11 @@ class NodeRepository {
     return node;
   }
 
+  Future<List<Node>> fetchNodesByUuids(List<String> uuids) async {
+    _requireCache();
+    return _cache!.getByUuids(uuids);
+  }
+
   Future<List<BreadcrumbItem>> fetchBreadcrumbs(String uuid) async {
     _requireCache();
     final uuids = await _cache!.getBreadcrumbs(uuid);
@@ -519,6 +524,15 @@ class NodeRepository {
 
   Future<List<NodePropertyValue>> fetchNodeProperties(String nodeUuid) async {
     _requireCache();
+    // If property schemas have not been synced yet (e.g. after a fresh install
+    // or schema migration), pull first so property names resolve correctly.
+    if (await _cache!.propertySchemaCacheCount() == 0) {
+      try {
+        await syncService?.pull();
+      } catch (e) {
+        debugPrint('[fetchNodeProperties] pull failed for $nodeUuid: $e');
+      }
+    }
     return _cache!.getNodeProperties(nodeUuid);
   }
 

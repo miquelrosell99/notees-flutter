@@ -34,6 +34,7 @@ class MainShellScreen extends StatefulWidget {
 class _MainShellScreenState extends State<MainShellScreen> {
   late int _currentIndex = widget.initialIndex;
   final _dashboardKey = GlobalKey<DashboardScreenState>();
+  final _scrollControllers = List.generate(4, (_) => ScrollController());
 
   final _destinations = <_NavDestination>[
     _NavDestination(
@@ -67,6 +68,9 @@ class _MainShellScreenState extends State<MainShellScreen> {
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
+    for (final controller in _scrollControllers) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -124,10 +128,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
           if (useRail)
             NavigationRail(
               selectedIndex: _currentIndex,
-              onDestinationSelected: (index) {
-                HapticFeedback.lightImpact();
-                setState(() => _currentIndex = index);
-              },
+              onDestinationSelected: _onDestinationSelected,
               backgroundColor: theme.colorScheme.surface,
               indicatorColor: theme.colorScheme.primaryContainer,
               labelType: NavigationRailLabelType.all,
@@ -157,10 +158,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
           ? null
           : NavigationBar(
               selectedIndex: _currentIndex,
-              onDestinationSelected: (index) {
-                HapticFeedback.lightImpact();
-                setState(() => _currentIndex = index);
-              },
+              onDestinationSelected: _onDestinationSelected,
               backgroundColor: theme.colorScheme.surface,
               indicatorColor: theme.colorScheme.primaryContainer,
               destinations: _destinations
@@ -174,6 +172,22 @@ class _MainShellScreenState extends State<MainShellScreen> {
                   .toList(),
             ),
     );
+  }
+
+  void _onDestinationSelected(int index) {
+    HapticFeedback.lightImpact();
+    if (index == _currentIndex) {
+      final controller = _scrollControllers[index];
+      if (controller.hasClients) {
+        controller.animateTo(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+      return;
+    }
+    setState(() => _currentIndex = index);
   }
 
   void _openCaptureSheet() {
@@ -193,21 +207,22 @@ class _MainShellScreenState extends State<MainShellScreen> {
   }
 
   Widget _buildBody() {
-    switch (_currentIndex) {
-      case 0:
-        final settings = context.watch<SettingsProvider>();
-        return settings.homePage == HomePage.today
-            ? const _TodayJournalHome()
-            : DashboardScreen(key: _dashboardKey);
-      case 1:
-        return const TasksScreen();
-      case 2:
-        return const JournalContinuousScreen();
-      case 3:
-        return const LibraryScreen();
-      default:
-        return const DashboardScreen();
-    }
+    final child = switch (_currentIndex) {
+      0 => () {
+          final settings = context.watch<SettingsProvider>();
+          return settings.homePage == HomePage.today
+              ? const _TodayJournalHome()
+              : DashboardScreen(key: _dashboardKey);
+        }(),
+      1 => const TasksScreen(),
+      2 => const JournalContinuousScreen(),
+      3 => const LibraryScreen(),
+      _ => const DashboardScreen(),
+    };
+    return PrimaryScrollController(
+      controller: _scrollControllers[_currentIndex],
+      child: child,
+    );
   }
 }
 

@@ -48,7 +48,8 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     HapticFeedback.lightImpact();
-    final repo = context.read<AuthProvider>().serverRepository;
+    final auth = context.read<AuthProvider>();
+    final repo = auth.serverRepository;
     setState(() {
       _pinging = true;
       _error = null;
@@ -78,7 +79,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
       );
 
       if (!mounted) return;
-      await context.read<AuthProvider>().selectServer(profile);
+      await auth.selectServer(profile);
       if (mounted) await _loadServers();
 
       if (!mounted) return;
@@ -96,14 +97,14 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
 
   Future<void> _selectServer(String id) async {
     HapticFeedback.lightImpact();
-    final repo = context.read<AuthProvider>().serverRepository;
+    final auth = context.read<AuthProvider>();
+    final repo = auth.serverRepository;
     setState(() => _pinging = true);
     try {
       final servers = await repo.getServers();
       final profile = servers.firstWhere((s) => s.id == id);
       await repo.setActiveServerId(id);
       if (!mounted) return;
-      final auth = context.read<AuthProvider>();
       await auth.selectServer(profile);
       if (mounted) await _loadServers();
       if (!mounted) return;
@@ -238,6 +239,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                           ),
                           trailing: IconButton(
                             icon: Icon(MdiIcons.deleteOutline),
+                            tooltip: 'Delete',
                             onPressed: () => _removeServer(item.server.id),
                           ),
                           onTap: () => _selectServer(item.server.id),

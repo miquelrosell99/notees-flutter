@@ -84,6 +84,7 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
           share_plus.ShareParams(uri: Uri.parse(share.url!)),
         );
       }
+      if (!mounted) return;
       await _loadShares();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -100,6 +101,7 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
     try {
       final repo = ShareRepository(dio: auth.dio!);
       await repo.revokeShare(share.shareUuid);
+      if (!mounted) return;
       await _loadShares();
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -116,6 +118,7 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
       firstDate: now,
       lastDate: now.add(const Duration(days: 365)),
     );
+    if (!mounted) return;
     if (picked != null) {
       setState(() {
         _expiry = picked;
@@ -147,6 +150,7 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
                 ),
                 IconButton(
                   icon: Icon(MdiIcons.close),
+                  tooltip: 'Close',
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
@@ -240,6 +244,7 @@ class _SharesBottomSheetState extends State<SharesBottomSheet> {
           subtitle: Text(share.expiryDate ?? 'No expiry'),
           trailing: IconButton(
             icon: Icon(MdiIcons.deleteOutline),
+            tooltip: 'Delete',
             onPressed: () => _revokeShare(share),
           ),
         );

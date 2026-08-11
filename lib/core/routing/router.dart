@@ -16,7 +16,6 @@ import '../../presentation/screens/main_shell_screen.dart';
 import '../../presentation/screens/notifications_screen.dart';
 import '../../presentation/screens/node_editor_screen.dart';
 import '../../presentation/screens/onboarding_screen.dart';
-import '../../presentation/screens/pages_screen.dart';
 import '../../presentation/screens/search_screen.dart';
 import '../../presentation/screens/server_management_screen.dart';
 import '../../presentation/screens/server_setup_screen.dart';
@@ -25,7 +24,6 @@ import '../../presentation/screens/settings_screen.dart';
 import '../../presentation/screens/splash_screen.dart';
 import '../../presentation/screens/trash_screen.dart';
 import '../../presentation/screens/user_profile_screen.dart';
-import '../../presentation/screens/web_view_screen.dart';
 
 /// Route names.
 abstract class Routes {
@@ -43,15 +41,8 @@ abstract class Routes {
   static const library = '/library';
   static const notifications = '/notifications';
   static const onboarding = '/onboarding';
-  static const pages = '/pages';
   static const search = '/search';
   static const tasks = '/tasks';
-  static const templates = '/templates';
-  static const whiteboard = '/whiteboard';
-  static const timeline = '/timeline';
-  static const chart = '/chart';
-  static const pivot = '/pivot';
-  static const query = '/query';
 }
 
 GoRouter createRouter({required AuthProvider authProvider}) {
@@ -173,67 +164,8 @@ GoRouter createRouter({required AuthProvider authProvider}) {
         builder: (context, state) => const JournalContinuousScreen(),
       ),
       GoRoute(
-        path: Routes.pages,
-        builder: (context, state) => const PagesScreen(),
-      ),
-      GoRoute(
         path: Routes.tasks,
         builder: (context, state) => const MainShellScreen(initialIndex: 1),
-      ),
-      GoRoute(
-        path: Routes.whiteboard,
-        builder: (context, state) => const NoteesWebViewScreen(
-          path: Routes.whiteboard,
-          title: 'Whiteboard',
-        ),
-      ),
-      GoRoute(
-        path: '${Routes.whiteboard}/:uuid',
-        builder: (context, state) {
-          final uuid = state.pathParameters['uuid'];
-          return NoteesWebViewScreen(
-            path: uuid != null ? '${Routes.whiteboard}/$uuid' : Routes.whiteboard,
-            title: 'Whiteboard',
-          );
-        },
-      ),
-      GoRoute(
-        path: Routes.timeline,
-        builder: (context, state) => const NoteesWebViewScreen(
-          path: Routes.timeline,
-          title: 'Timeline',
-        ),
-      ),
-      GoRoute(
-        path: Routes.chart,
-        builder: (context, state) => const NoteesWebViewScreen(
-          path: Routes.chart,
-          title: 'Chart',
-        ),
-      ),
-      GoRoute(
-        path: Routes.pivot,
-        builder: (context, state) => const NoteesWebViewScreen(
-          path: Routes.pivot,
-          title: 'Pivot',
-        ),
-      ),
-      GoRoute(
-        path: Routes.query,
-        builder: (context, state) => const NoteesWebViewScreen(
-          path: Routes.query,
-          title: 'Query builder',
-        ),
-      ),
-      GoRoute(
-        path: '${Routes.query}/:nodeId',
-        builder: (context, state) {
-          final nodeId = state.pathParameters['nodeId'];
-          return NoteesWebViewScreen(
-            path: nodeId != null ? '${Routes.query}/$nodeId' : Routes.query,
-            title: 'Query builder',
-          );
-        },
       ),
       GoRoute(
         path: Routes.notifications,

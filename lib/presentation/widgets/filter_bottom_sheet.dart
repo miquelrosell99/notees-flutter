@@ -177,6 +177,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
           ? DateTimeRange(start: _filters.dateFrom!, end: _filters.dateTo!)
           : DateTimeRange(start: now, end: now),
     );
+    if (!mounted) return;
     if (picked != null) {
       setState(() {
         _filters = _filters.copyWith(

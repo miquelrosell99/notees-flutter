@@ -4,8 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/constants/capture_types.dart';
 import '../../core/routing/router.dart';
 import '../../core/utils/color_presets.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../core/utils/view_mode_store.dart';
 import '../../data/models/node.dart';
 import '../../data/models/page_content.dart';
@@ -19,6 +21,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/node_picker.dart';
+import '../widgets/quick_capture_sheet.dart';
 import '../widgets/view_mode_sheet.dart';
 
 /// The workspace Inbox, shown as the default Home tab.
@@ -62,6 +65,19 @@ class DashboardScreenState extends State<DashboardScreen> {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return;
     context.push(Routes.search, extra: {'query': trimmed});
+  }
+
+  Future<void> _openCaptureSheet() async {
+    HapticFeedback.lightImpact();
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => QuickCaptureSheet(
+        initialType: QuickCaptureType.note,
+        onSaved: _loadDashboard,
+      ),
+    );
   }
 
   Future<void> _openQueryBuilder() async {
@@ -345,6 +361,7 @@ class DashboardScreenState extends State<DashboardScreen> {
             tooltip: 'Change view',
             onPressed: () async {
               final mode = await ViewModeSheet.show(context, _viewMode);
+              if (!mounted) return;
               if (mode != null) await _setViewMode(mode);
             },
           ),
@@ -390,9 +407,17 @@ class DashboardScreenState extends State<DashboardScreen> {
       return ListView(
         children: [
           EmptyState(
-            icon: MdiIcons.lightbulbOutline,
+            icon: MdiIcons.inboxOutline,
             title: 'Nothing here yet',
             subtitle: 'Tap + to capture a note, task, photo, or voice memo.',
+          ),
+          const SizedBox(height: 20),
+          Center(
+            child: FilledButton.icon(
+              onPressed: _openCaptureSheet,
+              icon: Icon(MdiIcons.plus),
+              label: const Text('Capture a note'),
+            ),
           ),
         ],
       );
@@ -416,67 +441,71 @@ class DashboardScreenState extends State<DashboardScreen> {
               physics: const NeverScrollableScrollPhysics(),
             )
           else
-            ListView.separated(
+            Padding(
               padding: const EdgeInsets.all(16),
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _inboxBlocks.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final block = _inboxBlocks[index];
-                return Dismissible(
-                  key: ValueKey(block.uuid),
-                  direction: DismissDirection.horizontal,
-                  confirmDismiss: (direction) async {
-                    if (direction == DismissDirection.startToEnd) {
-                      HapticFeedback.lightImpact();
-                      await _archiveBlock(block);
-                      if (mounted) {
-                        _showUndoSnackBar(
-                          this.context,
-                          message: 'Note archived',
-                          onUndo: () => _unarchiveBlock(block),
-                        );
-                      }
-                      return false;
-                    }
-                    final confirmed = await _confirmDelete(block);
-                    if (confirmed && mounted) {
-                      _showUndoSnackBar(
-                        this.context,
-                        message: 'Note deleted',
-                        onUndo: () => _restoreBlock(block),
-                      );
-                    }
-                    return false;
-                  },
-                  background: _SwipeBackground(
-                    alignment: Alignment.centerLeft,
-                    icon: MdiIcons.archiveOutline,
-                    label: 'Archive',
-                    color: colors.secondaryContainer,
-                    foregroundColor: colors.onSecondaryContainer,
-                  ),
-                  secondaryBackground: _SwipeBackground(
-                    alignment: Alignment.centerRight,
-                    icon: MdiIcons.deleteOutline,
-                    label: 'Delete',
-                    color: colors.errorContainer,
-                    foregroundColor: colors.onErrorContainer,
-                  ),
-                  child: FleetCard(
-                    child: InkWell(
-                      onTap: () => _openNode(block),
-                      onLongPress: () => _showBlockActions(block),
-                      borderRadius: BorderRadius.circular(20),
-                      child: _InboxListTile(
-                        block: block,
-                        classIndex: _classIndex,
-                      ),
-                    ),
-                  ),
-                );
-              },
+              child: FleetCard(
+                child: Column(
+                  children: _inboxBlocks.asMap().entries.map((entry) {
+                    final block = entry.value;
+                    final isLast = entry.key == _inboxBlocks.length - 1;
+                    return Column(
+                      children: [
+                        Dismissible(
+                          key: ValueKey(block.uuid),
+                          direction: DismissDirection.horizontal,
+                          confirmDismiss: (direction) async {
+                            if (direction == DismissDirection.startToEnd) {
+                              HapticFeedback.lightImpact();
+                              await _archiveBlock(block);
+                              if (mounted) {
+                                _showUndoSnackBar(
+                                  context,
+                                  message: 'Note archived',
+                                  onUndo: () => _unarchiveBlock(block),
+                                );
+                              }
+                              return false;
+                            }
+                            final confirmed = await _confirmDelete(block);
+                            if (confirmed && mounted) {
+                              _showUndoSnackBar(
+                                context,
+                                message: 'Note deleted',
+                                onUndo: () => _restoreBlock(block),
+                              );
+                            }
+                            return false;
+                          },
+                          background: _SwipeBackground(
+                            alignment: Alignment.centerLeft,
+                            icon: MdiIcons.archiveOutline,
+                            label: 'Archive',
+                            color: colors.secondaryContainer,
+                            foregroundColor: colors.onSecondaryContainer,
+                          ),
+                          secondaryBackground: _SwipeBackground(
+                            alignment: Alignment.centerRight,
+                            icon: MdiIcons.deleteOutline,
+                            label: 'Delete',
+                            color: colors.errorContainer,
+                            foregroundColor: colors.onErrorContainer,
+                          ),
+                          child: InkWell(
+                            onTap: () => _openNode(block),
+                            onLongPress: () => _showBlockActions(block),
+                            borderRadius: BorderRadius.circular(20),
+                            child: _InboxListTile(
+                              block: block,
+                              classIndex: _classIndex,
+                            ),
+                          ),
+                        ),
+                        if (!isLast) const Divider(height: 1),
+                      ],
+                    );
+                  }).toList(),
+                ),
+              ),
             ),
         ],
       ),
@@ -574,7 +603,7 @@ class _InboxListTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  block.displayName,
+                  resolveNodeDisplayName(block, dateFormat: context.read<SettingsProvider>().dateFormat),
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),

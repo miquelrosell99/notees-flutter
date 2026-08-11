@@ -80,6 +80,7 @@ class MentionPicker extends StatelessWidget {
                 ),
                 IconButton(
                   icon: Icon(MdiIcons.close),
+                  tooltip: 'Close',
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
