@@ -47,27 +47,27 @@ void _backgroundSyncCallback() {
       // either only read from the server or fall back to REST mutations.
       if (task == _widgetUpdateTask) {
         await _updateWidgetData(prefs);
-        return Future.value(true);
+        return true;
       }
       if (task == _widgetCompleteTask) {
         final uuid = inputData?['uuid'] as String?;
         if (uuid != null && uuid.isNotEmpty) {
           await _completeTaskFromWidget(prefs, uuid);
         }
-        return Future.value(true);
+        return true;
       }
 
       // Background isolates cannot access an in-memory encryption key, so skip
       // all local-DB work while encryption is enabled.
       if (prefs.getBool('encryption_enabled') ?? false) {
-        return Future.value(true);
+        return true;
       }
 
       const secureStorage = SecureStorage();
       final serverRepository = ServerRepository(prefs: prefs);
       final activeServer = await serverRepository.getActiveServer();
       if (activeServer == null) {
-        return Future.value(true);
+        return true;
       }
 
       final dio = createApiClient(
@@ -85,7 +85,7 @@ void _backgroundSyncCallback() {
 
       if (task == _rescheduleRemindersTask) {
         await _rescheduleTaskReminders(dio: dio, syncService: syncService);
-        return Future.value(true);
+        return true;
       }
 
       final queue = OfflineQueue(
@@ -97,12 +97,12 @@ void _backgroundSyncCallback() {
       await syncService.pull();
       await _updateWidgetData(prefs);
 
-      return Future.value(true);
+      return true;
     } on DioException {
       // Network/server errors are expected in the background; retry later.
-      return Future.value(false);
+      return false;
     } catch (_) {
-      return Future.value(false);
+      return false;
     }
   });
 }
