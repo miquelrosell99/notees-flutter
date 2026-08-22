@@ -173,6 +173,7 @@ class RelayAppliers {
     final displayName = astToPlainText(name);
     final classIds = _readStringList(payload['classIds']);
     final kind = payload['kind'] as String?;
+    final flags = _deriveFlags(classIds);
 
     final node = Node(
       id: 0,
@@ -185,10 +186,13 @@ class RelayAppliers {
       isDeleted: false,
       properties: const {},
       isPage: kind == 'page',
-      isTask: classIds.contains(SystemClassUuids.task),
-      isDaily: classIds.contains(SystemClassUuids.day),
-      isMonthly: classIds.contains(SystemClassUuids.month),
-      isYearly: classIds.contains(SystemClassUuids.year),
+      isTask: flags.isTask,
+      isDaily: flags.isDaily,
+      isMonthly: flags.isMonthly,
+      isYearly: flags.isYearly,
+      isTable: flags.isTable,
+      isAsset: flags.isAsset,
+      isComment: flags.isComment,
     );
     await _cache.upsert(node);
   }
@@ -366,9 +370,9 @@ class RelayAppliers {
         isDaily: flags.isDaily,
         isMonthly: flags.isMonthly,
         isYearly: flags.isYearly,
-        isTable: node.isTable,
-        isAsset: node.isAsset,
-        isComment: node.isComment,
+        isTable: flags.isTable,
+        isAsset: flags.isAsset,
+        isComment: flags.isComment,
         isDeleted: node.isDeleted,
         isArchived: node.isArchived,
         isPrivate: node.isPrivate,
@@ -791,9 +795,9 @@ extension _NodeCopyWith on Node {
       isDaily: flags.isDaily,
       isMonthly: flags.isMonthly,
       isYearly: flags.isYearly,
-      isTable: isTable,
-      isAsset: isAsset,
-      isComment: isComment,
+      isTable: flags.isTable,
+      isAsset: flags.isAsset,
+      isComment: flags.isComment,
       isDeleted: isDeleted,
       isArchived: isArchived,
       isPrivate: isPrivate,
@@ -809,12 +813,22 @@ extension _NodeCopyWith on Node {
   }
 }
 
-({bool isTask, bool isDaily, bool isMonthly, bool isYearly})
-    _deriveFlags(List<String> classIds) {
+({
+  bool isTask,
+  bool isDaily,
+  bool isMonthly,
+  bool isYearly,
+  bool isTable,
+  bool isAsset,
+  bool isComment,
+}) _deriveFlags(List<String> classIds) {
   return (
     isTask: classIds.contains(SystemClassUuids.task),
     isDaily: classIds.contains(SystemClassUuids.day),
     isMonthly: classIds.contains(SystemClassUuids.month),
     isYearly: classIds.contains(SystemClassUuids.year),
+    isTable: classIds.contains(SystemClassUuids.table),
+    isAsset: classIds.contains(SystemClassUuids.asset),
+    isComment: classIds.contains(SystemClassUuids.comment),
   );
 }
