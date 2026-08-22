@@ -64,6 +64,10 @@ class BlockTreeEditor extends StatefulWidget {
     required this.onIndent,
     required this.onOutdent,
     required this.onToggleCollapse,
+    this.selectionMode = false,
+    this.selectedBlocks = const {},
+    this.onEnterSelection,
+    this.onToggleSelected,
     this.onInsertImage,
     this.onInsertAudio,
     this.onNodeLinkTap,
@@ -87,6 +91,21 @@ class BlockTreeEditor extends StatefulWidget {
   final ValueChanged<BlockNode> onIndent;
   final ValueChanged<BlockNode> onOutdent;
   final ValueChanged<BlockNode> onToggleCollapse;
+
+  /// Whether multi-select mode is active. Rows render check circles and taps
+  /// toggle selection instead of focusing/reordering blocks.
+  final bool selectionMode;
+
+  /// The currently selected blocks (only relevant when [selectionMode]).
+  final Set<BlockNode> selectedBlocks;
+
+  /// Invoked when the user long-presses a block's content to enter
+  /// multi-select mode with that block selected.
+  final ValueChanged<BlockNode>? onEnterSelection;
+
+  /// Invoked when the user taps a row while [selectionMode] is active.
+  final ValueChanged<BlockNode>? onToggleSelected;
+
   final VoidCallback? onInsertImage;
   final VoidCallback? onInsertAudio;
   final ValueChanged<String>? onNodeLinkTap;
@@ -126,6 +145,15 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
   final _focusNodes = <BlockNode, FocusNode>{};
   final _rowKeys = <BlockNode, GlobalKey>{};
 
+  /// Block identities seen in the previous build, used to detect newly
+  /// inserted rows (add, duplicate, task conversion) and animate them in.
+  /// A shared tween instance prevents [TweenAnimationBuilder] from restarting
+  /// when unrelated rebuilds happen mid-animation.
+  final _knownNodes = <BlockNode>{};
+  final _entering = <BlockNode>{};
+  bool _hasBuiltOnce = false;
+  static final _entranceTween = Tween<double>(begin: 0, end: 1);
+
   @override
   void dispose() {
     for (final focusNode in _focusNodes.values) {
@@ -158,6 +186,23 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     final rows = <_VisibleRow>[];
     _flatten(widget.roots, rows);
 
+    // Diff against the previous build to find inserted rows. The very first
+    // build (page load) is excluded so existing content does not animate.
+    // In-flight entrances stay in `_entering` until their animation ends so
+    // unrelated rebuilds do not cut them short.
+    final current = rows.map((row) => row.node).toSet();
+    _entering.removeWhere((node) => !current.contains(node));
+    if (_hasBuiltOnce) {
+      for (final row in rows) {
+        if (!_knownNodes.contains(row.node)) _entering.add(row.node);
+      }
+    } else {
+      _hasBuiltOnce = true;
+    }
+    _knownNodes
+      ..clear()
+      ..addAll(current);
+
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -188,13 +233,17 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
   Widget _buildRow(_VisibleRow row, List<_VisibleRow> rows, int index) {
     final node = row.node;
     final colors = Theme.of(context).colorScheme;
-    final isFocused = widget.focusedNode == node;
+    final selectionMode = widget.selectionMode;
+    final isSelected = selectionMode && widget.selectedBlocks.contains(node);
+    final isFocused = !selectionMode && widget.focusedNode == node;
     final indent = node.depth * 24.0;
+    final disableAnimations = MediaQuery.of(context).disableAnimations;
 
     Widget field;
     if (node.node.isAsset) {
       field = GestureDetector(
         onTap: () => widget.onFocus(node),
+        onLongPress: selectionMode ? null : () => widget.onEnterSelection?.call(node),
         child: AssetBlockWidget(
           dio: widget.dio,
           uuid: node.node.uuid,
@@ -247,6 +296,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     } else {
       field = GestureDetector(
         onTap: () => widget.onFocus(node),
+        onLongPress: () => widget.onEnterSelection?.call(node),
         behavior: HitTestBehavior.translucent,
         child: AstRichText(
           source: node.node.name,
@@ -274,6 +324,12 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     Widget content = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _SelectionCheckCircle(
+          visible: selectionMode,
+          selected: isSelected,
+          colors: colors,
+          disableAnimations: disableAnimations,
+        ),
         SizedBox(width: indent),
         _DragHandle(
           node: node,
@@ -329,12 +385,51 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       );
     }
 
+    if (isSelected) {
+      content = Container(
+        decoration: BoxDecoration(
+          color: colors.primary.withAlpha((0.08 * 255).round()),
+        ),
+        child: content,
+      );
+    }
+
+    // In selection mode the whole row toggles selection; inner gestures
+    // (focus, drag handle, checkbox) are disabled via IgnorePointer.
+    if (selectionMode) {
+      content = GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => widget.onToggleSelected?.call(node),
+        child: IgnorePointer(child: content),
+      );
+    }
+
+    // Entrance animation for newly inserted rows (size + fade).
+    if (_entering.contains(node)) {
+      content = TweenAnimationBuilder<double>(
+        tween: _entranceTween,
+        duration: disableAnimations
+            ? Duration.zero
+            : const Duration(milliseconds: 250),
+        curve: Curves.easeInOutCubic,
+        onEnd: () => _entering.remove(node),
+        builder: (context, value, child) => ClipRect(
+          child: Align(
+            heightFactor: value,
+            alignment: Alignment.topCenter,
+            child: Opacity(opacity: value, child: child),
+          ),
+        ),
+        child: content,
+      );
+    }
+
     // Drop target: dropping on a row makes the dragged node a child.
-    final disableAnimations = MediaQuery.of(context).disableAnimations;
     content = DragTarget<BlockNode>(
       onWillAcceptWithDetails: (details) =>
           details.data != node && !_isDescendant(details.data, node),
       onAcceptWithDetails: (details) {
+        HapticFeedback.selectionClick();
         widget.onMove(details.data, node, DropPosition.child);
       },
       builder: (context, candidateData, rejectedData) {
@@ -379,6 +474,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       onWillAcceptWithDetails: (details) =>
           details.data != node && !_isDescendant(details.data, node),
       onAcceptWithDetails: (details) {
+        HapticFeedback.selectionClick();
         widget.onMove(details.data, node, position);
       },
       builder: (context, candidateData, rejectedData) {
@@ -839,25 +935,42 @@ class _DragHandle extends StatefulWidget {
 class _DragHandleState extends State<_DragHandle> {
   double _dragDelta = 0;
   static const _threshold = 24.0;
+  // A shared tween instance prevents TweenAnimationBuilder from restarting
+  // the scale-in when unrelated rebuilds happen mid-drag.
+  static final _scaleTween = Tween<double>(begin: 1, end: 1.02);
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final feedback = Material(
-      elevation: 0,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        width: MediaQuery.of(context).size.width - 32,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          widget.node.controller.text,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodyLarge,
+    final disableAnimations = MediaQuery.of(context).disableAnimations;
+    // Zero-elevation design: flat card with a subtle outline, scaling in
+    // from 1.0 to 1.02 over 100ms.
+    final feedback = TweenAnimationBuilder<double>(
+      tween: _scaleTween,
+      duration: disableAnimations
+          ? Duration.zero
+          : const Duration(milliseconds: 100),
+      curve: Curves.easeInOutCubic,
+      builder: (context, scale, child) =>
+          Transform.scale(scale: scale, child: child),
+      child: Material(
+        type: MaterialType.transparency,
+        child: Container(
+          width: MediaQuery.of(context).size.width - 32,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: colors.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: colors.outline.withAlpha((0.10 * 255).round()),
+            ),
+          ),
+          child: Text(
+            widget.node.controller.text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
         ),
       ),
     );
@@ -976,6 +1089,63 @@ class _Bullet extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Check circle shown at the left of each row in multi-select mode. Appears
+/// with a 150ms size + fade and animates its checked state; the whole row is
+/// the tap target, so this circle is purely visual.
+class _SelectionCheckCircle extends StatelessWidget {
+  const _SelectionCheckCircle({
+    required this.visible,
+    required this.selected,
+    required this.colors,
+    required this.disableAnimations,
+  });
+
+  final bool visible;
+  final bool selected;
+  final ColorScheme colors;
+  final bool disableAnimations;
+
+  @override
+  Widget build(BuildContext context) {
+    final duration = disableAnimations
+        ? Duration.zero
+        : const Duration(milliseconds: 150);
+    return AnimatedOpacity(
+      opacity: visible ? 1 : 0,
+      duration: duration,
+      curve: Curves.easeInOutCubic,
+      child: AnimatedSize(
+        duration: duration,
+        curve: Curves.easeInOutCubic,
+        alignment: Alignment.centerLeft,
+        child: SizedBox(
+          width: visible ? 36 : 0,
+          height: 44,
+          child: Center(
+            child: AnimatedContainer(
+              duration: duration,
+              curve: Curves.easeInOutCubic,
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: selected ? colors.primary : Colors.transparent,
+                border: Border.all(
+                  color: selected ? colors.primary : colors.outline,
+                  width: 2,
+                ),
+              ),
+              child: selected
+                  ? Icon(MdiIcons.check, size: 14, color: colors.onPrimary)
+                  : null,
+            ),
+          ),
         ),
       ),
     );

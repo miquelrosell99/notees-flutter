@@ -14,6 +14,8 @@ import '../../../data/repositories/node_repository.dart';
 import '../../../native/widget_service.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../../shared/widgets/fleet_card.dart';
+import '../../../shared/widgets/motion.dart';
+import '../../../shared/widgets/skeletons.dart';
 
 /// Modal bottom sheet that mirrors the web sidebar: favorites, recent pages,
 /// pages shared with the current user, and the archive. All sections are
@@ -91,9 +93,9 @@ class _BrowsePanelState extends State<BrowsePanel> {
           builder: (context, snapshot) {
             final data = snapshot.data;
             if (data == null) {
-              return const SizedBox(
-                height: 160,
-                child: Center(child: CircularProgressIndicator()),
+              return const CardListSkeleton(
+                sectionCount: 2,
+                rowsPerSection: 3,
               );
             }
             final cards = <Widget>[
@@ -137,7 +139,7 @@ class _BrowsePanelState extends State<BrowsePanel> {
               shrinkWrap: true,
               itemCount: cards.length,
               separatorBuilder: (context, index) => const SizedBox(height: 12),
-              itemBuilder: (context, index) => cards[index],
+              itemBuilder: (context, index) => staggered(index, cards[index]),
             );
           },
         ),

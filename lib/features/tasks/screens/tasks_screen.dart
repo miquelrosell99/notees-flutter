@@ -19,6 +19,8 @@ import '../../auth/providers/auth_provider.dart';
 import '../../../shared/views/_view_helpers.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/fleet_card.dart';
+import '../../../shared/widgets/motion.dart';
+import '../../../shared/widgets/skeletons.dart';
 import '../widgets/task_creation_sheet.dart';
 import '../widgets/task_row.dart';
 
@@ -1069,7 +1071,12 @@ class _TasksScreenState extends State<TasksScreen> {
         child: Column(
           children: [
             if (!_focusMode) _buildSegmentSelector(colors),
-            Expanded(child: _buildContent(colors)),
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: _buildContent(colors),
+              ),
+            ),
           ],
         ),
       ),
@@ -1108,7 +1115,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
   Widget _buildContent(ColorScheme colors) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const TaskListSkeleton(key: ValueKey('tasks-loading'));
     }
 
     if (_error != null) {
@@ -1163,11 +1170,15 @@ class _TasksScreenState extends State<TasksScreen> {
       );
     }
 
+    final children = _segment == TaskSegment.upcoming && !_focusMode
+        ? _buildGroupedUpcoming()
+        : [_buildTaskCard(_tasks)];
     return ListView(
+      key: const ValueKey('tasks-content'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-      children: _segment == TaskSegment.upcoming && !_focusMode
-          ? _buildGroupedUpcoming()
-          : [_buildTaskCard(_tasks)],
+      children: [
+        for (var i = 0; i < children.length; i++) staggered(i, children[i]),
+      ],
     );
   }
 

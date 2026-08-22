@@ -25,6 +25,7 @@ import '../../../domain/services/sync_v2_service.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../../shared/views/node_list_view.dart';
+import '../selection_utils.dart';
 import '../widgets/block_tree_editor.dart';
 import '../widgets/editor_inline_toolbar.dart';
 import '../../../shared/widgets/fleet_card.dart';
@@ -84,6 +85,11 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   int _linkedRefsTotal = 0;
   bool _isFavorite = false;
   bool _propertiesExpanded = false;
+
+  /// Block multi-select mode: long-press a block's content to enter, tap rows
+  /// to toggle, batch actions run from the bottom selection bar.
+  bool _selectionMode = false;
+  final Set<BlockNode> _selectedBlocks = {};
 
   /// Autosave: edits mark the page dirty and debounce a background save.
   Timer? _autosaveTimer;
@@ -220,6 +226,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           _deletedBlockUuids.clear();
           _error = null;
           _focusedBlock = null;
+          // The block tree is rebuilt from scratch, so any selection would
+          // reference stale BlockNode identities — escape selection mode.
+          _selectionMode = false;
+          _selectedBlocks.clear();
         });
       }
       if (mounted) {
@@ -717,36 +727,47 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
   void _onIndent(BlockNode block) {
     HapticFeedback.lightImpact();
+    if (!_indentBlock(block)) return;
+    setState(() {});
+    _markDirty();
+  }
+
+  /// Moves [block] under its previous sibling. Returns false when the block
+  /// has no previous sibling (nothing changed).
+  bool _indentBlock(BlockNode block) {
     final siblings = block.parent?.children ?? _roots;
     final index = siblings.indexOf(block);
-    if (index <= 0) return;
+    if (index <= 0) return false;
 
     final newParent = siblings[index - 1];
-    setState(() {
-      siblings.removeAt(index);
-      block.parent = newParent;
-      newParent.children.add(block);
-      newParent.collapsed = false;
-    });
-    _markDirty();
+    siblings.removeAt(index);
+    block.parent = newParent;
+    newParent.children.add(block);
+    newParent.collapsed = false;
+    return true;
   }
 
   void _onOutdent(BlockNode block) {
     HapticFeedback.lightImpact();
+    if (!_outdentBlock(block)) return;
+    setState(() {});
+    _markDirty();
+  }
+
+  /// Moves [block] after its parent. Returns false for root-level blocks.
+  bool _outdentBlock(BlockNode block) {
     final parent = block.parent;
-    if (parent == null) return;
+    if (parent == null) return false;
 
     final grandparent = parent.parent;
     final siblings = grandparent?.children ?? _roots;
     final parentIndex = siblings.indexOf(parent);
-    if (parentIndex < 0) return;
+    if (parentIndex < 0) return false;
 
-    setState(() {
-      parent.children.remove(block);
-      block.parent = grandparent;
-      siblings.insert(parentIndex + 1, block);
-    });
-    _markDirty();
+    parent.children.remove(block);
+    block.parent = grandparent;
+    siblings.insert(parentIndex + 1, block);
+    return true;
   }
 
   void _onMove(BlockNode moved, BlockNode target, DropPosition position) {
@@ -774,6 +795,123 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   void _onToggleCollapse(BlockNode block) {
     HapticFeedback.lightImpact();
     setState(() => block.collapsed = !block.collapsed);
+    _markDirty();
+  }
+
+  void _onEnterSelection(BlockNode block) {
+    HapticFeedback.selectionClick();
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _selectionMode = true;
+      _focusedBlock = null;
+      _selectedBlocks.add(block);
+    });
+  }
+
+  void _onToggleBlockSelected(BlockNode block) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (!_selectedBlocks.remove(block)) {
+        _selectedBlocks.add(block);
+      }
+      // Toggling off the last selected block exits selection mode.
+      if (_selectedBlocks.isEmpty) _selectionMode = false;
+    });
+  }
+
+  void _exitSelection() {
+    setState(() {
+      _selectionMode = false;
+      _selectedBlocks.clear();
+    });
+  }
+
+  /// Batch delete: reuses the single-block delete pathway (deleted uuids are
+  /// tracked and the tree is pruned) per effective selected block.
+  void _deleteSelected() {
+    final targets = effectiveSelection(_selectedBlocks);
+    if (targets.isEmpty) {
+      _exitSelection();
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    setState(() {
+      for (final block in targets) {
+        if (block.node.uuid.isNotEmpty) {
+          _deletedBlockUuids.add(block.node.uuid);
+        }
+        _removeBlockFromTree(block);
+        block.controller.dispose();
+      }
+      if (_focusedBlock != null && targets.contains(_focusedBlock)) {
+        _focusedBlock = null;
+      }
+      _selectionMode = false;
+      _selectedBlocks.clear();
+    });
+    _markDirty();
+  }
+
+  /// Batch indent: blocks stay selected afterwards (identities unchanged).
+  void _indentSelected() {
+    final ordered = orderBlocksByTree(_roots, _selectedBlocks);
+    var changed = false;
+    for (final block in ordered) {
+      if (_indentBlock(block)) changed = true;
+    }
+    if (!changed) return;
+    HapticFeedback.lightImpact();
+    setState(() {});
+    _markDirty();
+  }
+
+  /// Batch outdent: blocks stay selected afterwards (identities unchanged).
+  void _outdentSelected() {
+    final ordered = orderBlocksByTree(_roots, _selectedBlocks);
+    var changed = false;
+    for (final block in ordered) {
+      if (_outdentBlock(block)) changed = true;
+    }
+    if (!changed) return;
+    HapticFeedback.lightImpact();
+    setState(() {});
+    _markDirty();
+  }
+
+  /// Deep-copies [block] (including children) as new unsaved blocks: ids are
+  /// reset to 0 and uuids cleared so the next save emits create ops for them.
+  BlockNode _duplicateBlock(BlockNode block, {BlockNode? parent}) {
+    final copy = BlockNode(
+      node: _copyNodeWithId(block.node, 0, ''),
+      controller: TextEditingController(text: block.controller.text),
+      parent: parent,
+      isNew: true,
+    );
+    for (final child in block.children) {
+      copy.children.add(_duplicateBlock(child, parent: copy));
+    }
+    return copy;
+  }
+
+  /// Batch duplicate: each effective selected block is deep-copied right after
+  /// its original. Selection exits because the duplicates are new identities.
+  void _duplicateSelected() {
+    final ordered = orderBlocksByTree(_roots, _selectedBlocks);
+    if (ordered.isEmpty) {
+      _exitSelection();
+      return;
+    }
+    HapticFeedback.lightImpact();
+    setState(() {
+      for (final block in ordered) {
+        final copy = _duplicateBlock(block);
+        final siblings = block.parent?.children ?? _roots;
+        final index = siblings.indexOf(block);
+        siblings.insert(index >= 0 ? index + 1 : siblings.length, copy);
+      }
+      _selectionMode = false;
+      _selectedBlocks.clear();
+    });
     _markDirty();
   }
 
@@ -1402,58 +1540,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                if (_breadcrumbs.isNotEmpty)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                      child: _buildBreadcrumbRow(),
-                    ),
-                  ),
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: _loadPage,
-                    child: ListView(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-                      children: [
-                        if (_error != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: FleetCard(
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Text(
-                                  _error!,
-                                  style: TextStyle(color: colors.error),
-                                ),
-                              ),
-                            ),
-                          ),
-                        _buildTitleHeader(),
-                        _buildClassPills(colors),
-                        const SizedBox(height: 8),
-                        _buildPropertiesSection(colors),
-                        const SizedBox(height: 8),
-                        if (_roots.isEmpty && _error == null)
-                          _buildEmptyPageState()
-                        else
-                          _buildBlockTree(colors),
-                        const SizedBox(height: 80),
-                        _buildChildPagesSection(colors, settings.dateFormat),
-                        _buildLinkedReferencesSection(colors),
-                      ],
-                    ),
-                  ),
-                ),
-                if (_focusedBlock != null)
-                  EditorInlineToolbar(onAction: _onToolbarAction),
-              ],
-            ),
+      body: AnimatedSwitcher(
+        duration: MediaQuery.of(context).disableAnimations
+            ? Duration.zero
+            : const Duration(milliseconds: 200),
+        child: _loading
+            ? const _EditorSkeleton()
+            : _buildLoadedBody(colors, settings),
+      ),
       floatingActionButton: _loading
           ? null
           : FloatingActionButton.small(
@@ -1461,6 +1555,108 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
               tooltip: 'Add block',
               child: Icon(MdiIcons.plus),
             ),
+    );
+  }
+
+  /// The loaded page body: breadcrumbs, title, properties and the block tree.
+  Widget _buildLoadedBody(ColorScheme colors, SettingsProvider settings) {
+    return Column(
+      children: [
+        if (_breadcrumbs.isNotEmpty)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+              child: _buildBreadcrumbRow(),
+            ),
+          ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _loadPage,
+            child: ListView(
+              controller: _scrollController,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+              children: [
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: FleetCard(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          _error!,
+                          style: TextStyle(color: colors.error),
+                        ),
+                      ),
+                    ),
+                  ),
+                _buildTitleHeader(),
+                _buildClassPills(colors),
+                const SizedBox(height: 8),
+                _buildPropertiesSection(colors),
+                const SizedBox(height: 8),
+                if (_roots.isEmpty && _error == null)
+                  _buildEmptyPageState()
+                else
+                  _buildBlockTree(colors),
+                const SizedBox(height: 80),
+                _buildChildPagesSection(colors, settings.dateFormat),
+                _buildLinkedReferencesSection(colors),
+              ],
+            ),
+          ),
+        ),
+        if (_selectionMode)
+          _buildSelectionActionBar(colors)
+        else if (_focusedBlock != null)
+          EditorInlineToolbar(onAction: _onToolbarAction),
+      ],
+    );
+  }
+
+  /// Bottom bar shown while block multi-select is active.
+  Widget _buildSelectionActionBar(ColorScheme colors) {
+    return Container(
+      color: colors.surfaceContainerHighest,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            IconButton(
+              icon: Icon(MdiIcons.close),
+              tooltip: 'Clear selection',
+              onPressed: _exitSelection,
+            ),
+            Text(
+              '${_selectedBlocks.length} selected',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const Spacer(),
+            IconButton(
+              icon: Icon(MdiIcons.formatIndentIncrease),
+              tooltip: 'Indent',
+              onPressed: _indentSelected,
+            ),
+            IconButton(
+              icon: Icon(MdiIcons.formatIndentDecrease),
+              tooltip: 'Outdent',
+              onPressed: _outdentSelected,
+            ),
+            IconButton(
+              icon: Icon(MdiIcons.contentDuplicate),
+              tooltip: 'Duplicate',
+              onPressed: _duplicateSelected,
+            ),
+            IconButton(
+              icon: Icon(MdiIcons.deleteOutline),
+              tooltip: 'Delete',
+              color: colors.error,
+              onPressed: _deleteSelected,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1795,6 +1991,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       onIndent: _onIndent,
       onOutdent: _onOutdent,
       onToggleCollapse: _onToggleCollapse,
+      selectionMode: _selectionMode,
+      selectedBlocks: _selectedBlocks,
+      onEnterSelection: _onEnterSelection,
+      onToggleSelected: _onToggleBlockSelected,
       onNodeLinkTap: _onNodeLinkTap,
       onNodeLinkAction: _onNodeLinkAction,
       onContentChanged: _markDirty,
@@ -2071,3 +2271,88 @@ class _ResolvedClassAvatar extends StatelessWidget {
 }
 
 
+
+/// Loading skeleton for the editor: a title bar placeholder followed by block
+/// line placeholders with a 1.4s pulse (no third-party shimmer packages).
+/// Replaces the former full-screen CircularProgressIndicator.
+class _EditorSkeleton extends StatefulWidget {
+  const _EditorSkeleton();
+
+  @override
+  State<_EditorSkeleton> createState() => _EditorSkeletonState();
+}
+
+class _EditorSkeletonState extends State<_EditorSkeleton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  bool _started = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    if (MediaQuery.of(context).disableAnimations) {
+      // Static mid-pulse placeholder instead of a looping animation.
+      _controller.value = 0.5;
+    } else {
+      _controller.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    const lineWidths = [0.9, 0.75, 0.85, 0.6, 0.8, 0.7, 0.88];
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) =>
+          Opacity(opacity: 0.4 + 0.5 * _controller.value, child: child),
+      child: ListView(
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+        children: [
+          _skeletonBar(colors, height: 28, widthFactor: 0.6),
+          const SizedBox(height: 28),
+          for (final width in lineWidths) ...[
+            _skeletonBar(colors, height: 16, widthFactor: width),
+            const SizedBox(height: 16),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _skeletonBar(
+    ColorScheme colors, {
+    required double height,
+    required double widthFactor,
+  }) {
+    return FractionallySizedBox(
+      widthFactor: widthFactor,
+      alignment: Alignment.centerLeft,
+      child: Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: colors.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+    );
+  }
+}

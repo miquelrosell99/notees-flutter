@@ -21,6 +21,7 @@ import '../../../shared/widgets/empty_state.dart';
 import '../../search/widgets/filter_bottom_sheet.dart';
 import '../../../shared/widgets/fleet_card.dart';
 import '../../../shared/widgets/node_picker.dart';
+import '../../../shared/widgets/skeletons.dart';
 import '../../capture/widgets/quick_capture_sheet.dart';
 import '../../../shared/widgets/view_mode_sheet.dart';
 
@@ -373,9 +374,12 @@ class DashboardScreenState extends State<DashboardScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _loadDashboard,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _buildBody(colors, settings),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: _loading
+              ? const CardGridSkeleton(key: ValueKey('dashboard-loading'))
+              : _buildBody(colors, settings),
+        ),
       ),
 
     );

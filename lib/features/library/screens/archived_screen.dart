@@ -11,6 +11,7 @@ import '../../../data/repositories/node_repository.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../../shared/widgets/empty_state.dart';
+import '../../../shared/widgets/skeletons.dart';
 
 /// Screen showing archived nodes. Users can unarchive items or open them.
 class ArchivedScreen extends StatefulWidget {
@@ -90,9 +91,15 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _loadArchived,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _buildBody(colors),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: _loading
+              ? const ListTileSkeletonList(
+                  key: ValueKey('archived-loading'),
+                  trailing: true,
+                )
+              : _buildBody(colors),
+        ),
       ),
     );
   }
