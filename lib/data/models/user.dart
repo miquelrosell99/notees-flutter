@@ -9,6 +9,7 @@ class User {
     required this.role,
     required this.isActive,
     this.totpEnabled = false,
+    this.isLocal = false,
   });
 
   final String id;
@@ -20,6 +21,10 @@ class User {
   final String role;
   final bool isActive;
   final bool totpEnabled;
+
+  /// True for the synthetic offline-mode profile (no server, no auth).
+  /// Mirrors the web client's local session shape (`isLocal: true`).
+  final bool isLocal;
 
   String get displayName {
     final parts = [if (name != null) name, if (surnames != null) surnames]
@@ -38,6 +43,7 @@ class User {
         role: json['role'] as String,
         isActive: json['is_active'] as bool,
         totpEnabled: json['totp_enabled'] as bool? ?? false,
+        isLocal: json['is_local'] as bool? ?? false,
       );
 
   Map<String, dynamic> toJson() => {
@@ -50,5 +56,6 @@ class User {
         'role': role,
         'is_active': isActive,
         'totp_enabled': totpEnabled,
+        'is_local': isLocal,
       };
 }

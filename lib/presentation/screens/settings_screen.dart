@@ -46,7 +46,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadWorkspaces() async {
     final auth = context.read<AuthProvider>();
-    if (auth.dio == null) return;
+    // Workspace management is server-only; hidden in local (offline) mode.
+    if (auth.dio == null || auth.isLocalMode) {
+      setState(() => _loadingWorkspaces = false);
+      return;
+    }
 
     setState(() => _loadingWorkspaces = true);
     try {
@@ -369,19 +373,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
           FleetCard(
             child: Column(
               children: [
-                ListTile(
-                  leading: Icon(MdiIcons.dns),
-                  title: const Text('Manage servers'),
-                  subtitle: auth.activeServer != null
-                      ? Text(auth.activeServer!.nickname)
-                      : const Text('No active server'),
-                  trailing: Icon(MdiIcons.chevronRight),
-                  onTap: () => context.push('/settings/servers'),
-                ),
+                if (auth.isLocalMode)
+                  ListTile(
+                    leading: Icon(MdiIcons.cloudSyncOutline),
+                    title: const Text('Connect a server'),
+                    subtitle: const Text(
+                      'Sync this device with a self-hosted Notees server',
+                    ),
+                    trailing: Icon(MdiIcons.chevronRight),
+                    onTap: () => context.push('/server-setup'),
+                  )
+                else
+                  ListTile(
+                    leading: Icon(MdiIcons.dns),
+                    title: const Text('Manage servers'),
+                    subtitle: auth.activeServer != null
+                        ? Text(auth.activeServer!.nickname)
+                        : const Text('No active server'),
+                    trailing: Icon(MdiIcons.chevronRight),
+                    onTap: () => context.push('/settings/servers'),
+                  ),
               ],
             ),
           ),
           const SizedBox(height: 28),
+          if (!auth.isLocalMode) ...[
           SectionTitle(icon: MdiIcons.layersTripleOutline, label: 'Workspace'),
           const SizedBox(height: 8),
           FleetCard(
@@ -417,6 +433,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
           ),
           const SizedBox(height: 28),
+          ],
           SectionTitle(icon: MdiIcons.deleteClockOutline, label: 'Trash'),
           const SizedBox(height: 8),
           FleetCard(
@@ -439,22 +456,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ListTile(
                   leading: Icon(MdiIcons.accountOutline),
                   title: Text(auth.user?.displayName ?? 'Guest'),
-                  subtitle: auth.user != null ? Text(auth.user!.email) : null,
-                  trailing: Icon(MdiIcons.chevronRight),
-                  onTap: auth.user != null
+                  subtitle: auth.isLocalMode
+                      ? const Text('Offline profile — this device only')
+                      : auth.user != null
+                          ? Text(auth.user!.email)
+                          : null,
+                  trailing: auth.isLocalMode
+                      ? null
+                      : Icon(MdiIcons.chevronRight),
+                  onTap: auth.user != null && !auth.isLocalMode
                       ? () => context.push('/settings/profile')
                       : null,
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(MdiIcons.keyOutline),
-                  title: const Text('API keys'),
-                  subtitle: const Text('Manage personal access tokens'),
-                  trailing: Icon(MdiIcons.chevronRight),
-                  onTap: auth.user != null
-                      ? () => context.push('/settings/api-keys')
-                      : null,
-                ),
+                if (!auth.isLocalMode) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Icon(MdiIcons.keyOutline),
+                    title: const Text('API keys'),
+                    subtitle: const Text('Manage personal access tokens'),
+                    trailing: Icon(MdiIcons.chevronRight),
+                    onTap: auth.user != null
+                        ? () => context.push('/settings/api-keys')
+                        : null,
+                  ),
+                ],
                 const Divider(height: 1),
                 ListTile(
                   leading: Icon(
@@ -485,12 +510,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   trailing: Icon(MdiIcons.chevronRight),
                   onTap: () => context.push('/trash'),
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(MdiIcons.logout, color: colors.error),
-                  title: Text('Sign out', style: TextStyle(color: colors.error)),
-                  onTap: _logout,
-                ),
+                if (!auth.isLocalMode) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Icon(MdiIcons.logout, color: colors.error),
+                    title: Text('Sign out', style: TextStyle(color: colors.error)),
+                    onTap: _logout,
+                  ),
+                ],
               ],
             ),
           ),

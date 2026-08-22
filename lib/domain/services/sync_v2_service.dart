@@ -38,8 +38,10 @@ class SyncV2Service {
   SyncV2Service({
     required AppDatabase database,
     required this.dio,
-    required this._clientId,
+    required String clientId,
+    this.serverless = false,
   })  : _database = database,
+        _clientId = clientId,
         _outbox = RelayOutboxRepository(database),
         _watermarks = SyncWatermarkRepository(database),
         _cache = NodeCacheRepository(database),
@@ -54,6 +56,12 @@ class SyncV2Service {
   final RelayClient _relay;
   final Dio dio;
   final String _clientId;
+
+  /// Offline (local-only) mode: the service never talks to the network.
+  /// [pull] is a no-op and [flush] applies pending outbox envelopes to the
+  /// local cache instead of pushing them; the rows stay in the outbox so a
+  /// later server attach flushes them through the normal path.
+  final bool serverless;
 
   /// The authenticated user's uuid, used as the relay envelope actor id.
   /// Null until the auth layer wires in the signed-in user.
@@ -201,6 +209,11 @@ class SyncV2Service {
     final pending = await _outbox.pending();
     if (pending.isEmpty) return [];
 
+    if (serverless) {
+      await _flushServerless(pending);
+      return const [];
+    }
+
     final errors = <String>[];
     for (var i = 0; i < pending.length; i += _pushChunkSize) {
       final end =
@@ -262,6 +275,7 @@ class SyncV2Service {
   /// snapshot-freshness decisions and for advancing the local HLC clock used
   /// when producing new operations.
   Future<void> pull() async {
+    if (serverless) return;
     final workspaceId = await getWorkspaceId();
     if (workspaceId == null) return;
 
@@ -365,6 +379,124 @@ class SyncV2Service {
       ids,
     );
     return rows.map((r) => r['id'] as String).toSet();
+  }
+
+  /// Serverless flush: applies pending envelopes to the local derived cache
+  /// without pushing them anywhere.
+  ///
+  /// Envelopes already recorded as locally applied (`is_local = 1`) are
+  /// skipped, so repeated flushes are cheap no-ops. The rows stay in the
+  /// outbox (state `pending`) so a later server attach pushes them through
+  /// the normal path.
+  Future<void> _flushServerless(List<PendingRelayEnvelope> pending) async {
+    final known = await _localOperationIds(
+      pending.map((p) => p.envelope.id).toList(),
+    );
+    final fresh = pending.where((p) => !known.contains(p.envelope.id)).toList();
+    if (fresh.isEmpty) return;
+
+    final appliers = RelayAppliers(_cache);
+    final envelopes = <OperationEnvelope>[];
+    for (final entry in fresh) {
+      await appliers.apply(entry.envelope);
+      envelopes.add(entry.envelope);
+    }
+    await _recordOperations(envelopes, isLocal: true);
+
+    if (await _cache.shouldReindexSearch()) {
+      await _cache.reindexAll();
+    }
+  }
+
+  /// Ids from [ids] already recorded as applied locally (serverless mode).
+  Future<Set<String>> _localOperationIds(List<String> ids) async {
+    if (ids.isEmpty) return const {};
+    final db = await _database.database;
+    final placeholders = ids.map((_) => '?').join(',');
+    final rows = await db.rawQuery(
+      'SELECT id FROM relay_operations WHERE is_local = 1 AND id IN ($placeholders)',
+      ids,
+    );
+    return rows.map((r) => r['id'] as String).toSet();
+  }
+
+  /// Builds a relay envelope for a raw [opType]/[payload], enqueues it in the
+  /// outbox, applies it to the local cache and records it as locally applied.
+  ///
+  /// Used by the local workspace seed, which needs op types [enqueue] does
+  /// not model (`class.create`) plus immediate cache application. A later
+  /// serverless [flush] skips the envelope via operation-id dedupe; after a
+  /// server attach, flush pushes the still-pending outbox row.
+  Future<OperationEnvelope> emitLocal({
+    required String opType,
+    required Map<String, dynamic> payload,
+    required List<String> affectedNodeIds,
+  }) async {
+    final workspaceId = await getWorkspaceId();
+    if (workspaceId == null) {
+      throw const SyncV2Exception('No workspace configured');
+    }
+    final envelope = OperationEnvelope(
+      id: Uuid7.generate(),
+      workspaceId: workspaceId,
+      actorId: actorId,
+      hlc: _clock.advance(),
+      affectedNodeIds: affectedNodeIds,
+      opType: opType,
+      payload: payload,
+      timestamp: DateTime.now().toUtc().toIso8601String(),
+    );
+    await _outbox.enqueue(envelope);
+    await RelayAppliers(_cache).apply(envelope);
+    await _recordOperations([envelope], isLocal: true);
+    return envelope;
+  }
+
+  /// Rewrites the workspace (and optionally actor) id of all locally produced
+  /// relay state: pending outbox envelopes, recorded operations and
+  /// favorites. Called when a local profile attaches a server, so the
+  /// accumulated outbox maps onto the server workspace and its actor.
+  Future<void> remapWorkspace(
+    String fromWorkspaceId,
+    String toWorkspaceId, {
+    String? actorId,
+  }) async {
+    final db = await _database.database;
+
+    // Outbox rows embed the workspace/actor ids inside the envelope JSON;
+    // rewrite row by row instead of relying on SQLite JSON1 availability.
+    final rows = await db.query('relay_outbox', columns: ['id', 'envelope_json']);
+    for (final row in rows) {
+      final envelopeJson =
+          jsonDecode(row['envelope_json'] as String) as Map<String, dynamic>;
+      if (envelopeJson['workspaceId'] != fromWorkspaceId) continue;
+      envelopeJson['workspaceId'] = toWorkspaceId;
+      if (actorId != null) envelopeJson['actorId'] = actorId;
+      await db.update(
+        'relay_outbox',
+        {'envelope_json': jsonEncode(envelopeJson)},
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+    }
+
+    final operationValues = <String, dynamic>{'workspace_id': toWorkspaceId};
+    if (actorId != null) operationValues['actor_id'] = actorId;
+    await db.update(
+      'relay_operations',
+      operationValues,
+      where: 'workspace_id = ?',
+      whereArgs: [fromWorkspaceId],
+    );
+
+    final favoriteValues = <String, dynamic>{'workspace_id': toWorkspaceId};
+    if (actorId != null) favoriteValues['actor_id'] = actorId;
+    await db.update(
+      'user_favorite',
+      favoriteValues,
+      where: 'workspace_id = ?',
+      whereArgs: [fromWorkspaceId],
+    );
   }
 
   Future<OperationEnvelope> _intentToEnvelope(
