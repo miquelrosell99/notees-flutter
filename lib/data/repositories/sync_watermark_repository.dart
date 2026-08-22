@@ -29,6 +29,7 @@ class SyncWatermarkRepository {
     String workspaceId,
     Hlc hlc, {
     int restoreEpoch = 0,
+    int cursorSeq = 0,
   }) async {
     final db = await _database.database;
     await db.insert(
@@ -38,9 +39,25 @@ class SyncWatermarkRepository {
         'hlc_physical': hlc.physical,
         'hlc_logical': hlc.logical,
         'restore_epoch': restoreEpoch,
+        'cursor_seq': cursorSeq,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  /// Highest applied server-assigned envelope seq for [workspaceId].
+  /// Returns `0` (full catch-up) when no row exists yet.
+  Future<int> getCursorSeq(String workspaceId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'sync_watermark',
+      columns: ['cursor_seq'],
+      where: 'workspace_id = ?',
+      whereArgs: [workspaceId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return 0;
+    return rows.first['cursor_seq'] as int? ?? 0;
   }
 
   Future<Hlc?> getPushed(String workspaceId) async {

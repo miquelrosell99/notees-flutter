@@ -218,6 +218,11 @@ class SyncV2Service {
 
   /// Pulls server-side relay envelopes since the last pull and applies them to
   /// the local node cache.
+  ///
+  /// Catch-up is driven by the server-assigned seq cursor persisted in
+  /// `sync_watermark.cursor_seq`; the HLC watermark is only kept for
+  /// snapshot-freshness decisions and for advancing the local HLC clock used
+  /// when producing new operations.
   Future<void> pull() async {
     final workspaceId = await getWorkspaceId();
     if (workspaceId == null) return;
@@ -238,6 +243,7 @@ class SyncV2Service {
       await _watermarks.resetWorkspace(workspaceId);
     }
 
+    var cursorSeq = await _watermarks.getCursorSeq(workspaceId);
     var lastReceived =
         await _watermarks.getReceived(workspaceId) ?? const Hlc(physical: 0, logical: 0);
     final snapshotIsNewer =
@@ -248,34 +254,34 @@ class SyncV2Service {
       final bytes = base64Decode(snapshot.dataBase64!);
       await _cache.restoreFromSnapshot(bytes, workspaceId);
       lastReceived = snapshot.hlc;
+      // Snapshots recorded before the seq cursor existed report null; catch
+      // up from 0 and rely on operation-id dedupe.
+      cursorSeq = snapshot.upToSeq ?? 0;
       await _watermarks.setReceived(
         workspaceId,
         lastReceived,
         restoreEpoch: snapshot.restoreEpoch,
+        cursorSeq: cursorSeq,
       );
     }
 
     final allEnvelopes = <OperationEnvelope>[];
-    String? afterId;
     while (true) {
       final response = await _relay.catchUp(
         workspaceId: workspaceId,
-        hlc: lastReceived,
-        afterId: afterId,
+        afterSeq: cursorSeq,
       );
       allEnvelopes.addAll(response.envelopes);
-      if (!response.hasMore) break;
-      afterId = response.nextAfterId;
-      if (afterId == null) break;
+      final next = response.nextAfterSeq;
+      if (next != null) cursorSeq = next;
+      // On the final page nextAfterSeq is still set to the last envelope's
+      // seq, so the cursor adopted above covers the tail. A null cursor with
+      // hasMore would loop forever; break defensively.
+      if (!response.hasMore || next == null) break;
     }
 
     if (allEnvelopes.isNotEmpty) {
-      allEnvelopes.sort((a, b) {
-        final cmp = a.hlc.compareTo(b.hlc);
-        if (cmp != 0) return cmp;
-        return a.id.compareTo(b.id);
-      });
-
+      // Envelopes arrive in ascending server-seq order; apply in that order.
       final appliers = RelayAppliers(_cache);
       var maxHlc = lastReceived;
       for (final envelope in allEnvelopes) {
@@ -289,6 +295,7 @@ class SyncV2Service {
         workspaceId,
         maxHlc,
         restoreEpoch: snapshot.restoreEpoch,
+        cursorSeq: cursorSeq,
       );
       _clock.update(maxHlc);
     }

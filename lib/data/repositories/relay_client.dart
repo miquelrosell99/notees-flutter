@@ -1,6 +1,5 @@
 import 'package:dio/dio.dart';
 
-import '../../domain/models/relay/hlc.dart';
 import '../../domain/models/relay/operation_envelope.dart';
 import '../../domain/models/relay/relay_requests.dart';
 
@@ -18,7 +17,10 @@ class RelayClient {
   static const _catchUpPath = '/relay/catch-up';
   static const _snapshotPath = '/relay/snapshot';
 
-  /// Push a batch of encrypted operation envelopes to the relay.
+  /// Push a batch of operation envelopes to the relay.
+  ///
+  /// Envelopes are plaintext JSON on the wire; confidentiality comes from the
+  /// transport layer (TLS/Tailscale), not from the envelope itself.
   Future<RelayBatchResponse> pushBatch(List<OperationEnvelope> envelopes) async {
     final response = await dio.post<Map<String, dynamic>>(
       _batchPath,
@@ -31,22 +33,22 @@ class RelayClient {
     return RelayBatchResponse.fromJson(data);
   }
 
-  /// Pull operation envelopes newer than [hlc] for [workspaceId].
+  /// Pull operation envelopes with a server-assigned seq greater than
+  /// [afterSeq] for [workspaceId].
   ///
-  /// Pagination uses [afterId] (the id of the last envelope from the previous
+  /// Envelopes arrive in ascending seq order. Adopt [CatchUpResponse.nextAfterSeq]
+  /// as the cursor for the next page (and as the stored cursor on the final
   /// page). The server caps [limit] to 10,000.
   Future<CatchUpResponse> catchUp({
     required String workspaceId,
-    required Hlc hlc,
-    String? afterId,
+    int afterSeq = 0,
     int limit = 1000,
   }) async {
     final response = await dio.post<Map<String, dynamic>>(
       _catchUpPath,
       data: CatchUpRequest(
         workspaceId: workspaceId,
-        hlc: hlc,
-        afterId: afterId,
+        afterSeq: afterSeq,
         limit: limit,
       ).toJson(),
     );

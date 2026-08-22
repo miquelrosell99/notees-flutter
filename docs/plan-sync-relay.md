@@ -47,7 +47,7 @@ Minimum viable migration that keeps the existing UI and tests green:
 ### Phase B — Relay client
 - `lib/data/repositories/relay_client.dart`
   - `pushBatch(envelopes)` → `POST /api/relay/batch`
-  - `catchUp(workspaceId, hlc, {afterId, limit})` → `POST /api/relay/catch-up`
+  - `catchUp(workspaceId, {afterSeq, limit})` → `POST /api/relay/catch-up` (seq cursor, not HLC)
   - `latestSnapshot(workspaceId)` → `GET /api/relay/snapshot`
 
 ### Phase C — Sync service rewrite
