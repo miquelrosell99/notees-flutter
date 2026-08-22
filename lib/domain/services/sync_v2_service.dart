@@ -38,10 +38,9 @@ class SyncV2Service {
   SyncV2Service({
     required AppDatabase database,
     required this.dio,
-    required String clientId,
+    required this._clientId,
     this.serverless = false,
   })  : _database = database,
-        _clientId = clientId,
         _outbox = RelayOutboxRepository(database),
         _watermarks = SyncWatermarkRepository(database),
         _cache = NodeCacheRepository(database),
