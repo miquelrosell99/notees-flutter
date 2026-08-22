@@ -17,6 +17,10 @@
     <string name="widget_all_caught_up">All caught up</string>
     <string name="widget_add_task">Add task</string>
     <string name="widget_complete_task">Complete task</string>
+    <string name="widget_favorites_title">Favorites</string>
+    <string name="widget_no_favorites">No favorites yet</string>
+    <string name="widget_inbox_title">Inbox</string>
+    <string name="widget_inbox_empty">Inbox is empty</string>
 
     <plurals name="widget_task_count">
         <item quantity="one">%d task</item>
