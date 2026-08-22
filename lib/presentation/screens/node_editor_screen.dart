@@ -29,6 +29,7 @@ import '../widgets/block_tree_editor.dart';
 import '../widgets/editor_inline_toolbar.dart';
 import '../widgets/fleet_card.dart';
 import '../widgets/bottom_sheet_drag_handle.dart';
+import '../widgets/empty_state.dart';
 import '../widgets/mention_picker.dart';
 import '../widgets/node_edit_modal.dart';
 import '../widgets/node_picker.dart';
@@ -1377,7 +1378,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: _breadcrumbs.isEmpty ? null : _buildBreadcrumbRow(),
         actions: [
           IconButton(
             icon: Icon(MdiIcons.dotsVertical),
@@ -1405,12 +1405,20 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
+                if (_breadcrumbs.isNotEmpty)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                      child: _buildBreadcrumbRow(),
+                    ),
+                  ),
                 Expanded(
                   child: RefreshIndicator(
                     onRefresh: _loadPage,
                     child: ListView(
                       controller: _scrollController,
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
                       children: [
                         if (_error != null)
                           Padding(
@@ -1425,12 +1433,15 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                               ),
                             ),
                           ),
-                        _buildTitleField(),
+                        _buildTitleHeader(),
                         _buildClassPills(colors),
                         const SizedBox(height: 8),
                         _buildPropertiesSection(colors),
                         const SizedBox(height: 8),
-                        _buildBlockTree(colors),
+                        if (_roots.isEmpty && _error == null)
+                          _buildEmptyPageState()
+                        else
+                          _buildBlockTree(colors),
                         const SizedBox(height: 80),
                         _buildChildPagesSection(colors, settings.dateFormat),
                         _buildLinkedReferencesSection(colors),
@@ -1452,7 +1463,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     );
   }
 
-  /// Compact breadcrumb row shown in the app bar title slot.
+  /// Left-aligned breadcrumb strip shown under the app bar.
   Widget _buildBreadcrumbRow() {
     final colors = Theme.of(context).colorScheme;
     final dateFormat = context.read<SettingsProvider>().dateFormat;
@@ -1511,47 +1522,84 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     );
   }
 
-  Widget _buildTitleField() {
+  /// Notion-style header: tappable icon above a tappable serif display title.
+  Widget _buildTitleHeader() {
     final colors = Theme.of(context).colorScheme;
-    final pageColor = ColorPresets.tryResolve(_pageColor);
     final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
     final canRename = !isJournalDatePage;
 
-    return TextField(
-      controller: _titleController,
-      readOnly: true,
-      canRequestFocus: false,
-      onTap: canRename ? _showRenameTitleDialog : null,
-      style: Theme.of(
-        context,
-      ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-      decoration: InputDecoration(
-        hintText: 'Untitled',
-        prefixIcon: NodeIcon(
-          iconField: _pageIcon,
-          size: 28,
-          fallbackColor: colors.onSurfaceVariant,
-        ),
-        suffixIcon: _pageIsPrivate
-            ? Icon(
-                MdiIcons.lockOutline,
-                size: 18,
-                color: colors.onSurfaceVariant,
-              )
-            : null,
-        enabledBorder: UnderlineInputBorder(
-          borderSide: BorderSide(
-            color: pageColor ?? colors.outline.withAlpha((0.2 * 255).round()),
-            width: pageColor != null ? 2 : 1,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: canRename ? _onTitleTap : null,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: NodeIcon(
+              iconField: _pageIcon,
+              size: 32,
+              fallbackColor: colors.onSurfaceVariant,
+            ),
           ),
         ),
-        disabledBorder: UnderlineInputBorder(
-          borderSide: BorderSide(
-            color: pageColor ?? colors.outline.withAlpha((0.2 * 255).round()),
-            width: pageColor != null ? 2 : 1,
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: canRename ? _onTitleTap : null,
+          behavior: HitTestBehavior.opaque,
+          child: ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _titleController,
+            builder: (context, value, _) {
+              final title = value.text.trim();
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      title.isEmpty ? 'Untitled' : value.text,
+                      style: Theme.of(context).textTheme.headlineMedium
+                          ?.copyWith(
+                            color: title.isEmpty
+                                ? colors.onSurfaceVariant.withAlpha(
+                                    (0.6 * 255).round(),
+                                  )
+                                : colors.onSurface,
+                          ),
+                    ),
+                  ),
+                  if (_pageIsPrivate) ...[
+                    const SizedBox(width: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Icon(
+                        MdiIcons.lockOutline,
+                        size: 18,
+                        color: colors.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            },
           ),
         ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+      ],
+    );
+  }
+
+  void _onTitleTap() {
+    HapticFeedback.lightImpact();
+    _showRenameTitleDialog();
+  }
+
+  /// Placeholder shown when the page has no blocks yet.
+  Widget _buildEmptyPageState() {
+    return SizedBox(
+      height: 320,
+      child: EmptyState(
+        icon: MdiIcons.noteTextOutline,
+        title: 'Empty page',
+        subtitle: 'Tap + to start writing',
       ),
     );
   }
