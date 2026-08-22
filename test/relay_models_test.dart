@@ -45,6 +45,7 @@ void main() {
       final json = envelope.toJson();
       final restored = OperationEnvelope.fromJson(json);
 
+      expect(json['protocolVersion'], kRelayProtocolVersion);
       expect(restored.id, envelope.id);
       expect(restored.workspaceId, envelope.workspaceId);
       expect(restored.actorId, envelope.actorId);
@@ -52,7 +53,39 @@ void main() {
       expect(restored.affectedNodeIds, envelope.affectedNodeIds);
       expect(restored.opType, envelope.opType);
       expect(restored.payload, envelope.payload);
+      expect(restored.protocolVersion, kRelayProtocolVersion);
       expect(restored.timestamp, envelope.timestamp);
+    });
+
+    test('throws when protocolVersion is missing', () {
+      expect(
+        () => OperationEnvelope.fromJson({
+          'id': 'env-1',
+          'workspaceId': 'ws-1',
+          'actorId': 'actor-1',
+          'hlc': {'physical': 1, 'logical': 0},
+          'affectedNodeIds': <String>[],
+          'opType': 'node.create',
+          'payload': <String, dynamic>{},
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('throws when protocolVersion is newer than supported', () {
+      expect(
+        () => OperationEnvelope.fromJson({
+          'id': 'env-1',
+          'protocolVersion': kRelayProtocolVersion + 1,
+          'workspaceId': 'ws-1',
+          'actorId': 'actor-1',
+          'hlc': {'physical': 1, 'logical': 0},
+          'affectedNodeIds': <String>[],
+          'opType': 'node.create',
+          'payload': <String, dynamic>{},
+        }),
+        throwsFormatException,
+      );
     });
 
     test('omits null timestamp from JSON', () {
@@ -110,31 +143,111 @@ void main() {
     });
   });
 
+  group('CatchUpRequest', () {
+    test('serializes workspace_id, after_seq, and limit', () {
+      const request = CatchUpRequest(
+        workspaceId: 'ws-1',
+        afterSeq: 42,
+        limit: 500,
+      );
+
+      expect(request.toJson(), {
+        'workspace_id': 'ws-1',
+        'after_seq': 42,
+        'limit': 500,
+      });
+    });
+
+    test('after_seq defaults to 0', () {
+      const request = CatchUpRequest(workspaceId: 'ws-1');
+
+      expect(request.toJson()['after_seq'], 0);
+      expect(request.toJson().containsKey('hlc'), isFalse);
+      expect(request.toJson().containsKey('after_id'), isFalse);
+    });
+  });
+
   group('CatchUpResponse', () {
+    Map<String, dynamic> envelopeJson(String id) => {
+          'id': id,
+          'protocolVersion': kRelayProtocolVersion,
+          'workspaceId': 'ws',
+          'actorId': 'a',
+          'hlc': {'physical': 10, 'logical': 0},
+          'affectedNodeIds': ['n'],
+          'opType': 'node.create',
+          'payload': {'nodeId': 'n'},
+          'timestamp': '2026-08-09T12:00:00.000Z',
+        };
+
     test('parses envelopes and pagination', () {
       final response = CatchUpResponse.fromJson({
-        'envelopes': [
-          {
-            'id': 'e1',
-            'workspaceId': 'ws',
-            'actorId': 'a',
-            'hlc': {'physical': 10, 'logical': 0},
-            'affectedNodeIds': ['n'],
-            'opType': 'node.create',
-            'payload': {'nodeId': 'n'},
-            'timestamp': '2026-08-09T12:00:00.000Z',
-          },
-        ],
-        'next_after_id': 'e1',
+        'envelopes': [envelopeJson('e1')],
+        'next_after_seq': 41,
         'has_more': true,
         'restore_epoch': 7,
       });
 
       expect(response.envelopes, hasLength(1));
       expect(response.envelopes.first.id, 'e1');
-      expect(response.nextAfterId, 'e1');
+      expect(response.nextAfterSeq, 41);
       expect(response.hasMore, isTrue);
       expect(response.restoreEpoch, 7);
+    });
+
+    test('final page still carries the cursor to adopt', () {
+      final response = CatchUpResponse.fromJson({
+        'envelopes': [envelopeJson('e1'), envelopeJson('e2')],
+        'next_after_seq': 87,
+        'has_more': false,
+        'restore_epoch': 0,
+      });
+
+      expect(response.hasMore, isFalse);
+      expect(response.nextAfterSeq, 87);
+    });
+
+    test('empty page has a null cursor', () {
+      final response = CatchUpResponse.fromJson({
+        'envelopes': <Map<String, dynamic>>[],
+        'next_after_seq': null,
+        'has_more': false,
+        'restore_epoch': 0,
+      });
+
+      expect(response.envelopes, isEmpty);
+      expect(response.nextAfterSeq, isNull);
+    });
+  });
+
+  group('LatestSnapshotResponse', () {
+    test('parses up_to_seq when present', () {
+      final response = LatestSnapshotResponse.fromJson({
+        'snapshot_id': 'snap-1',
+        'workspace_id': 'ws-1',
+        'hlc': {'physical': 100, 'logical': 0},
+        'data_base64': 'AAAA',
+        'has_snapshot': true,
+        'restore_epoch': 3,
+        'up_to_seq': 512,
+      });
+
+      expect(response.upToSeq, 512);
+      expect(response.restoreEpoch, 3);
+    });
+
+    test('up_to_seq is nullable for pre-existing snapshots', () {
+      final response = LatestSnapshotResponse.fromJson({
+        'snapshot_id': 'snap-1',
+        'workspace_id': 'ws-1',
+        'hlc': {'physical': 100, 'logical': 0},
+        'data_base64': 'AAAA',
+        'has_snapshot': true,
+        'restore_epoch': 0,
+        'up_to_seq': null,
+      });
+
+      expect(response.upToSeq, isNull);
     });
   });
 }

@@ -20,7 +20,7 @@ local-first, operation-log architecture:
   `GET /api/relay/snapshot`, `POST /api/relay/snapshot`, `POST /api/relay/compact`,
   `/api/relay/ws/{workspace_id}`.
 - Legacy endpoints removed: `/api/nodes/*`, `/api/properties/*`, `/api/sync/*`.
-- Envelope: `{id, workspaceId, actorId, hlc:{physical,logical},
+- Envelope: `{id, protocolVersion, workspaceId, actorId, hlc:{physical,logical},
   affectedNodeIds[], opType, payload}`.
 - Derived state is rebuilt client-side from the immutable operation log.
 
@@ -32,14 +32,17 @@ local-first, operation-log architecture:
 - **Batch push**: `POST /api/relay/batch` body `{"envelopes": [...]}` matches.
   Response keys `saved_count` / `saved_ids` are correctly parsed by
   `RelayBatchResponse`.
-- **Catch-up request/response**: now uses snake_case keys (`workspace_id`,
-  `after_id`, `next_after_id`, `has_more`, `restore_epoch`) to match the server
-  wire format.
+- **Catch-up request/response**: uses snake_case keys (`workspace_id`,
+  `after_seq`, `next_after_seq`, `has_more`, `restore_epoch`) to match the
+  server wire format. The cursor is the server-assigned envelope seq, not HLC.
 - **Snapshot response**: now parses snake_case keys (`snapshot_id`,
-  `workspace_id`, `data_base64`, `has_snapshot`, `restore_epoch`) so the SQLite
-  snapshot bytes can be restored.
-- **HLC ordering**: Flutter and server both order by physical, then logical,
-  then envelope id as a tie-breaker.
+  `workspace_id`, `data_base64`, `has_snapshot`, `restore_epoch`, `up_to_seq`)
+  so the SQLite snapshot bytes can be restored; catch-up resumes from
+  `up_to_seq` (or 0 when null).
+- **Envelope ordering**: the server assigns each envelope a `seq` and serves
+  catch-up in ascending seq order; the client applies envelopes in that order.
+  HLC remains causality metadata inside the envelope and drives the local HLC
+  clock for newly produced operations.
 - **HLC clock semantics**: aligned with the server's `Clock.update`
   implementation (`lib/domain/services/hlc_clock.dart`).
 - **Operation payloads**: `node.create`, `node.updateContent`, `node.updateIcon`,

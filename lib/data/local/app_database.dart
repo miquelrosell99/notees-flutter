@@ -68,7 +68,7 @@ class AppDatabase {
     final path = await _path;
     return openDatabase(
       path,
-      version: 12,
+      version: 13,
       password: encryptionPassword,
       onCreate: (db, version) async {
         await _createOfflineQueue(db);
@@ -123,6 +123,9 @@ class AppDatabase {
         }
         if (oldVersion < 12) {
           await _migrateNodeCacheV12(db);
+        }
+        if (oldVersion < 13) {
+          await _migrateSyncWatermarkV13(db);
         }
       },
     );
@@ -316,9 +319,18 @@ class AppDatabase {
         workspace_id TEXT PRIMARY KEY,
         hlc_physical INTEGER NOT NULL,
         hlc_logical INTEGER NOT NULL,
-        restore_epoch INTEGER NOT NULL DEFAULT 0
+        restore_epoch INTEGER NOT NULL DEFAULT 0,
+        cursor_seq INTEGER NOT NULL DEFAULT 0
       )
     ''');
+  }
+
+  Future<void> _migrateSyncWatermarkV13(Database db) async {
+    // Adds the server-assigned seq catch-up cursor. Existing rows read as
+    // cursor 0 = full catch-up; re-applied envelopes are deduped by op id.
+    await db.execute(
+      'ALTER TABLE sync_watermark ADD COLUMN cursor_seq INTEGER NOT NULL DEFAULT 0',
+    );
   }
 
   Future<void> _createSyncPushWatermark(Database db) async {

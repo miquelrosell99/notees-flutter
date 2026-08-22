@@ -33,20 +33,20 @@ class RelayBatchResponse {
 class CatchUpRequest {
   const CatchUpRequest({
     required this.workspaceId,
-    required this.hlc,
-    this.afterId,
+    this.afterSeq = 0,
     this.limit = 1000,
   });
 
   final String workspaceId;
-  final Hlc hlc;
-  final String? afterId;
+
+  /// Exclusive lower bound on the server-assigned envelope sequence number.
+  /// `0` fetches from the beginning.
+  final int afterSeq;
   final int limit;
 
   Map<String, dynamic> toJson() => {
         'workspace_id': workspaceId,
-        'hlc': hlc.toJson(),
-        if (afterId != null) 'after_id': afterId,
+        'after_seq': afterSeq,
         'limit': limit,
       };
 }
@@ -55,13 +55,17 @@ class CatchUpRequest {
 class CatchUpResponse {
   const CatchUpResponse({
     required this.envelopes,
-    required this.nextAfterId,
+    required this.nextAfterSeq,
     required this.hasMore,
     required this.restoreEpoch,
   });
 
   final List<OperationEnvelope> envelopes;
-  final String? nextAfterId;
+
+  /// Cursor to adopt and pass back as `after_seq`. Still set on the final
+  /// page (`hasMore == false`) to the last envelope's seq; null only when the
+  /// page is empty.
+  final int? nextAfterSeq;
   final bool hasMore;
   final int restoreEpoch;
 
@@ -69,7 +73,7 @@ class CatchUpResponse {
         envelopes: (json['envelopes'] as List<dynamic>)
             .map((e) => OperationEnvelope.fromJson(e as Map<String, dynamic>))
             .toList(),
-        nextAfterId: json['next_after_id'] as String?,
+        nextAfterSeq: json['next_after_seq'] as int?,
         hasMore: json['has_more'] as bool,
         restoreEpoch: json['restore_epoch'] as int,
       );
@@ -84,6 +88,7 @@ class LatestSnapshotResponse {
     required this.dataBase64,
     required this.hasSnapshot,
     required this.restoreEpoch,
+    this.upToSeq,
   });
 
   final String? snapshotId;
@@ -93,6 +98,11 @@ class LatestSnapshotResponse {
   final bool hasSnapshot;
   final int restoreEpoch;
 
+  /// Highest envelope seq covered by the snapshot; post-restore catch-up
+  /// resumes from it. Null for snapshots recorded before the seq cursor
+  /// existed — catch up from `0` and rely on operation-id dedupe.
+  final int? upToSeq;
+
   factory LatestSnapshotResponse.fromJson(Map<String, dynamic> json) =>
       LatestSnapshotResponse(
         snapshotId: json['snapshot_id'] as String?,
@@ -101,5 +111,6 @@ class LatestSnapshotResponse {
         dataBase64: json['data_base64'] as String?,
         hasSnapshot: json['has_snapshot'] as bool,
         restoreEpoch: json['restore_epoch'] as int,
+        upToSeq: json['up_to_seq'] as int?,
       );
 }

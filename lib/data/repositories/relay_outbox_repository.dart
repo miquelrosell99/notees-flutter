@@ -21,19 +21,24 @@ class PendingRelayEnvelope {
   final DateTime? nextRetryAt;
   final DateTime createdAt;
 
-  factory PendingRelayEnvelope.fromRow(Map<String, dynamic> row) =>
-      PendingRelayEnvelope(
-        id: row['id'] as int,
-        envelope: OperationEnvelope.fromJson(
-          jsonDecode(row['envelope_json'] as String) as Map<String, dynamic>,
-        ),
-        attemptCount: row['attempt_count'] as int,
-        lastError: row['last_error'] as String?,
-        nextRetryAt: row['next_retry_at'] != null
-            ? DateTime.fromMillisecondsSinceEpoch(row['next_retry_at'] as int)
-            : null,
-        createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
-      );
+  factory PendingRelayEnvelope.fromRow(Map<String, dynamic> row) {
+    final envelopeJson =
+        jsonDecode(row['envelope_json'] as String) as Map<String, dynamic>;
+    // Envelopes persisted before protocolVersion existed are locally produced
+    // and always v1; stamp them so strict envelope parsing does not reject
+    // the app's own outbox.
+    envelopeJson.putIfAbsent('protocolVersion', () => kRelayProtocolVersion);
+    return PendingRelayEnvelope(
+      id: row['id'] as int,
+      envelope: OperationEnvelope.fromJson(envelopeJson),
+      attemptCount: row['attempt_count'] as int,
+      lastError: row['last_error'] as String?,
+      nextRetryAt: row['next_retry_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(row['next_retry_at'] as int)
+          : null,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
+    );
+  }
 }
 
 /// Local outbox for relay operation envelopes.
