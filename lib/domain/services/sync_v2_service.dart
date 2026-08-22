@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
 import '../../core/constants/system.dart';
@@ -54,7 +55,26 @@ class SyncV2Service {
   final Dio dio;
   final String _clientId;
 
+  /// The authenticated user's uuid, used as the relay envelope actor id.
+  /// Null until the auth layer wires in the signed-in user.
+  String? _actorId;
+
   String get clientId => _clientId;
+
+  /// The actor id stamped on produced envelopes: the authenticated user's
+  /// uuid once known, otherwise the per-install device [clientId]. The web
+  /// client uses the user's uuid from `/auth/me`; matching it keeps
+  /// actor-keyed state (e.g. favorites) consistent across devices.
+  String get actorId => _actorId ?? _clientId;
+
+  /// Whether [actorId] is a real authenticated user id rather than the
+  /// device client id fallback.
+  bool get hasUserActor => _actorId != null;
+
+  /// Wires the authenticated user's uuid in as the relay actor id. Called by
+  /// the auth layer after login/session restore; pass `null` on logout.
+  /// [clientId] remains the HLC device identity regardless.
+  set actorId(String? value) => _actorId = value;
 
   /// Local derived cache populated by pull sync.
   NodeCacheRepository get cache => _cache;
@@ -119,6 +139,24 @@ class SyncV2Service {
     final workspaceId = await getWorkspaceId();
     if (workspaceId == null) {
       throw const SyncV2Exception('No workspace configured');
+    }
+
+    // Guard: a content op with a null AST omits the `content` key on the
+    // wire, the server rejects it with 422, and the op would sit in the
+    // quarantine forever. Skip it instead and surface via the log.
+    final producesNullContent = (type == 'update_content' && contentAst == null) ||
+        (type == 'update_node' && name == null);
+    if (producesNullContent) {
+      debugPrint(
+        'SyncV2Service: skipping $type for $nodeUuid with null content '
+        '(would be rejected by the server)',
+      );
+      return OperationIntent(
+        type: type,
+        clientId: _clientId,
+        seq: 0,
+        nodeUuid: nodeUuid,
+      );
     }
 
     final op = OperationIntent(
@@ -246,8 +284,13 @@ class SyncV2Service {
     var cursorSeq = await _watermarks.getCursorSeq(workspaceId);
     var lastReceived =
         await _watermarks.getReceived(workspaceId) ?? const Hlc(physical: 0, logical: 0);
-    final snapshotIsNewer =
-        snapshot.hasSnapshot && snapshot.hlc.compareTo(lastReceived) > 0;
+    // Snapshot freshness is decided by the seq cursor (SPEC §2.1); the HLC
+    // comparison is only a fallback for snapshots recorded before the seq
+    // cursor existed (upToSeq == null).
+    final snapshotIsNewer = snapshot.hasSnapshot &&
+        (snapshot.upToSeq != null
+            ? snapshot.upToSeq! > cursorSeq
+            : snapshot.hlc.compareTo(lastReceived) > 0);
     if (snapshotIsNewer &&
         snapshot.dataBase64 != null &&
         snapshot.dataBase64!.isNotEmpty) {
@@ -265,44 +308,63 @@ class SyncV2Service {
       );
     }
 
-    final allEnvelopes = <OperationEnvelope>[];
+    // Apply and persist the cursor page by page: a mid-page throw then only
+    // re-fetches the remaining pages, and already-recorded envelope ids are
+    // deduped on apply.
+    final appliers = RelayAppliers(_cache);
+    var maxHlc = lastReceived;
     while (true) {
       final response = await _relay.catchUp(
         workspaceId: workspaceId,
         afterSeq: cursorSeq,
       );
-      allEnvelopes.addAll(response.envelopes);
-      final next = response.nextAfterSeq;
-      if (next != null) cursorSeq = next;
-      // On the final page nextAfterSeq is still set to the last envelope's
-      // seq, so the cursor adopted above covers the tail. A null cursor with
-      // hasMore would loop forever; break defensively.
-      if (!response.hasMore || next == null) break;
-    }
-
-    if (allEnvelopes.isNotEmpty) {
-      // Envelopes arrive in ascending server-seq order; apply in that order.
-      final appliers = RelayAppliers(_cache);
-      var maxHlc = lastReceived;
-      for (final envelope in allEnvelopes) {
-        await appliers.apply(envelope);
-        await _recordOperations([envelope], isLocal: false);
-        if (envelope.hlc.compareTo(maxHlc) > 0) {
-          maxHlc = envelope.hlc;
+      if (response.envelopes.isNotEmpty) {
+        // Dedupe against envelopes already applied from the server (a
+        // crashed pull, or a snapshot with a null upToSeq). Locally produced
+        // envelopes (is_local = 1) are NOT deduped here: they were never
+        // applied to the cache and must still be applied when echoed back.
+        final knownIds = await _appliedOperationIds(
+          response.envelopes.map((e) => e.id).toList(),
+        );
+        for (final envelope in response.envelopes) {
+          if (knownIds.contains(envelope.id)) continue;
+          await appliers.apply(envelope);
+          await _recordOperations([envelope], isLocal: false);
+          if (envelope.hlc.compareTo(maxHlc) > 0) {
+            maxHlc = envelope.hlc;
+          }
         }
       }
+      final next = response.nextAfterSeq;
+      if (next != null) cursorSeq = next;
       await _watermarks.setReceived(
         workspaceId,
         maxHlc,
         restoreEpoch: snapshot.restoreEpoch,
         cursorSeq: cursorSeq,
       );
-      _clock.update(maxHlc);
+      // On the final page nextAfterSeq is still set to the last envelope's
+      // seq, so the cursor persisted above covers the tail. A null cursor
+      // with hasMore would loop forever; break defensively.
+      if (!response.hasMore || next == null) break;
     }
+    _clock.update(maxHlc);
 
     if (await _cache.shouldReindexSearch()) {
       await _cache.reindexAll();
     }
+  }
+
+  /// Ids from [ids] already recorded as applied from the server.
+  Future<Set<String>> _appliedOperationIds(List<String> ids) async {
+    if (ids.isEmpty) return const {};
+    final db = await _database.database;
+    final placeholders = ids.map((_) => '?').join(',');
+    final rows = await db.rawQuery(
+      'SELECT id FROM relay_operations WHERE is_local = 0 AND id IN ($placeholders)',
+      ids,
+    );
+    return rows.map((r) => r['id'] as String).toSet();
   }
 
   Future<OperationEnvelope> _intentToEnvelope(
@@ -350,6 +412,7 @@ class SyncV2Service {
           classIds: classIds,
           color: op.properties?['color'] as String?,
           initialContent: initialContent,
+          index: op.newIndex == null ? null : _formatPosition(op.newIndex!),
         );
       case 'update_content':
         opType = 'node.updateContent';
@@ -390,7 +453,7 @@ class SyncV2Service {
         payload = OperationPayloads.nodeMove(
           nodeId: op.nodeUuid,
           newParentId: op.parentUuid,
-          newIndex: op.newIndex,
+          newIndex: op.newIndex == null ? null : _formatPosition(op.newIndex!),
         );
       case 'set_property':
         opType = 'property.set';
@@ -446,7 +509,7 @@ class SyncV2Service {
     return OperationEnvelope(
       id: id,
       workspaceId: workspaceId,
-      actorId: _clientId,
+      actorId: actorId,
       hlc: hlc,
       affectedNodeIds: affectedNodeIds,
       opType: opType,
@@ -454,6 +517,11 @@ class SyncV2Service {
       timestamp: timestamp,
     );
   }
+
+  /// Child positions are stored as zero-padded strings on the server
+  /// (`node_child_order.position` is TEXT, ordered lexicographically);
+  /// matches the web client's `padStart(10, '0')` format.
+  static String _formatPosition(int index) => index.toString().padLeft(10, '0');
 
   Future<void> _recordOperations(
     List<OperationEnvelope> envelopes, {
@@ -501,6 +569,13 @@ class SyncV2Service {
 
   Future<void> _quarantine(List<int> ids, String error) async {
     if (ids.isEmpty) return;
+    // Surface quarantined ops instead of dropping them silently; they stay
+    // in `relay_outbox` with state = 'quarantined' for inspection, and the
+    // error is also returned to flush() callers.
+    debugPrint(
+      'SyncV2Service: quarantining ${ids.length} operation(s) after a '
+      'permanent push failure: $error',
+    );
     final db = await _database.database;
     await db.update(
       'relay_outbox',

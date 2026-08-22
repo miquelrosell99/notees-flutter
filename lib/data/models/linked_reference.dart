@@ -1,7 +1,10 @@
 import 'node.dart';
 
-/// A backlink to a node from another node, as returned by
-/// `GET /api/nodes/{uuid}/linked-references`.
+/// A backlink to a node from another node.
+///
+/// The old `GET /api/nodes/{uuid}/linked-references` endpoint was removed;
+/// backlinks are expected to come from the local derived state (currently
+/// not rebuilt locally — see `NodeCacheRepository.getLinkedReferences`).
 class LinkedReference {
   const LinkedReference({
     required this.sourceNode,

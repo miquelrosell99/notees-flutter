@@ -16,6 +16,7 @@ class OperationPayloads {
     String? icon,
     String? color,
     List<Map<String, dynamic>>? initialContent,
+    String? index,
   }) => {
         'nodeId': nodeId,
         'kind': kind,
@@ -24,6 +25,7 @@ class OperationPayloads {
         if (icon != null) 'icon': icon,
         if (color != null) 'color': color,
         if (initialContent != null) 'initialContent': initialContent,
+        if (index != null) 'index': index,
       };
 
   static Map<String, dynamic> nodeUpdateContent({
@@ -64,10 +66,12 @@ class OperationPayloads {
         'color': color,
       };
 
+  /// [newIndex] is a zero-padded position string: the server stores child
+  /// positions as lexicographically ordered TEXT in `node_child_order`.
   static Map<String, dynamic> nodeMove({
     required String nodeId,
     required String? newParentId,
-    int? newIndex,
+    String? newIndex,
   }) =>
       {
         'nodeId': nodeId,

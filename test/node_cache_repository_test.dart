@@ -151,6 +151,23 @@ void main() {
       expect(await repo.getFavoriteUuids('ws-1'), ['p-2', 'p-3']);
     });
 
+    test('favorites are isolated per actor', () async {
+      await repo.upsert(makePage(uuid: 'p-1', name: 'A'));
+      await repo.upsert(makePage(uuid: 'p-2', name: 'B'));
+
+      await repo.addFavorite('ws-1', 'p-1', actorId: 'user-1');
+      await repo.addFavorite('ws-1', 'p-2', actorId: 'user-2');
+
+      expect(await repo.getFavoriteUuids('ws-1', actorId: 'user-1'), ['p-1']);
+      expect(await repo.getFavoriteUuids('ws-1', actorId: 'user-2'), ['p-2']);
+      // No actor filter returns all rows for the workspace.
+      expect((await repo.getFavoriteUuids('ws-1')).length, 2);
+
+      await repo.removeFavorite('ws-1', 'p-1', actorId: 'user-1');
+      expect(await repo.getFavoriteUuids('ws-1', actorId: 'user-1'), isEmpty);
+      expect(await repo.getFavoriteUuids('ws-1', actorId: 'user-2'), ['p-2']);
+    });
+
     test('getAvailableProperties returns schemas attached to node classes', () async {
       final classUuid = '00000000-0000-0000-0000-000000000601';
       final schemaUuid = '00000000-0000-0000-0000-000000000602';
