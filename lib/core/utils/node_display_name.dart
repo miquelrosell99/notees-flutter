@@ -12,9 +12,14 @@ String resolveNodeDisplayName(Node node, {String? dateFormat}) {
   final date = journalDateFromUuid(node.uuid);
   if (date != null) {
     if (node.isMonthly) {
+      if (dateFormat != null) {
+        return _formatMonthWithSettings(date, dateFormat);
+      }
       return DateFormat.yMMMM().format(date);
     }
     if (node.isYearly) {
+      // Mirrors the web client's formatYear: always the 4-digit year,
+      // regardless of the date-format preference.
       return DateFormat.y().format(date);
     }
     if (dateFormat != null) {
@@ -46,4 +51,17 @@ String _formatWithSettings(DateTime date, String format) {
     'MM-DD-YYYY' => '$month-$day-$year',
     _ => '$year/$month/$day',
   };
+}
+
+/// Format a month journal label using one of the supported date-format
+/// patterns.
+///
+/// Mirrors the web client's `formatMonth` (settingsStore.ts): the separator
+/// comes from the format ('/' when the format contains '/', else '-'), and
+/// the year leads when the format starts with 'YYYY'.
+String _formatMonthWithSettings(DateTime date, String format) {
+  final year = date.year.toString();
+  final month = date.month.toString().padLeft(2, '0');
+  final separator = format.contains('/') ? '/' : '-';
+  return format.startsWith('YYYY') ? '$year$separator$month' : '$month$separator$year';
 }
