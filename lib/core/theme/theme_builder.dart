@@ -28,6 +28,14 @@ ThemeData buildNoteesTheme({
 
   final surfaceContainers = _surfaceContainers(isDark, pureBlack);
 
+  // Warm neutral palette mirrored from the web client (variables.css) so both
+  // clients render the same surfaces, text, and outlines.
+  final scaffoldBackground = isDark
+      ? (pureBlack ? Colors.black : const Color(0xFF121211))
+      : const Color(0xFFF5F3EF);
+  final surfaceColor =
+      isDark ? (pureBlack ? Colors.black : const Color(0xFF1A1A18)) : Colors.white;
+
   final colorScheme = ColorScheme.fromSeed(
     seedColor: seedColor,
     brightness: brightness,
@@ -35,8 +43,15 @@ ThemeData buildNoteesTheme({
     onPrimary: accent != null ? Colors.white : (isDark ? Colors.black : Colors.white),
     secondary: accent ?? (isDark ? Colors.grey.shade700 : Colors.grey.shade200),
     onSecondary: isDark ? Colors.white : Colors.black,
-    surface: pureBlack && isDark ? Colors.black : null,
   ).copyWith(
+    surface: surfaceColor,
+    onSurface: isDark ? const Color(0xFFE8E6E1) : const Color(0xFF1A1A1A),
+    onSurfaceVariant: isDark ? const Color(0xFFA8A29E) : const Color(0xFF5C5C5C),
+    outline: isDark ? const Color(0xFF6B6962) : const Color(0xFFC4BFB6),
+    outlineVariant: isDark ? const Color(0xFF2A2926) : const Color(0xFFE3DED6),
+    error: isDark ? const Color(0xFFEF5550) : const Color(0xFFC0392B),
+    inverseSurface: isDark ? const Color(0xFFE8E6E1) : const Color(0xFF1A1A1A),
+    onInverseSurface: isDark ? const Color(0xFF121211) : const Color(0xFFF5F3EF),
     surfaceContainerLowest: surfaceContainers.$1,
     surfaceContainerLow: surfaceContainers.$2,
     surfaceContainer: surfaceContainers.$3,
@@ -53,8 +68,8 @@ ThemeData buildNoteesTheme({
         )
       : colorScheme.copyWith(
           // fromSeed derives a blue-tinted primaryContainer even from an
-          // achromatic seed; pin explicit neutrals for the white accent.
-          primaryContainer: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFE6E6E6),
+          // achromatic seed; pin explicit warm neutrals for the white accent.
+          primaryContainer: isDark ? const Color(0xFF262623) : const Color(0xFFEAE6DF),
           onPrimaryContainer: isDark ? Colors.white : Colors.black,
         );
 
@@ -62,12 +77,12 @@ ThemeData buildNoteesTheme({
     useMaterial3: true,
     colorScheme: baseScheme,
     brightness: brightness,
-    scaffoldBackgroundColor: baseScheme.surface,
+    scaffoldBackgroundColor: scaffoldBackground,
     appBarTheme: AppBarTheme(
       elevation: 0,
       scrolledUnderElevation: 0,
       surfaceTintColor: Colors.transparent,
-      backgroundColor: baseScheme.surface,
+      backgroundColor: scaffoldBackground,
       foregroundColor: baseScheme.onSurface,
       centerTitle: true,
       systemOverlayStyle: isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
@@ -259,8 +274,9 @@ Color _contrastFor(Color color) {
   return luminance > 0.5 ? Colors.black : Colors.white;
 }
 
-/// Returns explicit grayscale surface container values so dynamic or accent
-/// colors cannot tint surfaces. Values are chosen from the Attire fleet scale.
+/// Returns explicit surface container values so dynamic or accent colors
+/// cannot tint surfaces. Values mirror the web client's warm neutral scale
+/// (`variables.css`); pure black keeps its own OLED scale.
 (Color, Color, Color, Color, Color) _surfaceContainers(bool isDark, bool pureBlack) {
   if (isDark) {
     if (pureBlack) {
@@ -273,19 +289,19 @@ Color _contrastFor(Color color) {
       );
     }
     return (
-      const Color(0xFF0F0F0F),
-      const Color(0xFF1A1A1A),
-      const Color(0xFF1F1F1F),
-      const Color(0xFF252525),
-      const Color(0xFF2A2A2A),
+      const Color(0xFF121211),
+      const Color(0xFF121211),
+      const Color(0xFF1A1A18),
+      const Color(0xFF262623),
+      const Color(0xFF3D3D39),
     );
   }
   return (
     const Color(0xFFFFFFFF),
-    const Color(0xFFF7F7F7),
-    const Color(0xFFF2F2F2),
-    const Color(0xFFECECEC),
-    const Color(0xFFE6E6E6),
+    const Color(0xFFF5F3EF),
+    const Color(0xFFFAF8F4),
+    const Color(0xFFEAE6DF),
+    const Color(0xFFDAD6CF),
   );
 }
 
