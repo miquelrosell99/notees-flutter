@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/api/error_reporter.dart';
 import 'core/constants/capture_types.dart';
 import 'core/routing/router.dart';
 import 'core/secure/encryption_provider.dart';
@@ -21,6 +22,7 @@ import 'native/background_sync.dart';
 import 'native/intent_receiver.dart';
 import 'native/offline_sync.dart';
 import 'native/reminder_service.dart';
+import 'native/widget_service.dart';
 import 'presentation/providers/auth_provider.dart';
 import 'presentation/providers/biometric_provider.dart';
 import 'presentation/providers/connectivity_provider.dart';
@@ -115,6 +117,14 @@ class _NoteesAppBodyState extends State<_NoteesAppBody> {
         debugPrint('AuthProvider initialization failed: $e\n$stack');
       }
 
+      if (auth.isAuthenticated && auth.dio != null) {
+        // Best effort: keeps the favorites and Inbox home-screen widget
+        // snapshots fresh on every app start.
+        await WidgetService.refreshSnapshots(
+          NodeRepository(dio: auth.dio!, syncService: auth.syncService),
+        );
+      }
+
       if (auth.activeServer != null && BackgroundSync.isInitialized) {
         try {
           await BackgroundSync.registerPeriodic();
@@ -179,6 +189,16 @@ class _NoteesAppBodyState extends State<_NoteesAppBody> {
   }
 }
 
+/// A context below [MaterialApp.router], where the app's [Navigator] and
+/// [ScaffoldMessenger] are in scope.
+///
+/// The intent-listener widgets in this file sit *above* [MaterialApp.router],
+/// so their own context has no Navigator and cannot show modal sheets or
+/// snack bars, and no [GoRouter] to navigate with. The router registers
+/// [apiErrorNavigatorKey] as its navigator key (see [createRouter]); its
+/// current context is null only before the first route has been built.
+BuildContext? get _navigatorContext => apiErrorNavigatorKey.currentContext;
+
 /// Listens for incoming share intents and shows a quick-capture bottom sheet
 /// whenever another app sends text to Notees.
 class ShareListener extends StatefulWidget {
@@ -205,8 +225,8 @@ class _ShareListenerState extends State<ShareListener> {
   }
 
   void _onShare(SharePayload payload) {
-    final ctx = context;
-    if (!ctx.mounted) return;
+    final ctx = _navigatorContext;
+    if (ctx == null || !ctx.mounted) return;
     final auth = ctx.read<AuthProvider>();
     if (!auth.isAuthenticated) return;
     showModalBottomSheet(
@@ -250,8 +270,10 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
   }
 
   Future<void> _onDeepLink(String link) async {
-    final router = GoRouter.of(context);
-    final auth = context.read<AuthProvider>();
+    final ctx = _navigatorContext;
+    if (ctx == null || !ctx.mounted) return;
+    final router = GoRouter.of(ctx);
+    final auth = ctx.read<AuthProvider>();
     if (!auth.isAuthenticated || auth.dio == null) return;
 
     final uri = Uri.tryParse(link);
@@ -297,8 +319,8 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
   }
 
   void _handleShortcut(String action) {
-    final ctx = context;
-    if (!ctx.mounted) return;
+    final ctx = _navigatorContext;
+    if (ctx == null || !ctx.mounted) return;
     final auth = ctx.read<AuthProvider>();
     if (!auth.isAuthenticated) return;
 
@@ -363,8 +385,8 @@ class _QuickNoteTileListenerState extends State<QuickNoteTileListener> {
   }
 
   void _onTile(void _) {
-    final ctx = context;
-    if (!ctx.mounted) return;
+    final ctx = _navigatorContext;
+    if (ctx == null || !ctx.mounted) return;
     final auth = ctx.read<AuthProvider>();
     if (!auth.isAuthenticated) return;
     showModalBottomSheet(
@@ -406,8 +428,8 @@ class _AudioNoteTileListenerState extends State<AudioNoteTileListener> {
   }
 
   Future<void> _onTile(void _) async {
-    final ctx = context;
-    if (!ctx.mounted) return;
+    final ctx = _navigatorContext;
+    if (ctx == null || !ctx.mounted) return;
     final auth = ctx.read<AuthProvider>();
     if (!auth.isAuthenticated || auth.dio == null) return;
 
@@ -491,8 +513,9 @@ class _ReminderListenerState extends State<ReminderListener> {
   }
 
   void _onTaskTapped(String taskUuid) {
-    final router = GoRouter.of(context);
-    router.push('${Routes.editor}/$taskUuid');
+    final ctx = _navigatorContext;
+    if (ctx == null) return;
+    GoRouter.of(ctx).push('${Routes.editor}/$taskUuid');
   }
 
   Future<void> _onSnooze(ReminderSnoozeEvent event) async {
@@ -500,6 +523,7 @@ class _ReminderListenerState extends State<ReminderListener> {
     if (auth.dio == null) return;
 
     final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+    final messengerContext = _navigatorContext;
     try {
       final task = await repo.fetchNode(event.taskUuid);
       await ReminderService.instance.snoozeTaskReminder(
@@ -507,14 +531,14 @@ class _ReminderListenerState extends State<ReminderListener> {
         task.displayName,
         event.duration,
       );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      if (messengerContext != null && messengerContext.mounted) {
+        ScaffoldMessenger.of(messengerContext).showSnackBar(
           SnackBar(content: Text('Snoozed for ${_formatSnooze(event.duration)}')),
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      if (messengerContext != null && messengerContext.mounted) {
+        ScaffoldMessenger.of(messengerContext).showSnackBar(
           SnackBar(content: Text('Could not snooze reminder: $e')),
         );
       }

@@ -5,23 +5,33 @@ import 'package:home_widget/home_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/constants/system.dart';
+import '../core/utils/node_display_name.dart';
 import '../data/models/node.dart';
 import '../data/models/property.dart';
 import '../data/repositories/node_repository.dart';
 import '../domain/models/search_filters.dart';
 
-/// Flutter side of the Android home-screen "today's tasks" widget.
+/// Flutter side of the Android home-screen widgets (today's tasks, favorites,
+/// and the Inbox page preview).
 ///
-/// Keeps a small JSON snapshot of today's open tasks in [SharedPreferences]
-/// where the native [AppWidgetProvider] can read it, and asks the native side
-/// to redraw the widget via [home_widget].
+/// Keeps small JSON snapshots in [SharedPreferences] where the native
+/// [AppWidgetProvider]s can read them, and asks the native side to redraw the
+/// widgets via [home_widget].
 class WidgetService {
   WidgetService._();
 
   static const _tasksKey = 'notees.widget_tasks';
   static const _updatedAtKey = 'notees.widget_tasks_updated_at';
+  static const _favoritesKey = 'notees.widget_favorites';
+  static const _inboxBlocksKey = 'notees.widget_inbox_blocks';
   static const _providerName = 'TaskWidgetProvider';
   static const _qualifiedAndroidName = 'com.notees.notees.TaskWidgetProvider';
+  static const _favoritesProviderName = 'FavoritesWidgetProvider';
+  static const _favoritesQualifiedAndroidName =
+      'com.notees.notees.FavoritesWidgetProvider';
+  static const _pageProviderName = 'PageWidgetProvider';
+  static const _pageQualifiedAndroidName =
+      'com.notees.notees.PageWidgetProvider';
 
   /// Persists today's tasks and triggers a widget redraw.
   static Future<void> saveTodayTasks(List<Node> tasks) async {
@@ -39,12 +49,60 @@ class WidgetService {
     await updateWidgets();
   }
 
+  /// Persists the favorite pages and triggers a widget redraw.
+  static Future<void> saveFavorites(List<Node> favorites) async {
+    final prefs = await SharedPreferences.getInstance();
+    final payload = favorites.map((node) {
+      return <String, String>{
+        'uuid': node.uuid,
+        'displayName': resolveNodeDisplayName(node),
+      };
+    }).toList();
+
+    await prefs.setString(_favoritesKey, jsonEncode(payload));
+    await updateWidgets();
+  }
+
+  /// Persists the Inbox page's first blocks for the page-preview widget and
+  /// triggers a widget redraw.
+  static Future<void> saveInboxBlocks(List<Node> blocks) async {
+    final prefs = await SharedPreferences.getInstance();
+    final payload = blocks.map((block) {
+      return <String, String>{
+        'uuid': block.uuid,
+        'displayName': resolveNodeDisplayName(block),
+      };
+    }).toList();
+
+    await prefs.setString(_inboxBlocksKey, jsonEncode(payload));
+    await updateWidgets();
+  }
+
   /// Clears cached widget data (e.g. when the user signs out).
   static Future<void> clearWidgetData() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_tasksKey);
     await prefs.remove(_updatedAtKey);
+    await prefs.remove(_favoritesKey);
+    await prefs.remove(_inboxBlocksKey);
     await updateWidgets();
+  }
+
+  /// Refreshes the favorites and Inbox widget snapshots from [repo].
+  ///
+  /// Best effort: each snapshot is independent and failures are logged, not
+  /// rethrown, so a locked or empty local cache never breaks the caller.
+  static Future<void> refreshSnapshots(NodeRepository repo) async {
+    try {
+      await saveFavorites(await loadFavoritesFromRepo(repo));
+    } catch (e, stack) {
+      debugPrint('Favorites widget refresh failed: $e\n$stack');
+    }
+    try {
+      await saveInboxBlocks(await loadInboxBlocksFromRepo(repo));
+    } catch (e, stack) {
+      debugPrint('Inbox widget refresh failed: $e\n$stack');
+    }
   }
 
   /// Fetches today's open tasks from the server.
@@ -61,15 +119,33 @@ class WidgetService {
     );
   }
 
-  /// Asks the native widget provider to redraw all widget instances.
+  /// Fetches the user's favorite pages from the local cache.
+  static Future<List<Node>> loadFavoritesFromRepo(NodeRepository repo) {
+    return repo.fetchFavorites(limit: 10);
+  }
+
+  /// Fetches the first blocks of the Inbox page from the local cache.
+  static Future<List<Node>> loadInboxBlocksFromRepo(NodeRepository repo) async {
+    final content = await repo.fetchInboxContent();
+    return content.node.children.take(10).toList();
+  }
+
+  /// Asks the native widget providers to redraw all widget instances.
   static Future<void> updateWidgets() async {
-    try {
-      await HomeWidget.updateWidget(
-        name: _providerName,
-        qualifiedAndroidName: _qualifiedAndroidName,
-      );
-    } on Exception catch (e, stack) {
-      debugPrint('Failed to update widgets: $e\n$stack');
+    const providers = [
+      (_providerName, _qualifiedAndroidName),
+      (_favoritesProviderName, _favoritesQualifiedAndroidName),
+      (_pageProviderName, _pageQualifiedAndroidName),
+    ];
+    for (final (name, qualifiedName) in providers) {
+      try {
+        await HomeWidget.updateWidget(
+          name: name,
+          qualifiedAndroidName: qualifiedName,
+        );
+      } on Exception catch (e, stack) {
+        debugPrint('Failed to update widgets: $e\n$stack');
+      }
     }
   }
 

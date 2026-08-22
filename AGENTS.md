@@ -12,7 +12,7 @@ The mobile app is a **first-class native Flutter app** for Notees. It provides n
 - **Display name**: `Notees`
 - **Functional accent**: sage green `#5B7D5B`
 - **Architecture**: feature-first Flutter with Provider + ChangeNotifier, Dio, go_router, sqflite
-- **Native features**: biometric app lock, offline quick-capture queue, share receiver, native block editor with inline styles and node/class/tag links, native list/card/table views, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management, local task due-date reminders with snooze actions and boot reschedule, Android home-screen today-tasks widget
+- **Native features**: biometric app lock, offline quick-capture queue, share receiver, native block editor with inline styles and node/class/tag links, native list/card/table views, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management, local task due-date reminders with snooze actions and boot reschedule, Android home-screen widgets (today's tasks, favorites, Inbox preview)
 
 ## Key Files
 
@@ -35,6 +35,8 @@ notees-flutter/
 │   │   └── widgets/          # Fleet-styled cards, section titles
 │   └── native/               # Platform-specific native helpers (reminder_service, intent_receiver, background_sync, app_locker, widget_service)
    └── android/.../TaskWidgetProvider.kt  # Today's tasks home-screen widget
+   └── android/.../FavoritesWidgetProvider.kt  # Favorite pages home-screen widget
+   └── android/.../PageWidgetProvider.kt   # Inbox preview home-screen widget
 ├── android/                  # Android platform project
 ├── ios/                      # iOS platform project
 ├── .github/workflows/        # Android CI

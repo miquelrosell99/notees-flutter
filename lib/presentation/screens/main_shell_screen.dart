@@ -8,6 +8,7 @@ import '../../core/routing/router.dart';
 import '../../data/repositories/node_repository.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
+import '../widgets/browse_panel.dart';
 import '../widgets/command_palette.dart';
 import '../widgets/quick_capture_sheet.dart';
 import 'dashboard_screen.dart';
@@ -132,15 +133,20 @@ class _MainShellScreenState extends State<MainShellScreen> {
               backgroundColor: theme.colorScheme.surface,
               indicatorColor: theme.colorScheme.primaryContainer,
               labelType: NavigationRailLabelType.all,
-              destinations: _destinations
-                  .map(
-                    (d) => NavigationRailDestination(
-                      icon: Icon(d.icon),
-                      selectedIcon: Icon(d.selectedIcon),
-                      label: Text(d.label),
-                    ),
-                  )
-                  .toList(),
+              destinations: [
+                ..._destinations.map(
+                  (d) => NavigationRailDestination(
+                    icon: Icon(d.icon),
+                    selectedIcon: Icon(d.selectedIcon),
+                    label: Text(d.label),
+                  ),
+                ),
+                const NavigationRailDestination(
+                  icon: Icon(MdiIcons.compassOutline),
+                  selectedIcon: Icon(MdiIcons.compass),
+                  label: Text('Browse'),
+                ),
+              ],
             ),
           Expanded(child: _buildBody()),
         ],
@@ -161,20 +167,29 @@ class _MainShellScreenState extends State<MainShellScreen> {
               onDestinationSelected: _onDestinationSelected,
               backgroundColor: theme.colorScheme.surface,
               indicatorColor: theme.colorScheme.primaryContainer,
-              destinations: _destinations
-                  .map(
-                    (d) => NavigationDestination(
-                      icon: Icon(d.icon),
-                      selectedIcon: Icon(d.selectedIcon),
-                      label: d.label,
-                    ),
-                  )
-                  .toList(),
+              destinations: [
+                ..._destinations.map(
+                  (d) => NavigationDestination(
+                    icon: Icon(d.icon),
+                    selectedIcon: Icon(d.selectedIcon),
+                    label: d.label,
+                  ),
+                ),
+                const NavigationDestination(
+                  icon: Icon(MdiIcons.compassOutline),
+                  selectedIcon: Icon(MdiIcons.compass),
+                  label: 'Browse',
+                ),
+              ],
             ),
     );
   }
 
   void _onDestinationSelected(int index) {
+    if (index == _destinations.length) {
+      _openBrowsePanel();
+      return;
+    }
     HapticFeedback.lightImpact();
     if (index == _currentIndex) {
       final controller = _scrollControllers[index];
@@ -203,6 +218,15 @@ class _MainShellScreenState extends State<MainShellScreen> {
           }
         },
       ),
+    );
+  }
+
+  Future<void> _openBrowsePanel() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+    await BrowsePanel.show(
+      context,
+      NodeRepository(dio: auth.dio!, syncService: auth.syncService),
     );
   }
 
