@@ -39,6 +39,9 @@ void main() {
       find.descendant(of: find.byType(PressScale), matching: find.byType(Listener)),
     );
     listener.onPointerDown!(const PointerDownEvent());
+    // The first pump after forward() only establishes the ticker's start
+    // time (value still at start); the second advances into the animation.
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
     expect(tester.widget<ScaleTransition>(scaleFinder).scale.value,
         lessThan(1.0));
