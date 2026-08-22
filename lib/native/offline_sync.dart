@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/api/error_reporter.dart';
 import '../core/secure/encryption_provider.dart';
 import '../data/local/app_database.dart';
 import '../domain/services/offline_queue.dart';
@@ -97,11 +98,17 @@ class _OfflineSyncState extends State<OfflineSync> with WidgetsBindingObserver {
     }
 
     if (errors.isNotEmpty && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Some offline notes could not be synced: ${errors.first}'),
-        ),
-      );
+      // This widget sits above MaterialApp, so its own context has no
+      // ScaffoldMessenger; use the router's navigator context (the same
+      // pattern as the tile listeners in app.dart).
+      final messengerContext = apiErrorNavigatorKey.currentContext;
+      if (messengerContext != null && messengerContext.mounted) {
+        ScaffoldMessenger.of(messengerContext).showSnackBar(
+          SnackBar(
+            content: Text('Some offline notes could not be synced: ${errors.first}'),
+          ),
+        );
+      }
     }
   }
 

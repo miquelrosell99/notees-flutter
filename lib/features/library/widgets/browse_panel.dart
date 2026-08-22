@@ -16,8 +16,10 @@ import '../../settings/providers/settings_provider.dart';
 import '../../../shared/widgets/fleet_card.dart';
 
 /// Modal bottom sheet that mirrors the web sidebar: favorites, recent pages,
-/// and the archive. All sections are backed by the local node cache through
-/// [NodeRepository]; there is no mobile data source for "shared with me" yet.
+/// pages shared with the current user, and the archive. All sections are
+/// backed by the local node cache through [NodeRepository]; "shared with me"
+/// reads the local `node_user_share` derived state and only appears when the
+/// current actor has shares.
 class BrowsePanel extends StatefulWidget {
   const BrowsePanel({super.key, required this.repository});
 
@@ -53,6 +55,7 @@ class _BrowsePanelState extends State<BrowsePanel> {
     // holds more than the five rows shown here.
     final favorites = await _guarded(() => repo.fetchFavorites(limit: 10));
     final recent = await _guarded(() => repo.fetchRecentPages(limit: 5));
+    final sharedWithMe = await _guarded(() => repo.fetchSharedWithMe(limit: 5));
     final archived = await _guarded(() async {
       final nodes = await repo.fetchArchived();
       return nodes.take(5).toList();
@@ -62,6 +65,7 @@ class _BrowsePanelState extends State<BrowsePanel> {
     return _BrowseData(
       favorites: favorites.take(5).toList(),
       recent: recent,
+      sharedWithMe: sharedWithMe,
       archived: archived,
     );
   }
@@ -108,6 +112,13 @@ class _BrowsePanelState extends State<BrowsePanel> {
                   nodes: data.recent,
                   dateFormat: dateFormat,
                 ),
+              if (data.sharedWithMe.isNotEmpty)
+                _BrowseCard(
+                  icon: MdiIcons.shareOutline,
+                  title: 'Shared with me',
+                  nodes: data.sharedWithMe,
+                  dateFormat: dateFormat,
+                ),
               if (data.archived.isNotEmpty)
                 _BrowseCard(
                   icon: MdiIcons.archiveOutline,
@@ -139,11 +150,13 @@ class _BrowseData {
   const _BrowseData({
     required this.favorites,
     required this.recent,
+    required this.sharedWithMe,
     required this.archived,
   });
 
   final List<Node> favorites;
   final List<Node> recent;
+  final List<Node> sharedWithMe;
   final List<Node> archived;
 }
 

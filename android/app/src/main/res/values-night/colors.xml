@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Notees widget palette (night) -->
+    <color name="notees_sage">#8CA98C</color>
+    <color name="widget_paper">#FF1F1C1A</color>
+    <color name="widget_on_paper">#FFF5F3EF</color>
+    <color name="widget_on_paper_muted">#99F5F3EF</color>
+</resources>

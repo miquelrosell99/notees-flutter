@@ -118,6 +118,19 @@ class NodeRepository {
     return _cache!.getRootPages();
   }
 
+  /// Nodes shared with the current actor; empty when no authenticated user
+  /// is wired into sync.
+  Future<List<Node>> fetchSharedWithMe({int limit = 50}) async {
+    _requireCache();
+    final workspaceId = await syncService!.getWorkspaceId();
+    if (workspaceId == null || !syncService!.hasUserActor) return const [];
+    return _cache!.getSharedWithMe(
+      workspaceId,
+      syncService!.actorId,
+      limit: limit,
+    );
+  }
+
   Future<List<Node>> searchNodes(String query, {int limit = 20}) async {
     _requireCache();
     return _cache!.searchNodes(query, limit: limit);
@@ -571,6 +584,16 @@ class NodeRepository {
   Future<String?> getMostRecentTaskCompletionId(String taskUuid) async {
     _requireCache();
     return _cache!.getMostRecentTaskCompletionId(taskUuid);
+  }
+
+  Future<int> getTaskCompletionCount(String taskUuid) async {
+    _requireCache();
+    return _cache!.getTaskCompletionCount(taskUuid);
+  }
+
+  Future<Map<String, dynamic>?> getTaskRecurrence(String taskUuid) async {
+    _requireCache();
+    return _cache!.getTaskRecurrence(taskUuid);
   }
 
   Future<void> recordTaskCompletion(String taskUuid, {String status = 'done'}) async {

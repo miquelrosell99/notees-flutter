@@ -431,8 +431,9 @@ class _AudioNoteTileListenerState extends State<AudioNoteTileListener> {
     final ctx = _navigatorContext;
     if (ctx == null || !ctx.mounted) return;
     final auth = ctx.read<AuthProvider>();
-    // Audio notes upload asset bytes to the server; unavailable offline.
-    if (!auth.isAuthenticated || auth.dio == null || auth.isLocalMode) return;
+    // Audio notes capture asset bytes; in local mode they are stored on-device
+    // via the local asset store instead of uploaded to a server.
+    if (!auth.isAuthenticated || auth.dio == null) return;
 
     final file = await showModalBottomSheet<File>(
       context: ctx,

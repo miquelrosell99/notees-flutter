@@ -194,6 +194,7 @@ class NodeCacheRepository {
       await txn.delete('user_favorite', where: 'node_uuid = ?', whereArgs: [uuid]);
       await txn.delete('task_completion', where: 'node_uuid = ?', whereArgs: [uuid]);
       await txn.delete('task_recurrence', where: 'node_uuid = ?', whereArgs: [uuid]);
+      await txn.delete('node_user_share', where: 'node_uuid = ?', whereArgs: [uuid]);
       await txn.delete('node_content_hlc', where: 'node_uuid = ?', whereArgs: [uuid]);
     });
   }
@@ -1060,6 +1061,17 @@ class NodeCacheRepository {
     return rows.first['completion_id'] as String?;
   }
 
+  /// Number of completions recorded for [nodeUuid]; used to honor recurrence
+  /// `end_after_count` when expanding occurrence dates.
+  Future<int> getTaskCompletionCount(String nodeUuid) async {
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM task_completion WHERE node_uuid = ?',
+      [nodeUuid],
+    );
+    return rows.first['count'] as int? ?? 0;
+  }
+
   // === Task recurrence ===
 
   /// Applies a `task.setRecurrence` operation to the local derived state.
@@ -1132,6 +1144,88 @@ class NodeCacheRepository {
     } catch (_) {
       return null;
     }
+  }
+
+  // === User shares ===
+
+  /// Applies a `share.user.grant` operation to the local derived state.
+  ///
+  /// Mirrors the server applier: one share per (node, target user), replaced
+  /// on each grant.
+  Future<void> applyShareUserGrant(
+    String workspaceId, {
+    required String nodeUuid,
+    required String targetUserId,
+    String? shareId,
+    int permissionBits = 0,
+    String role = '',
+    String? createdBy,
+    String? createdAt,
+  }) async {
+    final db = await _database.database;
+    await db.insert(
+      'node_user_share',
+      {
+        'workspace_id': workspaceId,
+        'node_uuid': nodeUuid,
+        'target_user_id': targetUserId,
+        'role': role,
+        'permission_bits': permissionBits,
+        'share_id': (shareId == null || shareId.isEmpty)
+            ? const Uuid().v7()
+            : shareId,
+        'created_by': createdBy,
+        'created_at': createdAt ?? DateTime.now().toUtc().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Applies a `share.user.revoke` operation to the local derived state.
+  ///
+  /// Mirrors the server applier: delete by share id, with a fallback delete
+  /// by node/user pair for callers that emit those instead.
+  Future<void> applyShareUserRevoke(
+    String workspaceId, {
+    String? shareId,
+    String? nodeUuid,
+    String? targetUserId,
+  }) async {
+    final db = await _database.database;
+    if (shareId != null && shareId.isNotEmpty) {
+      await db.delete(
+        'node_user_share',
+        where: 'workspace_id = ? AND share_id = ?',
+        whereArgs: [workspaceId, shareId],
+      );
+    }
+    if (nodeUuid != null && targetUserId != null) {
+      await db.delete(
+        'node_user_share',
+        where: 'workspace_id = ? AND node_uuid = ? AND target_user_id = ?',
+        whereArgs: [workspaceId, nodeUuid, targetUserId],
+      );
+    }
+  }
+
+  /// Nodes shared with [userId] in [workspaceId], joined against the node
+  /// cache; deleted and archived nodes are excluded.
+  Future<List<Node>> getSharedWithMe(
+    String workspaceId,
+    String userId, {
+    int limit = 50,
+  }) async {
+    final db = await _database.database;
+    final rows = await db.rawQuery('''
+      SELECT nc.payload
+      FROM node_user_share nus
+      INNER JOIN node_cache nc ON nc.uuid = nus.node_uuid
+      WHERE nus.workspace_id = ? AND nus.target_user_id = ?
+        AND nc.is_deleted = 0 AND nc.is_archived = 0
+      ORDER BY nus.created_at DESC
+      LIMIT ?
+    ''', [workspaceId, userId, limit]);
+    return rows.map(_nodeFromRow).toList();
   }
 
   // === Content LWW tracking ===

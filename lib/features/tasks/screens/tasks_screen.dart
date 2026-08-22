@@ -12,6 +12,7 @@ import '../../../data/models/node.dart';
 import '../../../data/models/property.dart';
 import '../../../data/repositories/node_repository.dart';
 import '../../../domain/models/search_filters.dart';
+import '../../../domain/services/recurrence_expansion.dart';
 import '../../../native/reminder_service.dart';
 import '../../../native/widget_service.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -479,7 +480,7 @@ class _TasksScreenState extends State<TasksScreen> {
       }
 
       if (TaskStatuses.closed.contains(targetOption.name)) {
-        await _cancelReminder(task.uuid);
+        await _rescheduleReminderAfterCompletion(repo, task);
       } else {
         await _scheduleReminderIfOpen(task);
       }
@@ -630,10 +631,71 @@ class _TasksScreenState extends State<TasksScreen> {
       }
     }
 
-    await ReminderService.instance.scheduleTaskReminder(
+    final ruleJson = await repo.getTaskRecurrence(task.uuid);
+    final rule = ruleJson == null ? null : RecurrenceRule.fromJson(ruleJson);
+    if (rule == null || !rule.active) {
+      await ReminderService.instance.scheduleTaskReminder(
+        task.uuid,
+        task.displayName,
+        due,
+      );
+      return;
+    }
+
+    // Recurring task: expand the rule into the next occurrence dates and
+    // schedule a reminder for each upcoming one.
+    final completedCount = await repo.getTaskCompletionCount(task.uuid);
+    final occurrences = occurrenceSeries(
+      rule,
+      due,
+      count: ReminderService.maxOccurrenceReminders,
+      completedCount: completedCount,
+    );
+    await ReminderService.instance.scheduleRecurringTaskReminders(
       task.uuid,
       task.displayName,
-      due,
+      occurrences,
+    );
+  }
+
+  /// On completion a recurring task reschedules to the next occurrence
+  /// instead of clearing the reminder outright.
+  Future<void> _rescheduleReminderAfterCompletion(
+    NodeRepository repo,
+    Node task,
+  ) async {
+    final ruleJson = await repo.getTaskRecurrence(task.uuid);
+    final rule = ruleJson == null ? null : RecurrenceRule.fromJson(ruleJson);
+    if (rule == null || !rule.active) {
+      await _cancelReminder(task.uuid);
+      return;
+    }
+
+    final due = _taskDueDate(task) ?? DateTime.now();
+    // Skip occurrences that are already in the past (e.g. completing an
+    // overdue task) so the reminder fires in the future.
+    var seed = nextOccurrence(rule, due);
+    final now = DateTime.now();
+    while (seed != null && seed.isBefore(now)) {
+      seed = nextOccurrence(rule, seed);
+    }
+
+    final completedCount = await repo.getTaskCompletionCount(task.uuid);
+    if (seed == null || hasEnded(rule, completedCount, seed)) {
+      await _cancelReminder(task.uuid);
+      return;
+    }
+
+    final occurrences = occurrenceSeries(
+      rule,
+      seed,
+      count: ReminderService.maxOccurrenceReminders,
+      completedCount: completedCount,
+    );
+    await ReminderService.instance.scheduleRecurringTaskReminders(
+      task.uuid,
+      task.displayName,
+      occurrences,
     );
   }
 

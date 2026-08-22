@@ -8,6 +8,11 @@ import android.content.Intent
 import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
+import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequest
+import androidx.work.WorkManager
+import dev.fluttercommunity.workmanager.BackgroundWorker
 import org.json.JSONArray
 
 /**
@@ -23,6 +28,9 @@ class FavoritesWidgetProvider : AppWidgetProvider() {
         private const val PREFS_NAME = "FlutterSharedPreferences"
         private const val FAVORITES_KEY = "flutter.notees.widget_favorites"
         private const val MAX_ROWS = 5
+
+        private const val WIDGET_UPDATE_WORK = "notees-widget-update"
+        private const val WIDGET_UPDATE_DART_TASK = "notees.widgetUpdate"
     }
 
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
@@ -46,11 +54,14 @@ class FavoritesWidgetProvider : AppWidgetProvider() {
             openLibraryIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        views.setOnClickPendingIntent(R.id.widget_title, pendingOpen)
+        views.setOnClickPendingIntent(R.id.widget_header, pendingOpen)
 
         if (pages.isEmpty()) {
             views.setViewVisibility(R.id.widget_pages_container, View.GONE)
             views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
+            // The snapshot may simply never have been written; ask the
+            // background task to refresh it, mirroring TaskWidgetProvider.
+            scheduleWidgetUpdate(context)
         } else {
             views.setViewVisibility(R.id.widget_pages_container, View.VISIBLE)
             views.setViewVisibility(R.id.widget_empty, View.GONE)
@@ -75,6 +86,20 @@ class FavoritesWidgetProvider : AppWidgetProvider() {
         }
 
         appWidgetManager.updateAppWidget(appWidgetId, views)
+    }
+
+    private fun scheduleWidgetUpdate(context: Context) {
+        val inputData = Data.Builder()
+            .putString(BackgroundWorker.DART_TASK_KEY, WIDGET_UPDATE_DART_TASK)
+            .build()
+        val workRequest = OneTimeWorkRequest.Builder(BackgroundWorker::class.java)
+            .setInputData(inputData)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            WIDGET_UPDATE_WORK,
+            ExistingWorkPolicy.KEEP,
+            workRequest,
+        )
     }
 
     private fun loadWidgetData(context: Context): List<PageSummary> {

@@ -68,7 +68,7 @@ class AppDatabase {
     final path = await _path;
     return openDatabase(
       path,
-      version: 14,
+      version: 15,
       password: encryptionPassword,
       onCreate: (db, version) async {
         await _createOfflineQueue(db);
@@ -86,6 +86,7 @@ class AppDatabase {
         await _createClassCache(db);
         await _createPropertySchema(db);
         await _createClassPropertyEdge(db);
+        await _createNodeUserShare(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -133,6 +134,9 @@ class AppDatabase {
           await _migrateFavoritesV14(db);
           await _createTaskRecurrence(db);
           await _createNodeContentHlc(db);
+        }
+        if (oldVersion < 15) {
+          await _createNodeUserShare(db);
         }
       },
     );
@@ -408,6 +412,26 @@ class AppDatabase {
     await db.execute('CREATE INDEX idx_task_recurrence_node ON task_recurrence(node_uuid)');
   }
 
+  Future<void> _createNodeUserShare(Database db) async {
+    // Mirrors the server-derived `node_user_share` table, plus a workspace
+    // column since the local cache spans workspaces.
+    await db.execute('''
+      CREATE TABLE node_user_share (
+        workspace_id TEXT NOT NULL,
+        node_uuid TEXT NOT NULL,
+        target_user_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT '',
+        permission_bits INTEGER NOT NULL DEFAULT 0,
+        share_id TEXT,
+        created_by TEXT,
+        created_at TEXT,
+        PRIMARY KEY (workspace_id, node_uuid, target_user_id)
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_node_user_share_target ON node_user_share(workspace_id, target_user_id)');
+    await db.execute('CREATE INDEX idx_node_user_share_share ON node_user_share(share_id)');
+  }
+
   Future<void> _createNodeContentHlc(Database db) async {
     // Last applied content HLC per node, used to skip stale
     // `node.updateContent` operations (last-write-wins, like the server).
@@ -504,6 +528,7 @@ class AppDatabase {
     await _createClassCache(db);
     await _createPropertySchema(db);
     await _createClassPropertyEdge(db);
+    await _createNodeUserShare(db);
   }
 
   Future<int> enqueue(String method, String payload) async {
