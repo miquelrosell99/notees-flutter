@@ -275,53 +275,35 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(width: indent),
-        if (isTask)
-          SizedBox(
-            width: 40,
-            height: 48,
-            child: Center(
-              child: Checkbox(
-                value: isTaskDone,
-                onChanged: (_) => widget.onToggleTask?.call(node),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-          ),
         _DragHandle(
           node: node,
-          dragging: _dragging == node,
-          collapsed: node.children.isNotEmpty && node.collapsed,
           onDragStarted: () => setState(() => _dragging = node),
           onDragEnded: () => setState(() => _dragging = null),
-          onToggleCollapse: () => widget.onToggleCollapse(node),
-          onFocusView: () => _showFocusedBlockView(node),
           onIndent: () => widget.onIndent(node),
           onOutdent: () => widget.onOutdent(node),
+          child: isTask
+              ? _TaskCheckbox(
+                  done: isTaskDone,
+                  onToggle: () => widget.onToggleTask?.call(node),
+                  colors: colors,
+                )
+              : _Bullet(
+                  collapsed: node.collapsed,
+                  hasChildren: node.children.isNotEmpty,
+                  onToggleCollapse: () => widget.onToggleCollapse(node),
+                  colors: colors,
+                ),
         ),
         Expanded(child: field),
-        if (isFocused) ...[
-          _BlockToolbarButton(
-            icon: MdiIcons.formatIndentIncrease,
-            tooltip: 'Indent',
-            onPressed: () => widget.onIndent(node),
-          ),
-          _BlockToolbarButton(
-            icon: MdiIcons.formatIndentDecrease,
-            tooltip: 'Outdent',
-            onPressed: () => widget.onOutdent(node),
-          ),
-          if (node.id > 0)
-            _BlockToolbarButton(
-              icon: MdiIcons.plus,
-              tooltip: 'Add child',
-              onPressed: () => widget.onAddChild(node),
-            ),
-          _BlockToolbarButton(
-            icon: MdiIcons.dotsVertical,
+        if (isFocused)
+          IconButton(
+            icon: Icon(MdiIcons.dotsVertical, size: 20),
             tooltip: 'Block options',
+            color: colors.onSurfaceVariant,
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            padding: EdgeInsets.zero,
             onPressed: () => _showBlockMenu(node),
           ),
-        ],
       ],
     );
 
@@ -375,46 +357,45 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       key: _rowKeyFor(node),
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Drop before this row.
-        DragTarget<BlockNode>(
-          onWillAcceptWithDetails: (details) =>
-              details.data != node && !_isDescendant(details.data, node),
-          onAcceptWithDetails: (details) {
-            widget.onMove(details.data, node, DropPosition.before);
-          },
-          builder: (context, candidateData, rejectedData) {
-            return Container(
-              height: 4,
-              decoration: BoxDecoration(
-                color: candidateData.isNotEmpty
-                    ? colors.primary
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            );
-          },
-        ),
+        // Drop targets appear only while a drag is in progress, so idle rows
+        // carry no extra vertical spacing.
+        if (_dragging != null)
+          _buildDropLine(node, DropPosition.before, colors),
         content,
-        // Drop after this row.
-        DragTarget<BlockNode>(
-          onWillAcceptWithDetails: (details) =>
-              details.data != node && !_isDescendant(details.data, node),
-          onAcceptWithDetails: (details) {
-            widget.onMove(details.data, node, DropPosition.after);
-          },
-          builder: (context, candidateData, rejectedData) {
-            return Container(
-              height: 4,
-              decoration: BoxDecoration(
-                color: candidateData.isNotEmpty
-                    ? colors.primary
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            );
-          },
-        ),
+        if (_dragging != null)
+          _buildDropLine(node, DropPosition.after, colors),
       ],
+    );
+  }
+
+  /// Slim drop zone between rows; highlights as a 2px accent line when the
+  /// dragged block hovers it.
+  Widget _buildDropLine(
+    BlockNode node,
+    DropPosition position,
+    ColorScheme colors,
+  ) {
+    return DragTarget<BlockNode>(
+      onWillAcceptWithDetails: (details) =>
+          details.data != node && !_isDescendant(details.data, node),
+      onAcceptWithDetails: (details) {
+        widget.onMove(details.data, node, position);
+      },
+      builder: (context, candidateData, rejectedData) {
+        return Container(
+          height: 8,
+          alignment: Alignment.center,
+          child: Container(
+            height: 2,
+            decoration: BoxDecoration(
+              color: candidateData.isNotEmpty
+                  ? colors.primary
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -835,25 +816,21 @@ class _VisibleRow {
 class _DragHandle extends StatefulWidget {
   const _DragHandle({
     required this.node,
-    required this.dragging,
-    required this.collapsed,
     required this.onDragStarted,
     required this.onDragEnded,
-    required this.onToggleCollapse,
-    required this.onFocusView,
     required this.onIndent,
     required this.onOutdent,
+    required this.child,
   });
 
   final BlockNode node;
-  final bool dragging;
-  final bool collapsed;
   final VoidCallback onDragStarted;
   final VoidCallback onDragEnded;
-  final VoidCallback onToggleCollapse;
-  final VoidCallback onFocusView;
   final VoidCallback onIndent;
   final VoidCallback onOutdent;
+
+  /// The gutter affordance (bullet dot or task checkbox).
+  final Widget child;
 
   @override
   State<_DragHandle> createState() => _DragHandleState();
@@ -885,13 +862,6 @@ class _DragHandleState extends State<_DragHandle> {
       ),
     );
 
-    final bullet = _Bullet(
-      collapsed: widget.collapsed,
-      onToggleCollapse: widget.onToggleCollapse,
-      onFocusView: widget.onFocusView,
-      colors: colors,
-    );
-
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onHorizontalDragUpdate: (details) {
@@ -908,37 +878,59 @@ class _DragHandleState extends State<_DragHandle> {
       child: LongPressDraggable<BlockNode>(
         data: widget.node,
         delay: const Duration(milliseconds: 250),
-        onDragStarted: widget.onDragStarted,
+        onDragStarted: () {
+          HapticFeedback.lightImpact();
+          widget.onDragStarted();
+        },
         onDragEnd: (_) => widget.onDragEnded(),
         feedback: feedback,
-        childWhenDragging: Opacity(opacity: 0.35, child: bullet),
-        child: bullet,
+        childWhenDragging: Opacity(opacity: 0.35, child: widget.child),
+        child: widget.child,
       ),
     );
   }
 }
 
-class _BlockToolbarButton extends StatelessWidget {
-  const _BlockToolbarButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onPressed,
+class _TaskCheckbox extends StatelessWidget {
+  const _TaskCheckbox({
+    required this.done,
+    required this.onToggle,
+    required this.colors,
   });
 
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onPressed;
+  final bool done;
+  final VoidCallback onToggle;
+  final ColorScheme colors;
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return IconButton(
-      icon: Icon(icon, size: 20),
-      tooltip: tooltip,
-      color: colors.onSurfaceVariant,
-      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-      padding: EdgeInsets.zero,
-      onPressed: onPressed,
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onToggle();
+      },
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: done ? colors.primary : Colors.transparent,
+              border: Border.all(
+                color: done ? colors.primary : colors.outline,
+                width: 2,
+              ),
+            ),
+            child: done
+                ? Icon(MdiIcons.check, size: 14, color: colors.onPrimary)
+                : null,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -946,34 +938,39 @@ class _BlockToolbarButton extends StatelessWidget {
 class _Bullet extends StatelessWidget {
   const _Bullet({
     required this.collapsed,
+    required this.hasChildren,
     required this.onToggleCollapse,
-    required this.onFocusView,
     required this.colors,
   });
 
   final bool collapsed;
+  final bool hasChildren;
   final VoidCallback onToggleCollapse;
-  final VoidCallback onFocusView;
   final ColorScheme colors;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: collapsed ? onToggleCollapse : onFocusView,
+      onTap: hasChildren
+          ? () {
+              HapticFeedback.lightImpact();
+              onToggleCollapse();
+            }
+          : null,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
-        width: 48,
-        height: 48,
+        width: 36,
+        height: 44,
         child: Center(
-          child: collapsed
+          child: hasChildren && collapsed
               ? Icon(
                   MdiIcons.chevronRight,
                   size: 18,
                   color: colors.onSurfaceVariant,
                 )
               : Container(
-                  width: 6,
-                  height: 6,
+                  width: 8,
+                  height: 8,
                   decoration: BoxDecoration(
                     color: colors.onSurfaceVariant,
                     shape: BoxShape.circle,
