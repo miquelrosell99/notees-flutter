@@ -7,6 +7,7 @@ import '../../core/utils/color_presets.dart';
 import '../../core/utils/node_display_name.dart';
 import '../../data/models/node.dart';
 import '../widgets/fleet_card.dart';
+import '../widgets/motion.dart';
 import '../widgets/responsive_card_grid_delegate.dart';
 
 /// Card grid view for Inbox blocks.
@@ -59,15 +60,18 @@ class InboxCardView extends StatelessWidget {
       physics: physics,
       itemBuilder: (context, index) {
         final block = blocks[index];
-        return _DismissibleInboxCard(
-          block: block,
-          classIndex: classIndex,
-          onTap: () => onBlockTap(block),
-          onLongPress: onBlockLongPress != null ? () => onBlockLongPress!(block) : null,
-          onArchive: onBlockArchive != null ? () => onBlockArchive!(block) : null,
-          onDelete: onBlockDelete != null ? () => onBlockDelete!(block) : null,
-          onArchiveUndo: onBlockArchiveUndo != null ? () => onBlockArchiveUndo!(block) : null,
-          onDeleteUndo: onBlockDeleteUndo != null ? () => onBlockDeleteUndo!(block) : null,
+        return FadeSlideIn.staggered(
+          index,
+          child: _DismissibleInboxCard(
+            block: block,
+            classIndex: classIndex,
+            onTap: () => onBlockTap(block),
+            onLongPress: onBlockLongPress != null ? () => onBlockLongPress!(block) : null,
+            onArchive: onBlockArchive != null ? () => onBlockArchive!(block) : null,
+            onDelete: onBlockDelete != null ? () => onBlockDelete!(block) : null,
+            onArchiveUndo: onBlockArchiveUndo != null ? () => onBlockArchiveUndo!(block) : null,
+            onDeleteUndo: onBlockDeleteUndo != null ? () => onBlockDeleteUndo!(block) : null,
+          ),
         );
       },
     );
@@ -100,11 +104,13 @@ class _DismissibleInboxCard extends StatelessWidget {
     final canArchive = onArchive != null;
     final canDelete = onDelete != null;
 
-    Widget card = _InboxCard(
-      block: block,
-      classIndex: classIndex,
-      onTap: onTap,
-      onLongPress: onLongPress,
+    Widget card = PressScale(
+      child: _InboxCard(
+        block: block,
+        classIndex: classIndex,
+        onTap: onTap,
+        onLongPress: onLongPress,
+      ),
     );
 
     if (!canArchive && !canDelete) return card;

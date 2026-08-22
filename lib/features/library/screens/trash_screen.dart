@@ -11,6 +11,7 @@ import '../../../data/models/node.dart';
 import '../../../data/repositories/node_repository.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../shared/widgets/fleet_card.dart';
+import '../../../shared/widgets/skeletons.dart';
 
 /// Trashed nodes: restore only.
 class TrashScreen extends StatefulWidget {
@@ -85,9 +86,15 @@ class _TrashScreenState extends State<TrashScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _loadTrash,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _buildContent(colors),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: _loading
+              ? const ListTileSkeletonList(
+                  key: ValueKey('trash-loading'),
+                  trailing: true,
+                )
+              : _buildContent(colors),
+        ),
       ),
     );
   }

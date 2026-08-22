@@ -10,6 +10,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../library/widgets/browse_panel.dart';
 import '../../search/widgets/command_palette.dart';
+import '../../../shared/widgets/skeletons.dart';
 import '../../capture/widgets/quick_capture_sheet.dart';
 import './dashboard_screen.dart';
 import '../../editor/screens/journal_continuous_screen.dart';
@@ -307,9 +308,15 @@ class _TodayJournalHomeState extends State<_TodayJournalHome> {
       );
     }
     final uuid = _journalUuid;
-    if (uuid == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    return NodeEditorScreen(nodeUuid: uuid);
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      child: uuid == null
+          ? const CardListSkeleton(
+              key: ValueKey('journal-home-loading'),
+              sectionCount: 1,
+              rowsPerSection: 4,
+            )
+          : NodeEditorScreen(nodeUuid: uuid),
+    );
   }
 }

@@ -22,6 +22,7 @@ import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/filter_chip_bar.dart';
 import '../../../shared/widgets/fleet_card.dart';
 import '../../../shared/widgets/section_title.dart';
+import '../../../shared/widgets/skeletons.dart';
 import '../../../shared/widgets/view_mode_sheet.dart';
 
 /// Live search across nodes with advanced filters.
@@ -421,7 +422,12 @@ class _SearchScreenState extends State<SearchScreen> {
                 }).toList(),
               ),
             ),
-          Expanded(child: _buildBody(colors)),
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _buildBody(colors),
+            ),
+          ),
         ],
       ),
     );
@@ -429,7 +435,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildBody(ColorScheme colors) {
     if (_loading && _results.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const ListTileSkeletonList(key: ValueKey('search-loading'));
     }
 
     if (_error != null) {
@@ -460,7 +466,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildSuggestions(ColorScheme colors) {
     if (_loadingSuggestions) {
-      return const Center(child: CircularProgressIndicator());
+      return const ListTileSkeletonList(key: ValueKey('suggestions-loading'));
     }
 
     return ListView(

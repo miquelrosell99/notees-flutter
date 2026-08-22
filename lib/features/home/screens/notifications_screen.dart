@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../data/repositories/notification_repository.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../../shared/widgets/fleet_card.dart';
+import '../../../shared/widgets/skeletons.dart';
 
 /// Lists app notifications with read/unread actions.
 class NotificationsScreen extends StatefulWidget {
@@ -104,9 +105,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _loadNotifications,
-        child: _loading && _notifications.isEmpty
-            ? const Center(child: CircularProgressIndicator())
-            : _buildBody(colors),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: _loading && _notifications.isEmpty
+              ? const ListTileSkeletonList(key: ValueKey('notifications-loading'))
+              : _buildBody(colors),
+        ),
       ),
     );
   }

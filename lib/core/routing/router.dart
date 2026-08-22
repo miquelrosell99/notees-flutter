@@ -45,6 +45,38 @@ abstract class Routes {
   static const tasks = '/tasks';
 }
 
+/// Shared-axis-style push transition for detail routes: fade plus a slight
+/// horizontal slide (300 ms easeInOutCubic, 250 ms reverse). Renders the
+/// page statically when the user has disabled animations.
+CustomTransitionPage<void> _pushTransitionPage({
+  required LocalKey key,
+  required Widget child,
+}) {
+  return CustomTransitionPage<void>(
+    key: key,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 300),
+    reverseTransitionDuration: const Duration(milliseconds: 250),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      if (MediaQuery.disableAnimationsOf(context)) return child;
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeInOutCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.05, 0),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
+
 GoRouter createRouter({required AuthProvider authProvider}) {
   return GoRouter(
     navigatorKey: apiErrorNavigatorKey,
@@ -106,41 +138,68 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       ),
       GoRoute(
         path: Routes.settings,
-        builder: (context, state) => const SettingsScreen(),
+        pageBuilder: (context, state) => _pushTransitionPage(
+          key: state.pageKey,
+          child: const SettingsScreen(),
+        ),
       ),
       GoRoute(
         path: Routes.about,
-        builder: (context, state) => const AboutScreen(),
+        pageBuilder: (context, state) => _pushTransitionPage(
+          key: state.pageKey,
+          child: const AboutScreen(),
+        ),
       ),
       GoRoute(
         path: Routes.archived,
-        builder: (context, state) => const ArchivedScreen(),
+        pageBuilder: (context, state) => _pushTransitionPage(
+          key: state.pageKey,
+          child: const ArchivedScreen(),
+        ),
       ),
       GoRoute(
         path: '${Routes.settings}/servers',
-        builder: (context, state) => const ServerManagementScreen(),
+        pageBuilder: (context, state) => _pushTransitionPage(
+          key: state.pageKey,
+          child: const ServerManagementScreen(),
+        ),
       ),
       GoRoute(
         path: '${Routes.settings}/profile',
-        builder: (context, state) => const UserProfileScreen(),
+        pageBuilder: (context, state) => _pushTransitionPage(
+          key: state.pageKey,
+          child: const UserProfileScreen(),
+        ),
       ),
       GoRoute(
         path: '${Routes.settings}/api-keys',
-        builder: (context, state) => const ApiKeysScreen(),
+        pageBuilder: (context, state) => _pushTransitionPage(
+          key: state.pageKey,
+          child: const ApiKeysScreen(),
+        ),
       ),
       GoRoute(
         path: '${Routes.settings}/keyboard-shortcuts',
-        builder: (context, state) => const KeyboardShortcutsScreen(),
+        pageBuilder: (context, state) => _pushTransitionPage(
+          key: state.pageKey,
+          child: const KeyboardShortcutsScreen(),
+        ),
       ),
       GoRoute(
         path: Routes.trash,
-        builder: (context, state) => const TrashScreen(),
+        pageBuilder: (context, state) => _pushTransitionPage(
+          key: state.pageKey,
+          child: const TrashScreen(),
+        ),
       ),
       GoRoute(
         path: '${Routes.editor}/:nodeUuid',
-        builder: (context, state) {
+        pageBuilder: (context, state) {
           final nodeUuid = state.pathParameters['nodeUuid'] ?? '';
-          return NodeEditorScreen(nodeUuid: nodeUuid);
+          return _pushTransitionPage(
+            key: state.pageKey,
+            child: NodeEditorScreen(nodeUuid: nodeUuid),
+          );
         },
       ),
       GoRoute(
@@ -149,11 +208,14 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       ),
       GoRoute(
         path: Routes.search,
-        builder: (context, state) {
+        pageBuilder: (context, state) {
           final extra = state.extra as Map<String, dynamic>?;
-          return SearchScreen(
-            initialQuery: extra?['query'] as String?,
-            initialFilters: extra?['filters'] as SearchFilters?,
+          return _pushTransitionPage(
+            key: state.pageKey,
+            child: SearchScreen(
+              initialQuery: extra?['query'] as String?,
+              initialFilters: extra?['filters'] as SearchFilters?,
+            ),
           );
         },
       ),
@@ -163,7 +225,10 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       ),
       GoRoute(
         path: Routes.journals,
-        builder: (context, state) => const JournalContinuousScreen(),
+        pageBuilder: (context, state) => _pushTransitionPage(
+          key: state.pageKey,
+          child: const JournalContinuousScreen(),
+        ),
       ),
       GoRoute(
         path: Routes.tasks,
@@ -171,7 +236,10 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       ),
       GoRoute(
         path: Routes.notifications,
-        builder: (context, state) => const NotificationsScreen(),
+        pageBuilder: (context, state) => _pushTransitionPage(
+          key: state.pageKey,
+          child: const NotificationsScreen(),
+        ),
       ),
       GoRoute(
         path: Routes.onboarding,

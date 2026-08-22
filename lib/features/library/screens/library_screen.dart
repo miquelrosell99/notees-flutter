@@ -19,6 +19,8 @@ import '../../../shared/views/node_list_view.dart';
 import '../../../shared/views/node_view_mode.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/fleet_card.dart';
+import '../../../shared/widgets/motion.dart';
+import '../../../shared/widgets/skeletons.dart';
 import '../../../shared/widgets/view_mode_sheet.dart';
 
 /// Unified Library tab: browse pages, journals, and tags with recent pins.
@@ -315,9 +317,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _loadLibrary,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _buildContent(colors, settings.dateFormat),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: _loading
+              ? const CardListSkeleton(key: ValueKey('library-loading'))
+              : _buildContent(colors, settings.dateFormat),
+        ),
       ),
       floatingActionButton: FloatingActionButton.small(
         onPressed: () => _createPage(context),
@@ -369,90 +374,99 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        _buildRecentPins(colors, dateFormat),
+        staggered(0, _buildRecentPins(colors, dateFormat)),
         const SizedBox(height: 28),
-        FleetCard(
-          child: Column(
-            children: [
-              _SectionHeader(icon: MdiIcons.folderOutline, label: 'Pages'),
-              const Divider(height: 1),
-              _rootPages.isEmpty
-                  ? _buildEmptyTile('No root pages')
-                  : NodeListView(
-                      nodes: _rootPages.take(5).toList(),
-                      onNodeTap: _openNode,
-                      onNodeLongPress: _showNodeActions,
-                      shrinkWrap: true,
-                      favoriteUuids: _favoriteUuids,
-                      onFavoriteToggle: _toggleFavorite,
-                      onArchive: _archiveNode,
-                      dateFormat: dateFormat,
-                      continuous: true,
-                    ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 28),
-        FleetCard(
-          child: Column(
-            children: [
-              _SectionHeader(icon: MdiIcons.calendarOutline, label: 'Journals'),
-              const Divider(height: 1),
-              ListTile(
-                leading: Icon(MdiIcons.calendarMonthOutline, color: colors.onSurfaceVariant),
-                title: const Text('All journals'),
-                trailing: Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
-                onTap: _openJournals,
-              ),
-              const Divider(height: 1),
-              _recentJournals.isEmpty
-                  ? _buildEmptyTile('No recent journals')
-                  : NodeListView(
-                      nodes: _recentJournals.take(5).toList(),
-                      onNodeTap: _openNode,
-                      onNodeLongPress: _showNodeActions,
-                      shrinkWrap: true,
-                      favoriteUuids: _favoriteUuids,
-                      onFavoriteToggle: _toggleFavorite,
-                      onArchive: _archiveNode,
-                      dateFormat: dateFormat,
-                      continuous: true,
-                    ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 28),
-        FleetCard(
-          child: Column(
-            children: [
-              _SectionHeader(icon: MdiIcons.shapeOutline, label: 'Classes'),
-              const Divider(height: 1),
-              _classes.isEmpty
-                  ? _buildEmptyTile('No classes yet')
-                  : Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: _classes
-                            .map((cls) => (cls, resolveNodeDisplayName(cls)))
-                            .where((pair) => pair.$2.isNotEmpty)
-                            .map((pair) {
-                              final (cls, label) = pair;
-                              return GestureDetector(
-                                onLongPress: () => HapticFeedback.mediumImpact(),
-                                behavior: HitTestBehavior.translucent,
-                                child: ActionChip(
-                                  avatar: Icon(MdiIcons.shapeOutline, size: 16),
-                                  label: Text(label),
-                                  onPressed: () => _showClassNodes(cls),
-                                ),
-                              );
-                            })
-                            .toList(),
+        staggered(
+          1,
+          FleetCard(
+            child: Column(
+              children: [
+                _SectionHeader(icon: MdiIcons.folderOutline, label: 'Pages'),
+                const Divider(height: 1),
+                _rootPages.isEmpty
+                    ? _buildEmptyTile('No root pages')
+                    : NodeListView(
+                        nodes: _rootPages.take(5).toList(),
+                        onNodeTap: _openNode,
+                        onNodeLongPress: _showNodeActions,
+                        shrinkWrap: true,
+                        favoriteUuids: _favoriteUuids,
+                        onFavoriteToggle: _toggleFavorite,
+                        onArchive: _archiveNode,
+                        dateFormat: dateFormat,
+                        continuous: true,
                       ),
-                    ),
-            ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 28),
+        staggered(
+          2,
+          FleetCard(
+            child: Column(
+              children: [
+                _SectionHeader(icon: MdiIcons.calendarOutline, label: 'Journals'),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(MdiIcons.calendarMonthOutline, color: colors.onSurfaceVariant),
+                  title: const Text('All journals'),
+                  trailing: Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
+                  onTap: _openJournals,
+                ),
+                const Divider(height: 1),
+                _recentJournals.isEmpty
+                    ? _buildEmptyTile('No recent journals')
+                    : NodeListView(
+                        nodes: _recentJournals.take(5).toList(),
+                        onNodeTap: _openNode,
+                        onNodeLongPress: _showNodeActions,
+                        shrinkWrap: true,
+                        favoriteUuids: _favoriteUuids,
+                        onFavoriteToggle: _toggleFavorite,
+                        onArchive: _archiveNode,
+                        dateFormat: dateFormat,
+                        continuous: true,
+                      ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 28),
+        staggered(
+          3,
+          FleetCard(
+            child: Column(
+              children: [
+                _SectionHeader(icon: MdiIcons.shapeOutline, label: 'Classes'),
+                const Divider(height: 1),
+                _classes.isEmpty
+                    ? _buildEmptyTile('No classes yet')
+                    : Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _classes
+                              .map((cls) => (cls, resolveNodeDisplayName(cls)))
+                              .where((pair) => pair.$2.isNotEmpty)
+                              .map((pair) {
+                                final (cls, label) = pair;
+                                return GestureDetector(
+                                  onLongPress: () => HapticFeedback.mediumImpact(),
+                                  behavior: HitTestBehavior.translucent,
+                                  child: ActionChip(
+                                    avatar: Icon(MdiIcons.shapeOutline, size: 16),
+                                    label: Text(label),
+                                    onPressed: () => _showClassNodes(cls),
+                                  ),
+                                );
+                              })
+                              .toList(),
+                        ),
+                      ),
+              ],
+            ),
           ),
         ),
       ],
@@ -557,48 +571,50 @@ class _PinCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return FleetCard(
-      onTap: () => onTap(node),
-      onLongPress: () => onLongPress(node),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  node.isJournal ? MdiIcons.calendarOutline : MdiIcons.fileDocumentOutline,
-                  size: 20,
-                  color: colors.onSurfaceVariant,
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: Icon(
-                    isFavorite ? MdiIcons.star : MdiIcons.starOutline,
+    return PressScale(
+      child: FleetCard(
+        onTap: () => onTap(node),
+        onLongPress: () => onLongPress(node),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    node.isJournal ? MdiIcons.calendarOutline : MdiIcons.fileDocumentOutline,
                     size: 20,
-                    color: isFavorite ? colors.primary : colors.onSurfaceVariant,
+                    color: colors.onSurfaceVariant,
                   ),
-                  tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
-                  onPressed: () {
-                    HapticFeedback.lightImpact();
-                    onFavoriteToggle(node);
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: Text(
-                resolveNodeDisplayName(node, dateFormat: dateFormat),
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
+                  const Spacer(),
+                  IconButton(
+                    icon: Icon(
+                      isFavorite ? MdiIcons.star : MdiIcons.starOutline,
+                      size: 20,
+                      color: isFavorite ? colors.primary : colors.onSurfaceVariant,
                     ),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
+                    tooltip: isFavorite ? 'Remove favorite' : 'Add favorite',
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      onFavoriteToggle(node);
+                    },
+                  ),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Expanded(
+                child: Text(
+                  resolveNodeDisplayName(node, dateFormat: dateFormat),
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -704,7 +720,7 @@ class _ClassNodesSheetState extends State<_ClassNodesSheet> {
               const Divider(height: 1),
               Expanded(
                 child: _loading
-                    ? const Center(child: CircularProgressIndicator())
+                    ? const ListTileSkeletonList(itemCount: 4)
                     : _error != null
                         ? Center(
                             child: Padding(
