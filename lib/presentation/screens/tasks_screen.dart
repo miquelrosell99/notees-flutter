@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -16,6 +18,8 @@ import '../providers/auth_provider.dart';
 import '../views/_view_helpers.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/fleet_card.dart';
+import '../widgets/task_creation_sheet.dart';
+import '../widgets/task_row.dart';
 
 /// Task list segments.
 enum TaskSegment {
@@ -44,6 +48,20 @@ enum TaskSegment {
   }
 }
 
+/// Due-date buckets used to group the Upcoming segment.
+enum _TaskBucket {
+  overdue('Overdue'),
+  today('Today'),
+  tomorrow('Tomorrow'),
+  thisWeek('This week'),
+  later('Later'),
+  noDate('No date');
+
+  const _TaskBucket(this.label);
+
+  final String label;
+}
+
 /// Dedicated task list with segments, sorting, swipe actions,
 /// multi-select batch operations, and a quick-detail bottom sheet.
 class TasksScreen extends StatefulWidget {
@@ -64,6 +82,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
   bool _selectionMode = false;
   final Set<String> _selected = <String>{};
+  final Set<String> _failedToggles = <String>{};
 
   static const _closedStatuses = TaskStatuses.closed;
 
@@ -78,11 +97,11 @@ class _TasksScreenState extends State<TasksScreen> {
     return NodeRepository(dio: auth.dio!, syncService: auth.syncService);
   }
 
-  Future<void> _loadTasks() async {
+  Future<void> _loadTasks({bool silent = false}) async {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
 
-    if (mounted) setState(() => _loading = true);
+    if (mounted && !silent) setState(() => _loading = true);
     try {
       final repo = _repo(context);
       final segment = _focusMode ? TaskSegment.today : _segment;
@@ -106,14 +125,13 @@ class _TasksScreenState extends State<TasksScreen> {
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && !silent) setState(() => _loading = false);
     }
   }
 
   SearchFilters _filtersFor(TaskSegment segment) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final tomorrow = today.add(const Duration(days: 1));
     const limit = 500;
     switch (segment) {
       case TaskSegment.today:
@@ -126,19 +144,12 @@ class _TasksScreenState extends State<TasksScreen> {
           limit: limit,
         );
       case TaskSegment.upcoming:
-        return SearchFilters(
-          nodeType: NodeType.task,
-          taskState: TaskState.open,
-          dateFrom: tomorrow,
-          sortBy: _sortBy,
-          limit: limit,
-        );
       case TaskSegment.someday:
       case TaskSegment.all:
       case TaskSegment.undated:
-        // Fetch all open tasks; we filter out tasks that carry a due date
-        // client-side for someday/undated because SearchFilters only expresses
-        // date ranges.
+        // Fetch all open tasks. Upcoming groups into due-date buckets
+        // client-side; someday/undated drop dated tasks client-side because
+        // SearchFilters only expresses date ranges.
         return SearchFilters(
           nodeType: NodeType.task,
           taskState: TaskState.open,
@@ -374,53 +385,41 @@ class _TasksScreenState extends State<TasksScreen> {
   Future<void> _createTask() async {
     HapticFeedback.lightImpact();
     final auth = context.read<AuthProvider>();
-    final name = await showDialog<String>(
+    final result = await showModalBottomSheet<TaskCreationResult>(
       context: context,
-      builder: (ctx) {
-        final controller = TextEditingController();
-        return AlertDialog(
-          title: const Text('New task'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: const InputDecoration(hintText: 'Task name'),
-            onSubmitted: (value) => Navigator.of(ctx).pop(value.trim()),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-              child: const Text('Create'),
-            ),
-          ],
-        );
-      },
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => TaskCreationSheet(
+        onPickDueDate: () => _pickDate(title: 'Due date'),
+      ),
     );
 
-    if (name == null || name.isEmpty) return;
+    if (result == null) return;
     if (!mounted) return;
     if (auth.dio == null) return;
 
     final repo = _repo(context);
-    if (mounted) setState(() => _loading = true);
     try {
-      await repo.createTask(name);
-      if (mounted) await _loadTasks();
+      final task = await repo.createTask(result.name);
+      final due = result.dueDate;
+      if (due != null) {
+        await repo.setNodeProperty(
+          task.uuid,
+          SystemPropertyUuids.taskDeadline,
+          _formatDate(due),
+        );
+        await _scheduleReminderIfOpen(task.copyWithDueDate(due));
+      }
+      if (mounted) await _loadTasks(silent: true);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
-    } finally {
-      if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _toggleTaskCompletion(Node task) async {
+  Future<bool> _toggleTaskCompletion(Node task) async {
     HapticFeedback.selectionClick();
     final auth = context.read<AuthProvider>();
-    if (auth.dio == null) return;
+    if (auth.dio == null) return false;
 
     final repo = _repo(context);
     try {
@@ -436,7 +435,7 @@ class _TasksScreenState extends State<TasksScreen> {
             const SnackBar(content: Text('Task status property not found')),
           );
         }
-        return;
+        return false;
       }
 
       var statusProperty = statusValue.property;
@@ -455,7 +454,7 @@ class _TasksScreenState extends State<TasksScreen> {
             const SnackBar(content: Text('Task status options not found')),
           );
         }
-        return;
+        return false;
       }
 
       final currentOption = statusValue.values.isNotEmpty
@@ -484,13 +483,41 @@ class _TasksScreenState extends State<TasksScreen> {
       } else {
         await _scheduleReminderIfOpen(task);
       }
-      if (mounted) await _loadTasks();
+      return true;
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not update task: $e')),
         );
       }
+      return false;
+    }
+  }
+
+  /// Persists a completion toggle in the background. On failure the toggle
+  /// is recorded in [_failedToggles] (so the row is not removed) and the
+  /// list is silently reloaded to reconcile with the local cache.
+  Future<bool> _onTaskCompletionToggled(Node task) async {
+    _failedToggles.remove(task.uuid);
+    final success = await _toggleTaskCompletion(task);
+    if (mounted && !success) {
+      _failedToggles.add(task.uuid);
+      unawaited(_loadTasks(silent: true));
+    }
+    return success;
+  }
+
+  /// Removes a task from the current list without a full reload; called by
+  /// [TaskRow] once its completion animation has finished.
+  void _removeTaskLocally(String taskUuid) {
+    if (!mounted) return;
+    if (_failedToggles.remove(taskUuid)) {
+      // The persist failed; keep the row so it can revert visually.
+      return;
+    }
+    setState(() => _tasks.removeWhere((t) => t.uuid == taskUuid));
+    if (_focusMode || _segment == TaskSegment.today) {
+      unawaited(WidgetService.saveTodayTasks(_tasks));
     }
   }
 
@@ -764,6 +791,7 @@ class _TasksScreenState extends State<TasksScreen> {
     for (final task in tasks) {
       await _toggleTaskCompletion(task);
     }
+    if (mounted) await _loadTasks(silent: true);
   }
 
   Future<void> _batchDelete() async {
@@ -1074,58 +1102,99 @@ class _TasksScreenState extends State<TasksScreen> {
     }
 
     return ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        FleetCard(
-          child: Column(
-            children: _tasks.asMap().entries.map((entry) {
-              final task = entry.value;
-              final isLast = entry.key == _tasks.length - 1;
-              return Column(
-                children: [
-                  _buildTaskRow(task),
-                  if (!isLast) const Divider(height: 1),
-                ],
-              );
-            }).toList(),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+      children: _segment == TaskSegment.upcoming && !_focusMode
+          ? _buildGroupedUpcoming()
+          : [_buildTaskCard(_tasks)],
+    );
+  }
+
+  Widget _buildTaskCard(List<Node> tasks) {
+    return FleetCard(
+      child: Column(
+        children: [
+          for (var i = 0; i < tasks.length; i++) ...[
+            _buildTaskRow(tasks[i]),
+            if (i < tasks.length - 1) const Divider(height: 1),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildGroupedUpcoming() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final byBucket = <_TaskBucket, List<Node>>{};
+    for (final task in _tasks) {
+      byBucket.putIfAbsent(_bucketFor(_taskDueDate(task), today), () => []).add(task);
+    }
+    final children = <Widget>[];
+    for (final bucket in _TaskBucket.values) {
+      final tasks = byBucket[bucket];
+      if (tasks == null || tasks.isEmpty) continue;
+      children.add(_buildSectionHeader(bucket.label, tasks.length));
+      children.add(_buildTaskCard(tasks));
+    }
+    return children;
+  }
+
+  _TaskBucket _bucketFor(DateTime? due, DateTime today) {
+    if (due == null) return _TaskBucket.noDate;
+    final day = DateTime(due.year, due.month, due.day);
+    final diff = day.difference(today).inDays;
+    if (diff < 0) return _TaskBucket.overdue;
+    if (diff == 0) return _TaskBucket.today;
+    if (diff == 1) return _TaskBucket.tomorrow;
+    if (diff <= 7) return _TaskBucket.thisWeek;
+    return _TaskBucket.later;
+  }
+
+  Widget _buildSectionHeader(String label, int count) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: colors.onSurfaceVariant,
+            ),
           ),
-        ),
-      ],
+          const SizedBox(width: 8),
+          Text(
+            '$count',
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: colors.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildTaskRow(Node task) {
     final colors = Theme.of(context).colorScheme;
     final completed = _segment == TaskSegment.completed;
-    final selected = _selected.contains(task.uuid);
-    final due = _taskDueDate(task);
 
-    Widget content = ListTile(
-      leading: _selectionMode
-          ? Checkbox(
-              value: selected,
-              onChanged: (_) => _toggleSelection(task),
-            )
-          : Checkbox(
-              value: completed,
-              onChanged: (_) => _toggleTaskCompletion(task),
-            ),
-      title: Text(task.displayName),
-      subtitle: due != null
-          ? Text(
-              _formatDate(due),
-              style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12),
-            )
-          : null,
-      trailing: _selectionMode
-          ? null
-          : IconButton(
-              icon: Icon(MdiIcons.informationOutline, color: colors.onSurfaceVariant),
-              tooltip: 'Details',
-              onPressed: () => _showTaskDetail(task),
-            ),
+    Widget content = TaskRow(
+      title: task.displayName,
+      completed: completed,
+      dueDate: _taskDueDate(task),
+      selectionMode: _selectionMode,
+      selected: _selected.contains(task.uuid),
+      onToggleComplete:
+          _selectionMode ? null : () => _onTaskCompletionToggled(task),
+      onAnimatedOut:
+          _selectionMode ? null : () => _removeTaskLocally(task.uuid),
+      onToggleSelected: () => _toggleSelection(task),
       onTap: _selectionMode ? () => _toggleSelection(task) : () => _showTaskDetail(task),
       onLongPress: _selectionMode ? null : () => _enterSelectionMode(task),
+      onShowDetails: _selectionMode ? null : () => _showTaskDetail(task),
     );
 
     if (_selectionMode) return content;
