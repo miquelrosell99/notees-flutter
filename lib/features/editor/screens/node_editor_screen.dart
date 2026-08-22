@@ -27,10 +27,10 @@ import '../../settings/providers/settings_provider.dart';
 import '../../../shared/views/node_list_view.dart';
 import '../selection_utils.dart';
 import '../widgets/block_tree_editor.dart';
+import '../widgets/cover_image_widget.dart';
 import '../widgets/editor_inline_toolbar.dart';
 import '../../../shared/widgets/fleet_card.dart';
 import '../../../shared/widgets/bottom_sheet_drag_handle.dart';
-import '../../../shared/widgets/empty_state.dart';
 import '../widgets/mention_picker.dart';
 import '../widgets/node_edit_modal.dart';
 import '../../../shared/widgets/node_picker.dart';
@@ -86,6 +86,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   bool _isFavorite = false;
   bool _propertiesExpanded = false;
 
+  /// Asset node uuid from the page's `cover` system property, rendered as a
+  /// header thumbnail instead of a property row (web parity with NodeView).
+  String? _coverAssetUuid;
+
   /// Block multi-select mode: long-press a block's content to enter, tap rows
   /// to toggle, batch actions run from the bottom selection bar.
   bool _selectionMode = false;
@@ -128,7 +132,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       _autosaveTimer = Timer(const Duration(seconds: 2), _autosave);
       return;
     }
-    _save(manual: false);
+    _save();
   }
 
   Future<void> _loadPage() async {
@@ -222,6 +226,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           _isMonthly = page.isMonthly;
           _isYearly = page.isYearly;
           _pageClassUuids = page.classesUuid;
+          _coverAssetUuid = _extractCoverAssetUuid(properties);
           _breadcrumbs = breadcrumbs;
           _deletedBlockUuids.clear();
           _error = null;
@@ -442,7 +447,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     return AstBuilder.parseInline(name);
   }
 
-  Future<void> _save({bool manual = true}) async {
+  Future<void> _save() async {
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
     if (_saving) return; // avoid overlapping saves
@@ -480,18 +485,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       await service.flush();
       if (!mounted) return;
       _dirty = false;
-
-      // Autosaves must not reload the page: that would steal focus and
-      // rebuild the block controllers while the user is typing.
-      if (manual && mounted) await _loadPage();
-      if (manual && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Saved')));
-      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
-      if (!manual && mounted) {
+      if (mounted) {
         // Stay dirty and retry in the background.
         _autosaveTimer?.cancel();
         _autosaveTimer = Timer(const Duration(seconds: 5), _autosave);
@@ -1517,26 +1513,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        // Saving is fully automatic (2s debounce); the app bar only exposes
+        // navigation and the overflow menu.
         actions: [
           IconButton(
             icon: Icon(MdiIcons.dotsVertical),
             tooltip: 'More options',
             onPressed: _showPageOptionsMenu,
           ),
-          if (_saving)
-            const Center(
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
-            )
-          else
-            IconButton(
-              icon: Icon(MdiIcons.check),
-              tooltip: 'Save now',
-              onPressed: () => _save(),
-            ),
           const SizedBox(width: 8),
         ],
       ),
@@ -1548,13 +1532,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             ? const _EditorSkeleton()
             : _buildLoadedBody(colors, settings),
       ),
-      floatingActionButton: _loading
-          ? null
-          : FloatingActionButton.small(
-              onPressed: _addBlock,
-              tooltip: 'Add block',
-              child: Icon(MdiIcons.plus),
-            ),
     );
   }
 
@@ -1590,15 +1567,15 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                       ),
                     ),
                   ),
-                _buildTitleHeader(),
+                _buildHeaderWithCover(),
                 _buildClassPills(colors),
                 const SizedBox(height: 8),
                 _buildPropertiesSection(colors),
                 const SizedBox(height: 8),
-                if (_roots.isEmpty && _error == null)
-                  _buildEmptyPageState()
-                else
-                  _buildBlockTree(colors),
+                // The block tree always renders: on an empty page its
+                // trailing ghost row ("+ Add block") is the primary creation
+                // affordance.
+                _buildBlockTree(colors),
                 const SizedBox(height: 80),
                 _buildChildPagesSection(colors, settings.dateFormat),
                 _buildLinkedReferencesSection(colors),
@@ -1719,14 +1696,38 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     );
   }
 
-  /// Notion-style header: tappable icon above a tappable serif display title.
+  /// Page header: the title block on the left and, when the page has a cover
+  /// property, a fixed-height cover thumbnail pinned to the top right.
+  Widget _buildHeaderWithCover() {
+    final coverUuid = _coverAssetUuid;
+    final auth = context.read<AuthProvider>();
+    if (coverUuid == null || auth.dio == null) return _buildTitleHeader();
+    return LayoutBuilder(
+      builder: (context, constraints) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: _buildTitleHeader()),
+          const SizedBox(width: 12),
+          CoverImageWidget(
+            dio: auth.dio!,
+            assetUuid: coverUuid,
+            width: constraints.maxWidth * 0.4,
+            height: 108,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Notion-style header: tappable icon and serif display title on one row
+  /// (mirrors the web's PageHeader).
   Widget _buildTitleHeader() {
     final colors = Theme.of(context).colorScheme;
     final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
     final canRename = !isJournalDatePage;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         InkWell(
           onTap: canRename ? _onTitleTap : null,
@@ -1740,46 +1741,35 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 8),
-        GestureDetector(
-          onTap: canRename ? _onTitleTap : null,
-          behavior: HitTestBehavior.opaque,
-          child: ValueListenableBuilder<TextEditingValue>(
-            valueListenable: _titleController,
-            builder: (context, value, _) {
-              final title = value.text.trim();
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      title.isEmpty ? 'Untitled' : value.text,
-                      style: Theme.of(context).textTheme.headlineMedium
-                          ?.copyWith(
-                            color: title.isEmpty
-                                ? colors.onSurfaceVariant.withAlpha(
-                                    (0.6 * 255).round(),
-                                  )
-                                : colors.onSurface,
-                          ),
-                    ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: GestureDetector(
+            onTap: canRename ? _onTitleTap : null,
+            behavior: HitTestBehavior.opaque,
+            child: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _titleController,
+              builder: (context, value, _) {
+                final title = value.text.trim();
+                return Text(
+                  title.isEmpty ? 'Untitled' : value.text,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    color: title.isEmpty
+                        ? colors.onSurfaceVariant.withAlpha((0.6 * 255).round())
+                        : colors.onSurface,
                   ),
-                  if (_pageIsPrivate) ...[
-                    const SizedBox(width: 8),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Icon(
-                        MdiIcons.lockOutline,
-                        size: 18,
-                        color: colors.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ],
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
+        if (_pageIsPrivate) ...[
+          const SizedBox(width: 8),
+          Icon(
+            MdiIcons.lockOutline,
+            size: 18,
+            color: colors.onSurfaceVariant,
+          ),
+        ],
       ],
     );
   }
@@ -1787,18 +1777,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   void _onTitleTap() {
     HapticFeedback.lightImpact();
     _showRenameTitleDialog();
-  }
-
-  /// Placeholder shown when the page has no blocks yet.
-  Widget _buildEmptyPageState() {
-    return SizedBox(
-      height: 320,
-      child: EmptyState(
-        icon: MdiIcons.noteTextOutline,
-        title: 'Empty page',
-        subtitle: 'Tap + to start writing',
-      ),
-    );
   }
 
   Widget _buildClassPills(ColorScheme colors) {
@@ -1988,6 +1966,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       onMove: _onMove,
       onAddSibling: _addBlock,
       onAddChild: _onAddChild,
+      onGhostRealize: _addBlock,
       onIndent: _onIndent,
       onOutdent: _onOutdent,
       onToggleCollapse: _onToggleCollapse,
@@ -2111,14 +2090,21 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   }
 
   /// Merges node property values with class-property bindings: drops internal
-  /// `_`-prefixed system props and appends required/defaulted class props that
-  /// have no value yet so they render editable/empty (matches the web).
+  /// `_`-prefixed system props and the cover property (rendered as a header
+  /// thumbnail), and appends required/defaulted class props that have no value
+  /// yet so they render editable/empty (matches the web).
   List<NodePropertyValue> _buildDisplayProperties(
     List<NodePropertyValue> base,
     Map<String, ClassProperty> classProps,
     List<Property> available,
   ) {
-    final display = base.where((p) => !p.property.isHiddenSystem).toList();
+    final display = base
+        .where(
+          (p) =>
+              !p.property.isHiddenSystem &&
+              p.property.uuid != SystemPropertyUuids.cover,
+        )
+        .toList();
     final present = display.map((p) => p.property.uuid).toSet();
     final byUuid = {for (final p in available) p.uuid: p};
     for (final cp in classProps.values) {
@@ -2126,6 +2112,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       if (!(cp.required || cp.defaultValue != null)) continue;
       final def = byUuid[cp.propertyUuid];
       if (def == null || def.isHiddenSystem) continue;
+      if (def.uuid == SystemPropertyUuids.cover) continue;
       display.add(NodePropertyValue(property: def, values: const []));
     }
     return display;
@@ -2149,6 +2136,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           _availableProperties,
         );
         _propertyValueNames = refreshedNames;
+        _coverAssetUuid = _extractCoverAssetUuid(refreshed);
       });
     } on DioException catch (e) {
       if (!mounted) return;
@@ -2184,6 +2172,19 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       for (final node in nodes)
         if (node.uuid.isNotEmpty) node.uuid: resolveNodeDisplayName(node, dateFormat: dateFormat),
     };
+  }
+
+  /// Extracts the asset node uuid held by the page's `cover` system property
+  /// (mirrors the web's `coverImageId` derivation in NodeView).
+  String? _extractCoverAssetUuid(List<NodePropertyValue> properties) {
+    for (final p in properties) {
+      if (p.property.uuid != SystemPropertyUuids.cover) continue;
+      for (final v in p.values) {
+        final uuid = _extractPropertyTargetUuid(v);
+        if (uuid != null) return uuid;
+      }
+    }
+    return null;
   }
 
   String? _extractPropertyTargetUuid(dynamic value) {

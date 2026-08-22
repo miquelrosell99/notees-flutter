@@ -68,6 +68,7 @@ class BlockTreeEditor extends StatefulWidget {
     this.selectedBlocks = const {},
     this.onEnterSelection,
     this.onToggleSelected,
+    this.onGhostRealize,
     this.onInsertImage,
     this.onInsertAudio,
     this.onNodeLinkTap,
@@ -105,6 +106,10 @@ class BlockTreeEditor extends StatefulWidget {
 
   /// Invoked when the user taps a row while [selectionMode] is active.
   final ValueChanged<BlockNode>? onToggleSelected;
+
+  /// Invoked when the user taps the trailing ghost pseudo-block to append a
+  /// real empty block at the end of the page (web: `onGhostRealize`).
+  final VoidCallback? onGhostRealize;
 
   final VoidCallback? onInsertImage;
   final VoidCallback? onInsertAudio;
@@ -203,11 +208,17 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       ..clear()
       ..addAll(current);
 
+    // Trailing ghost pseudo-block (web parity): a "+ Add block" row that
+    // realizes a real block on tap. Hidden in multi-select mode so it can
+    // never interfere with selection.
+    final showGhost = widget.onGhostRealize != null && !widget.selectionMode;
+
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: rows.length,
+      itemCount: rows.length + (showGhost ? 1 : 0),
       itemBuilder: (context, index) {
+        if (index == rows.length) return _buildGhostRow();
         final row = rows[index];
         return _buildRow(row, rows, index);
       },
@@ -228,6 +239,48 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
         _flatten(node.children, rows, visited);
       }
     }
+  }
+
+  /// Trailing pseudo-block ("ghost") that appends a real block on tap,
+  /// mirroring the web's `createGhostFlatNode` row. It is not a [BlockNode],
+  /// so it never participates in drag-and-drop, multi-select, or saving.
+  Widget _buildGhostRow() {
+    final colors = Theme.of(context).colorScheme;
+    final ghostColor = colors.onSurfaceVariant.withAlpha((0.6 * 255).round());
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        HapticFeedback.lightImpact();
+        widget.onGhostRealize?.call();
+      },
+      child: Row(
+        children: [
+          // Muted bullet in the same 36x44 gutter as normal rows.
+          SizedBox(
+            width: 36,
+            height: 44,
+            child: Center(
+              child: Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: ghostColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              '+ Add block',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyLarge?.copyWith(color: ghostColor),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildRow(_VisibleRow row, List<_VisibleRow> rows, int index) {
