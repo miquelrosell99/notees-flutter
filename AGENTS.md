@@ -122,7 +122,7 @@ Common issues that break the Android build:
 - **Parameter shadowing**: don't name a parameter the same as a static helper. For example, `String text` shadows `AstBuilder.text()`, causing `The method 'call' isn't defined for the type 'String'`.
 - **Async `BuildContext` use**: capture `context.read<...>()` before the first `await`, or guard post-async context use with `if (mounted)`.
 - **Unused private members**: the analyzer treats unused private methods/fields as warnings, and the workflow fails on them.
-- **Map null entries**: the Dart version in the pinned Flutter image does not accept `'key': value?` collection elements. Keep using `if (value != null) 'key': value` (with an optional `// ignore: use_null_aware_elements`).
+- **Map null entries**: CI's current Flutter (stable 3.47+) supports and *requires* null-aware collection elements: `flutter analyze` fails on `use_null_aware_elements` infos, so write `[?value]` / `'key': ?value` instead of `if (value != null)` guards in collection literals.
 
 For major refactors, trigger a CI build via `./trigger-ci-build.sh` rather than running the full APK build locally. Use `docker compose run --rm build-apk` only when debugging a CI-specific build failure.
 
