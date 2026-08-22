@@ -901,7 +901,7 @@ class NodeCacheRepository {
         AND nc.is_deleted = 0 AND nc.is_archived = 0
       ORDER BY uf.position ASC, uf.updated_at DESC
       LIMIT ?
-    ''', [workspaceId, if (actorId != null) actorId, limit]);
+    ''', [workspaceId, ?actorId, limit]);
     return rows.map(_nodeFromRow).toList();
   }
 
@@ -914,7 +914,7 @@ class NodeCacheRepository {
       where: actorId != null
           ? 'workspace_id = ? AND actor_id = ?'
           : 'workspace_id = ?',
-      whereArgs: [workspaceId, if (actorId != null) actorId],
+      whereArgs: [workspaceId, ?actorId],
       orderBy: 'position ASC, updated_at DESC',
     );
     return rows.map((r) => r['node_uuid'] as String).toList();
@@ -949,7 +949,7 @@ class NodeCacheRepository {
       where: actorId != null
           ? 'workspace_id = ? AND actor_id = ? AND node_uuid = ?'
           : 'workspace_id = ? AND node_uuid = ?',
-      whereArgs: [workspaceId, if (actorId != null) actorId, nodeUuid],
+      whereArgs: [workspaceId, ?actorId, nodeUuid],
     );
   }
 
