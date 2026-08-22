@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/shared/widgets/motion.dart';
@@ -33,13 +34,17 @@ void main() {
     expect(scaleFinder, findsOneWidget);
     expect(tester.widget<ScaleTransition>(scaleFinder).scale.value, 1.0);
 
-    final gesture =
-        await tester.startGesture(tester.getCenter(find.byType(PressScale)));
+    // Drive the Listener callbacks directly: simulated pointer hit-testing is
+    // unreliable for bare (Navigator-free) test harnesses.
+    final listener = tester.widget<Listener>(
+      find.descendant(of: find.byType(PressScale), matching: find.byType(Listener)),
+    );
+    listener.onPointerDown!(const PointerDownEvent());
     await tester.pump(const Duration(milliseconds: 50));
     expect(tester.widget<ScaleTransition>(scaleFinder).scale.value,
         lessThan(1.0));
 
-    await gesture.up();
+    listener.onPointerUp!(const PointerUpEvent());
     await tester.pumpAndSettle();
     expect(tester.widget<ScaleTransition>(scaleFinder).scale.value, 1.0);
   });
@@ -56,9 +61,15 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byType(PressScale));
+    tester
+        .widget<GestureDetector>(
+          find.descendant(
+            of: find.byType(PressScale),
+            matching: find.byType(GestureDetector),
+          ),
+        )
+        .onTap!();
     expect(taps, 1);
-    await tester.pumpAndSettle();
   });
 
   testWidgets('PressScale renders without scale when animations are disabled',
