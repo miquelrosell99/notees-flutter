@@ -65,6 +65,7 @@ class AuthProvider extends ChangeNotifier {
         );
         _syncService = await _buildSyncService(_dio!);
         _user = await AuthRepository(dio: _dio!, secureStorage: secureStorage).checkSession();
+        _applyActorId();
       }
       _onboardingCompleted = onboardingService.isCompleted;
     } catch (e) {
@@ -73,6 +74,12 @@ class AuthProvider extends ChangeNotifier {
       _loading = false;
       notifyListeners();
     }
+  }
+
+  /// Propagate the authenticated user's uuid to the sync service so
+  /// envelopes carry the user as actor (not the per-install device id).
+  void _applyActorId() {
+    _syncService?.actorId = _user?.uuid;
   }
 
   Future<SyncV2Service?> _buildSyncService(Dio dio) async {
@@ -99,6 +106,7 @@ class AuthProvider extends ChangeNotifier {
     );
     _syncService = await _buildSyncService(_dio!);
     _user = null;
+    _applyActorId();
     _twoFactorChallenge = null;
     notifyListeners();
   }
@@ -115,6 +123,7 @@ class AuthProvider extends ChangeNotifier {
       switch (result) {
         case LoginSuccess(:final user):
           _user = user;
+          _applyActorId();
           await _switchToDefaultWorkspace();
         case TwoFactorChallenge():
           _twoFactorChallenge = result;
@@ -142,6 +151,7 @@ class AuthProvider extends ChangeNotifier {
         code: code,
       );
       _twoFactorChallenge = null;
+      _applyActorId();
       await _switchToDefaultWorkspace();
     } catch (e) {
       _error = e.toString();
@@ -166,6 +176,7 @@ class AuthProvider extends ChangeNotifier {
       if (_dio == null) throw const AuthException('No server configured');
       final repo = AuthRepository(dio: _dio!, secureStorage: secureStorage);
       _user = await repo.register(email: email, password: password, name: name, surnames: surnames);
+      _applyActorId();
       await _switchToDefaultWorkspace();
     } catch (e) {
       _error = e.toString();
@@ -185,6 +196,7 @@ class AuthProvider extends ChangeNotifier {
     } finally {
       _busy = false;
       _user = null;
+      _applyActorId();
       _twoFactorChallenge = null;
       notifyListeners();
     }
@@ -201,6 +213,7 @@ class AuthProvider extends ChangeNotifier {
     if (_dio == null) throw const AuthException('No server configured');
     final repo = AuthRepository(dio: _dio!, secureStorage: secureStorage);
     _user = await repo.updateProfile(name: name, surnames: surnames);
+    _applyActorId();
     notifyListeners();
   }
 
