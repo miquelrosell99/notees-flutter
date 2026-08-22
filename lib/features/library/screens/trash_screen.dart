@@ -10,6 +10,7 @@ import '../../../core/utils/node_icon.dart';
 import '../../../data/models/node.dart';
 import '../../../data/repositories/node_repository.dart';
 import '../../auth/providers/auth_provider.dart';
+import '../../settings/providers/settings_provider.dart';
 import '../../../shared/widgets/fleet_card.dart';
 import '../../../shared/widgets/skeletons.dart';
 
@@ -136,7 +137,12 @@ class _TrashScreenState extends State<TrashScreen> {
                       fallbackIcon: _iconForNode(node),
                       fallbackColor: colors.onSurfaceVariant,
                     ),
-                    title: Text(resolveNodeDisplayName(node)),
+                    title: Text(
+                      resolveNodeDisplayName(
+                        node,
+                        dateFormat: context.read<SettingsProvider>().dateFormat,
+                      ),
+                    ),
                     subtitle: node.writeDate != null ? Text(node.writeDate!) : null,
                     trailing: IconButton(
                       icon: Icon(MdiIcons.restore, color: colors.primary),

@@ -729,6 +729,44 @@ void main() {
       expect(await cache.getTaskRecurrence(nodeUuid), isNull);
     });
 
+    test('node.create ignores an existing node (INSERT OR IGNORE parity)',
+        () async {
+      const nodeUuid = '00000000-0000-0000-0000-000000000710';
+      OperationEnvelope createEnvelope(String id) => OperationEnvelope(
+            id: id,
+            workspaceId: 'ws',
+            actorId: 'a',
+            hlc: const Hlc(physical: 1, logical: 0),
+            affectedNodeIds: [nodeUuid],
+            opType: 'node.create',
+            payload: OperationPayloads.nodeCreate(
+              nodeId: nodeUuid,
+              kind: 'page',
+              initialContent: AstBuilder.parseInline('Original'),
+            ),
+          );
+
+      await appliers.apply(createEnvelope('e1'));
+      await appliers.apply(OperationEnvelope(
+        id: 'e2',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: const Hlc(physical: 2, logical: 0),
+        affectedNodeIds: const [nodeUuid],
+        opType: 'node.updateContent',
+        payload: OperationPayloads.nodeUpdateContent(
+          nodeId: nodeUuid,
+          content: AstBuilder.parseInline('Renamed'),
+        ),
+      ));
+      expect((await cache.getByUuid(nodeUuid))!.displayName, 'Renamed');
+
+      // A re-applied create (e.g. a pull echo of an op already applied at
+      // flush time) must not revert the rename.
+      await appliers.apply(createEnvelope('e1'));
+      expect((await cache.getByUuid(nodeUuid))!.displayName, 'Renamed');
+    });
+
     test('ignores asset/activity/link/share/view/plugin ops without failing', () async {
       const nodeUuid = '00000000-0000-0000-0000-000000000709';
       final cases = <(String, Map<String, dynamic>)>[

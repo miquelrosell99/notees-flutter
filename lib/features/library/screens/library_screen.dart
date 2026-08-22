@@ -100,9 +100,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  void _openNode(Node node) {
+  Future<void> _openNode(Node node) async {
     HapticFeedback.lightImpact();
-    context.push('${Routes.editor}/${node.uuid}');
+    await context.push('${Routes.editor}/${node.uuid}');
+    // The editor may have created/renamed/archived nodes; reload so the
+    // library reflects the cache changes after sync.
+    if (mounted) await _loadLibrary();
   }
 
   Future<void> _toggleFavorite(Node node) async {
@@ -151,7 +154,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
       await repo.archiveNode(node.uuid);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${resolveNodeDisplayName(node)} archived')),
+          SnackBar(
+            content: Text(
+              '${resolveNodeDisplayName(node, dateFormat: context.read<SettingsProvider>().dateFormat)} archived',
+            ),
+          ),
         );
         await _loadLibrary();
       }
@@ -268,7 +275,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final page = await repo.createQuickNote(name: name);
       if (mounted) {
-        router.push('${Routes.editor}/${page.uuid}');
+        await router.push('${Routes.editor}/${page.uuid}');
+        // Reload so the new page (and any renames made in the editor) show
+        // up with their titles.
+        if (mounted) await _loadLibrary();
       }
     } catch (e) {
       if (mounted) {
@@ -741,7 +751,12 @@ class _ClassNodesSheetState extends State<_ClassNodesSheet> {
                                       node.isJournal ? MdiIcons.calendarOutline : MdiIcons.fileDocumentOutline,
                                       color: colors.onSurfaceVariant,
                                     ),
-                                    title: Text(resolveNodeDisplayName(node)),
+                                    title: Text(
+                                      resolveNodeDisplayName(
+                                        node,
+                                        dateFormat: context.read<SettingsProvider>().dateFormat,
+                                      ),
+                                    ),
                                     trailing: Icon(
                                       isFavorite ? MdiIcons.star : MdiIcons.starOutline,
                                       color: isFavorite ? colors.primary : colors.onSurfaceVariant,

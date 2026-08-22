@@ -224,6 +224,16 @@ class SyncV2Service {
       try {
         final envelopes = chunk.map((p) => p.envelope).toList();
         await _relay.pushBatch(envelopes);
+        // Apply the pushed envelopes to the local cache right away so local
+        // edits (page titles, new pages) are visible without waiting for the
+        // next pull echo. Re-application on echo is safe: node.create ignores
+        // existing nodes (mirroring the server's INSERT OR IGNORE), the other
+        // appliers are upserts/hard deletes, and node.updateContent is
+        // guarded by the last-write-wins content HLC.
+        final appliers = RelayAppliers(_cache);
+        for (final envelope in envelopes) {
+          await appliers.apply(envelope);
+        }
         await _recordOperations(envelopes, isLocal: true);
         await _updatePushWatermark(envelopes);
         await _outbox.removeAll(ids);
@@ -262,6 +272,10 @@ class SyncV2Service {
         }
         errors.add(error);
       }
+    }
+
+    if (await _cache.shouldReindexSearch()) {
+      await _cache.reindexAll();
     }
     return errors;
   }
@@ -334,8 +348,11 @@ class SyncV2Service {
       if (response.envelopes.isNotEmpty) {
         // Dedupe against envelopes already applied from the server (a
         // crashed pull, or a snapshot with a null upToSeq). Locally produced
-        // envelopes (is_local = 1) are NOT deduped here: they were never
-        // applied to the cache and must still be applied when echoed back.
+        // envelopes (is_local = 1) are NOT deduped here: they are applied to
+        // the cache on flush, and re-applying the echo is harmless —
+        // node.create ignores existing nodes, the other appliers are
+        // upserts/hard deletes, and node.updateContent is skipped by the
+        // last-write-wins content HLC guard.
         final knownIds = await _appliedOperationIds(
           response.envelopes.map((e) => e.id).toList(),
         );

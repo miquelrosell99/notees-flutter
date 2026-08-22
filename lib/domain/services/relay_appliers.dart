@@ -166,6 +166,12 @@ class RelayAppliers {
   }
 
   Future<void> _applyCreate(String nodeId, Map<String, dynamic> payload) async {
+    // Mirrors the server applier's INSERT OR IGNORE: a create for an existing
+    // node is a no-op. This keeps pull echoes of already-applied creates
+    // (applied locally at flush time) from clobbering later edits whose
+    // updateContent echo is then skipped by the content HLC guard.
+    if (await _cache.getByUuid(nodeId) != null) return;
+
     final initialContent = payload['initialContent'];
     final name = initialContent is List<dynamic>
         ? AstBuilder.serialize(initialContent.cast<Map<String, dynamic>>())
