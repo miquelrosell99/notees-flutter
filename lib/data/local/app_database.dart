@@ -68,7 +68,7 @@ class AppDatabase {
     final path = await _path;
     return openDatabase(
       path,
-      version: 13,
+      version: 14,
       password: encryptionPassword,
       onCreate: (db, version) async {
         await _createOfflineQueue(db);
@@ -81,6 +81,8 @@ class AppDatabase {
         await _createSyncPushWatermark(db);
         await _createFavorites(db);
         await _createTaskCompletion(db);
+        await _createTaskRecurrence(db);
+        await _createNodeContentHlc(db);
         await _createClassCache(db);
         await _createPropertySchema(db);
         await _createClassPropertyEdge(db);
@@ -126,6 +128,11 @@ class AppDatabase {
         }
         if (oldVersion < 13) {
           await _migrateSyncWatermarkV13(db);
+        }
+        if (oldVersion < 14) {
+          await _migrateFavoritesV14(db);
+          await _createTaskRecurrence(db);
+          await _createNodeContentHlc(db);
         }
       },
     );
@@ -252,17 +259,44 @@ class AppDatabase {
   }
 
   Future<void> _createFavorites(Database db) async {
+    // Favorites are keyed per actor, matching the server-side
+    // `user_favorite(actor_id, node_id, workspace_id)` keying. Rows written
+    // before the actor column existed carry the empty-string actor.
     await db.execute('''
       CREATE TABLE user_favorite (
         workspace_id TEXT NOT NULL,
+        actor_id TEXT NOT NULL DEFAULT '',
         node_uuid TEXT NOT NULL,
         position INTEGER NOT NULL DEFAULT 0,
         updated_at INTEGER NOT NULL,
-        PRIMARY KEY (workspace_id, node_uuid)
+        PRIMARY KEY (workspace_id, actor_id, node_uuid)
       )
     ''');
     await db.execute('CREATE INDEX idx_user_favorite_workspace ON user_favorite(workspace_id)');
-    await db.execute('CREATE INDEX idx_user_favorite_position ON user_favorite(workspace_id, position)');
+    await db.execute('CREATE INDEX idx_user_favorite_position ON user_favorite(workspace_id, actor_id, position)');
+  }
+
+  Future<void> _migrateFavoritesV14(Database db) async {
+    // Rebuilds user_favorite with actor_id in the primary key; existing rows
+    // keep the empty-string actor (pre-actor-aware local writes).
+    await db.execute('''
+      CREATE TABLE user_favorite_new (
+        workspace_id TEXT NOT NULL,
+        actor_id TEXT NOT NULL DEFAULT '',
+        node_uuid TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (workspace_id, actor_id, node_uuid)
+      )
+    ''');
+    await db.execute('''
+      INSERT INTO user_favorite_new (workspace_id, actor_id, node_uuid, position, updated_at)
+      SELECT workspace_id, '', node_uuid, position, updated_at FROM user_favorite
+    ''');
+    await db.execute('DROP TABLE user_favorite');
+    await db.execute('ALTER TABLE user_favorite_new RENAME TO user_favorite');
+    await db.execute('CREATE INDEX idx_user_favorite_workspace ON user_favorite(workspace_id)');
+    await db.execute('CREATE INDEX idx_user_favorite_position ON user_favorite(workspace_id, actor_id, position)');
   }
 
   Future<void> _createSearchIndex(Database db) async {
@@ -359,6 +393,33 @@ class AppDatabase {
     await db.execute('CREATE INDEX idx_task_completion_created ON task_completion(node_uuid, created_at DESC)');
   }
 
+  Future<void> _createTaskRecurrence(Database db) async {
+    // Mirrors the server-derived `task_recurrence` table.
+    await db.execute('''
+      CREATE TABLE task_recurrence (
+        recurrence_id TEXT PRIMARY KEY,
+        node_uuid TEXT NOT NULL,
+        rule TEXT NOT NULL,
+        actor_id TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_task_recurrence_node ON task_recurrence(node_uuid)');
+  }
+
+  Future<void> _createNodeContentHlc(Database db) async {
+    // Last applied content HLC per node, used to skip stale
+    // `node.updateContent` operations (last-write-wins, like the server).
+    await db.execute('''
+      CREATE TABLE node_content_hlc (
+        node_uuid TEXT PRIMARY KEY,
+        hlc_physical INTEGER NOT NULL,
+        hlc_logical INTEGER NOT NULL
+      )
+    ''');
+  }
+
   Future<void> _createClassCache(Database db) async {
     await db.execute('''
       CREATE TABLE class_cache (
@@ -438,6 +499,8 @@ class AppDatabase {
     await _createSyncPushWatermark(db);
     await _createFavorites(db);
     await _createTaskCompletion(db);
+    await _createTaskRecurrence(db);
+    await _createNodeContentHlc(db);
     await _createClassCache(db);
     await _createPropertySchema(db);
     await _createClassPropertyEdge(db);

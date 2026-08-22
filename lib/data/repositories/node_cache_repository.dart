@@ -15,6 +15,7 @@ import '../../data/models/linked_reference.dart';
 import '../../data/models/node.dart';
 import '../../data/models/page_content.dart';
 import '../../data/models/property.dart';
+import '../../domain/models/relay/hlc.dart';
 import '../../domain/models/search_filters.dart';
 
 /// Lightweight in-memory representation of a row from the server's `class` table.
@@ -181,6 +182,22 @@ class NodeCacheRepository {
     await db.rawDelete('DELETE FROM node_cache WHERE uuid IN ($placeholders)', uuids);
   }
 
+  /// Hard-deletes [uuid] and all of its derived rows, matching the server's
+  /// `node.delete` / `node.permanentDelete` semantics: the operation log has
+  /// no soft-delete in the derived node table — archival (`is_archived`) is
+  /// the recoverable concept.
+  Future<void> hardDelete(String uuid) async {
+    final db = await _database.database;
+    await db.transaction((txn) async {
+      await txn.delete('node_cache', where: 'uuid = ?', whereArgs: [uuid]);
+      await txn.delete('search_index', where: 'node_uuid = ?', whereArgs: [uuid]);
+      await txn.delete('user_favorite', where: 'node_uuid = ?', whereArgs: [uuid]);
+      await txn.delete('task_completion', where: 'node_uuid = ?', whereArgs: [uuid]);
+      await txn.delete('task_recurrence', where: 'node_uuid = ?', whereArgs: [uuid]);
+      await txn.delete('node_content_hlc', where: 'node_uuid = ?', whereArgs: [uuid]);
+    });
+  }
+
   Future<Node?> getByUuid(String uuid) async {
     final db = await _database.database;
     final rows = await db.query('node_cache', where: 'uuid = ?', whereArgs: [uuid]);
@@ -241,6 +258,10 @@ class NodeCacheRepository {
         await txn.delete('class_cache');
         await txn.delete('property_schema');
         await txn.delete('class_property_edge');
+        // The snapshot's content is newer than any locally tracked content
+        // HLC; catch-up resumes from the snapshot cursor, so stale-op
+        // detection restarts from scratch.
+        await txn.delete('node_content_hlc');
         final now = DateTime.now().millisecondsSinceEpoch;
         final nodeBatch = txn.batch();
         for (final node in nodes) {
@@ -652,7 +673,7 @@ class NodeCacheRepository {
     return rows.map(_nodeFromRow).toList();
   }
 
-  /// Deleted nodes.
+  /// Archived nodes (the restorable "trash" set; deletes are hard deletes).
   Future<List<Node>> getArchived() async {
     final db = await _database.database;
     final rows = await db.query(
@@ -768,6 +789,20 @@ class NodeCacheRepository {
     return _propertySchemaFromRow(rows.first);
   }
 
+  /// A single cached property schema row by UUID, including the fields the
+  /// [Property] model does not expose (`required`, `defaultValue`, `computed`).
+  Future<PropertySchemaRow?> getPropertySchemaRow(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'property_schema',
+      where: 'uuid = ? AND active = 1',
+      whereArgs: [uuid],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return _propertySchemaRowFromDb(rows.first);
+  }
+
   /// Class-level property metadata for [classUuid].
   Future<List<ClassProperty>> getClassProperties(String classUuid) async {
     final db = await _database.database;
@@ -850,46 +885,55 @@ class NodeCacheRepository {
 
   // === Favorites ===
 
+  // Favorites are keyed per actor, matching the server-side
+  // `user_favorite(actor_id, node_id, workspace_id)` keying. A null [actorId]
+  // means "no authenticated user is wired into sync yet" and reads/writes
+  // fall back to workspace-scoped behavior (single-user installs).
+
   /// Favorite nodes for [workspaceId] in order.
-  Future<List<Node>> getFavorites(String workspaceId, {int limit = 50}) async {
+  Future<List<Node>> getFavorites(String workspaceId, {int limit = 50, String? actorId}) async {
     final db = await _database.database;
     final rows = await db.rawQuery('''
       SELECT nc.payload
       FROM user_favorite uf
       INNER JOIN node_cache nc ON nc.uuid = uf.node_uuid
-      WHERE uf.workspace_id = ? AND nc.is_deleted = 0 AND nc.is_archived = 0
+      WHERE uf.workspace_id = ? ${actorId != null ? 'AND uf.actor_id = ?' : ''}
+        AND nc.is_deleted = 0 AND nc.is_archived = 0
       ORDER BY uf.position ASC, uf.updated_at DESC
       LIMIT ?
-    ''', [workspaceId, limit]);
+    ''', [workspaceId, if (actorId != null) actorId, limit]);
     return rows.map(_nodeFromRow).toList();
   }
 
   /// UUIDs of favorite nodes for [workspaceId] in order.
-  Future<List<String>> getFavoriteUuids(String workspaceId) async {
+  Future<List<String>> getFavoriteUuids(String workspaceId, {String? actorId}) async {
     final db = await _database.database;
     final rows = await db.query(
       'user_favorite',
       columns: ['node_uuid'],
-      where: 'workspace_id = ?',
-      whereArgs: [workspaceId],
+      where: actorId != null
+          ? 'workspace_id = ? AND actor_id = ?'
+          : 'workspace_id = ?',
+      whereArgs: [workspaceId, if (actorId != null) actorId],
       orderBy: 'position ASC, updated_at DESC',
     );
     return rows.map((r) => r['node_uuid'] as String).toList();
   }
 
-  Future<void> addFavorite(String workspaceId, String nodeUuid) async {
+  Future<void> addFavorite(String workspaceId, String nodeUuid, {String? actorId}) async {
     final db = await _database.database;
     final rows = await db.rawQuery('''
       SELECT COALESCE(MAX(position), -1) AS pos
       FROM user_favorite
-      WHERE workspace_id = ?
-    ''', [workspaceId]);
+      WHERE workspace_id = ? AND actor_id = ?
+    ''', [workspaceId, actorId ?? '']);
     final pos = (rows.first['pos'] as int? ?? -1) + 1;
     final now = DateTime.now().millisecondsSinceEpoch;
     await db.insert(
       'user_favorite',
       {
         'workspace_id': workspaceId,
+        'actor_id': actorId ?? '',
         'node_uuid': nodeUuid,
         'position': pos,
         'updated_at': now,
@@ -898,29 +942,43 @@ class NodeCacheRepository {
     );
   }
 
-  Future<void> removeFavorite(String workspaceId, String nodeUuid) async {
+  Future<void> removeFavorite(String workspaceId, String nodeUuid, {String? actorId}) async {
     final db = await _database.database;
     await db.delete(
       'user_favorite',
-      where: 'workspace_id = ? AND node_uuid = ?',
-      whereArgs: [workspaceId, nodeUuid],
+      where: actorId != null
+          ? 'workspace_id = ? AND actor_id = ? AND node_uuid = ?'
+          : 'workspace_id = ? AND node_uuid = ?',
+      whereArgs: [workspaceId, if (actorId != null) actorId, nodeUuid],
     );
   }
 
-  Future<void> reorderFavorites(String workspaceId, List<String> nodeUuids) async {
+  Future<void> reorderFavorites(String workspaceId, List<String> nodeUuids, {String? actorId}) async {
     final db = await _database.database;
     final now = DateTime.now().millisecondsSinceEpoch;
+    final actor = actorId ?? '';
     await db.transaction((txn) async {
+      if (nodeUuids.isEmpty) {
+        // Matches the server applier: an empty list clears the actor's
+        // favorites.
+        await txn.delete(
+          'user_favorite',
+          where: 'workspace_id = ? AND actor_id = ?',
+          whereArgs: [workspaceId, actor],
+        );
+        return;
+      }
       await txn.delete(
         'user_favorite',
-        where: 'workspace_id = ? AND node_uuid NOT IN (${nodeUuids.map((_) => '?').join(',')})',
-        whereArgs: [workspaceId, ...nodeUuids],
+        where: 'workspace_id = ? AND actor_id = ? AND node_uuid NOT IN (${nodeUuids.map((_) => '?').join(',')})',
+        whereArgs: [workspaceId, actor, ...nodeUuids],
       );
       for (var i = 0; i < nodeUuids.length; i++) {
         await txn.insert(
           'user_favorite',
           {
             'workspace_id': workspaceId,
+            'actor_id': actor,
             'node_uuid': nodeUuids[i],
             'position': i,
             'updated_at': now,
@@ -933,12 +991,12 @@ class NodeCacheRepository {
 
   /// Applies a `user.favorite.add` operation to the local derived state.
   Future<void> applyFavoriteAdd(String workspaceId, String actorId, String nodeUuid) async {
-    await addFavorite(workspaceId, nodeUuid);
+    await addFavorite(workspaceId, nodeUuid, actorId: actorId);
   }
 
   /// Applies a `user.favorite.remove` operation to the local derived state.
   Future<void> applyFavoriteRemove(String workspaceId, String actorId, String nodeUuid) async {
-    await removeFavorite(workspaceId, nodeUuid);
+    await removeFavorite(workspaceId, nodeUuid, actorId: actorId);
   }
 
   /// Applies a `user.favorite.reorder` operation to the local derived state.
@@ -947,7 +1005,7 @@ class NodeCacheRepository {
     String actorId,
     List<String> nodeUuids,
   ) async {
-    await reorderFavorites(workspaceId, nodeUuids);
+    await reorderFavorites(workspaceId, nodeUuids, actorId: actorId);
   }
 
   // === Task completions ===
@@ -1000,6 +1058,112 @@ class NodeCacheRepository {
     );
     if (rows.isEmpty) return null;
     return rows.first['completion_id'] as String?;
+  }
+
+  // === Task recurrence ===
+
+  /// Applies a `task.setRecurrence` operation to the local derived state.
+  ///
+  /// Mirrors the server applier: one rule per node, replaced on each set. The
+  /// rule JSON is stored verbatim so the reminders path can expand it when
+  /// scheduling due-date notifications.
+  Future<void> applyTaskSetRecurrence(
+    String nodeUuid, {
+    String? recurrenceId,
+    Map<String, dynamic>? rule,
+    String? actorId,
+  }) async {
+    final db = await _database.database;
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.transaction((txn) async {
+      await txn.delete(
+        'task_recurrence',
+        where: 'node_uuid = ?',
+        whereArgs: [nodeUuid],
+      );
+      await txn.insert('task_recurrence', {
+        'recurrence_id': (recurrenceId == null || recurrenceId.isEmpty)
+            ? const Uuid().v7()
+            : recurrenceId,
+        'node_uuid': nodeUuid,
+        'rule': jsonEncode(rule ?? const <String, dynamic>{}),
+        'actor_id': actorId,
+        'created_at': now,
+        'updated_at': now,
+      });
+    });
+  }
+
+  /// Applies a `task.deleteRecurrence` operation to the local derived state.
+  Future<void> applyTaskDeleteRecurrence(
+    String nodeUuid, {
+    String? recurrenceId,
+  }) async {
+    final db = await _database.database;
+    if (recurrenceId != null && recurrenceId.isNotEmpty) {
+      await db.delete(
+        'task_recurrence',
+        where: 'node_uuid = ? AND recurrence_id = ?',
+        whereArgs: [nodeUuid, recurrenceId],
+      );
+    } else {
+      // The server deletes by node id only.
+      await db.delete(
+        'task_recurrence',
+        where: 'node_uuid = ?',
+        whereArgs: [nodeUuid],
+      );
+    }
+  }
+
+  /// The recurrence rule currently stored for [nodeUuid], if any.
+  Future<Map<String, dynamic>?> getTaskRecurrence(String nodeUuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'task_recurrence',
+      columns: ['rule'],
+      where: 'node_uuid = ?',
+      whereArgs: [nodeUuid],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    try {
+      return jsonDecode(rows.first['rule'] as String) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // === Content LWW tracking ===
+
+  /// The last applied `node.updateContent` HLC for [uuid], if any.
+  Future<Hlc?> getContentHlc(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'node_content_hlc',
+      where: 'node_uuid = ?',
+      whereArgs: [uuid],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Hlc(
+      physical: rows.first['hlc_physical'] as int,
+      logical: rows.first['hlc_logical'] as int,
+    );
+  }
+
+  /// Records [hlc] as the last applied content HLC for [uuid].
+  Future<void> setContentHlc(String uuid, Hlc hlc) async {
+    final db = await _database.database;
+    await db.insert(
+      'node_content_hlc',
+      {
+        'node_uuid': uuid,
+        'hlc_physical': hlc.physical,
+        'hlc_logical': hlc.logical,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   /// Indexes a single node, replacing any existing index rows for it.
@@ -1347,6 +1511,58 @@ class NodeCacheRepository {
   }
 
   // === Property schema helpers ===
+
+  PropertySchemaRow _propertySchemaRowFromDb(Map<String, dynamic> row) {
+    List<String> classFilterUuids;
+    List<Map<String, dynamic>> options;
+    Map<String, dynamic>? validationRules;
+    dynamic defaultValue;
+    try {
+      classFilterUuids = (jsonDecode(row['class_filter_uuids'] as String? ?? '[]') as List<dynamic>).cast<String>();
+    } catch (_) {
+      classFilterUuids = const [];
+    }
+    try {
+      options = (jsonDecode(row['options'] as String? ?? '[]') as List<dynamic>).cast<Map<String, dynamic>>();
+    } catch (_) {
+      options = const [];
+    }
+    try {
+      final raw = row['validation_rules'] as String?;
+      validationRules = raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      validationRules = null;
+    }
+    try {
+      final raw = row['default_value'] as String?;
+      defaultValue = raw == null ? null : jsonDecode(raw);
+    } catch (_) {
+      defaultValue = row['default_value'];
+    }
+    return PropertySchemaRow(
+      uuid: row['uuid'] as String,
+      workspaceId: row['workspace_id'] as String,
+      name: row['name'] as String,
+      icon: row['icon'] as String?,
+      type: row['type'] as String? ?? 'text',
+      multi: (row['multi'] as int? ?? 0) == 1,
+      isSystem: (row['is_system'] as int? ?? 0) == 1,
+      scope: row['scope'] as String? ?? 'global',
+      nodeUuid: row['node_uuid'] as String?,
+      iconVisibility: row['icon_visibility'] as String?,
+      validationRules: validationRules,
+      required: (row['required'] as int? ?? 0) == 1,
+      readonly: (row['readonly'] as int? ?? 0) == 1,
+      hideWhenEmpty: (row['hide_when_empty'] as int? ?? 0) == 1,
+      defaultValue: defaultValue,
+      classFilterUuids: classFilterUuids,
+      options: options,
+      computed: row['computed'] as String?,
+      active: (row['active'] as int? ?? 1) == 1,
+      createdAt: row['created_at'] as String?,
+      updatedAt: row['updated_at'] as String?,
+    );
+  }
 
   Map<String, dynamic> _propertySchemaToRow(PropertySchemaRow schema) {
     return {

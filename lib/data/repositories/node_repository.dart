@@ -43,21 +43,28 @@ class NodeRepository {
     _requireCache();
     final workspaceId = await syncService!.getWorkspaceId();
     if (workspaceId == null) return const [];
-    return _cache!.getFavorites(workspaceId, limit: limit);
+    return _cache!.getFavorites(
+      workspaceId,
+      limit: limit,
+      actorId: syncService!.hasUserActor ? syncService!.actorId : null,
+    );
   }
 
   Future<List<String>> fetchFavoriteUuids() async {
     _requireCache();
     final workspaceId = await syncService!.getWorkspaceId();
     if (workspaceId == null) return const [];
-    return _cache!.getFavoriteUuids(workspaceId);
+    return _cache!.getFavoriteUuids(
+      workspaceId,
+      actorId: syncService!.hasUserActor ? syncService!.actorId : null,
+    );
   }
 
   Future<void> addFavorite(String nodeUuid) async {
     _requireCache();
     final workspaceId = await syncService!.getWorkspaceId();
     if (workspaceId != null) {
-      await _cache!.addFavorite(workspaceId, nodeUuid);
+      await _cache!.addFavorite(workspaceId, nodeUuid, actorId: syncService!.actorId);
     }
     await syncService!.enqueue(
       type: 'add_favorite',
@@ -70,7 +77,7 @@ class NodeRepository {
     _requireCache();
     final workspaceId = await syncService!.getWorkspaceId();
     if (workspaceId != null) {
-      await _cache!.removeFavorite(workspaceId, nodeUuid);
+      await _cache!.removeFavorite(workspaceId, nodeUuid, actorId: syncService!.actorId);
     }
     await syncService!.enqueue(
       type: 'remove_favorite',
@@ -85,7 +92,10 @@ class NodeRepository {
     if (workspaceId == null) {
       return;
     }
-    final uuids = await _cache!.getFavoriteUuids(workspaceId);
+    final uuids = await _cache!.getFavoriteUuids(
+      workspaceId,
+      actorId: syncService!.hasUserActor ? syncService!.actorId : null,
+    );
     if (fromIndex < 0 ||
         fromIndex >= uuids.length ||
         toIndex < 0 ||
@@ -94,7 +104,7 @@ class NodeRepository {
     }
     final moved = uuids.removeAt(fromIndex);
     uuids.insert(toIndex, moved);
-    await _cache!.reorderFavorites(workspaceId, uuids);
+    await _cache!.reorderFavorites(workspaceId, uuids, actorId: syncService!.actorId);
     await syncService!.enqueue(
       type: 'reorder_favorites',
       nodeUuid: '',
@@ -480,6 +490,12 @@ class NodeRepository {
 
   // === Trash ===
 
+  /// Trashed (restorable) nodes.
+  ///
+  /// Matches the web's Trash view: "trash" is the archived node set
+  /// (`active = 0`). `node.delete` / `node.permanentDelete` are hard deletes
+  /// on the server with no recoverable remainder, so archived nodes are the
+  /// only entries that can be restored.
   Future<List<Node>> fetchTrash({int page = 1, int pageSize = 50}) async {
     _requireCache();
     return _cache!.getArchived();

@@ -1,8 +1,13 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+
 import '../../core/constants/system.dart';
 import '../../core/utils/ast_builder.dart';
 import '../../core/utils/ast_stringifier.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_cache_repository.dart';
+import '../models/relay/hlc.dart';
 import '../models/relay/operation_envelope.dart';
 
 /// Applies relay operation envelopes to the local [node_cache] derived state.
@@ -19,13 +24,16 @@ class RelayAppliers {
         payload['classId'] as String? ??
         payload['schemaId'] as String? ??
         '';
+    // Ops without a node/class/schema target (e.g. `plugin.op`, share ops
+    // without a node) have no local derived representation and are
+    // intentionally ignored.
     if (nodeId.isEmpty) return;
 
     switch (envelope.opType) {
       case 'node.create':
         await _applyCreate(nodeId, payload);
       case 'node.updateContent':
-        await _applyUpdateContent(nodeId, payload);
+        await _applyUpdateContent(nodeId, payload, envelope.hlc);
       case 'node.updateIcon':
         await _applyUpdateIcon(nodeId, payload);
       case 'node.updateColor':
@@ -36,6 +44,13 @@ class RelayAppliers {
         await _applyRestore(nodeId);
       case 'node.delete':
         await _applyDelete(nodeId);
+      case 'node.permanentDelete':
+        // The operation log has no soft-delete: permanent delete is the same
+        // hard delete, minus the server-side asset-retention bookkeeping,
+        // which has no local equivalent.
+        await _applyDelete(nodeId);
+      case 'node.convert':
+        await _applyConvert(nodeId, payload);
       case 'node.move':
         await _applyMove(nodeId, payload);
       case 'property.set':
@@ -101,6 +116,45 @@ class RelayAppliers {
           nodeId,
           payload['completionId'] as String? ?? '',
         );
+      case 'task.setRecurrence':
+        await _cache.applyTaskSetRecurrence(
+          nodeId,
+          recurrenceId: payload['recurrenceId'] as String?,
+          rule: payload['rule'] as Map<String, dynamic>?,
+          actorId: envelope.actorId,
+        );
+      case 'task.deleteRecurrence':
+        await _cache.applyTaskDeleteRecurrence(
+          nodeId,
+          recurrenceId: payload['recurrenceId'] as String?,
+        );
+      // Asset metadata lives in the server-side `node_asset` table; the app
+      // has no local asset table (asset bytes are fetched over HTTP), so
+      // asset bookkeeping ops are intentionally ignored.
+      case 'asset.upload':
+      case 'asset.delete':
+      // Activity log, link-click tracking, share state, node views, aliases
+      // and plugin-scoped ops have no local derived representation; the
+      // corresponding UI reads them from the server on demand. Intentionally
+      // ignored.
+      case 'activity.record':
+      case 'activity.delete':
+      case 'link.click':
+      case 'share.public.create':
+      case 'share.public.revoke':
+      case 'share.user.grant':
+      case 'share.user.revoke':
+      case 'nodeView.create':
+      case 'nodeView.update':
+      case 'nodeView.delete':
+      case 'nodeView.reorder':
+      case 'node.addAlias':
+      case 'node.removeAlias':
+      case 'plugin.op':
+        break;
+      default:
+        // No silent fallthrough: log op types this client does not know.
+        debugPrint('RelayAppliers: ignoring unknown op type ${envelope.opType}');
     }
   }
 
@@ -119,6 +173,7 @@ class RelayAppliers {
       name: name,
       displayName: displayName,
       parentUuid: payload['parentId'] as String?,
+      sequence: _readPosition(payload['index']),
       classesUuid: classIds,
       isDeleted: false,
       properties: const {},
@@ -134,7 +189,14 @@ class RelayAppliers {
   Future<void> _applyUpdateContent(
     String nodeId,
     Map<String, dynamic> payload,
+    Hlc hlc,
   ) async {
+    // Last-write-wins: the server skips updateContent ops whose HLC is not
+    // newer than the stored one; mirror that locally so stale pages from
+    // catch-up or re-applied envelopes do not clobber newer content.
+    final lastApplied = await _cache.getContentHlc(nodeId);
+    if (lastApplied != null && hlc.compareTo(lastApplied) <= 0) return;
+
     final node = await _loadOrCreate(nodeId);
     final content = payload['content'];
     if (content is! List<dynamic>) return;
@@ -173,6 +235,7 @@ class RelayAppliers {
       writeDate: node.writeDate,
     );
     await _cache.upsert(updated);
+    await _cache.setContentHlc(nodeId, hlc);
   }
 
   Future<void> _applyUpdateIcon(String nodeId, Map<String, dynamic> payload) async {
@@ -262,8 +325,56 @@ class RelayAppliers {
   }
 
   Future<void> _applyDelete(String nodeId) async {
+    // Hard delete, matching the server: remove the node row plus its
+    // property values (stored in the node payload), favorites, task
+    // completions/recurrence, and search index rows. There is no
+    // soft-delete/trash in the derived state; `node.archive` is the
+    // recoverable path.
+    await _cache.hardDelete(nodeId);
+  }
+
+  Future<void> _applyConvert(String nodeId, Map<String, dynamic> payload) async {
     final node = await _loadOrCreate(nodeId);
-    await _cache.upsert(node.copyWithIsDeleted(true));
+    final kind = payload['kind'] as String?;
+    // Matches the server applier: parent and class list are replaced
+    // wholesale (absent `parentId`/`classIds` detach the node / clear the
+    // list).
+    final classIds = _readStringList(payload['classIds']);
+    final flags = _deriveFlags(classIds);
+    await _cache.upsert(
+      Node(
+        id: node.id,
+        uuid: node.uuid,
+        name: node.name,
+        displayName: node.displayName,
+        icon: node.icon,
+        color: node.color,
+        parentId: node.parentId,
+        parentUuid: payload['parentId'] as String?,
+        pageId: node.pageId,
+        pageUuid: node.pageUuid,
+        sequence: node.sequence,
+        isPage: kind == 'page',
+        isTask: flags.isTask,
+        isDaily: flags.isDaily,
+        isMonthly: flags.isMonthly,
+        isYearly: flags.isYearly,
+        isTable: node.isTable,
+        isAsset: node.isAsset,
+        isComment: node.isComment,
+        isDeleted: node.isDeleted,
+        isArchived: node.isArchived,
+        isPrivate: node.isPrivate,
+        classes: node.classes,
+        classesUuid: classIds,
+        tags: node.tags,
+        tagsUuid: node.tagsUuid,
+        properties: node.properties,
+        children: node.children,
+        createDate: node.createDate,
+        writeDate: node.writeDate,
+      ),
+    );
   }
 
   Future<void> _applyMove(String nodeId, Map<String, dynamic> payload) async {
@@ -280,7 +391,7 @@ class RelayAppliers {
       parentUuid: payload['newParentId'] as String?,
       pageId: node.pageId,
       pageUuid: node.pageUuid,
-      sequence: newIndex is num ? newIndex.toDouble() : node.sequence,
+      sequence: newIndex == null ? node.sequence : _readPosition(newIndex),
       isPage: node.isPage,
       isTask: node.isTask,
       isDaily: node.isDaily,
@@ -425,7 +536,7 @@ class RelayAppliers {
         options: (payload['options'] as List<dynamic>?)
                 ?.cast<Map<String, dynamic>>() ??
             const [],
-        computed: payload['computed'] as String?,
+        computed: _readComputed(payload['computed']),
       ),
     );
   }
@@ -433,12 +544,15 @@ class RelayAppliers {
   Future<void> _applyPropertySchemaUpdate(Map<String, dynamic> payload) async {
     final schemaId = payload['schemaId'] as String?;
     if (schemaId == null) return;
-    final existing = await _cache.getPropertySchema(schemaId);
+    // Read the raw row: the Property model does not expose `required`,
+    // `defaultValue` or `computed`, and absent keys must preserve the stored
+    // values rather than reset them.
+    final existing = await _cache.getPropertySchemaRow(schemaId);
     if (existing == null) return;
     await _cache.upsertPropertySchema(
       PropertySchemaRow(
         uuid: schemaId,
-        workspaceId: '',
+        workspaceId: existing.workspaceId,
         name: payload.containsKey('name')
             ? (payload['name'] as String?) ?? existing.name
             : existing.name,
@@ -466,25 +580,25 @@ class RelayAppliers {
             : existing.validationRules,
         required: payload.containsKey('required')
             ? payload['required'] == true
-            : false,
+            : existing.required,
         readonly: payload.containsKey('readonly')
             ? payload['readonly'] == true
-            : existing.isReadOnly,
+            : existing.readonly,
         hideWhenEmpty: payload.containsKey('hideWhenEmpty')
             ? payload['hideWhenEmpty'] == true
-            : existing.isHiddenSystem,
+            : existing.hideWhenEmpty,
         defaultValue: payload.containsKey('defaultValue')
             ? payload['defaultValue']
-            : null,
+            : existing.defaultValue,
         classFilterUuids: payload.containsKey('classFilterUuids')
             ? _readStringList(payload['classFilterUuids'])
-            : existing.classFilters,
+            : existing.classFilterUuids,
         options: payload.containsKey('options')
             ? (payload['options'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? const []
-            : existing.options.map((o) => {'id': o.id, 'uuid': o.uuid, 'name': o.name, 'icon': o.icon, 'color': o.color}).toList(),
+            : existing.options,
         computed: payload.containsKey('computed')
-            ? payload['computed'] as String?
-            : null,
+            ? _readComputed(payload['computed'])
+            : existing.computed,
       ),
     );
   }
@@ -567,42 +681,25 @@ class RelayAppliers {
     }
     return const [];
   }
+
+  /// Child positions travel as zero-padded strings on the server
+  /// (lexicographic ordering in `node_child_order`); accept both numbers and
+  /// strings.
+  double _readPosition(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  /// `computed` is `{kind, expression}` on the wire; older payloads carried a
+  /// plain string. Store the JSON encoding in the local text column.
+  String? _readComputed(dynamic value) {
+    if (value is Map<String, dynamic>) return jsonEncode(value);
+    return value as String?;
+  }
 }
 
 extension _NodeCopyWith on Node {
-  Node copyWithIsDeleted(bool value) => Node(
-        id: id,
-        uuid: uuid,
-        name: name,
-        displayName: displayName,
-        icon: icon,
-        color: color,
-        parentId: parentId,
-        parentUuid: parentUuid,
-        pageId: pageId,
-        pageUuid: pageUuid,
-        sequence: sequence,
-        isPage: isPage,
-        isTask: isTask,
-        isDaily: isDaily,
-        isMonthly: isMonthly,
-        isYearly: isYearly,
-        isTable: isTable,
-        isAsset: isAsset,
-        isComment: isComment,
-        isDeleted: value,
-        isArchived: isArchived,
-        isPrivate: isPrivate,
-        classes: classes,
-        classesUuid: classesUuid,
-        tags: tags,
-        tagsUuid: tagsUuid,
-        properties: properties,
-        children: children,
-        createDate: createDate,
-        writeDate: writeDate,
-      );
-
   Node copyWithProperties(Map<String, dynamic> value) => Node(
         id: id,
         uuid: uuid,

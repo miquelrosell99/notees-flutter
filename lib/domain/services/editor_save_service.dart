@@ -82,11 +82,14 @@ class EditorSaveService {
       final effectiveParent = parentUuid ?? pageUuid;
       if (node.uuid.isEmpty) continue; // Should not happen after _assignUuids.
 
+      // Emit the sibling position so the server's `node_child_order` reflects
+      // the editor order (new children previously all defaulted to '0').
       if (newUuids.contains(node.uuid)) {
         await service.enqueue(
           type: 'create',
           nodeUuid: node.uuid,
           parentUuid: effectiveParent,
+          newIndex: i,
           contentAst: AstBuilder.parseInline(node.text),
         );
       } else {
@@ -100,6 +103,7 @@ class EditorSaveService {
             type: 'move',
             nodeUuid: node.uuid,
             parentUuid: effectiveParent,
+            newIndex: i,
           );
         }
       }

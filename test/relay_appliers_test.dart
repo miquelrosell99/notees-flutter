@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/core/constants/system.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -452,6 +454,307 @@ void main() {
       await appliers.apply(deleteEdgeEnvelope);
       classProperties = await cache.getClassProperties(classUuid);
       expect(classProperties, isEmpty);
+    });
+
+    test('node.delete hard-deletes the node and its derived rows', () async {
+      const nodeUuid = '00000000-0000-0000-0000-000000000701';
+      await appliers.apply(OperationEnvelope(
+        id: 'e1',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 1, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.create',
+        payload: OperationPayloads.nodeCreate(
+          nodeId: nodeUuid,
+          kind: 'block',
+          classIds: [SystemClassUuids.task],
+          initialContent: AstBuilder.parseInline('Doomed'),
+        ),
+      ));
+      await cache.applyFavoriteAdd('ws', 'a', nodeUuid);
+      await cache.recordTaskCompletion(nodeUuid, 'c-1', completedAt: '2026-08-09T12:00:00.000Z');
+      await cache.applyTaskSetRecurrence(nodeUuid, recurrenceId: 'r-1', rule: const {'freq': 'daily'});
+      expect(await cache.getByUuid(nodeUuid), isNotNull);
+      expect(await cache.getFavoriteUuids('ws', actorId: 'a'), [nodeUuid]);
+      expect(await cache.getMostRecentTaskCompletionId(nodeUuid), 'c-1');
+      expect(await cache.getTaskRecurrence(nodeUuid), isNotNull);
+
+      await appliers.apply(OperationEnvelope(
+        id: 'e2',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 2, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.delete',
+        payload: OperationPayloads.nodeDelete(nodeId: nodeUuid),
+      ));
+
+      expect(await cache.getByUuid(nodeUuid), isNull);
+      expect(await cache.getFavoriteUuids('ws', actorId: 'a'), isEmpty);
+      expect(await cache.getMostRecentTaskCompletionId(nodeUuid), isNull);
+      expect(await cache.getTaskRecurrence(nodeUuid), isNull);
+    });
+
+    test('node.permanentDelete hard-deletes identically', () async {
+      const nodeUuid = '00000000-0000-0000-0000-000000000702';
+      await appliers.apply(OperationEnvelope(
+        id: 'e1',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 1, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.create',
+        payload: OperationPayloads.nodeCreate(nodeId: nodeUuid, kind: 'page'),
+      ));
+      expect(await cache.getByUuid(nodeUuid), isNotNull);
+
+      await appliers.apply(OperationEnvelope(
+        id: 'e2',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 2, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.permanentDelete',
+        payload: OperationPayloads.nodeDelete(nodeId: nodeUuid),
+      ));
+
+      expect(await cache.getByUuid(nodeUuid), isNull);
+    });
+
+    test('applies node.convert updating kind, parent, and classes', () async {
+      const nodeUuid = '00000000-0000-0000-0000-000000000703';
+      const parentUuid = '00000000-0000-0000-0000-000000000704';
+      await appliers.apply(OperationEnvelope(
+        id: 'e1',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 1, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.create',
+        payload: OperationPayloads.nodeCreate(
+          nodeId: nodeUuid,
+          kind: 'block',
+          classIds: [SystemClassUuids.task],
+        ),
+      ));
+
+      await appliers.apply(OperationEnvelope(
+        id: 'e2',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 2, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.convert',
+        payload: {
+          'nodeId': nodeUuid,
+          'kind': 'page',
+          'parentId': parentUuid,
+          'classIds': const <String>[],
+        },
+      ));
+
+      final node = await cache.getByUuid(nodeUuid);
+      expect(node, isNotNull);
+      expect(node!.isPage, isTrue);
+      expect(node.isTask, isFalse);
+      expect(node.parentUuid, parentUuid);
+      expect(node.classesUuid, isEmpty);
+    });
+
+    test('propertySchema.create accepts a computed map payload', () async {
+      const schemaUuid = '00000000-0000-0000-0000-000000000705';
+      await appliers.apply(OperationEnvelope(
+        id: 'e1',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 1, logical: 0),
+        affectedNodeIds: [schemaUuid],
+        opType: 'propertySchema.create',
+        payload: {
+          'schemaId': schemaUuid,
+          'name': 'Score',
+          'type': 'number',
+          'computed': {'kind': 'formula', 'expression': 'a + b'},
+        },
+      ));
+
+      final row = await cache.getPropertySchemaRow(schemaUuid);
+      expect(row, isNotNull);
+      expect(jsonDecode(row!.computed!) as Map<String, dynamic>, {
+        'kind': 'formula',
+        'expression': 'a + b',
+      });
+    });
+
+    test('propertySchema.update preserves required/defaultValue/computed when absent', () async {
+      const schemaUuid = '00000000-0000-0000-0000-000000000706';
+      await appliers.apply(OperationEnvelope(
+        id: 'e1',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 1, logical: 0),
+        affectedNodeIds: [schemaUuid],
+        opType: 'propertySchema.create',
+        payload: {
+          'schemaId': schemaUuid,
+          'name': 'Score',
+          'required': true,
+          'defaultValue': 42,
+          'computed': {'kind': 'formula', 'expression': 'a + b'},
+        },
+      ));
+
+      await appliers.apply(OperationEnvelope(
+        id: 'e2',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 2, logical: 0),
+        affectedNodeIds: [schemaUuid],
+        opType: 'propertySchema.update',
+        payload: OperationPayloads.propertySchemaUpdate(
+          schemaId: schemaUuid,
+          name: 'Renamed',
+        ),
+      ));
+
+      final row = await cache.getPropertySchemaRow(schemaUuid);
+      expect(row, isNotNull);
+      expect(row!.name, 'Renamed');
+      expect(row.required, isTrue);
+      expect(row.defaultValue, 42);
+      expect(row.computed, isNotNull);
+    });
+
+    test('skips stale node.updateContent ops (last-write-wins HLC)', () async {
+      const nodeUuid = '00000000-0000-0000-0000-000000000707';
+      await appliers.apply(OperationEnvelope(
+        id: 'e1',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 1, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.create',
+        payload: OperationPayloads.nodeCreate(nodeId: nodeUuid, kind: 'page'),
+      ));
+
+      await appliers.apply(OperationEnvelope(
+        id: 'e2',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 10, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.updateContent',
+        payload: OperationPayloads.nodeUpdateContent(
+          nodeId: nodeUuid,
+          content: AstBuilder.parseInline('Newer'),
+        ),
+      ));
+      expect((await cache.getByUuid(nodeUuid))!.displayName, 'Newer');
+
+      // An older HLC must not clobber the newer content.
+      await appliers.apply(OperationEnvelope(
+        id: 'e3',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 5, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.updateContent',
+        payload: OperationPayloads.nodeUpdateContent(
+          nodeId: nodeUuid,
+          content: AstBuilder.parseInline('Older'),
+        ),
+      ));
+      expect((await cache.getByUuid(nodeUuid))!.displayName, 'Newer');
+
+      // A newer HLC still applies.
+      await appliers.apply(OperationEnvelope(
+        id: 'e4',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 11, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.updateContent',
+        payload: OperationPayloads.nodeUpdateContent(
+          nodeId: nodeUuid,
+          content: AstBuilder.parseInline('Newest'),
+        ),
+      ));
+      expect((await cache.getByUuid(nodeUuid))!.displayName, 'Newest');
+    });
+
+    test('applies task.setRecurrence and task.deleteRecurrence', () async {
+      const nodeUuid = '00000000-0000-0000-0000-000000000708';
+      await appliers.apply(OperationEnvelope(
+        id: 'e1',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 1, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.create',
+        payload: OperationPayloads.nodeCreate(
+          nodeId: nodeUuid,
+          kind: 'block',
+          classIds: [SystemClassUuids.task],
+        ),
+      ));
+
+      await appliers.apply(OperationEnvelope(
+        id: 'e2',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 2, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'task.setRecurrence',
+        payload: {
+          'nodeId': nodeUuid,
+          'recurrenceId': 'r-1',
+          'rule': {'freq': 'weekly', 'interval': 1},
+        },
+      ));
+      expect(await cache.getTaskRecurrence(nodeUuid), {
+        'freq': 'weekly',
+        'interval': 1,
+      });
+
+      await appliers.apply(OperationEnvelope(
+        id: 'e3',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 3, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'task.deleteRecurrence',
+        payload: {'nodeId': nodeUuid, 'recurrenceId': 'r-1'},
+      ));
+      expect(await cache.getTaskRecurrence(nodeUuid), isNull);
+    });
+
+    test('ignores asset/activity/link/share/view/plugin ops without failing', () async {
+      const nodeUuid = '00000000-0000-0000-0000-000000000709';
+      final cases = <(String, Map<String, dynamic>)>[
+        ('asset.upload', {'nodeId': nodeUuid, 'assetHash': 'h', 'mimeType': 'image/png', 'sizeBytes': 1, 'originalName': 'a.png'}),
+        ('asset.delete', {'nodeId': nodeUuid}),
+        ('activity.record', {'nodeId': nodeUuid}),
+        ('link.click', {'nodeId': nodeUuid}),
+        ('share.public.create', {'nodeId': nodeUuid}),
+        ('nodeView.create', {'nodeId': nodeUuid}),
+        ('node.addAlias', {'nodeId': nodeUuid}),
+        // plugin.op carries no node id and is dropped before the switch.
+        ('plugin.op', {'pluginId': 'p', 'opType': 'x', 'data': <String, dynamic>{}}),
+      ];
+      for (var i = 0; i < cases.length; i++) {
+        await appliers.apply(OperationEnvelope(
+          id: 'ig-$i',
+          workspaceId: 'ws',
+          actorId: 'a',
+          hlc: Hlc(physical: 10 + i, logical: 0),
+          affectedNodeIds: const [],
+          opType: cases[i].$1,
+          payload: cases[i].$2,
+        ));
+      }
+      // Nothing was written for the unknown node.
+      expect(await cache.getByUuid(nodeUuid), isNull);
     });
   });
 }
