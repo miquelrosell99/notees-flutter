@@ -141,7 +141,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
                     label: Text(d.label),
                   ),
                 ),
-                const NavigationRailDestination(
+                NavigationRailDestination(
                   icon: Icon(MdiIcons.compassOutline),
                   selectedIcon: Icon(MdiIcons.compass),
                   label: Text('Browse'),
@@ -175,7 +175,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
                     label: d.label,
                   ),
                 ),
-                const NavigationDestination(
+                NavigationDestination(
                   icon: Icon(MdiIcons.compassOutline),
                   selectedIcon: Icon(MdiIcons.compass),
                   label: 'Browse',
