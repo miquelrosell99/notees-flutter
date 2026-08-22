@@ -10,11 +10,11 @@ import 'package:uuid/uuid.dart';
 import '../../core/constants/system.dart';
 import '../../core/utils/ast_stringifier.dart';
 import '../../core/utils/search_index_builder.dart';
-import '../../data/local/app_database.dart';
-import '../../data/models/linked_reference.dart';
-import '../../data/models/node.dart';
-import '../../data/models/page_content.dart';
-import '../../data/models/property.dart';
+import '../local/app_database.dart';
+import '../models/linked_reference.dart';
+import '../models/node.dart';
+import '../models/page_content.dart';
+import '../models/property.dart';
 import '../../domain/models/relay/hlc.dart';
 import '../../domain/models/search_filters.dart';
 

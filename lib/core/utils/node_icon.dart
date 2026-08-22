@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/icon_map.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 
-import 'color_presets.dart';
+import './color_presets.dart';
 
 /// A parsed node icon: either an MDI glyph or a raw emoji, plus an optional
 /// embedded color (data color, independent of the theme accent).

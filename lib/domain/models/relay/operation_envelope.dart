@@ -1,4 +1,4 @@
-import 'hlc.dart';
+import './hlc.dart';
 
 /// Envelope schema version this client speaks (`PROTOCOL_VERSION` in the
 /// relay spec). Envelopes with a newer version are rejected on parse.

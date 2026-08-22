@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/node.dart';
-import 'color_presets.dart';
-import 'node_icon.dart';
+import './color_presets.dart';
+import './node_icon.dart';
 
 /// Resolves the effective icon and color for a class by walking its
 /// `extendsUuid` inheritance chain.

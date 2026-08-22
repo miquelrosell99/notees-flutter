@@ -1,7 +1,7 @@
 import '../../core/constants/system.dart';
 import '../../core/utils/ast_builder.dart';
 import '../models/relay/operation_payloads.dart';
-import 'sync_v2_service.dart';
+import './sync_v2_service.dart';
 
 /// Client-side local workspace seed for offline (serverless) mode.
 ///

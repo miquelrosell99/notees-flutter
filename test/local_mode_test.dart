@@ -10,7 +10,7 @@ import 'package:notees/data/local/app_database.dart';
 import 'package:notees/data/repositories/server_repository.dart';
 import 'package:notees/domain/services/local_workspace_seed.dart';
 import 'package:notees/domain/services/sync_v2_service.dart';
-import 'package:notees/presentation/providers/auth_provider.dart';
+import 'package:notees/features/auth/providers/auth_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 

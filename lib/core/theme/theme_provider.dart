@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'app_colors.dart';
-import 'theme_builder.dart';
+import './app_colors.dart';
+import './theme_builder.dart';
 
 /// Persists and exposes the user's appearance choices.
 class ThemeProvider extends ChangeNotifier {

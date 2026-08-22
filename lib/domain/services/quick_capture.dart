@@ -9,8 +9,8 @@ import '../../core/utils/ast_builder.dart';
 import '../../data/local/app_database.dart';
 import '../../data/repositories/asset_repository.dart';
 import '../../data/repositories/node_repository.dart';
-import '../../presentation/providers/settings_provider.dart';
-import 'sync_v2_service.dart';
+import '../../features/settings/providers/settings_provider.dart';
+import './sync_v2_service.dart';
 
 /// Saves a quick note, falling back to the offline queue when there is no
 /// connectivity.

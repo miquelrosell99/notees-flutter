@@ -35,7 +35,7 @@ This balances immediate user-facing alignment with stability.
 - Add a persistent **center + Capture button** in `MainShellScreen` that opens `QuickCaptureSheet`.
 - Remove first-class **Journal** and **Pages** tabs; fold them into Library (and Inbox recents).
 - Keep Search reachable from the top app bar and the command palette, not as a bottom-nav tab.
-- Files: `lib/core/routing/router.dart`, `lib/presentation/screens/main_shell_screen.dart`, `lib/presentation/screens/dashboard_screen.dart`, `lib/presentation/screens/pages_screen.dart`, `lib/presentation/screens/journal_screen.dart`, `lib/presentation/screens/search_screen.dart`.
+- Files: `lib/core/routing/router.dart`, `lib/features/home/screens/main_shell_screen.dart`, `lib/features/home/screens/dashboard_screen.dart`, `lib/presentation/screens/pages_screen.dart`, `lib/presentation/screens/journal_screen.dart`, `lib/features/search/screens/search_screen.dart`.
 
 ### 1.2 Tasks redesign
 - Replace the flat open-tasks list with segmented task views: **Today**, **Upcoming**, **Someday**, **Completed**.
@@ -44,14 +44,14 @@ This balances immediate user-facing alignment with stability.
 - Add long-press multi-select for batch tag/due-date edits.
 - Add a task detail bottom sheet (title, notes, due date/reminder, priority, tags, parent page link).
 - Add a focus mode toggle that hides everything except today.
-- Files: `lib/presentation/screens/tasks_screen.dart`, `lib/presentation/widgets/filter_bottom_sheet.dart`, `lib/domain/models/search_filters.dart`, `lib/data/repositories/node_repository.dart`.
+- Files: `lib/features/tasks/screens/tasks_screen.dart`, `lib/features/search/widgets/filter_bottom_sheet.dart`, `lib/domain/models/search_filters.dart`, `lib/data/repositories/node_repository.dart`.
 
 ### 1.3 Capture enhancements
 - Extend `QuickCaptureSheet` to offer: **note**, **task**, **voice memo**, **photo**, **quick journal entry**.
 - Wire the existing `/task` backend support in `QuickCaptureService`.
 - Add a quick-journal destination that resolves to today’s daily journal.
 - Keep Quick Settings tiles and share receiver; extend share receiver to accept images and URLs (not just text).
-- Files: `lib/presentation/widgets/quick_capture_sheet.dart`, `lib/domain/services/quick_capture.dart`, `lib/native/intent_receiver.dart`, `android/app/src/main/AndroidManifest.xml`, `android/app/src/main/kotlin/.../MainActivity.kt`.
+- Files: `lib/features/capture/widgets/quick_capture_sheet.dart`, `lib/domain/services/quick_capture.dart`, `lib/native/intent_receiver.dart`, `android/app/src/main/AndroidManifest.xml`, `android/app/src/main/kotlin/.../MainActivity.kt`.
 
 ### 1.4 Critical bug fixes from `docs/flutter-audit.md`
 - Add `mounted` guards after every async gap in the listed screens.
@@ -74,7 +74,7 @@ This balances immediate user-facing alignment with stability.
 - Render bidirectional links as sage pills.
 - Respect collapsible blocks.
 - Add floating bottom bar: add block, add task, share, favorite.
-- Files: `lib/presentation/screens/node_editor_screen.dart`, `lib/presentation/widgets/block_tree_editor.dart`, `lib/presentation/widgets/ast_rich_text.dart`.
+- Files: `lib/features/editor/screens/node_editor_screen.dart`, `lib/features/editor/widgets/block_tree_editor.dart`, `lib/features/editor/widgets/ast_rich_text.dart`.
 
 ### 2.2 Block Editor alignment
 - Add missing slash commands: `/date`, `/bullet`, `/heading`.

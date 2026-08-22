@@ -1,0 +1,92 @@
+import 'package:flutter/material.dart';
+
+import '../../data/models/node.dart';
+import './node_calendar_view.dart';
+import './node_card_view.dart';
+import './node_kanban_view.dart';
+import './node_list_view.dart';
+import './node_table_view.dart';
+import './node_view_mode.dart';
+
+/// Dispatcher widget that renders a collection of nodes according to the
+/// selected view mode.
+class NodeCollection extends StatelessWidget {
+  const NodeCollection({
+    super.key,
+    required this.mode,
+    required this.nodes,
+    required this.onNodeTap,
+    this.emptyMessage = 'No items',
+    this.footer,
+    this.favoriteUuids,
+    this.onFavoriteToggle,
+    this.classIndex,
+    this.dateFormat,
+  });
+
+  final NodeViewMode mode;
+  final List<Node> nodes;
+  final ValueChanged<Node> onNodeTap;
+  final String emptyMessage;
+  final Widget? footer;
+  final Set<String>? favoriteUuids;
+  final ValueChanged<Node>? onFavoriteToggle;
+
+  /// Class uuid → class node, forwarded to the card view for colored pills.
+  final Map<String, Node>? classIndex;
+
+  /// Optional user date-format preference; forwarded to child views.
+  final String? dateFormat;
+
+  @override
+  Widget build(BuildContext context) {
+    if (nodes.isEmpty) {
+      return Center(child: Text(emptyMessage));
+    }
+
+    switch (mode) {
+      case NodeViewMode.list:
+        return NodeListView(
+          nodes: nodes,
+          onNodeTap: onNodeTap,
+          footer: footer,
+          favoriteUuids: favoriteUuids,
+          onFavoriteToggle: onFavoriteToggle,
+          dateFormat: dateFormat,
+        );
+      case NodeViewMode.card:
+        return NodeCardView(
+          nodes: nodes,
+          onNodeTap: onNodeTap,
+          favoriteUuids: favoriteUuids,
+          onFavoriteToggle: onFavoriteToggle,
+          classIndex: classIndex,
+          dateFormat: dateFormat,
+        );
+      case NodeViewMode.table:
+        return NodeTableView(
+          nodes: nodes,
+          onNodeTap: onNodeTap,
+          favoriteUuids: favoriteUuids,
+          onFavoriteToggle: onFavoriteToggle,
+          dateFormat: dateFormat,
+        );
+      case NodeViewMode.kanban:
+        return NodeKanbanView(
+          nodes: nodes,
+          onNodeTap: onNodeTap,
+          favoriteUuids: favoriteUuids,
+          onFavoriteToggle: onFavoriteToggle,
+          dateFormat: dateFormat,
+        );
+      case NodeViewMode.calendar:
+        return NodeCalendarView(
+          nodes: nodes,
+          onNodeTap: onNodeTap,
+          favoriteUuids: favoriteUuids,
+          onFavoriteToggle: onFavoriteToggle,
+          dateFormat: dateFormat,
+        );
+    }
+  }
+}

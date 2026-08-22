@@ -28,11 +28,24 @@ notees-flutter/
 │   │   └── theme/            # RosellRamos theme + accent picker
 │   ├── data/
 │   │   ├── models/           # ServerProfile, User, Node
-│   │   └── repositories/     # Auth, Server, Workspace, Node
-│   ├── presentation/
-│   │   ├── providers/        # AuthProvider
-│   │   ├── screens/          # Splash, ServerSetup, Login, Dashboard, Settings, ServerManagement, UserProfile, ApiKeys, etc.
-│   │   └── widgets/          # Fleet-styled cards, section titles
+│   │   ├── repositories/     # Auth, Server, Workspace, Node
+│   │   └── local/            # sqflite database
+│   ├── domain/
+│   │   ├── models/           # Relay op-log models (HLC, envelopes, payloads)
+│   │   └── services/         # Sync engine, offline queue, quick capture
+│   ├── shared/
+│   │   ├── widgets/          # Cross-feature widgets (FleetCard, EmptyState, SectionTitle, NodePicker, ViewModeSheet, etc.)
+│   │   └── views/            # Cross-feature node collection views (list/card/table/kanban/calendar, inbox)
+│   ├── features/
+│   │   ├── auth/             # screens/ (Splash, ServerSetup, Login, Onboarding, ServerManagement, Lock, ApiKeys, UserProfile), providers/ (Auth, Biometric)
+│   │   ├── home/             # screens/ (Dashboard, MainShell, Notifications), providers/ (Connectivity)
+│   │   ├── editor/           # screens/ (NodeEditor, JournalContinuous), widgets/ (BlockTreeEditor, AstRichText, SlashCommandPalette, etc.)
+│   │   ├── tasks/            # screens/ (Tasks), widgets/ (TaskRow, TaskCreationSheet)
+│   │   ├── search/           # screens/ (Search), widgets/ (CommandPalette, FilterBottomSheet, FilterChipBar)
+│   │   ├── library/          # screens/ (Library, Archived, Trash), widgets/ (BrowsePanel)
+│   │   ├── settings/         # screens/ (Settings, About, KeyboardShortcuts), providers/ (Settings)
+│   │   ├── capture/          # widgets/ (QuickCaptureSheet, FloatingCaptureSheet/Bubble, AudioRecorderSheet)
+│   │   └── shares/           # widgets/ (SharesBottomSheet)
 │   └── native/               # Platform-specific native helpers (reminder_service, intent_receiver, background_sync, app_locker, widget_service)
    └── android/.../TaskWidgetProvider.kt  # Today's tasks home-screen widget
    └── android/.../FavoritesWidgetProvider.kt  # Favorite pages home-screen widget

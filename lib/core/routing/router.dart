@@ -6,24 +6,24 @@ import '../api/error_reporter.dart';
 
 import '../../data/repositories/node_repository.dart';
 import '../../domain/models/search_filters.dart';
-import '../../presentation/providers/auth_provider.dart';
-import '../../presentation/screens/about_screen.dart';
-import '../../presentation/screens/api_keys_screen.dart';
-import '../../presentation/screens/archived_screen.dart';
-import '../../presentation/screens/journal_continuous_screen.dart';
-import '../../presentation/screens/login_screen.dart';
-import '../../presentation/screens/main_shell_screen.dart';
-import '../../presentation/screens/notifications_screen.dart';
-import '../../presentation/screens/node_editor_screen.dart';
-import '../../presentation/screens/onboarding_screen.dart';
-import '../../presentation/screens/search_screen.dart';
-import '../../presentation/screens/server_management_screen.dart';
-import '../../presentation/screens/server_setup_screen.dart';
-import '../../presentation/screens/keyboard_shortcuts_screen.dart';
-import '../../presentation/screens/settings_screen.dart';
-import '../../presentation/screens/splash_screen.dart';
-import '../../presentation/screens/trash_screen.dart';
-import '../../presentation/screens/user_profile_screen.dart';
+import '../../features/auth/providers/auth_provider.dart';
+import '../../features/settings/screens/about_screen.dart';
+import '../../features/auth/screens/api_keys_screen.dart';
+import '../../features/library/screens/archived_screen.dart';
+import '../../features/editor/screens/journal_continuous_screen.dart';
+import '../../features/auth/screens/login_screen.dart';
+import '../../features/home/screens/main_shell_screen.dart';
+import '../../features/home/screens/notifications_screen.dart';
+import '../../features/editor/screens/node_editor_screen.dart';
+import '../../features/auth/screens/onboarding_screen.dart';
+import '../../features/search/screens/search_screen.dart';
+import '../../features/auth/screens/server_management_screen.dart';
+import '../../features/auth/screens/server_setup_screen.dart';
+import '../../features/settings/screens/keyboard_shortcuts_screen.dart';
+import '../../features/settings/screens/settings_screen.dart';
+import '../../features/auth/screens/splash_screen.dart';
+import '../../features/library/screens/trash_screen.dart';
+import '../../features/auth/screens/user_profile_screen.dart';
 
 /// Route names.
 abstract class Routes {
