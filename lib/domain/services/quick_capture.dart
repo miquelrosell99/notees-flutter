@@ -10,6 +10,7 @@ import '../../data/local/app_database.dart';
 import '../../data/repositories/asset_repository.dart';
 import '../../data/repositories/node_repository.dart';
 import '../../features/settings/providers/settings_provider.dart';
+import './local_asset_store.dart';
 import './sync_v2_service.dart';
 
 /// Saves a quick note, falling back to the offline queue when there is no
@@ -69,12 +70,34 @@ class QuickCaptureService {
     }
   }
 
-  /// Uploads [file] as an asset block under [parentUuid].
+  /// Uploads [file] as an asset block under [parentUuid], or converts
+  /// [existingNodeUuid] into an asset when given.
+  ///
+  /// In local (serverless) mode the bytes go to the on-device
+  /// [LocalAssetStore] and the canonical asset ops are emitted locally, so a
+  /// later server attach replays them.
   Future<void> uploadAsset(
     File file, {
-    required String parentUuid,
+    String? parentUuid,
+    String? existingNodeUuid,
+    String? content,
   }) async {
-    await AssetRepository(dio: dio).uploadFile(file, parentUuid: parentUuid);
+    final sync = syncService;
+    if (sync != null && sync.serverless) {
+      await LocalAssetService(sync).upload(
+        file,
+        parentUuid: parentUuid,
+        existingNodeUuid: existingNodeUuid,
+        content: content,
+      );
+      return;
+    }
+    await AssetRepository(dio: dio).uploadFile(
+      file,
+      parentUuid: parentUuid,
+      existingNodeUuid: existingNodeUuid,
+      content: content,
+    );
   }
 
   Future<int> pendingCount() async {

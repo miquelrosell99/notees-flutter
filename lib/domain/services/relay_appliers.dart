@@ -18,15 +18,24 @@ class RelayAppliers {
 
   Future<void> apply(OperationEnvelope envelope) async {
     final payload = envelope.payload;
+    // User-share ops are handled before the node-target resolution below:
+    // `share.user.revoke` may carry only a share id (no nodeId).
+    switch (envelope.opType) {
+      case 'share.user.grant':
+        await _applyShareUserGrant(envelope, payload);
+        return;
+      case 'share.user.revoke':
+        await _applyShareUserRevoke(envelope, payload);
+        return;
+    }
     // Class/property operations identify the target via `classId` or `schemaId`,
     // not `nodeId`.
     final nodeId = payload['nodeId'] as String? ??
         payload['classId'] as String? ??
         payload['schemaId'] as String? ??
         '';
-    // Ops without a node/class/schema target (e.g. `plugin.op`, share ops
-    // without a node) have no local derived representation and are
-    // intentionally ignored.
+    // Ops without a node/class/schema target (e.g. `plugin.op`) have no local
+    // derived representation and are intentionally ignored.
     if (nodeId.isEmpty) return;
 
     switch (envelope.opType) {
@@ -133,17 +142,15 @@ class RelayAppliers {
       // asset bookkeeping ops are intentionally ignored.
       case 'asset.upload':
       case 'asset.delete':
-      // Activity log, link-click tracking, share state, node views, aliases
-      // and plugin-scoped ops have no local derived representation; the
-      // corresponding UI reads them from the server on demand. Intentionally
-      // ignored.
+      // Activity log, link-click tracking, public share state, node views,
+      // aliases and plugin-scoped ops have no local derived representation;
+      // the corresponding UI reads them from the server on demand.
+      // Intentionally ignored.
       case 'activity.record':
       case 'activity.delete':
       case 'link.click':
       case 'share.public.create':
       case 'share.public.revoke':
-      case 'share.user.grant':
-      case 'share.user.revoke':
       case 'nodeView.create':
       case 'nodeView.update':
       case 'nodeView.delete':
@@ -659,6 +666,38 @@ class RelayAppliers {
     await _cache.reorderClassPropertyEdges(
       classId,
       _readStringList(orderedIds),
+    );
+  }
+
+  Future<void> _applyShareUserGrant(
+    OperationEnvelope envelope,
+    Map<String, dynamic> payload,
+  ) async {
+    final nodeId = payload['nodeId'] as String?;
+    final targetUserId = payload['targetUserId'] as String?;
+    if (nodeId == null || nodeId.isEmpty) return;
+    if (targetUserId == null || targetUserId.isEmpty) return;
+    await _cache.applyShareUserGrant(
+      envelope.workspaceId,
+      nodeUuid: nodeId,
+      targetUserId: targetUserId,
+      shareId: payload['shareId'] as String?,
+      permissionBits: (payload['permissionBits'] as num?)?.toInt() ?? 0,
+      role: payload['role'] as String? ?? '',
+      createdBy: envelope.actorId,
+      createdAt: envelope.timestamp,
+    );
+  }
+
+  Future<void> _applyShareUserRevoke(
+    OperationEnvelope envelope,
+    Map<String, dynamic> payload,
+  ) async {
+    await _cache.applyShareUserRevoke(
+      envelope.workspaceId,
+      shareId: payload['shareId'] as String?,
+      nodeUuid: payload['nodeId'] as String?,
+      targetUserId: payload['targetUserId'] as String?,
     );
   }
 

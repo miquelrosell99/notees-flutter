@@ -13,6 +13,7 @@ import '../../../data/models/user.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/server_repository.dart';
 import '../../../data/repositories/workspace_repository.dart';
+import '../../../domain/services/local_asset_store.dart';
 import '../../../domain/services/local_workspace_seed.dart';
 import '../../../domain/services/onboarding_service.dart';
 import '../../../domain/services/sync_v2_service.dart';
@@ -60,7 +61,10 @@ class AuthProvider extends ChangeNotifier {
   bool get canManageWorkspaces => !isLocalMode;
   bool get canManageAccount => !isLocalMode;
   bool get canShare => !isLocalMode;
-  bool get canUploadAssets => !isLocalMode;
+  // Asset capture works in local mode too: bytes go to the on-device
+  // LocalAssetStore and sync on server attach (matches the web client, which
+  // branches inside uploadAsset instead of gating the capability).
+  bool get canUploadAssets => true;
 
   // Local profile persistence. The local workspace uuid is stored alongside
   // so the session survives a local database reset.
@@ -353,6 +357,12 @@ class AuthProvider extends ChangeNotifier {
   /// the server workspace keeps its own seed (the class.create applier is an
   /// upsert on class id, so our duplicate seed ops are harmless), and only
   /// the pending outbox is pushed.
+  ///
+  /// Replayed `asset.upload` ops carry only metadata, so after the flush the
+  /// blob bytes of every locally captured asset are uploaded against the
+  /// replayed asset node (mirroring the web client's `uploadAssetBytes`
+  /// adoption step). Per-asset failures are logged and skipped; the ops and
+  /// local blobs stay, so a later flush/upload can be retried manually.
   Future<void> _adoptLocalWorkspaceIfPending() async {
     final localWorkspaceId = prefs.getString(_localWorkspaceUuidKey);
     if (localWorkspaceId == null) return;
@@ -371,6 +381,14 @@ class AuthProvider extends ChangeNotifier {
     await prefs.remove(_localWorkspaceUuidKey);
     try {
       await sync?.flush();
+      if (sync != null && _dio != null) {
+        final failures =
+            await LocalAssetService(sync).uploadPendingAssets(_dio!);
+        if (failures.isNotEmpty) {
+          debugPrint('AuthProvider: ${failures.length} local asset(s) failed '
+              'to upload during adoption: ${failures.first}');
+        }
+      }
       await sync?.pull();
     } on Exception catch (e) {
       // Login itself succeeded; the outbox stays pending and the next

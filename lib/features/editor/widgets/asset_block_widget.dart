@@ -7,12 +7,15 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../data/repositories/asset_repository.dart';
+import '../../../domain/services/local_asset_store.dart';
 
 /// Renders an asset block inside the native editor.
 ///
-/// Images are downloaded through the authenticated Dio client and shown from
-/// memory. Audio files are downloaded to a temporary file and opened with the
-/// system player. Other files show a generic tile.
+/// Assets captured in local (serverless) mode are stored on-device in the
+/// [LocalAssetStore] keyed by content hash and rendered from disk. Otherwise
+/// images are downloaded through the authenticated Dio client and shown from
+/// memory, audio files are downloaded to a temporary file and opened with the
+/// system player, and other files show a generic tile.
 class AssetBlockWidget extends StatefulWidget {
   const AssetBlockWidget({
     super.key,
@@ -33,6 +36,7 @@ class _AssetBlockWidgetState extends State<AssetBlockWidget> {
   Asset? _asset;
   Uint8List? _imageBytes;
   String? _audioPath;
+  String? _localFilePath;
   bool _loading = true;
   String? _error;
 
@@ -44,6 +48,36 @@ class _AssetBlockWidgetState extends State<AssetBlockWidget> {
 
   Future<void> _loadAsset() async {
     try {
+      // Local-first: blobs captured in local mode live in the on-device asset
+      // store keyed by content hash; when a copy exists, render it from disk
+      // instead of hitting the server URL.
+      final store = LocalAssetStore();
+      final local = await store.readMetadata(widget.uuid);
+      final localFile =
+          local == null ? null : await store.blobFile(local.assetHash);
+      if (local != null && localFile != null) {
+        _localFilePath = localFile.path;
+        if (local.category == 'image') {
+          _imageBytes = await localFile.readAsBytes();
+        } else if (local.category == 'audio') {
+          _audioPath = localFile.path;
+        }
+        if (!mounted) return;
+        setState(() {
+          _asset = Asset(
+            uuid: widget.uuid,
+            nodeUuid: widget.uuid,
+            filename: local.originalName,
+            contentType: local.mimeType,
+            category: local.category,
+            sizeBytes: local.sizeBytes,
+            url: localFile.path,
+          );
+          _loading = false;
+        });
+        return;
+      }
+
       final repo = AssetRepository(dio: widget.dio);
       final info = await repo.fetchAssetInfo(widget.uuid);
       final url = '${widget.dio.options.baseUrl}${repo.assetUrl(widget.uuid)}';
@@ -87,9 +121,15 @@ class _AssetBlockWidgetState extends State<AssetBlockWidget> {
   }
 
   Future<void> _openFile() async {
-    final repo = AssetRepository(dio: widget.dio);
-    final url = '${widget.dio.options.baseUrl}${repo.assetUrl(widget.uuid)}';
-    final uri = Uri.parse(url);
+    final localPath = _localFilePath;
+    final Uri uri;
+    if (localPath != null) {
+      uri = Uri.file(localPath);
+    } else {
+      final repo = AssetRepository(dio: widget.dio);
+      final url = '${widget.dio.options.baseUrl}${repo.assetUrl(widget.uuid)}';
+      uri = Uri.parse(url);
+    }
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }

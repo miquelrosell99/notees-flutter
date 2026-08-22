@@ -9,7 +9,6 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/capture_types.dart';
 import '../../../core/constants/system.dart';
 import '../../../core/utils/color_presets.dart';
-import '../../../data/repositories/asset_repository.dart';
 import '../../../data/repositories/node_repository.dart';
 import '../../../domain/services/quick_capture.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -195,10 +194,10 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
         color: _selectedColor,
       );
 
-      await AssetRepository(dio: auth.dio!).uploadFile(
-        _imageFile!,
-        parentUuid: block.uuid,
-      );
+      await QuickCaptureService(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      ).uploadAsset(_imageFile!, parentUuid: block.uuid);
 
       if (mounted) {
         Navigator.of(context).pop();
@@ -260,7 +259,10 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
     setState(() => _isSaving = true);
     try {
       final text = _controller.text.trim();
-      await AssetRepository(dio: auth.dio!).uploadFile(
+      await QuickCaptureService(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      ).uploadAsset(
         _imageFile!,
         existingNodeUuid: page.uuid,
         content: text.isEmpty ? null : text,
@@ -287,10 +289,10 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
       color: _selectedColor,
       parentUuid: parentUuid,
     );
-    await AssetRepository(dio: auth.dio!).uploadFile(
-      _imageFile!,
-      parentUuid: block.uuid,
-    );
+    await QuickCaptureService(
+      dio: auth.dio!,
+      syncService: auth.syncService,
+    ).uploadAsset(_imageFile!, parentUuid: block.uuid);
     if (mounted) {
       Navigator.of(context).pop();
       widget.onSaved?.call();
@@ -372,17 +374,8 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
   }
 
   Future<void> _onPrimaryAction(AuthProvider auth) async {
-    // Voice/photo captures upload asset bytes to the server; there is no
-    // local asset store in offline mode.
-    if (auth.isLocalMode &&
-        (_type == _CaptureType.voice || _type == _CaptureType.photo)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Attachments require a connected server'),
-        ),
-      );
-      return;
-    }
+    // Voice/photo captures store asset bytes locally in local mode (see
+    // LocalAssetService); only upload-to-server is gated on connectivity.
     switch (_type) {
       case _CaptureType.note:
         await _saveNote(auth);
@@ -455,12 +448,7 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: _CaptureType.values
-                  .where((type) =>
-                      !auth.isLocalMode ||
-                      (type != _CaptureType.voice &&
-                          type != _CaptureType.photo))
-                  .map((type) {
+              children: _CaptureType.values.map((type) {
                 final selected = _type == type;
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
@@ -543,19 +531,25 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 FilledButton.icon(
-                  onPressed: isOnline ? () => _saveSharedImageToInbox(auth) : null,
+                  onPressed: isOnline || auth.isLocalMode
+                      ? () => _saveSharedImageToInbox(auth)
+                      : null,
                   icon: Icon(MdiIcons.inboxArrowDownOutline),
                   label: const Text('Save to Inbox'),
                 ),
                 const SizedBox(height: 8),
                 FilledButton.icon(
-                  onPressed: isOnline ? () => _saveSharedImageToJournal(auth) : null,
+                  onPressed: isOnline || auth.isLocalMode
+                      ? () => _saveSharedImageToJournal(auth)
+                      : null,
                   icon: Icon(MdiIcons.bookOpenOutline),
                   label: const Text("Save to today's journal"),
                 ),
                 const SizedBox(height: 8),
                 FilledButton.icon(
-                  onPressed: isOnline ? () => _attachSharedImageToPage(auth) : null,
+                  onPressed: isOnline || auth.isLocalMode
+                      ? () => _attachSharedImageToPage(auth)
+                      : null,
                   icon: Icon(MdiIcons.fileDocumentOutline),
                   label: const Text('Attach to page'),
                 ),
@@ -574,7 +568,9 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
                 if (_type == _CaptureType.note || _type == _CaptureType.task) ...[
                   const SizedBox(width: 12),
                   IconButton.filledTonal(
-                    onPressed: isOnline ? () => _showImageSourcePicker(auth) : null,
+                    onPressed: isOnline || auth.isLocalMode
+                        ? () => _showImageSourcePicker(auth)
+                        : null,
                     icon: Icon(MdiIcons.cameraOutline),
                     tooltip: 'Add photo',
                   ),

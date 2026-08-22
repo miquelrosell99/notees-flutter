@@ -115,6 +115,9 @@ class ReminderService {
     return await androidPlugin.requestExactAlarmsPermission() ?? false;
   }
 
+  /// Maximum number of upcoming recurrence occurrences scheduled at once.
+  static const maxOccurrenceReminders = 5;
+
   /// Schedules a reminder for [taskUuid] at the given [dueDate].
   ///
   /// If [dueDate] contains only a date component, the reminder is scheduled at
@@ -134,40 +137,51 @@ class ReminderService {
     final now = tz.TZDateTime.now(tz.local);
     if (scheduledDate.isBefore(now)) return;
 
-    final exactAlarmGranted = await canScheduleExactAlarms;
-    final scheduleMode = exactAlarmGranted
-        ? AndroidScheduleMode.exactAllowWhileIdle
-        : AndroidScheduleMode.inexactAllowWhileIdle;
-
-    await _notifications.zonedSchedule(
+    await _scheduleNotification(
       _notificationIdFor(taskUuid),
+      taskUuid,
       taskName,
-      'Due now',
       scheduledDate,
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          _channelId,
-          _channelName,
-          channelDescription: _channelDescription,
-          importance: Importance.high,
-          priority: Priority.high,
-          actions: const [
-            AndroidNotificationAction(_snooze15MinActionId, '15 min'),
-            AndroidNotificationAction(_snooze1HourActionId, '1 hour'),
-            AndroidNotificationAction(_snoozeTomorrowActionId, 'Tomorrow'),
-          ],
-        ),
-      ),
-      androidScheduleMode: scheduleMode,
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-      payload: jsonEncode({_payloadKey: taskUuid}),
     );
+  }
+
+  /// Schedules one reminder per upcoming occurrence of a recurring task.
+  ///
+  /// [dueDates] are the expanded occurrence dates (see
+  /// `occurrenceSeries`); past dates are skipped. Any existing reminders for
+  /// the same task — single or recurring — are replaced.
+  Future<void> scheduleRecurringTaskReminders(
+    String taskUuid,
+    String taskName,
+    List<DateTime> dueDates,
+  ) async {
+    if (!_initialized) await initialize();
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+
+    await cancelTaskReminder(taskUuid);
+
+    final now = tz.TZDateTime.now(tz.local);
+    var index = 0;
+    for (final dueDate in dueDates.take(maxOccurrenceReminders)) {
+      final scheduledDate = _toScheduledDateTime(dueDate);
+      if (scheduledDate.isBefore(now)) continue;
+      await _scheduleNotification(
+        _notificationIdForOccurrence(taskUuid, index),
+        taskUuid,
+        taskName,
+        scheduledDate,
+      );
+      index++;
+    }
   }
 
   /// Cancels the reminder for [taskUuid] if one exists.
   Future<void> cancelTaskReminder(String taskUuid) async {
     if (!_initialized) await initialize();
     await _notifications.cancel(_notificationIdFor(taskUuid));
+    for (var i = 0; i < maxOccurrenceReminders; i++) {
+      await _notifications.cancel(_notificationIdForOccurrence(taskUuid, i));
+    }
   }
 
   /// Reschedules the reminder for [taskUuid] to fire after [duration].
@@ -202,6 +216,49 @@ class ReminderService {
 
   int _notificationIdFor(String taskUuid) {
     return taskUuid.hashCode & 0x7FFFFFFF;
+  }
+
+  /// Notification id for the [index]-th occurrence reminder of a recurring
+  /// task; distinct from the single-reminder id so both can be cancelled
+  /// exhaustively.
+  int _notificationIdForOccurrence(String taskUuid, int index) {
+    return '$taskUuid#$index'.hashCode & 0x7FFFFFFF;
+  }
+
+  Future<void> _scheduleNotification(
+    int notificationId,
+    String taskUuid,
+    String taskName,
+    tz.TZDateTime scheduledDate,
+  ) async {
+    final exactAlarmGranted = await canScheduleExactAlarms;
+    final scheduleMode = exactAlarmGranted
+        ? AndroidScheduleMode.exactAllowWhileIdle
+        : AndroidScheduleMode.inexactAllowWhileIdle;
+
+    await _notifications.zonedSchedule(
+      notificationId,
+      taskName,
+      'Due now',
+      scheduledDate,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channelId,
+          _channelName,
+          channelDescription: _channelDescription,
+          importance: Importance.high,
+          priority: Priority.high,
+          actions: const [
+            AndroidNotificationAction(_snooze15MinActionId, '15 min'),
+            AndroidNotificationAction(_snooze1HourActionId, '1 hour'),
+            AndroidNotificationAction(_snoozeTomorrowActionId, 'Tomorrow'),
+          ],
+        ),
+      ),
+      androidScheduleMode: scheduleMode,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+      payload: jsonEncode({_payloadKey: taskUuid}),
+    );
   }
 
   void _onNotificationResponse(NotificationResponse response) {

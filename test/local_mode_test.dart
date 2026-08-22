@@ -57,7 +57,9 @@ void main() {
       expect(auth.canManageWorkspaces, isFalse);
       expect(auth.canManageAccount, isFalse);
       expect(auth.canShare, isFalse);
-      expect(auth.canUploadAssets, isFalse);
+      // Asset capture is available in local mode via the on-device store;
+      // only upload-to-server is gated.
+      expect(auth.canUploadAssets, isTrue);
       // The choice persists so a relaunch skips server setup.
       expect(prefs.getString('local_profile_uuid'), auth.user?.uuid);
     });

@@ -190,6 +190,11 @@ Future<void> _updateWidgetData(SharedPreferences prefs) async {
     final repo = NodeRepository(dio: dio, syncService: syncService);
     final tasks = await WidgetService.loadTodayTasksFromRepo(repo);
     await WidgetService.saveTodayTasks(tasks);
+    // Favorites and Inbox snapshots read from the local cache, which is
+    // unavailable while encryption is enabled (syncService is null).
+    if (syncService != null) {
+      await WidgetService.refreshSnapshots(repo);
+    }
   } on DioException catch (e) {
     debugPrint('Widget update network error: $e');
   } on Exception catch (e, stack) {

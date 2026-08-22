@@ -108,8 +108,12 @@ class TaskWidgetProvider : AppWidgetProvider() {
 
         when (layoutRes) {
             R.layout.widget_task_compact -> bindCompact(views, context, appWidgetId, tasks)
-            R.layout.widget_task_medium -> bindList(views, context, appWidgetId, tasks, maxRows = 6)
+            R.layout.widget_task_medium -> {
+                bindHeaderOpen(views, context, appWidgetId)
+                bindList(views, context, appWidgetId, tasks, maxRows = 6)
+            }
             R.layout.widget_task_large -> {
+                bindHeaderOpen(views, context, appWidgetId)
                 bindList(views, context, appWidgetId, tasks, maxRows = 10)
                 bindLargeFooter(views, context, appWidgetId)
             }
@@ -196,6 +200,19 @@ class TaskWidgetProvider : AppWidgetProvider() {
 
             views.addView(container, row)
         }
+    }
+
+    private fun bindHeaderOpen(views: RemoteViews, context: Context, appWidgetId: Int) {
+        val openTasksIntent = Intent(Intent.ACTION_VIEW, Uri.parse("notees://tasks")).apply {
+            setClass(context, MainActivity::class.java)
+        }
+        val pendingOpen = PendingIntent.getActivity(
+            context,
+            appWidgetId * 1000 + 999,
+            openTasksIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        views.setOnClickPendingIntent(R.id.widget_header, pendingOpen)
     }
 
     private fun bindLargeFooter(views: RemoteViews, context: Context, appWidgetId: Int) {
