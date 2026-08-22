@@ -65,9 +65,9 @@ class LocalAssetInfo {
 /// the source of truth (see [LocalAssetService]), attaching a server later
 /// replays the ops unchanged and only the blob bytes need uploading.
 class LocalAssetStore {
-  LocalAssetStore({Directory? baseDirectory}) : _baseDirectory = baseDirectory;
-
   /// Test override; defaults to the app documents directory.
+  LocalAssetStore({this._baseDirectory});
+
   final Directory? _baseDirectory;
 
   Future<Directory> _blobDir() async {
