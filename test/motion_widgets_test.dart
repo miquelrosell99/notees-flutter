@@ -4,6 +4,18 @@ import 'package:notees/shared/widgets/motion.dart';
 import 'package:notees/shared/widgets/skeletons.dart';
 
 void main() {
+  // The MaterialApp route transition contributes its own ScaleTransition /
+  // FadeTransition widgets; always scope finders to the widget under test.
+  Finder insidePressScale(Type type) => find.descendant(
+        of: find.byType(PressScale),
+        matching: find.byType(type),
+      );
+
+  Finder insideShimmerBox(Type type) => find.descendant(
+        of: find.byType(ShimmerBox),
+        matching: find.byType(type),
+      );
+
   testWidgets('PressScale scales down while pressed and back on release',
       (WidgetTester tester) async {
     await tester.pumpWidget(
@@ -15,8 +27,10 @@ void main() {
         ),
       ),
     );
+    // Let the route entrance finish so the page is no longer IgnorePointer'd.
+    await tester.pumpAndSettle();
 
-    final scaleFinder = find.byType(ScaleTransition);
+    final scaleFinder = insidePressScale(ScaleTransition);
     expect(scaleFinder, findsOneWidget);
     expect(tester.widget<ScaleTransition>(scaleFinder).scale.value, 1.0);
 
@@ -46,6 +60,7 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byType(PressScale));
     expect(taps, 1);
@@ -64,8 +79,9 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
 
-    expect(find.byType(ScaleTransition), findsNothing);
+    expect(insidePressScale(ScaleTransition), findsNothing);
     expect(find.byType(PressScale), findsOneWidget);
   });
 
@@ -75,7 +91,7 @@ void main() {
         home: Scaffold(body: ShimmerBox(width: 40, height: 40)),
       ),
     );
-    expect(find.byType(FadeTransition), findsOneWidget);
+    expect(insideShimmerBox(FadeTransition), findsOneWidget);
     // Do not pumpAndSettle: the shimmer repeats forever.
     await tester.pump(const Duration(milliseconds: 700));
   });
@@ -91,12 +107,9 @@ void main() {
       ),
     );
 
-    expect(find.byType(FadeTransition), findsNothing);
+    expect(insideShimmerBox(FadeTransition), findsNothing);
     expect(
-      find.descendant(
-        of: find.byType(ShimmerBox),
-        matching: find.byType(Container),
-      ),
+      insideShimmerBox(Container),
       findsOneWidget,
     );
     await tester.pumpAndSettle();

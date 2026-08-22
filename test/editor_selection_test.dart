@@ -40,7 +40,11 @@ void main() {
     });
 
     test('keeps nested selection when the ancestor is not selected', () {
-      expect(effectiveSelection({c, d}), unorderedEquals([c, d]));
+      expect(effectiveSelection({b, d}), unorderedEquals([b, d]));
+    });
+
+    test('drops a block whose ancestor is selected', () {
+      expect(effectiveSelection({c, d}), [c]);
     });
 
     test('keeps siblings across different parents', () {
