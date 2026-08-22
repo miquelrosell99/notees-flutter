@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/core/constants/system.dart';
 import 'package:notees/core/secure/secure_storage.dart';
@@ -16,6 +17,14 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
+
+  // loginLocally opens the on-device database path; path_provider has no
+  // implementation on the test host, so serve a temp directory.
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(
+    const MethodChannel('plugins.flutter.io/path_provider'),
+    (call) async => '/tmp',
+  );
 
   group('AuthProvider local profile', () {
     late SharedPreferences prefs;
