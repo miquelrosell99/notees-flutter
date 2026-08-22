@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MissingPluginException;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/api_client.dart';
@@ -163,10 +164,18 @@ class AuthProvider extends ChangeNotifier {
       workspaceId = Uuid7.generate();
       await prefs.setString(_localWorkspaceUuidKey, workspaceId);
     }
-    await sync.setWorkspaceId(workspaceId);
-    await LocalWorkspaceSeed(sync).ensureLocalWorkspace(
-      displayName: _localDisplayName,
-    );
+    try {
+      await sync.setWorkspaceId(workspaceId);
+      await LocalWorkspaceSeed(sync).ensureLocalWorkspace(
+        displayName: _localDisplayName,
+      );
+    } on MissingPluginException {
+      // The platform reports a supported database (e.g. test hosts reporting
+      // Android) but the sqlcipher plugin is absent. Degrade to a session
+      // without persistence instead of failing the login.
+      debugPrint('AuthProvider: local database plugin missing; '
+          'data will not persist');
+    }
   }
 
   Future<SyncV2Service?> _buildServerlessSyncService() async {
