@@ -95,6 +95,28 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
     }
   }
 
+  Future<void> _continueOffline() async {
+    HapticFeedback.lightImpact();
+    final auth = context.read<AuthProvider>();
+    setState(() {
+      _pinging = true;
+      _error = null;
+    });
+    try {
+      await auth.loginLocally();
+      if (!mounted) return;
+      if (auth.error != null) {
+        setState(() => _error = auth.error);
+        return;
+      }
+      context.go('/dashboard');
+    } finally {
+      if (mounted) {
+        setState(() => _pinging = false);
+      }
+    }
+  }
+
   Future<void> _selectServer(String id) async {
     HapticFeedback.lightImpact();
     final auth = context.read<AuthProvider>();
@@ -211,6 +233,21 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                           )
                         : Icon(MdiIcons.arrowRight),
                     label: const Text('Connect'),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _pinging ? null : _continueOffline,
+                    icon: Icon(MdiIcons.cloudOffOutline),
+                    label: const Text('Continue offline'),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Offline mode keeps everything on this device. '
+                    'You can connect a server later from Settings.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
                   ),
                 ],
               ),

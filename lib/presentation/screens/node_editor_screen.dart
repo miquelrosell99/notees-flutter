@@ -376,14 +376,15 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                 _toggleFavorite();
               },
             ),
-            ListTile(
-              leading: Icon(MdiIcons.shareOutline),
-              title: const Text('Share'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                _openShareSheet();
-              },
-            ),
+            if (!context.read<AuthProvider>().isLocalMode)
+              ListTile(
+                leading: Icon(MdiIcons.shareOutline),
+                title: const Text('Share'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  _openShareSheet();
+                },
+              ),
           ],
         ),
       ),

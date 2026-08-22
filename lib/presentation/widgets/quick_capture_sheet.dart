@@ -372,6 +372,17 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
   }
 
   Future<void> _onPrimaryAction(AuthProvider auth) async {
+    // Voice/photo captures upload asset bytes to the server; there is no
+    // local asset store in offline mode.
+    if (auth.isLocalMode &&
+        (_type == _CaptureType.voice || _type == _CaptureType.photo)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Attachments require a connected server'),
+        ),
+      );
+      return;
+    }
     switch (_type) {
       case _CaptureType.note:
         await _saveNote(auth);
@@ -444,7 +455,12 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: _CaptureType.values.map((type) {
+              children: _CaptureType.values
+                  .where((type) =>
+                      !auth.isLocalMode ||
+                      (type != _CaptureType.voice &&
+                          type != _CaptureType.photo))
+                  .map((type) {
                 final selected = _type == type;
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),

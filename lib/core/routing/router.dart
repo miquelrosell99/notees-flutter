@@ -54,16 +54,18 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       final loading = authProvider.loading;
       final server = authProvider.activeServer;
       final authenticated = authProvider.isAuthenticated;
+      final isLocal = authProvider.isLocalMode;
       final onboardingCompleted = authProvider.onboardingCompleted;
       final path = state.matchedLocation;
 
       if (loading) return null;
 
-      if (server == null && path != Routes.serverSetup) {
+      // A local (offline) session counts as configured: no server, no login.
+      if (server == null && !isLocal && path != Routes.serverSetup) {
         return Routes.serverSetup;
       }
 
-      if (server != null && !authenticated) {
+      if (server != null && !authenticated && !isLocal) {
         if (path != Routes.login && path != Routes.serverSetup) {
           return Routes.login;
         }
