@@ -6,8 +6,8 @@ import 'package:uuid/uuid.dart';
 import '../../core/utils/ast_builder.dart';
 import '../../data/local/app_database.dart';
 import '../models/editor_block_snapshot.dart';
-import 'editor_save_service.dart';
-import 'sync_v2_service.dart';
+import './editor_save_service.dart';
+import './sync_v2_service.dart';
 
 /// Stores API mutations while offline and replays them when connectivity
 /// returns. Supports quick-note creation and editor page saves.

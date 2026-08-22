@@ -1,7 +1,7 @@
 import 'package:intl/intl.dart';
 
 import '../../data/models/node.dart';
-import 'date_uuid.dart';
+import './date_uuid.dart';
 
 /// Returns a human-readable label for [node], using the user's [dateFormat]
 /// preference when the node is a journal.

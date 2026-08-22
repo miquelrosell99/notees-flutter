@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/core/secure/biometric_helper.dart';
 import 'package:notees/core/secure/encryption_provider.dart';
 import 'package:notees/core/secure/secure_storage.dart';
-import 'package:notees/presentation/providers/biometric_provider.dart';
+import 'package:notees/features/auth/providers/biometric_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeEncryptionProvider extends EncryptionProvider {

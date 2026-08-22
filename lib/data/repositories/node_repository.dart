@@ -10,7 +10,7 @@ import '../../core/utils/date_uuid.dart';
 import '../../core/utils/uuid7.dart';
 import '../../domain/models/search_filters.dart';
 import '../../domain/services/sync_v2_service.dart';
-import 'node_cache_repository.dart';
+import './node_cache_repository.dart';
 import '../models/breadcrumb_item.dart';
 import '../models/linked_reference.dart';
 import '../models/node.dart';

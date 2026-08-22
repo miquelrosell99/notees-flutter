@@ -1,5 +1,5 @@
-import 'linked_reference.dart';
-import 'node.dart';
+import './linked_reference.dart';
+import './node.dart';
 
 /// Page content response including the root node and backlink references.
 class PageContent {

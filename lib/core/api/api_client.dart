@@ -8,8 +8,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../secure/secure_storage.dart';
-import 'auth_interceptor.dart';
-import 'error_reporter.dart';
+import './auth_interceptor.dart';
+import './error_reporter.dart';
 
 CookieJar? _sharedCookieJar;
 

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:notees/presentation/widgets/task_row.dart';
+import 'package:notees/features/tasks/widgets/task_row.dart';
 
 void main() {
   group('humanizeTaskDueDate', () {

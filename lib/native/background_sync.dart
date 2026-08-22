@@ -14,8 +14,8 @@ import '../data/repositories/server_repository.dart';
 import '../domain/models/search_filters.dart';
 import '../domain/services/offline_queue.dart';
 import '../domain/services/sync_v2_service.dart';
-import 'reminder_service.dart';
-import 'widget_service.dart';
+import './reminder_service.dart';
+import './widget_service.dart';
 
 /// Unique identifier for the background sync Workmanager task.
 const _backgroundSyncTask = 'notees.backgroundSync';

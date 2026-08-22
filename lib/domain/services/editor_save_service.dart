@@ -2,7 +2,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/utils/ast_builder.dart';
 import '../models/editor_block_snapshot.dart';
-import 'sync_v2_service.dart';
+import './sync_v2_service.dart';
 
 /// Persists a page edit by updating the title and enqueueing sync operations
 /// for existing, new, and deleted blocks.

@@ -1,5 +1,5 @@
 import '../../data/models/node.dart';
-import 'ast_stringifier.dart';
+import './ast_stringifier.dart';
 
 /// Splits text into normalized lowercase search terms.
 ///

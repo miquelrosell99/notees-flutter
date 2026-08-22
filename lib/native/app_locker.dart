@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../presentation/providers/biometric_provider.dart';
-import '../presentation/screens/lock_screen.dart';
+import '../features/auth/providers/biometric_provider.dart';
+import '../features/auth/screens/lock_screen.dart';
 
 /// Observes app lifecycle and shows the biometric lock screen when the app
 /// returns to the foreground and biometric lock is enabled.

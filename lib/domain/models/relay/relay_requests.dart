@@ -1,5 +1,5 @@
-import 'hlc.dart';
-import 'operation_envelope.dart';
+import './hlc.dart';
+import './operation_envelope.dart';
 
 /// Request body for `POST /api/relay/batch`.
 class RelayBatchRequest {

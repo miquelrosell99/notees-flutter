@@ -1,0 +1,1131 @@
+import 'package:flutter/material.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
+import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:provider/provider.dart';
+
+import '../../../core/constants/capture_types.dart';
+import '../../../core/routing/router.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/theme_builder.dart';
+import '../../../core/theme/theme_provider.dart';
+import '../../../data/repositories/workspace_repository.dart';
+import '../../../core/secure/encryption_provider.dart';
+import '../../auth/providers/auth_provider.dart';
+import '../../auth/providers/biometric_provider.dart';
+import '../providers/settings_provider.dart';
+import '../../../shared/views/node_view_mode.dart';
+import '../../../shared/widgets/fleet_card.dart';
+import '../../../shared/widgets/section_title.dart';
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  String _version = '';
+  List<Workspace> _workspaces = [];
+  bool _loadingWorkspaces = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+    _loadWorkspaces();
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (!mounted) return;
+    setState(() => _version = '${info.version}+${info.buildNumber}');
+  }
+
+  Future<void> _loadWorkspaces() async {
+    final auth = context.read<AuthProvider>();
+    // Workspace management is server-only; hidden in local (offline) mode.
+    if (auth.dio == null || auth.isLocalMode) {
+      setState(() => _loadingWorkspaces = false);
+      return;
+    }
+
+    setState(() => _loadingWorkspaces = true);
+    try {
+      final repo = WorkspaceRepository(dio: auth.dio!);
+      final workspaces = await repo.listWorkspaces();
+      if (!mounted) return;
+      setState(() {
+        _workspaces = workspaces;
+        _loadingWorkspaces = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _workspaces = [];
+        _loadingWorkspaces = false;
+      });
+    }
+  }
+
+  Future<void> _switchWorkspace(Workspace workspace) async {
+    HapticFeedback.lightImpact();
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null) return;
+
+    try {
+      final repo = WorkspaceRepository(dio: auth.dio!);
+      await repo.switchWorkspace(workspace.uuid);
+      if (!mounted) return;
+      context.go('/dashboard');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not switch workspace: $e')),
+      );
+    }
+  }
+
+  Future<void> _logout() async {
+    HapticFeedback.mediumImpact();
+    final auth = context.read<AuthProvider>();
+    await auth.logout();
+    if (!mounted) return;
+    context.go('/login');
+  }
+
+  Future<void> _showEncryptionDialog(BuildContext context) async {
+    final encryption = context.read<EncryptionProvider>();
+    final passwordController = TextEditingController();
+    final confirmController = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) {
+          String? error;
+          bool busy = false;
+
+          Future<void> submit() async {
+            final password = passwordController.text;
+            setState(() => error = null);
+            try {
+              if (!encryption.isEnabled) {
+                if (password.length < 8) {
+                  setState(() => error = 'Password must be at least 8 characters');
+                  return;
+                }
+                if (password != confirmController.text) {
+                  setState(() => error = 'Passwords do not match');
+                  return;
+                }
+                setState(() => busy = true);
+                await encryption.enable(password);
+              } else if (!encryption.isUnlocked) {
+                setState(() => busy = true);
+                await encryption.unlock(password);
+              }
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            } on EncryptionException catch (e) {
+              setState(() => error = e.message);
+            } catch (e) {
+              setState(() => error = e.toString());
+            } finally {
+              setState(() => busy = false);
+            }
+          }
+
+          return AlertDialog(
+            title: Text(
+              !encryption.isEnabled
+                  ? 'Enable local encryption'
+                  : !encryption.isUnlocked
+                      ? 'Unlock local encryption'
+                      : 'Local encryption active',
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!encryption.isEnabled) ...[
+                    const Text(
+                      'This will encrypt your local database with SQLCipher. '
+                      'The local cache will be cleared and re-synced from the server.',
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  if (encryption.isEnabled && !encryption.isUnlocked)
+                    const Text(
+                      'Your local database is encrypted. Enter your password to unlock this session.',
+                    ),
+                  if (encryption.isEnabled && encryption.isUnlocked)
+                    const Text(
+                      'Your local database is encrypted and unlocked for this session.',
+                    ),
+                  if (!encryption.isEnabled || !encryption.isUnlocked) ...[
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: passwordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Password',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                  if (!encryption.isEnabled) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirmController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Confirm password',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                  if (error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(error!, style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: busy ? null : () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+              if (!encryption.isEnabled || !encryption.isUnlocked)
+                TextButton(
+                  onPressed: busy ? null : submit,
+                  child: busy ? const CircularProgressIndicator() : const Text('Confirm'),
+                ),
+              if (encryption.isEnabled && encryption.isUnlocked) ...[
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          setState(() => busy = true);
+                          await encryption.lock();
+                          if (ctx.mounted) Navigator.of(ctx).pop();
+                        },
+                  child: const Text('Lock now'),
+                ),
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () async {
+                          setState(() => busy = true);
+                          await encryption.disable();
+                          if (ctx.mounted) Navigator.of(ctx).pop();
+                        },
+                  child: const Text('Disable'),
+                ),
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.watch<ThemeProvider>();
+    final auth = context.watch<AuthProvider>();
+    final biometric = context.watch<BiometricProvider>();
+    final settings = context.watch<SettingsProvider>();
+    final colors = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          SectionTitle(icon: MdiIcons.paletteOutline, label: 'Appearance'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: Column(
+              children: [
+                _ThemeRow(
+                  mode: theme.themeMode,
+                  onChanged: theme.setThemeMode,
+                ),
+                const Divider(height: 1),
+                _AccentRow(
+                  accent: theme.accent,
+                  onChanged: theme.setAccent,
+                ),
+                const Divider(height: 1),
+                _PureBlackRow(
+                  value: theme.pureBlack,
+                  onChanged: theme.setPureBlack,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(MdiIcons.homeOutline),
+                  title: const Text('Home page'),
+                  trailing: Text(
+                    homePageLabel(settings.homePage),
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showHomePagePicker(context, settings),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          SectionTitle(icon: MdiIcons.noteEditOutline, label: 'Editor'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(MdiIcons.viewListOutline),
+                  title: const Text('Default view mode'),
+                  trailing: Text(
+                    settings.defaultViewMode.label,
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showViewModePicker(context, settings),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(MdiIcons.formatIndentIncrease),
+                  title: const Text('Linked refs collapse level'),
+                  trailing: Text(
+                    settings.linkedRefsCollapseLevel == 0
+                        ? 'Off'
+                        : 'Level ${settings.linkedRefsCollapseLevel}',
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showCollapseLevelPicker(context, settings),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(MdiIcons.calendarWeekOutline),
+                  title: const Text('First day of week'),
+                  trailing: Text(
+                    firstDayOfWeekLabel(settings.firstDayOfWeek),
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showFirstDayOfWeekPicker(context, settings),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(MdiIcons.calendarOutline),
+                  title: const Text('Date format'),
+                  trailing: Text(
+                    settings.dateFormat,
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showDateFormatPicker(context, settings),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(MdiIcons.plusCircleOutline),
+                  title: const Text('Quick capture destination'),
+                  trailing: Text(
+                    quickCaptureDestinationLabel(settings.quickCaptureDestination),
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                  onTap: () => _showQuickCaptureDestinationPicker(context, settings),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          SectionTitle(icon: MdiIcons.bullseye, label: 'Capture bubble'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(MdiIcons.checkboxBlankCircleOutline),
+                  title: const Text('Floating capture bubble'),
+                  subtitle: const Text('A quick-capture dot that follows you inside the app'),
+                  trailing: Switch(
+                    value: settings.floatingCaptureBubbleEnabled,
+                    onChanged: (value) => _setBubbleEnabled(context, settings, value),
+                  ),
+                ),
+                if (settings.floatingCaptureBubbleEnabled) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Icon(MdiIcons.noteEditOutline),
+                    title: const Text('Default capture type'),
+                    trailing: Text(
+                      quickCaptureTypeLabel(settings.floatingCaptureBubbleDefaultType),
+                      style: TextStyle(color: colors.onSurfaceVariant),
+                    ),
+                    onTap: () => _showBubbleDefaultTypePicker(context, settings),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          SectionTitle(icon: MdiIcons.dnsOutline, label: 'Server'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: Column(
+              children: [
+                if (auth.isLocalMode)
+                  ListTile(
+                    leading: Icon(MdiIcons.cloudSyncOutline),
+                    title: const Text('Connect a server'),
+                    subtitle: const Text(
+                      'Sync this device with a self-hosted Notees server',
+                    ),
+                    trailing: Icon(MdiIcons.chevronRight),
+                    onTap: () => context.push('/server-setup'),
+                  )
+                else
+                  ListTile(
+                    leading: Icon(MdiIcons.dns),
+                    title: const Text('Manage servers'),
+                    subtitle: auth.activeServer != null
+                        ? Text(auth.activeServer!.nickname)
+                        : const Text('No active server'),
+                    trailing: Icon(MdiIcons.chevronRight),
+                    onTap: () => context.push('/settings/servers'),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          if (!auth.isLocalMode) ...[
+          SectionTitle(icon: MdiIcons.layersTripleOutline, label: 'Workspace'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: _loadingWorkspaces
+                ? const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                : Column(
+                    children: _workspaces.asMap().entries.map((entry) {
+                      final workspace = entry.value;
+                      final isLast = entry.key == _workspaces.length - 1;
+                      return Column(
+                        children: [
+                          ListTile(
+                            leading: Icon(
+                              workspace.isActive ? MdiIcons.checkCircle : MdiIcons.circleOutline,
+                              color: workspace.isActive ? colors.primary : colors.onSurfaceVariant,
+                            ),
+                            title: Text(workspace.name),
+                            subtitle: workspace.isActive ? const Text('Active') : null,
+                            trailing: workspace.isActive
+                                ? Icon(MdiIcons.check, color: colors.primary)
+                                : Icon(MdiIcons.chevronRight),
+                            onTap: workspace.isActive
+                                ? null
+                                : () => _switchWorkspace(workspace),
+                          ),
+                          if (!isLast) const Divider(height: 1),
+                        ],
+                      );
+                    }).toList(),
+                  ),
+          ),
+          const SizedBox(height: 28),
+          ],
+          SectionTitle(icon: MdiIcons.deleteClockOutline, label: 'Trash'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: ListTile(
+              leading: Icon(MdiIcons.deleteClockOutline),
+              title: const Text('Trash retention days'),
+              trailing: Text(
+                '${settings.trashRetentionDays} days',
+                style: TextStyle(color: colors.onSurfaceVariant),
+              ),
+              onTap: () => _showTrashRetentionPicker(context, settings),
+            ),
+          ),
+          const SizedBox(height: 28),
+          SectionTitle(icon: MdiIcons.accountCircleOutline, label: 'Account'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(MdiIcons.accountOutline),
+                  title: Text(auth.user?.displayName ?? 'Guest'),
+                  subtitle: auth.isLocalMode
+                      ? const Text('Offline profile — this device only')
+                      : auth.user != null
+                          ? Text(auth.user!.email)
+                          : null,
+                  trailing: auth.isLocalMode
+                      ? null
+                      : Icon(MdiIcons.chevronRight),
+                  onTap: auth.user != null && !auth.isLocalMode
+                      ? () => context.push('/settings/profile')
+                      : null,
+                ),
+                if (!auth.isLocalMode) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Icon(MdiIcons.keyOutline),
+                    title: const Text('API keys'),
+                    subtitle: const Text('Manage personal access tokens'),
+                    trailing: Icon(MdiIcons.chevronRight),
+                    onTap: auth.user != null
+                        ? () => context.push('/settings/api-keys')
+                        : null,
+                  ),
+                ],
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(
+                    MdiIcons.fingerprint,
+                    color: biometric.available == false ? colors.outline : null,
+                  ),
+                  title: const Text('Biometric lock'),
+                  subtitle: biometric.available == false
+                      ? const Text('No biometrics enrolled on this device')
+                      : const Text('Require authentication and encrypt the local database'),
+                  trailing: Switch(
+                    value: biometric.enabled,
+                    onChanged: biometric.available == true
+                        ? (value) => biometric.setEnabled(value)
+                        : null,
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(MdiIcons.archiveOutline),
+                  title: const Text('Archived'),
+                  trailing: Icon(MdiIcons.chevronRight),
+                  onTap: () => context.push(Routes.archived),
+                ),
+                ListTile(
+                  leading: Icon(MdiIcons.deleteOutline),
+                  title: const Text('Trash'),
+                  trailing: Icon(MdiIcons.chevronRight),
+                  onTap: () => context.push('/trash'),
+                ),
+                if (!auth.isLocalMode) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Icon(MdiIcons.logout, color: colors.error),
+                    title: Text('Sign out', style: TextStyle(color: colors.error)),
+                    onTap: _logout,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 28),
+          SectionTitle(icon: MdiIcons.shieldOutline, label: 'Security'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: _EncryptionSection(
+              onConfigure: () => _showEncryptionDialog(context),
+            ),
+          ),
+
+          const SizedBox(height: 28),
+          SectionTitle(icon: MdiIcons.informationOutline, label: 'About'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(MdiIcons.fileDocumentOutline),
+                  title: const Text('About Notees'),
+                  trailing: Icon(MdiIcons.chevronRight),
+                  onTap: () => context.push('/about'),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(MdiIcons.keyboardOutline),
+                  title: const Text('Keyboard shortcuts'),
+                  trailing: Icon(MdiIcons.chevronRight),
+                  onTap: () => context.push('/settings/keyboard-shortcuts'),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(MdiIcons.numeric),
+                  title: const Text('Version'),
+                  trailing: Text(_version, style: TextStyle(color: colors.onSurfaceVariant)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showViewModePicker(BuildContext context, SettingsProvider settings) async {
+    final mode = await _showEnumPicker<NodeViewMode>(
+      context: context,
+      title: 'Default view mode',
+      values: NodeViewMode.values,
+      selected: settings.defaultViewMode,
+      labelBuilder: (m) => m.label,
+    );
+    if (mode != null) await settings.setDefaultViewMode(mode);
+  }
+
+  Future<void> _showCollapseLevelPicker(BuildContext context, SettingsProvider settings) async {
+    final level = await _showIntPicker(
+      context: context,
+      title: 'Linked refs collapse level',
+      values: const [0, 1, 2, 3],
+      selected: settings.linkedRefsCollapseLevel,
+      labelBuilder: (v) => v == 0 ? 'Off' : 'Level $v',
+    );
+    if (level != null) await settings.setLinkedRefsCollapseLevel(level);
+  }
+
+  Future<void> _showFirstDayOfWeekPicker(BuildContext context, SettingsProvider settings) async {
+    const values = [0, 1, 6];
+    final day = await _showIntPicker(
+      context: context,
+      title: 'First day of week',
+      values: values,
+      selected: settings.firstDayOfWeek,
+      labelBuilder: firstDayOfWeekLabel,
+    );
+    if (day != null) await settings.setFirstDayOfWeek(day);
+  }
+
+  Future<void> _showDateFormatPicker(BuildContext context, SettingsProvider settings) async {
+    final format = await _showStringPicker(
+      context: context,
+      title: 'Date format',
+      values: kDateFormatOptions,
+      selected: settings.dateFormat,
+      labelBuilder: (v) => v,
+    );
+    if (format != null) await settings.setDateFormat(format);
+  }
+
+  Future<void> _showTrashRetentionPicker(BuildContext context, SettingsProvider settings) async {
+    const values = [7, 14, 30, 60, 90];
+    final days = await _showIntPicker(
+      context: context,
+      title: 'Trash retention days',
+      values: values,
+      selected: settings.trashRetentionDays,
+      labelBuilder: (v) => '$v days',
+    );
+    if (days != null) await settings.setTrashRetentionDays(days);
+  }
+
+  Future<void> _showQuickCaptureDestinationPicker(BuildContext context, SettingsProvider settings) async {
+    final destination = await _showEnumPicker<QuickCaptureDestination>(
+      context: context,
+      title: 'Quick capture destination',
+      values: QuickCaptureDestination.values,
+      selected: settings.quickCaptureDestination,
+      labelBuilder: quickCaptureDestinationLabel,
+    );
+    if (destination != null) await settings.setQuickCaptureDestination(destination);
+  }
+
+  Future<void> _setBubbleEnabled(
+    BuildContext context,
+    SettingsProvider settings,
+    bool value,
+  ) async {
+    HapticFeedback.lightImpact();
+    if (!value) {
+      await settings.setFloatingCaptureBubbleEnabled(false);
+      return;
+    }
+    final granted = await _requestBubblePermission(context);
+    if (granted) {
+      await settings.setFloatingCaptureBubbleEnabled(true);
+    }
+  }
+
+  Future<bool> _requestBubblePermission(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Enable floating bubble'),
+        content: const Text(
+          'The capture bubble appears on top of the Notees app so you can '
+          'capture ideas quickly. A future version will draw the bubble over '
+          'other apps and require the system overlay permission.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Enable'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
+  Future<void> _showBubbleDefaultTypePicker(BuildContext context, SettingsProvider settings) async {
+    final type = await _showEnumPicker<QuickCaptureType>(
+      context: context,
+      title: 'Default capture type',
+      values: QuickCaptureType.values,
+      selected: settings.floatingCaptureBubbleDefaultType,
+      labelBuilder: quickCaptureTypeLabel,
+    );
+    if (type != null) await settings.setFloatingCaptureBubbleDefaultType(type);
+  }
+
+  Future<void> _showHomePagePicker(BuildContext context, SettingsProvider settings) async {
+    final page = await _showEnumPicker<HomePage>(
+      context: context,
+      title: 'Home page',
+      values: HomePage.values,
+      selected: settings.homePage,
+      labelBuilder: homePageLabel,
+    );
+    if (page != null) await settings.setHomePage(page);
+  }
+
+  Future<T?> _showEnumPicker<T>({
+    required BuildContext context,
+    required String title,
+    required List<T> values,
+    required T selected,
+    required String Function(T) labelBuilder,
+  }) async {
+    return showModalBottomSheet<T>(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  IconButton(
+                    icon: Icon(MdiIcons.close),
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+            ),
+            ...values.map((value) => ListTile(
+                  title: Text(labelBuilder(value)),
+                  trailing: value == selected
+                      ? Icon(MdiIcons.check, color: Theme.of(ctx).colorScheme.primary)
+                      : null,
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.of(ctx).pop(value);
+                  },
+                )),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<int?> _showIntPicker({
+    required BuildContext context,
+    required String title,
+    required List<int> values,
+    required int selected,
+    required String Function(int) labelBuilder,
+  }) async {
+    return showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  IconButton(
+                    icon: Icon(MdiIcons.close),
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+            ),
+            ...values.map((value) => ListTile(
+                  title: Text(labelBuilder(value)),
+                  trailing: value == selected
+                      ? Icon(MdiIcons.check, color: Theme.of(ctx).colorScheme.primary)
+                      : null,
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.of(ctx).pop(value);
+                  },
+                )),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<String?> _showStringPicker({
+    required BuildContext context,
+    required String title,
+    required List<String> values,
+    required String selected,
+    required String Function(String) labelBuilder,
+  }) async {
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  IconButton(
+                    icon: Icon(MdiIcons.close),
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+            ),
+            ...values.map((value) => ListTile(
+                  title: Text(labelBuilder(value)),
+                  trailing: value == selected
+                      ? Icon(MdiIcons.check, color: Theme.of(ctx).colorScheme.primary)
+                      : null,
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.of(ctx).pop(value);
+                  },
+                )),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EncryptionSection extends StatelessWidget {
+  const _EncryptionSection({required this.onConfigure});
+
+  final VoidCallback onConfigure;
+
+  @override
+  Widget build(BuildContext context) {
+    final encryption = context.watch<EncryptionProvider>();
+    final colors = Theme.of(context).colorScheme;
+
+    if (!encryption.isEnabled) {
+      return ListTile(
+        leading: Icon(MdiIcons.lockOutline),
+        title: const Text('Local encryption'),
+        subtitle: const Text('Encrypt the local database with a password'),
+        trailing: Icon(MdiIcons.chevronRight),
+        onTap: onConfigure,
+      );
+    }
+
+    if (!encryption.isUnlocked) {
+      return ListTile(
+        leading: Icon(MdiIcons.lock, color: colors.primary),
+        title: const Text('Local encryption locked'),
+        subtitle: const Text('Tap to unlock the local database'),
+        trailing: Icon(MdiIcons.chevronRight),
+        onTap: onConfigure,
+      );
+    }
+
+    return ListTile(
+      leading: Icon(MdiIcons.lockOpen, color: colors.primary),
+      title: const Text('Local encryption active'),
+      subtitle: const Text('Tap to lock or disable encryption'),
+      trailing: Icon(MdiIcons.chevronRight),
+      onTap: onConfigure,
+    );
+  }
+}
+
+class _ThemeRow extends StatelessWidget {
+  const _ThemeRow({required this.mode, required this.onChanged});
+
+  final AppThemeMode mode;
+  final ValueChanged<AppThemeMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Theme',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+          _ThemeButton(
+            icon: MdiIcons.weatherSunny,
+            selected: mode == AppThemeMode.light,
+            onTap: () => onChanged(AppThemeMode.light),
+          ),
+          const SizedBox(width: 8),
+          _ThemeButton(
+            icon: MdiIcons.weatherNight,
+            selected: mode == AppThemeMode.dark,
+            onTap: () => onChanged(AppThemeMode.dark),
+          ),
+          const SizedBox(width: 8),
+          _ThemeButton(
+            icon: MdiIcons.brightnessAuto,
+            selected: mode == AppThemeMode.system,
+            onTap: () => onChanged(AppThemeMode.system),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThemeButton extends StatelessWidget {
+  const _ThemeButton({
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Center(
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: selected ? colors.primaryContainer : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: selected
+                    ? colors.primary
+                    : colors.outline.withAlpha((0.2 * 255).round()),
+                width: selected ? 1.5 : 1,
+              ),
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: selected ? colors.onPrimaryContainer : colors.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AccentRow extends StatelessWidget {
+  const _AccentRow({required this.accent, required this.onChanged});
+
+  final AppAccent accent;
+  final ValueChanged<AppAccent> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Accent Color',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+          _AccentSwatch(
+            color: Colors.white,
+            selected: accent == AppAccent.white,
+            onTap: () => onChanged(AppAccent.white),
+          ),
+          const SizedBox(width: 10),
+          _AccentSwatch(
+            color: noteesAccent,
+            selected: accent == AppAccent.functional,
+            onTap: () => onChanged(AppAccent.functional),
+          ),
+          const SizedBox(width: 10),
+          _AccentSwatch(
+            color: noteesAccentCream,
+            selected: accent == AppAccent.cream,
+            onTap: () => onChanged(AppAccent.cream),
+          ),
+          const SizedBox(width: 10),
+          _AccentSwatch(
+            color: null,
+            selected: accent == AppAccent.dynamicColor,
+            onTap: () => onChanged(AppAccent.dynamicColor),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AccentSwatch extends StatelessWidget {
+  const _AccentSwatch({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Color? color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          onTap();
+        },
+        customBorder: const CircleBorder(),
+        child: Center(
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: color ?? colors.primaryContainer,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: selected ? colors.primary : colors.outline.withAlpha((0.2 * 255).round()),
+                width: selected ? 2.5 : 1,
+              ),
+            ),
+            child: color == null
+                ? Icon(
+                    MdiIcons.android,
+                    size: 14,
+                    color: colors.onPrimaryContainer,
+                  )
+                : null,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PureBlackRow extends StatelessWidget {
+  const _PureBlackRow({required this.value, required this.onChanged});
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
+    final enabled = brightness == Brightness.dark;
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+      title: const Text('Pure Black'),
+      subtitle: const Text('Pure black backgrounds for OLED displays'),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (!enabled)
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: colors.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'Dark only',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: colors.onPrimaryContainer,
+                    ),
+              ),
+            ),
+          Switch(
+            value: value,
+            onChanged: enabled ? (v) {
+              HapticFeedback.lightImpact();
+              onChanged(v);
+            } : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+

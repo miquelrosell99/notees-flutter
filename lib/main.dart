@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'app.dart';
-import 'core/secure/secure_storage.dart';
-import 'data/repositories/server_repository.dart';
-import 'native/background_sync.dart';
+import './app.dart';
+import './core/secure/secure_storage.dart';
+import './data/repositories/server_repository.dart';
+import './native/background_sync.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

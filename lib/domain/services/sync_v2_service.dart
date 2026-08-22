@@ -17,8 +17,8 @@ import '../models/relay/hlc.dart';
 import '../models/relay/operation_envelope.dart';
 import '../models/relay/operation_payloads.dart';
 import '../models/sync_v2.dart';
-import 'hlc_clock.dart';
-import 'relay_appliers.dart';
+import './hlc_clock.dart';
+import './relay_appliers.dart';
 
 /// Exception thrown when the sync protocol encounters an unrecoverable error.
 class SyncV2Exception implements Exception {

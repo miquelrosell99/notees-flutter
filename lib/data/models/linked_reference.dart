@@ -1,4 +1,4 @@
-import 'node.dart';
+import './node.dart';
 
 /// A backlink to a node from another node.
 ///
