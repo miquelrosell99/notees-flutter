@@ -173,9 +173,15 @@ class RelayAppliers {
     if (await _cache.getByUuid(nodeId) != null) return;
 
     final initialContent = payload['initialContent'];
-    final name = initialContent is List<dynamic>
-        ? AstBuilder.serialize(initialContent.cast<Map<String, dynamic>>())
-        : '';
+    // Current editors send content as the serialized-AST JSON string (the
+    // mobile cache's name format verbatim); older ops carried the AST as a
+    // JSON array. Missing initialContent means the text arrives in a
+    // following node.updateContent op.
+    final name = switch (initialContent) {
+      List<dynamic> list => AstBuilder.serialize(list.cast<Map<String, dynamic>>()),
+      String text => text,
+      _ => '',
+    };
     final displayName = astToPlainText(name);
     final classIds = _readStringList(payload['classIds']);
     final kind = payload['kind'] as String?;
@@ -216,9 +222,16 @@ class RelayAppliers {
 
     final node = await _loadOrCreate(nodeId);
     final content = payload['content'];
-    if (content is! List<dynamic>) return;
-
-    final name = AstBuilder.serialize(content.cast<Map<String, dynamic>>());
+    // Current editors send content as the serialized-AST JSON string (the
+    // mobile cache's name format verbatim) plus a CRDT update; older ops
+    // carried the AST as a JSON array. Both reduce to the stored name format
+    // (serialized AST or legacy plain text).
+    final name = switch (content) {
+      List<dynamic> list => AstBuilder.serialize(list.cast<Map<String, dynamic>>()),
+      String text => text,
+      _ => null,
+    };
+    if (name == null) return;
     final updated = Node(
       id: node.id,
       uuid: node.uuid,

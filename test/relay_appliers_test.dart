@@ -683,6 +683,65 @@ void main() {
       expect((await cache.getByUuid(nodeUuid))!.displayName, 'Newest');
     });
 
+    test('applies node.updateContent with serialized-AST string content (current wire format)', () async {
+      const nodeUuid = '00000000-0000-0000-0000-00000000070a';
+      await appliers.apply(OperationEnvelope(
+        id: 'e1',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 1, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.create',
+        payload: OperationPayloads.nodeCreate(nodeId: nodeUuid, kind: 'page'),
+      ));
+      // Current editors send content as the serialized real-AST JSON string
+      // plus a CRDT update; before this fix the applier required a JSON array
+      // and skipped every such op, leaving pages permanently "Untitled".
+      const contentString =
+          '[{"type":"paragraph","children":[{"type":"text","text":"Crear etiqueta"}]}]';
+      await appliers.apply(OperationEnvelope(
+        id: 'e2',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 2, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.updateContent',
+        payload: {
+          'nodeId': nodeUuid,
+          'content': contentString,
+          'textUpdateB64': 'AAAA',
+        },
+      ));
+      final node = await cache.getByUuid(nodeUuid);
+      expect(node!.name, contentString);
+      expect(node.displayName, 'Crear etiqueta');
+    });
+
+    test('applies node.updateContent with plain-text string content', () async {
+      const nodeUuid = '00000000-0000-0000-0000-00000000070b';
+      await appliers.apply(OperationEnvelope(
+        id: 'e1',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 1, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.create',
+        payload: OperationPayloads.nodeCreate(nodeId: nodeUuid, kind: 'page'),
+      ));
+      await appliers.apply(OperationEnvelope(
+        id: 'e2',
+        workspaceId: 'ws',
+        actorId: 'a',
+        hlc: Hlc(physical: 2, logical: 0),
+        affectedNodeIds: [nodeUuid],
+        opType: 'node.updateContent',
+        payload: {'nodeId': nodeUuid, 'content': 'Vacaciones 2027'},
+      ));
+      final node = await cache.getByUuid(nodeUuid);
+      expect(node!.name, 'Vacaciones 2027');
+      expect(node.displayName, 'Vacaciones 2027');
+    });
+
     test('applies task.setRecurrence and task.deleteRecurrence', () async {
       const nodeUuid = '00000000-0000-0000-0000-000000000708';
       await appliers.apply(OperationEnvelope(
