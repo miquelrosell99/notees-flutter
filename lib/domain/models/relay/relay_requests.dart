@@ -79,13 +79,13 @@ class CatchUpResponse {
       );
 }
 
-/// Response body for `GET /api/relay/snapshot`.
+/// Response body for `GET /api/relay/snapshot` (metadata only — the blob is
+/// served as a raw binary body by `GET /api/relay/snapshot/data`).
 class LatestSnapshotResponse {
   const LatestSnapshotResponse({
     required this.snapshotId,
     required this.workspaceId,
     required this.hlc,
-    required this.dataBase64,
     required this.hasSnapshot,
     required this.restoreEpoch,
     this.upToSeq,
@@ -94,7 +94,6 @@ class LatestSnapshotResponse {
   final String? snapshotId;
   final String workspaceId;
   final Hlc hlc;
-  final String? dataBase64;
   final bool hasSnapshot;
   final int restoreEpoch;
 
@@ -108,7 +107,6 @@ class LatestSnapshotResponse {
         snapshotId: json['snapshot_id'] as String?,
         workspaceId: json['workspace_id'] as String,
         hlc: Hlc.fromJson(json['hlc'] as Map<String, dynamic>),
-        dataBase64: json['data_base64'] as String?,
         hasSnapshot: json['has_snapshot'] as bool,
         restoreEpoch: json['restore_epoch'] as int,
         upToSeq: json['up_to_seq'] as int?,

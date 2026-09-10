@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
 import '../../domain/models/relay/operation_envelope.dart';
@@ -16,6 +18,7 @@ class RelayClient {
   static const _batchPath = '/relay/batch';
   static const _catchUpPath = '/relay/catch-up';
   static const _snapshotPath = '/relay/snapshot';
+  static const _snapshotDataPath = '/relay/snapshot/data';
 
   /// Push a batch of operation envelopes to the relay.
   ///
@@ -70,6 +73,27 @@ class RelayClient {
       throw const RelayException('Empty relay snapshot response');
     }
     return LatestSnapshotResponse.fromJson(data);
+  }
+
+  /// Fetch the newest snapshot's blob for [workspaceId] as raw bytes.
+  ///
+  /// Returns null when the workspace has no snapshot (404). Call only after
+  /// [latestSnapshot] reports `hasSnapshot` and the metadata says the
+  /// snapshot is worth restoring — the blob can be large.
+  Future<Uint8List?> latestSnapshotData(String workspaceId) async {
+    try {
+      final response = await dio.get<List<int>>(
+        _snapshotDataPath,
+        queryParameters: {'workspace_id': workspaceId},
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final data = response.data;
+      if (data == null) return null;
+      return Uint8List.fromList(data);
+    } on DioException catch (err) {
+      if (err.response?.statusCode == 404) return null;
+      rethrow;
+    }
   }
 }
 

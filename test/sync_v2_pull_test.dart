@@ -50,7 +50,6 @@ void main() {
                   'snapshot_id': null,
                   'workspace_id': 'ws-1',
                   'hlc': {'physical': 0, 'logical': 0},
-                  'data_base64': null,
                   'has_snapshot': false,
                   'restore_epoch': 0,
                   'up_to_seq': null,

@@ -318,21 +318,24 @@ class SyncV2Service {
         (snapshot.upToSeq != null
             ? snapshot.upToSeq! > cursorSeq
             : snapshot.hlc.compareTo(lastReceived) > 0);
-    if (snapshotIsNewer &&
-        snapshot.dataBase64 != null &&
-        snapshot.dataBase64!.isNotEmpty) {
-      final bytes = base64Decode(snapshot.dataBase64!);
-      await _cache.restoreFromSnapshot(bytes, workspaceId);
-      lastReceived = snapshot.hlc;
-      // Snapshots recorded before the seq cursor existed report null; catch
-      // up from 0 and rely on operation-id dedupe.
-      cursorSeq = snapshot.upToSeq ?? 0;
-      await _watermarks.setReceived(
-        workspaceId,
-        lastReceived,
-        restoreEpoch: snapshot.restoreEpoch,
-        cursorSeq: cursorSeq,
-      );
+    // The blob is fetched only when the metadata probe says the snapshot is
+    // worth restoring — `GET /relay/snapshot` carries no payload anymore, so
+    // the probe stays cheap on large workspaces.
+    if (snapshotIsNewer) {
+      final bytes = await _relay.latestSnapshotData(workspaceId);
+      if (bytes != null && bytes.isNotEmpty) {
+        await _cache.restoreFromSnapshot(bytes, workspaceId);
+        lastReceived = snapshot.hlc;
+        // Snapshots recorded before the seq cursor existed report null; catch
+        // up from 0 and rely on operation-id dedupe.
+        cursorSeq = snapshot.upToSeq ?? 0;
+        await _watermarks.setReceived(
+          workspaceId,
+          lastReceived,
+          restoreEpoch: snapshot.restoreEpoch,
+          cursorSeq: cursorSeq,
+        );
+      }
     }
 
     // Apply and persist the cursor page by page: a mid-page throw then only
