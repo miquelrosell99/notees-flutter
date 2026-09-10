@@ -89,6 +89,10 @@ String _renderBlock(Map<String, dynamic> block) {
     case 'paragraph':
     case 'heading':
       return _renderInlineSequence(block['children']);
+    case 'text':
+      // Bare inline text node at document level — CRDT text updates store
+      // these directly (the web client's collectTextLeaves fallback).
+      return block['text'] is String ? block['text'] as String : '';
     case 'whiteboard':
       return _renderWhiteboard(block);
     case 'query':
