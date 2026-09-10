@@ -365,7 +365,10 @@ class NodeCacheRepository {
       final classIds = (jsonDecode(classIdsJson ?? '[]') as List<dynamic>).cast<String>();
       final contentJson = row['content'] as String?;
       final content = (jsonDecode(contentJson ?? '[]') as List<dynamic>).cast<Map<String, dynamic>>();
-      final name = jsonEncode(content);
+      // The derived content column can hold the CRDT text wrapper
+      // ([{type:'text', text:'<real AST JSON>'}]); unwrap before storing so
+      // titles render as text instead of raw JSON.
+      final name = jsonEncode(unwrapCrdtContentAst(content));
 
       return Node(
         id: 0,
