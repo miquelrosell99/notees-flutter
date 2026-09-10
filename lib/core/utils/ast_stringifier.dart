@@ -12,6 +12,34 @@ library;
 
 import 'dart:convert';
 
+/// Unwraps the CRDT text wrapper around a stored AST document.
+///
+/// The web inline editor saves content by serializing the real AST to JSON
+/// and storing that JSON string inside the node's text CRDT, so the derived
+/// content column can be `[{type:'text', text:'[<real AST>]'}]` (or the same
+/// string inside a single-paragraph block). When the single block wraps a
+/// JSON AST string, return the inner document; otherwise return [ast]
+/// unchanged. Mirrors the web client's `unwrapCrdtContentAst`.
+List<dynamic> unwrapCrdtContentAst(List<dynamic> ast) {
+  if (ast.length != 1) return ast;
+  final block = ast[0];
+  String? wrappedText;
+  if (block is Map && block['type'] == 'text' && block['text'] is String) {
+    wrappedText = block['text'] as String;
+  } else if (block is Map &&
+      block['type'] == 'paragraph' &&
+      block['children'] is List &&
+      (block['children'] as List).length == 1) {
+    final child = (block['children'] as List).first;
+    if (child is Map && child['type'] == 'text' && child['text'] is String) {
+      wrappedText = child['text'] as String;
+    }
+  }
+  if (wrappedText == null || wrappedText.isEmpty) return ast;
+  final inner = _tryParseJson(wrappedText);
+  return inner is List && inner.isNotEmpty ? inner : ast;
+}
+
 /// Extracts plain text from a Notees AST document.
 ///
 /// Returns an empty string for null/empty input. If [source] is not valid
@@ -27,7 +55,7 @@ String astToPlainText(String? source) {
     return source.trim();
   }
 
-  final blocks = parsed is List ? parsed : <dynamic>[];
+  final blocks = parsed is List ? unwrapCrdtContentAst(parsed) : <dynamic>[];
   final buffer = StringBuffer();
 
   for (var i = 0; i < blocks.length; i++) {

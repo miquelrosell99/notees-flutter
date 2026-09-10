@@ -12,6 +12,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/constants/system.dart';
 import '../../../core/routing/router.dart';
 import '../../../core/utils/ast_builder.dart';
+import '../../../core/utils/ast_stringifier.dart';
 import '../../../core/utils/class_icon_resolver.dart';
 import '../../../core/utils/color_presets.dart';
 import '../../../core/utils/node_display_name.dart';
@@ -441,7 +442,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     try {
       final parsed = jsonDecode(name);
       if (parsed is List) {
-        return parsed.cast<Map<String, dynamic>>();
+        // Stored names can carry the CRDT text wrapper; unwrap so the editor
+        // opens the real AST instead of a JSON-string title.
+        return unwrapCrdtContentAst(parsed).cast<Map<String, dynamic>>();
       }
     } catch (_) {}
     return AstBuilder.parseInline(name);

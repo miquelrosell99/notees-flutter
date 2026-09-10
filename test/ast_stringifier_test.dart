@@ -45,6 +45,26 @@ void main() {
       expect(astToPlainText(ast), 'code x^2');
     });
 
+    test('unwraps the CRDT text wrapper around a serialized AST', () {
+      // The web inline editor stores the real AST as a JSON string inside the
+      // text CRDT, so the derived content can be a single text node whose
+      // text is the serialized document.
+      const inner = '[{\\"type\\":\\"paragraph\\",\\"children\\":[{\\"type\\":\\"text\\",\\"text\\":\\"clasificaciones\\"}]}]';
+      const wrapped = '[{"text": "$inner", "type": "text"}]';
+      expect(astToPlainText(wrapped), 'clasificaciones');
+    });
+
+    test('unwraps the single-paragraph CRDT wrapper', () {
+      const wrapped =
+          '[{"type":"paragraph","children":[{"type":"text","text":"[{\\"type\\":\\"paragraph\\",\\"children\\":[{\\"type\\":\\"text\\",\\"text\\":\\"opinión\\"}]}]"}]}]';
+      expect(astToPlainText(wrapped), 'opinión');
+    });
+
+    test('does not unwrap a plain single-text-node document', () {
+      const ast = '[{"type":"text","text":"not json at all"}]';
+      expect(astToPlainText(ast), 'not json at all');
+    });
+
     test('renders external link using its children', () {
       const ast = '[{"type":"paragraph","children":['
           '{"type":"external_link","url":"https://example.com","children":[{"type":"text","text":"Example"}]}'
