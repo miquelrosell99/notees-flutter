@@ -219,20 +219,35 @@ class AppDatabase {
     await db.execute('CREATE INDEX idx_node_cache_daily ON node_cache(is_daily)');
   }
 
+  /// Adds [column] to [table] unless it already exists. Column migrations
+  /// must be idempotent: upgrade paths from versions predating a table create
+  /// it at its CURRENT shape (via the _create* functions), so an unguarded
+  /// ALTER re-adding the same column fails with "duplicate column name".
+  Future<void> _addColumnIfMissing(
+    Database db,
+    String table,
+    String column,
+    String definition,
+  ) async {
+    final columns = await db.rawQuery('PRAGMA table_info($table)');
+    if (columns.any((c) => c['name'] == column)) return;
+    await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
+  }
+
   Future<void> _migrateNodeCacheV6(Database db) async {
-    await db.execute('ALTER TABLE node_cache ADD COLUMN classes_uuid TEXT');
-    await db.execute('ALTER TABLE node_cache ADD COLUMN is_page INTEGER NOT NULL DEFAULT 0');
-    await db.execute('ALTER TABLE node_cache ADD COLUMN is_task INTEGER NOT NULL DEFAULT 0');
-    await db.execute('ALTER TABLE node_cache ADD COLUMN is_daily INTEGER NOT NULL DEFAULT 0');
-    await db.execute('ALTER TABLE node_cache ADD COLUMN is_monthly INTEGER NOT NULL DEFAULT 0');
-    await db.execute('ALTER TABLE node_cache ADD COLUMN is_yearly INTEGER NOT NULL DEFAULT 0');
-    await db.execute('CREATE INDEX idx_node_cache_page ON node_cache(is_page)');
-    await db.execute('CREATE INDEX idx_node_cache_task ON node_cache(is_task)');
-    await db.execute('CREATE INDEX idx_node_cache_daily ON node_cache(is_daily)');
+    await _addColumnIfMissing(db, 'node_cache', 'classes_uuid', 'TEXT');
+    await _addColumnIfMissing(db, 'node_cache', 'is_page', 'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfMissing(db, 'node_cache', 'is_task', 'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfMissing(db, 'node_cache', 'is_daily', 'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfMissing(db, 'node_cache', 'is_monthly', 'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfMissing(db, 'node_cache', 'is_yearly', 'INTEGER NOT NULL DEFAULT 0');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_node_cache_page ON node_cache(is_page)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_node_cache_task ON node_cache(is_task)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_node_cache_daily ON node_cache(is_daily)');
   }
 
   Future<void> _migrateNodeCacheV8(Database db) async {
-    await db.execute('ALTER TABLE node_cache ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfMissing(db, 'node_cache', 'is_archived', 'INTEGER NOT NULL DEFAULT 0');
   }
 
   Future<void> _migrateNodeCacheV12(Database db) async {
@@ -366,8 +381,14 @@ class AppDatabase {
   Future<void> _migrateSyncWatermarkV13(Database db) async {
     // Adds the server-assigned seq catch-up cursor. Existing rows read as
     // cursor 0 = full catch-up; re-applied envelopes are deduped by op id.
-    await db.execute(
-      'ALTER TABLE sync_watermark ADD COLUMN cursor_seq INTEGER NOT NULL DEFAULT 0',
+    // Guarded: upgrades from versions predating the table create it at its
+    // CURRENT shape (cursor_seq included) in the <5 branch above, so an
+    // unguarded ALTER fails with "duplicate column name".
+    await _addColumnIfMissing(
+      db,
+      'sync_watermark',
+      'cursor_seq',
+      'INTEGER NOT NULL DEFAULT 0',
     );
   }
 
