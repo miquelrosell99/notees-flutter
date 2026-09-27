@@ -25,6 +25,17 @@ class SystemClassUuids {
   static const String danger = '00000000-0000-0000-0001-000000000020';
   static const String success = '00000000-0000-0000-0001-000000000021';
   static const String cloze = '00000000-0000-0000-0001-000000000022';
+  static const String source = '00000000-0000-0000-0001-000000000023';
+
+  // Citations-model revision (2026-09-27, lockstep with the TS seed
+  // manifest `SYSTEM_CLASS_UUIDS` — fixed ids, never reuse).
+  static const String song = '00000000-0000-0000-0001-000000000036';
+  static const String tvSeries = '00000000-0000-0000-0001-000000000037';
+  static const String conference = '00000000-0000-0000-0001-000000000038';
+
+  /// Referenced by `linkedAuthors`' targetClassFilter; the agent class
+  /// itself is not part of the mobile seed delta (TS manifest …029).
+  static const String agent = '00000000-0000-0000-0001-000000000029';
 }
 
 class SystemPropertyUuids {
@@ -38,6 +49,12 @@ class SystemPropertyUuids {
   static const String description = '00000000-0000-0000-0000-000000000009';
   static const String extends_ = '00000000-0000-0000-0000-000000000008';
   static const String whiteboardData = '00000000-0000-0000-0000-000000000010';
+
+  // Citations-model revision (2026-09-27): `authors` is now a plain text
+  // list (verbatim strings, never person nodes — owner decision); person
+  // linkage lives in the new `linkedAuthors` node-typed property.
+  static const String authors = '00000000-0000-0000-0000-000000000012';
+  static const String linkedAuthors = '00000000-0000-0000-0000-000000000025';
 
   // Task class properties
   static const String taskStatus = '00000000-0000-0000-0003-000000000001';

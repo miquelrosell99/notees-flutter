@@ -219,10 +219,13 @@ void main() {
     test('seeds system classes and default pages, idempotently', () async {
       final seed = LocalWorkspaceSeed(syncService);
 
-      // 21 system classes (v2 class.create carries the name) + 2 pages
-      // (Inbox + scratchpad), matching the server/web seed sequence.
+      // 25 system classes (21 legacy + source + song/tv_series/conference
+      // from the citations revision; v2 class.create carries the name) +
+      // 3 class.setExtends (the new classes extend source) +
+      // 2 propertySchema.create + 2 class.property.set (authors,
+      // linkedAuthors) + 2 pages (Inbox + scratchpad).
       final emitted = await seed.ensureLocalWorkspace(displayName: 'Local user');
-      expect(emitted, 23);
+      expect(emitted, 34);
 
       final taskClass =
           await syncService.cache.getClassByUuid(SystemClassUuids.task);
@@ -239,11 +242,11 @@ void main() {
 
       final db = await database.database;
       // Seed ops stay in the outbox for a later server attach.
-      expect(await db.query('relay_outbox'), hasLength(23));
+      expect(await db.query('relay_outbox'), hasLength(34));
 
       // Re-running emits nothing.
       expect(await seed.ensureLocalWorkspace(displayName: 'Local user'), 0);
-      expect(await db.query('relay_outbox'), hasLength(23));
+      expect(await db.query('relay_outbox'), hasLength(34));
     });
   });
 }
