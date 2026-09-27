@@ -5,20 +5,24 @@ import 'package:dio/dio.dart';
 import '../../domain/models/relay/operation_envelope.dart';
 import '../../domain/models/relay/relay_requests.dart';
 
-/// HTTP client for the Notees operation-relay endpoints.
+/// HTTP client for the Notees operation-relay endpoints (protocol v2,
+/// `WIRE.md` §1 — base path `/api/relay/v2`).
 ///
 /// The caller is expected to supply a [Dio] instance whose base URL already
 /// includes `/api` (e.g. `https://notees.example.com/api`). All methods here
-/// use paths relative to that base.
+/// use paths relative to that base. v2 M1 authenticates with a single-user
+/// API key: the `X-API-Key` header is attached by `RelayApiKeyInterceptor`
+/// in `api_client.dart` (wired per active server); when no key is stored the
+/// request goes out without the header and the server's 401 surfaces.
 class RelayClient {
   RelayClient({required this.dio});
 
   final Dio dio;
 
-  static const _batchPath = '/relay/batch';
-  static const _catchUpPath = '/relay/catch-up';
-  static const _snapshotPath = '/relay/snapshot';
-  static const _snapshotDataPath = '/relay/snapshot/data';
+  static const _batchPath = '/relay/v2/batch';
+  static const _catchUpPath = '/relay/v2/catch-up';
+  static const _snapshotPath = '/relay/v2/snapshot';
+  static const _snapshotDataPath = '/relay/v2/snapshot/data';
 
   /// Push a batch of operation envelopes to the relay.
   ///
@@ -66,7 +70,7 @@ class RelayClient {
   Future<LatestSnapshotResponse> latestSnapshot(String workspaceId) async {
     final response = await dio.get<Map<String, dynamic>>(
       _snapshotPath,
-      queryParameters: {'workspace_id': workspaceId},
+      queryParameters: {'workspaceId': workspaceId},
     );
     final data = response.data;
     if (data == null) {
@@ -84,7 +88,7 @@ class RelayClient {
     try {
       final response = await dio.get<List<int>>(
         _snapshotDataPath,
-        queryParameters: {'workspace_id': workspaceId},
+        queryParameters: {'workspaceId': workspaceId},
         options: Options(responseType: ResponseType.bytes),
       );
       final data = response.data;

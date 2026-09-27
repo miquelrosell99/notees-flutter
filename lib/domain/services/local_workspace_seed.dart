@@ -5,10 +5,9 @@ import './sync_v2_service.dart';
 
 /// Client-side local workspace seed for offline (serverless) mode.
 ///
-/// Mirrors the web client's `frontend/src/core/seed.ts` and the server seed
-/// in `app/core/seed.py` (`seed_workspace_relay`): emits `class.create` +
-/// `node.updateContent` (class name content) for every system class, then
-/// `node.create` for the Inbox and the user's personal page (scratchpad).
+/// Mirrors the web client's seed and the server seed: emits `class.create` +
+/// `object.update` (class name) for every system class, then `object.create`
+/// for the Inbox and the user's personal page (scratchpad).
 ///
 /// Ops go through the normal outbox/applier path ([SyncV2Service.emitLocal]),
 /// so the local derived state matches what a server-seeded workspace would
@@ -63,10 +62,10 @@ class LocalWorkspaceSeed {
         affectedNodeIds: [classId],
       );
       await _sync.emitLocal(
-        opType: 'node.updateContent',
-        payload: OperationPayloads.nodeUpdateContent(
-          nodeId: classId,
-          content: AstBuilder.parseInline(entry.key),
+        opType: 'object.update',
+        payload: OperationPayloads.objectUpdate(
+          objectId: classId,
+          name: entry.key,
         ),
         affectedNodeIds: [classId],
       );
@@ -81,11 +80,11 @@ class LocalWorkspaceSeed {
       final pageId = entry.value;
       if (await _sync.cache.getByUuid(pageId) != null) continue;
       await _sync.emitLocal(
-        opType: 'node.create',
-        payload: OperationPayloads.nodeCreate(
-          nodeId: pageId,
-          kind: 'page',
-          initialContent: AstBuilder.parseInline(entry.key),
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: pageId,
+          nodeType: 'page',
+          contentAst: AstBuilder.parseInline(entry.key),
         ),
         affectedNodeIds: [pageId],
       );

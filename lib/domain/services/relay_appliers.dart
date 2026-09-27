@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 
 import '../../core/constants/system.dart';
@@ -10,7 +8,15 @@ import '../../data/repositories/node_cache_repository.dart';
 import '../models/relay/hlc.dart';
 import '../models/relay/operation_envelope.dart';
 
-/// Applies relay operation envelopes to the local [node_cache] derived state.
+/// Applies v2 relay operation envelopes to the local [node_cache] derived
+/// state (`op-types.ts` M1 registry).
+///
+/// Phase A scope: the wire field names are v2 (`objectId`, `nodeType`,
+/// `contentAst`, `parentClassIds`, `propertySchemaId`, ...). Where v2 split
+/// concepts the local cache still conflates, the v1 projection is kept and
+/// marked — e.g. a v2 `object.update` `name` lands in the content slot it
+/// shares with `contentAst` (the content-grammar rewrite separates them), and
+/// the `contentDeltaB64` carrier (Yjs) is not applied locally yet.
 class RelayAppliers {
   RelayAppliers(this._cache);
 
@@ -18,58 +24,30 @@ class RelayAppliers {
 
   Future<void> apply(OperationEnvelope envelope) async {
     final payload = envelope.payload;
-    // User-share ops are handled before the node-target resolution below:
-    // `share.user.revoke` may carry only a share id (no nodeId).
-    switch (envelope.opType) {
-      case 'share.user.grant':
-        await _applyShareUserGrant(envelope, payload);
-        return;
-      case 'share.user.revoke':
-        await _applyShareUserRevoke(envelope, payload);
-        return;
-    }
-    // Class/property operations identify the target via `classId` or `schemaId`,
-    // not `nodeId`.
-    final nodeId = payload['nodeId'] as String? ??
+    // Class/property/collection operations identify their target via
+    // `classId`, `propertySchemaId`, or `collectionId`, not `objectId`.
+    final objectId = payload['objectId'] as String? ??
         payload['classId'] as String? ??
-        payload['schemaId'] as String? ??
+        payload['propertySchemaId'] as String? ??
+        payload['collectionId'] as String? ??
         '';
-    // Ops without a node/class/schema target (e.g. `plugin.op`) have no local
-    // derived representation and are intentionally ignored.
-    if (nodeId.isEmpty) return;
+    // Ops without a target (e.g. `plugin.op`) have no local derived
+    // representation and are intentionally ignored.
+    if (objectId.isEmpty) return;
 
     switch (envelope.opType) {
-      case 'node.create':
-        await _applyCreate(nodeId, payload);
-      case 'node.updateContent':
-        await _applyUpdateContent(nodeId, payload, envelope.hlc);
-      case 'node.updateIcon':
-        await _applyUpdateIcon(nodeId, payload);
-      case 'node.updateColor':
-        await _applyUpdateColor(nodeId, payload);
-      case 'node.archive':
-        await _applyArchive(nodeId);
-      case 'node.restore':
-        await _applyRestore(nodeId);
-      case 'node.delete':
-        await _applyDelete(nodeId);
-      case 'node.permanentDelete':
-        // The operation log has no soft-delete: permanent delete is the same
-        // hard delete, minus the server-side asset-retention bookkeeping,
-        // which has no local equivalent.
-        await _applyDelete(nodeId);
-      case 'node.convert':
-        await _applyConvert(nodeId, payload);
-      case 'node.move':
-        await _applyMove(nodeId, payload);
+      case 'object.create':
+        await _applyCreate(objectId, payload);
+      case 'object.update':
+        await _applyUpdate(objectId, payload, envelope.hlc);
+      case 'object.delete':
+        await _applyDelete(objectId, payload);
+      case 'object.move':
+        await _applyMove(objectId, payload);
       case 'property.set':
-        await _applyPropertySet(nodeId, payload);
+        await _applyPropertySet(objectId, payload);
       case 'property.unset':
-        await _applyPropertyUnset(nodeId, payload);
-      case 'class.assign':
-        await _applyClassAssign(nodeId, payload);
-      case 'class.unassign':
-        await _applyClassUnassign(nodeId, payload);
+        await _applyPropertyUnset(objectId, payload);
       case 'class.create':
         await _applyClassCreate(payload);
       case 'class.update':
@@ -84,64 +62,15 @@ class RelayAppliers {
         await _applyPropertySchemaUpdate(payload);
       case 'propertySchema.delete':
         await _applyPropertySchemaDelete(payload);
-      case 'classPropertyEdge.create':
-        await _applyClassPropertyEdgeCreate(payload);
-      case 'classPropertyEdge.update':
-        await _applyClassPropertyEdgeUpdate(payload);
-      case 'classPropertyEdge.delete':
-        await _applyClassPropertyEdgeDelete(payload);
-      case 'classPropertyEdge.reorder':
-        await _applyClassPropertyEdgeReorder(payload);
-      case 'user.favorite.add':
-        await _cache.applyFavoriteAdd(
-          envelope.workspaceId,
-          envelope.actorId,
-          nodeId,
-        );
-      case 'user.favorite.remove':
-        await _cache.applyFavoriteRemove(
-          envelope.workspaceId,
-          envelope.actorId,
-          nodeId,
-        );
-      case 'user.favorite.reorder':
-        final nodeIds = (payload['nodeIds'] as List<dynamic>?)?.cast<String>() ?? const <String>[];
-        await _cache.applyFavoriteReorder(
-          envelope.workspaceId,
-          envelope.actorId,
-          nodeIds,
-        );
-      case 'task.recordCompletion':
-        await _cache.recordTaskCompletion(
-          nodeId,
-          payload['completionId'] as String? ?? '',
-          completedAt: payload['completedAt'] as String?,
-          scheduledDate: payload['scheduledDate'] as String?,
-          deadlineDate: payload['deadlineDate'] as String?,
-          status: payload['status'] as String?,
-        );
-      case 'task.deleteCompletion':
-        await _cache.deleteTaskCompletion(
-          nodeId,
-          payload['completionId'] as String? ?? '',
-        );
-      case 'task.setRecurrence':
-        await _cache.applyTaskSetRecurrence(
-          nodeId,
-          recurrenceId: payload['recurrenceId'] as String?,
-          rule: payload['rule'] as Map<String, dynamic>?,
-          actorId: envelope.actorId,
-        );
-      case 'task.deleteRecurrence':
-        await _cache.applyTaskDeleteRecurrence(
-          nodeId,
-          recurrenceId: payload['recurrenceId'] as String?,
-        );
-      // Asset metadata lives in the server-side `node_asset` table; the app
-      // has no local asset table (asset bytes are fetched over HTTP), so
-      // asset bookkeeping ops are intentionally ignored.
-      case 'asset.upload':
-      case 'asset.delete':
+      // Asset metadata lives in the server-side asset tables; the app has no
+      // local asset table (asset bytes are fetched over HTTP), so asset
+      // bookkeeping ops are intentionally ignored — as are collection
+      // membership ops (no local membership table in Phase A; collections
+      // are class-tagged nodes here).
+      case 'asset.attach':
+      case 'asset.detach':
+      case 'collection.member.add':
+      case 'collection.member.remove':
       // Activity log, link-click tracking, public share state, node views,
       // aliases and plugin-scoped ops have no local derived representation;
       // the corresponding UI reads them from the server on demand.
@@ -160,44 +89,92 @@ class RelayAppliers {
       case 'plugin.op':
         break;
       default:
-        // No silent fallthrough: log op types this client does not know.
+        // No silent fallthrough: log op types this client does not know
+        // (including v1-only ops dropped from the v2 M1 registry:
+        // node.archive/restore, user.favorite.*, task.*, classPropertyEdge.*,
+        // share.user.*).
         debugPrint('RelayAppliers: ignoring unknown op type ${envelope.opType}');
     }
   }
 
-  Future<void> _applyCreate(String nodeId, Map<String, dynamic> payload) async {
-    // Mirrors the server applier's INSERT OR IGNORE: a create for an existing
-    // node is a no-op. This keeps pull echoes of already-applied creates
-    // (applied locally at flush time) from clobbering later edits whose
-    // updateContent echo is then skipped by the content HLC guard.
-    if (await _cache.getByUuid(nodeId) != null) return;
+  Future<void> _applyCreate(String objectId, Map<String, dynamic> payload) async {
+    // Mirrors the server applier's first-create-wins for the tree: a create
+    // for an existing node does not move the node or revert later edits.
+    // Re-issued creates ARE the v2 OR-Set membership carrier though
+    // (add-wins, op-types.ts): seed any new classIds into the existing node.
+    final existing = await _cache.getByUuid(objectId);
+    if (existing != null) {
+      final classIds = _readStringList(payload['classIds']);
+      final merged = <String>{...existing.classesUuid, ...classIds}.toList();
+      if (classIds.isNotEmpty && merged.length != existing.classesUuid.length) {
+        final flags = _deriveFlags(merged);
+        await _cache.upsert(
+          Node(
+            id: existing.id,
+            uuid: existing.uuid,
+            name: existing.name,
+            displayName: existing.displayName,
+            icon: existing.icon,
+            color: existing.color,
+            parentId: existing.parentId,
+            parentUuid: existing.parentUuid,
+            pageId: existing.pageId,
+            pageUuid: existing.pageUuid,
+            sequence: existing.sequence,
+            isPage: existing.isPage,
+            isTask: flags.isTask,
+            isDaily: flags.isDaily,
+            isMonthly: flags.isMonthly,
+            isYearly: flags.isYearly,
+            isTable: flags.isTable,
+            isAsset: flags.isAsset,
+            isComment: flags.isComment,
+            isDeleted: existing.isDeleted,
+            isArchived: existing.isArchived,
+            isPrivate: existing.isPrivate,
+            classes: existing.classes,
+            classesUuid: merged,
+            tags: existing.tags,
+            tagsUuid: existing.tagsUuid,
+            properties: existing.properties,
+            children: existing.children,
+            createDate: existing.createDate,
+            writeDate: existing.writeDate,
+          ),
+        );
+      }
+      return;
+    }
 
-    final initialContent = payload['initialContent'];
-    // Current editors send content as the serialized-AST JSON string (the
-    // mobile cache's name format verbatim); older ops carried the AST as a
-    // JSON array. Missing initialContent means the text arrives in a
-    // following node.updateContent op.
-    final name = switch (initialContent) {
+    // v2 carries `name` (scalar) and `contentAst` (token array) as separate
+    // slots; the local cache stores one `name` string (the serialized AST or
+    // legacy plain text), so content wins when both arrive and the scalar
+    // name fills the display name.
+    final contentAst = payload['contentAst'];
+    final explicitName = payload['name'] as String?;
+    final name = switch (contentAst) {
       List<dynamic> list => AstBuilder.serialize(list.cast<Map<String, dynamic>>()),
-      String text => text,
-      _ => '',
+      _ => explicitName ?? '',
     };
-    final displayName = astToPlainText(name);
+    final displayName = explicitName ?? astToPlainText(name);
     final classIds = _readStringList(payload['classIds']);
-    final kind = payload['kind'] as String?;
+    final parentId = payload['parentId'] as String?;
+    // Placement defaults by context when the payload omits nodeType
+    // (op-types.ts: workspace root → page, child → block).
+    final nodeType = payload['nodeType'] as String? ??
+        (parentId == null ? 'page' : 'block');
     final flags = _deriveFlags(classIds);
 
     final node = Node(
       id: 0,
-      uuid: nodeId,
+      uuid: objectId,
       name: name,
       displayName: displayName,
-      parentUuid: payload['parentId'] as String?,
-      sequence: _readPosition(payload['index']),
+      parentUuid: parentId,
       classesUuid: classIds,
       isDeleted: false,
       properties: const {},
-      isPage: kind == 'page',
+      isPage: nodeType == 'page',
       isTask: flags.isTask,
       isDaily: flags.isDaily,
       isMonthly: flags.isMonthly,
@@ -209,289 +186,127 @@ class RelayAppliers {
     await _cache.upsert(node);
   }
 
-  Future<void> _applyUpdateContent(
-    String nodeId,
+  Future<void> _applyUpdate(
+    String objectId,
     Map<String, dynamic> payload,
     Hlc hlc,
   ) async {
-    // Last-write-wins: the server skips updateContent ops whose HLC is not
-    // newer than the stored one; mirror that locally so stale pages from
-    // catch-up or re-applied envelopes do not clobber newer content.
-    final lastApplied = await _cache.getContentHlc(nodeId);
-    if (lastApplied != null && hlc.compareTo(lastApplied) <= 0) return;
+    final node = await _loadOrCreate(objectId);
+    var updated = node;
 
-    final node = await _loadOrCreate(nodeId);
-    final content = payload['content'];
-    // Current editors send content as the serialized-AST JSON string (the
-    // mobile cache's name format verbatim) plus a CRDT update; older ops
-    // carried the AST as a JSON array. Both reduce to the stored name format
-    // (serialized AST or legacy plain text).
-    final name = switch (content) {
-      List<dynamic> list => AstBuilder.serialize(list.cast<Map<String, dynamic>>()),
-      String text => text,
-      _ => null,
-    };
-    if (name == null) return;
-    final updated = Node(
-      id: node.id,
-      uuid: node.uuid,
-      name: name,
-      displayName: astToPlainText(name),
-      icon: node.icon,
-      color: node.color,
-      parentId: node.parentId,
-      parentUuid: node.parentUuid,
-      pageId: node.pageId,
-      pageUuid: node.pageUuid,
-      sequence: node.sequence,
-      isPage: node.isPage,
-      isTask: node.isTask,
-      isDaily: node.isDaily,
-      isMonthly: node.isMonthly,
-      isYearly: node.isYearly,
-      isTable: node.isTable,
-      isAsset: node.isAsset,
-      isComment: node.isComment,
-      isDeleted: node.isDeleted,
-      isArchived: node.isArchived,
-      isPrivate: node.isPrivate,
-      classes: node.classes,
-      classesUuid: node.classesUuid,
-      tags: node.tags,
-      tagsUuid: node.tagsUuid,
-      properties: node.properties,
-      children: node.children,
-      createDate: node.createDate,
-      writeDate: node.writeDate,
-    );
-    await _cache.upsert(updated);
-    await _cache.setContentHlc(nodeId, hlc);
+    // name/icon/color are direct LWW upserts.
+    final name = payload['name'] as String?;
+    if (name != null) {
+      // The local cache conflates name and content in one column (see
+      // _applyCreate); a v2 name update lands in that shared slot as the
+      // inline AST of the title, matching the v1 update_node behavior.
+      final inline = AstBuilder.serialize(AstBuilder.parseInline(name));
+      updated = _copyWith(updated, name: inline, displayName: name);
+    }
+    final icon = payload['icon'] as String?;
+    if (icon != null) {
+      updated = _copyWith(updated, icon: icon);
+    }
+    final color = payload['color'] as String?;
+    if (color != null) {
+      updated = _copyWith(updated, color: color);
+    }
+
+    // contentAst is guarded by last-write-wins HLC: the server skips update
+    // ops whose HLC is not newer than the stored one; mirror that locally so
+    // stale pages from catch-up or re-applied envelopes do not clobber newer
+    // content. contentDeltaB64 (the Yjs carrier) is not applied locally yet.
+    final contentAst = payload['contentAst'];
+    if (contentAst is List<dynamic>) {
+      final lastApplied = await _cache.getContentHlc(objectId);
+      if (lastApplied == null || hlc.compareTo(lastApplied) > 0) {
+        final serialized =
+            AstBuilder.serialize(contentAst.cast<Map<String, dynamic>>());
+        updated = _copyWith(
+          updated,
+          name: serialized,
+          displayName: astToPlainText(serialized),
+        );
+        await _cache.upsert(updated);
+        await _cache.setContentHlc(objectId, hlc);
+        return;
+      }
+    }
+    if (updated != node) {
+      await _cache.upsert(updated);
+    }
   }
 
-  Future<void> _applyUpdateIcon(String nodeId, Map<String, dynamic> payload) async {
-    final node = await _loadOrCreate(nodeId);
-    await _cache.upsert(
-      Node(
-        id: node.id,
-        uuid: node.uuid,
-        name: node.name,
-        displayName: node.displayName,
-        icon: payload['icon'] as String?,
-        color: node.color,
-        parentId: node.parentId,
-        parentUuid: node.parentUuid,
-        pageId: node.pageId,
-        pageUuid: node.pageUuid,
-        sequence: node.sequence,
-        isPage: node.isPage,
-        isTask: node.isTask,
-        isDaily: node.isDaily,
-        isMonthly: node.isMonthly,
-        isYearly: node.isYearly,
-        isTable: node.isTable,
-        isAsset: node.isAsset,
-        isComment: node.isComment,
-        isDeleted: node.isDeleted,
-        isArchived: node.isArchived,
-        isPrivate: node.isPrivate,
-        classes: node.classes,
-        classesUuid: node.classesUuid,
-        tags: node.tags,
-        tagsUuid: node.tagsUuid,
-        properties: node.properties,
-        children: node.children,
-        createDate: node.createDate,
-        writeDate: node.writeDate,
-      ),
-    );
+  Future<void> _applyDelete(String objectId, Map<String, dynamic> payload) async {
+    final permanent = payload['permanent'] == true;
+    if (!permanent) {
+      // v2 tombstone (soft delete): the recoverable path, which the app's
+      // trash/archive view reads (is_archived).
+      final node = await _loadOrCreate(objectId);
+      await _cache.upsert(node.copyWithIsArchived(true));
+      return;
+    }
+    // Hard delete, matching the v1 node.delete behavior: remove the node row
+    // plus its property values, favorites, task completions/recurrence, and
+    // search index rows.
+    await _cache.hardDelete(objectId);
   }
 
-  Future<void> _applyUpdateColor(String nodeId, Map<String, dynamic> payload) async {
-    final node = await _loadOrCreate(nodeId);
-    await _cache.upsert(
-      Node(
-        id: node.id,
-        uuid: node.uuid,
-        name: node.name,
-        displayName: node.displayName,
-        icon: node.icon,
-        color: payload['color'] as String?,
-        parentId: node.parentId,
-        parentUuid: node.parentUuid,
-        pageId: node.pageId,
-        pageUuid: node.pageUuid,
-        sequence: node.sequence,
-        isPage: node.isPage,
-        isTask: node.isTask,
-        isDaily: node.isDaily,
-        isMonthly: node.isMonthly,
-        isYearly: node.isYearly,
-        isTable: node.isTable,
-        isAsset: node.isAsset,
-        isComment: node.isComment,
-        isDeleted: node.isDeleted,
-        isArchived: node.isArchived,
-        isPrivate: node.isPrivate,
-        classes: node.classes,
-        classesUuid: node.classesUuid,
-        tags: node.tags,
-        tagsUuid: node.tagsUuid,
-        properties: node.properties,
-        children: node.children,
-        createDate: node.createDate,
-        writeDate: node.writeDate,
-      ),
-    );
-  }
-
-  Future<void> _applyArchive(String nodeId) async {
-    final node = await _loadOrCreate(nodeId);
-    await _cache.upsert(node.copyWithIsArchived(true));
-  }
-
-  Future<void> _applyRestore(String nodeId) async {
-    final node = await _loadOrCreate(nodeId);
-    await _cache.upsert(node.copyWithIsArchived(false));
-  }
-
-  Future<void> _applyDelete(String nodeId) async {
-    // Hard delete, matching the server: remove the node row plus its
-    // property values (stored in the node payload), favorites, task
-    // completions/recurrence, and search index rows. There is no
-    // soft-delete/trash in the derived state; `node.archive` is the
-    // recoverable path.
-    await _cache.hardDelete(nodeId);
-  }
-
-  Future<void> _applyConvert(String nodeId, Map<String, dynamic> payload) async {
-    final node = await _loadOrCreate(nodeId);
-    final kind = payload['kind'] as String?;
-    // Matches the server applier: parent and class list are replaced
-    // wholesale (absent `parentId`/`classIds` detach the node / clear the
-    // list).
-    final classIds = _readStringList(payload['classIds']);
-    final flags = _deriveFlags(classIds);
-    await _cache.upsert(
-      Node(
-        id: node.id,
-        uuid: node.uuid,
-        name: node.name,
-        displayName: node.displayName,
-        icon: node.icon,
-        color: node.color,
-        parentId: node.parentId,
-        parentUuid: payload['parentId'] as String?,
-        pageId: node.pageId,
-        pageUuid: node.pageUuid,
-        sequence: node.sequence,
-        isPage: kind == 'page',
-        isTask: flags.isTask,
-        isDaily: flags.isDaily,
-        isMonthly: flags.isMonthly,
-        isYearly: flags.isYearly,
-        isTable: flags.isTable,
-        isAsset: flags.isAsset,
-        isComment: flags.isComment,
-        isDeleted: node.isDeleted,
-        isArchived: node.isArchived,
-        isPrivate: node.isPrivate,
-        classes: node.classes,
-        classesUuid: classIds,
-        tags: node.tags,
-        tagsUuid: node.tagsUuid,
-        properties: node.properties,
-        children: node.children,
-        createDate: node.createDate,
-        writeDate: node.writeDate,
-      ),
-    );
-  }
-
-  Future<void> _applyMove(String nodeId, Map<String, dynamic> payload) async {
-    final node = await _loadOrCreate(nodeId);
-    final newIndex = payload['newIndex'];
-    final updated = Node(
-      id: node.id,
-      uuid: node.uuid,
-      name: node.name,
-      displayName: node.displayName,
-      icon: node.icon,
-      color: node.color,
-      parentId: node.parentId,
-      parentUuid: payload['newParentId'] as String?,
-      pageId: node.pageId,
-      pageUuid: node.pageUuid,
-      sequence: newIndex == null ? node.sequence : _readPosition(newIndex),
-      isPage: node.isPage,
-      isTask: node.isTask,
-      isDaily: node.isDaily,
-      isMonthly: node.isMonthly,
-      isYearly: node.isYearly,
-      isTable: node.isTable,
-      isAsset: node.isAsset,
-      isComment: node.isComment,
-      isDeleted: node.isDeleted,
-      isArchived: node.isArchived,
-      isPrivate: node.isPrivate,
-      classes: node.classes,
-      classesUuid: node.classesUuid,
-      tags: node.tags,
-      tagsUuid: node.tagsUuid,
-      properties: node.properties,
-      children: node.children,
-      createDate: node.createDate,
-      writeDate: node.writeDate,
-    );
-    await _cache.upsert(updated);
+  Future<void> _applyMove(String objectId, Map<String, dynamic> payload) async {
+    final node = await _loadOrCreate(objectId);
+    final parentId = payload['parentId'] as String?;
+    final afterId = payload['afterId'] as String?;
+    var sequence = node.sequence;
+    if (afterId != null) {
+      // Sibling midpoint placement: land immediately after `afterId` in the
+      // parent's child order (the server's fractional allocator uses the
+      // same rule over its position strings).
+      final siblings = parentId == null
+          ? (await _cache.getRootPages())
+              .where((n) => n.uuid != objectId)
+              .toList()
+          : (await _cache.getChildren(parentId))
+              .where((n) => n.uuid != objectId)
+              .toList();
+      final afterIndex = siblings.indexWhere((n) => n.uuid == afterId);
+      if (afterIndex >= 0) {
+        final afterSequence = siblings[afterIndex].sequence;
+        if (afterIndex + 1 < siblings.length) {
+          final nextSequence = siblings[afterIndex + 1].sequence;
+          sequence = afterSequence + (nextSequence - afterSequence) / 2;
+        } else {
+          sequence = afterSequence + 1;
+        }
+      }
+    }
+    await _cache.upsert(_copyWith(node, parentUuid: parentId, sequence: sequence));
   }
 
   Future<void> _applyPropertySet(
-    String nodeId,
+    String objectId,
     Map<String, dynamic> payload,
   ) async {
-    final node = await _loadOrCreate(nodeId);
-    final schemaId = payload['schemaId'] as String?;
-    if (schemaId == null) return;
+    final node = await _loadOrCreate(objectId);
+    final propertySchemaId = payload['propertySchemaId'] as String?;
+    if (propertySchemaId == null) return;
+    // The local properties map is keyed by schema id and models single-value
+    // slots; v2 multi-value (idx) properties land in Phase B with the
+    // property read model.
     final updatedProperties = Map<String, dynamic>.from(node.properties);
-    updatedProperties[schemaId] = payload['value'];
+    updatedProperties[propertySchemaId] = payload['value'];
     await _cache.upsert(node.copyWithProperties(updatedProperties));
   }
 
   Future<void> _applyPropertyUnset(
-    String nodeId,
+    String objectId,
     Map<String, dynamic> payload,
   ) async {
-    final node = await _loadOrCreate(nodeId);
-    final schemaId = payload['schemaId'] as String?;
-    if (schemaId == null) return;
+    final node = await _loadOrCreate(objectId);
+    final propertySchemaId = payload['propertySchemaId'] as String?;
+    if (propertySchemaId == null) return;
     final updatedProperties = Map<String, dynamic>.from(node.properties);
-    updatedProperties.remove(schemaId);
+    updatedProperties.remove(propertySchemaId);
     await _cache.upsert(node.copyWithProperties(updatedProperties));
-  }
-
-  Future<void> _applyClassAssign(
-    String nodeId,
-    Map<String, dynamic> payload,
-  ) async {
-    final node = await _loadOrCreate(nodeId);
-    final classId = payload['classId'] as String?;
-    if (classId == null) return;
-    final classesUuid = List<String>.from(node.classesUuid);
-    if (!classesUuid.contains(classId)) {
-      classesUuid.add(classId);
-    }
-    await _cache.upsert(node.copyWithClassesUuid(classesUuid));
-  }
-
-  Future<void> _applyClassUnassign(
-    String nodeId,
-    Map<String, dynamic> payload,
-  ) async {
-    final node = await _loadOrCreate(nodeId);
-    final classId = payload['classId'] as String?;
-    if (classId == null) return;
-    final classesUuid = node.classesUuid.where((id) => id != classId).toList();
-    await _cache.upsert(node.copyWithClassesUuid(classesUuid));
   }
 
   Future<void> _applyClassCreate(Map<String, dynamic> payload) async {
@@ -503,7 +318,6 @@ class RelayAppliers {
       icon: payload['icon'] as String?,
       color: payload['color'] as String?,
       description: payload['description'] as String?,
-      extendsUuids: _readStringList(payload['extends']),
       active: true,
     );
   }
@@ -536,200 +350,79 @@ class RelayAppliers {
   Future<void> _applyClassSetExtends(Map<String, dynamic> payload) async {
     final classId = payload['classId'] as String?;
     if (classId == null) return;
-    final extendsList = _readStringList(
-      payload['extendsClassIds'] ?? payload['extends'],
-    );
-    await _cache.setClassExtends(classId, extendsList);
+    // Replace semantics: parentClassIds IS the class's full parent set.
+    final parentClassIds = _readStringList(payload['parentClassIds']);
+    await _cache.setClassExtends(classId, parentClassIds);
   }
 
   Future<void> _applyPropertySchemaCreate(Map<String, dynamic> payload) async {
-    final schemaId = payload['schemaId'] as String?;
-    if (schemaId == null) return;
+    final propertySchemaId = payload['propertySchemaId'] as String?;
+    if (propertySchemaId == null) return;
     await _cache.upsertPropertySchema(
       PropertySchemaRow(
-        uuid: schemaId,
+        uuid: propertySchemaId,
         workspaceId: '', // Workspace is implicit to the local cache.
         name: payload['name'] as String? ?? '',
-        icon: payload['icon'] as String?,
         type: payload['type'] as String? ?? 'text',
         multi: payload['multi'] == true,
-        isSystem: payload['isSystem'] == true,
+        isSystem: false,
         scope: payload['scope'] as String? ?? 'global',
-        nodeUuid: payload['nodeId'] as String?,
-        iconVisibility: payload['iconVisibility'] as String?,
-        validationRules: payload['validationRules'] as Map<String, dynamic>?,
-        required: payload['required'] == true,
-        readonly: payload['readonly'] == true,
-        hideWhenEmpty: payload['hideWhenEmpty'] == true,
-        defaultValue: payload['defaultValue'],
-        classFilterUuids: _readStringList(payload['classFilterUuids']),
         options: (payload['options'] as List<dynamic>?)
                 ?.cast<Map<String, dynamic>>() ??
             const [],
-        computed: _readComputed(payload['computed']),
+        classFilterUuids: _readStringList(payload['targetClassFilter']),
       ),
     );
   }
 
   Future<void> _applyPropertySchemaUpdate(Map<String, dynamic> payload) async {
-    final schemaId = payload['schemaId'] as String?;
-    if (schemaId == null) return;
-    // Read the raw row: the Property model does not expose `required`,
-    // `defaultValue` or `computed`, and absent keys must preserve the stored
-    // values rather than reset them.
-    final existing = await _cache.getPropertySchemaRow(schemaId);
+    final propertySchemaId = payload['propertySchemaId'] as String?;
+    if (propertySchemaId == null) return;
+    // Read the raw row: absent keys must preserve the stored values rather
+    // than reset them.
+    final existing = await _cache.getPropertySchemaRow(propertySchemaId);
     if (existing == null) return;
     await _cache.upsertPropertySchema(
       PropertySchemaRow(
-        uuid: schemaId,
+        uuid: propertySchemaId,
         workspaceId: existing.workspaceId,
         name: payload.containsKey('name')
             ? (payload['name'] as String?) ?? existing.name
             : existing.name,
-        icon: payload.containsKey('icon')
-            ? payload['icon'] as String?
-            : existing.icon,
-        type: payload.containsKey('type')
-            ? (payload['type'] as String?) ?? existing.type
-            : existing.type,
-        multi: payload.containsKey('multi')
-            ? payload['multi'] == true
-            : existing.multi,
-        isSystem: existing.isSystem,
-        scope: payload.containsKey('scope')
-            ? (payload['scope'] as String?) ?? existing.scope
-            : existing.scope,
-        nodeUuid: payload.containsKey('nodeId')
-            ? payload['nodeId'] as String?
-            : existing.nodeUuid,
-        iconVisibility: payload.containsKey('iconVisibility')
-            ? payload['iconVisibility'] as String?
-            : existing.iconVisibility,
-        validationRules: payload.containsKey('validationRules')
-            ? payload['validationRules'] as Map<String, dynamic>?
-            : existing.validationRules,
-        required: payload.containsKey('required')
-            ? payload['required'] == true
-            : existing.required,
-        readonly: payload.containsKey('readonly')
-            ? payload['readonly'] == true
-            : existing.readonly,
-        hideWhenEmpty: payload.containsKey('hideWhenEmpty')
-            ? payload['hideWhenEmpty'] == true
-            : existing.hideWhenEmpty,
-        defaultValue: payload.containsKey('defaultValue')
-            ? payload['defaultValue']
-            : existing.defaultValue,
-        classFilterUuids: payload.containsKey('classFilterUuids')
-            ? _readStringList(payload['classFilterUuids'])
-            : existing.classFilterUuids,
         options: payload.containsKey('options')
             ? (payload['options'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? const []
             : existing.options,
-        computed: payload.containsKey('computed')
-            ? _readComputed(payload['computed'])
-            : existing.computed,
+        // v2 propertySchema.update only carries name/options; everything
+        // else is preserved from the stored row.
+        type: existing.type,
+        multi: existing.multi,
+        isSystem: existing.isSystem,
+        scope: existing.scope,
+        nodeUuid: existing.nodeUuid,
+        iconVisibility: existing.iconVisibility,
+        validationRules: existing.validationRules,
+        required: existing.required,
+        readonly: existing.readonly,
+        hideWhenEmpty: existing.hideWhenEmpty,
+        defaultValue: existing.defaultValue,
+        classFilterUuids: existing.classFilterUuids,
+        computed: existing.computed,
       ),
     );
   }
 
   Future<void> _applyPropertySchemaDelete(Map<String, dynamic> payload) async {
-    final schemaId = payload['schemaId'] as String?;
-    if (schemaId == null) return;
-    await _cache.deletePropertySchema(schemaId);
-  }
-
-  Future<void> _applyClassPropertyEdgeCreate(Map<String, dynamic> payload) async {
-    final classId = payload['classId'] as String?;
     final propertySchemaId = payload['propertySchemaId'] as String?;
-    if (classId == null || propertySchemaId == null) return;
-    await _cache.upsertClassPropertyEdge(
-      ClassPropertyEdgeRow(
-        classUuid: classId,
-        propertyUuid: propertySchemaId,
-        sequence: payload['sequence'] as int? ?? 0,
-        defaultValue: payload['defaultValue'],
-        hidden: payload['hidden'] == true,
-        required: payload['required'] as bool?,
-        readonly: payload['readonly'] as bool?,
-        hideWhenEmpty: payload['hideWhenEmpty'] as bool?,
-      ),
-    );
+    if (propertySchemaId == null) return;
+    await _cache.deletePropertySchema(propertySchemaId);
   }
 
-  Future<void> _applyClassPropertyEdgeUpdate(Map<String, dynamic> payload) async {
-    final classId = payload['classId'] as String?;
-    final propertySchemaId = payload['propertySchemaId'] as String?;
-    if (classId == null || propertySchemaId == null) return;
-    await _cache.upsertClassPropertyEdge(
-      ClassPropertyEdgeRow(
-        classUuid: classId,
-        propertyUuid: propertySchemaId,
-        sequence: payload['sequence'] as int? ?? 0,
-        defaultValue: payload['defaultValue'],
-        hidden: payload['hidden'] == true,
-        required: payload['required'] as bool?,
-        readonly: payload['readonly'] as bool?,
-        hideWhenEmpty: payload['hideWhenEmpty'] as bool?,
-      ),
-    );
-  }
-
-  Future<void> _applyClassPropertyEdgeDelete(Map<String, dynamic> payload) async {
-    final classId = payload['classId'] as String?;
-    final propertySchemaId = payload['propertySchemaId'] as String?;
-    if (classId == null || propertySchemaId == null) return;
-    await _cache.deleteClassPropertyEdge(classId, propertySchemaId);
-  }
-
-  Future<void> _applyClassPropertyEdgeReorder(Map<String, dynamic> payload) async {
-    final classId = payload['classId'] as String?;
-    final orderedIds = payload['orderedPropertySchemaIds'];
-    if (classId == null) return;
-    await _cache.reorderClassPropertyEdges(
-      classId,
-      _readStringList(orderedIds),
-    );
-  }
-
-  Future<void> _applyShareUserGrant(
-    OperationEnvelope envelope,
-    Map<String, dynamic> payload,
-  ) async {
-    final nodeId = payload['nodeId'] as String?;
-    final targetUserId = payload['targetUserId'] as String?;
-    if (nodeId == null || nodeId.isEmpty) return;
-    if (targetUserId == null || targetUserId.isEmpty) return;
-    await _cache.applyShareUserGrant(
-      envelope.workspaceId,
-      nodeUuid: nodeId,
-      targetUserId: targetUserId,
-      shareId: payload['shareId'] as String?,
-      permissionBits: (payload['permissionBits'] as num?)?.toInt() ?? 0,
-      role: payload['role'] as String? ?? '',
-      createdBy: envelope.actorId,
-      createdAt: envelope.timestamp,
-    );
-  }
-
-  Future<void> _applyShareUserRevoke(
-    OperationEnvelope envelope,
-    Map<String, dynamic> payload,
-  ) async {
-    await _cache.applyShareUserRevoke(
-      envelope.workspaceId,
-      shareId: payload['shareId'] as String?,
-      nodeUuid: payload['nodeId'] as String?,
-      targetUserId: payload['targetUserId'] as String?,
-    );
-  }
-
-  Future<Node> _loadOrCreate(String nodeId) async {
-    final existing = await _cache.getByUuid(nodeId);
+  Future<Node> _loadOrCreate(String objectId) async {
+    final existing = await _cache.getByUuid(objectId);
     if (existing != null) return existing;
     return Node(
       id: 0,
-      uuid: nodeId,
+      uuid: objectId,
       name: '',
       displayName: '',
       classesUuid: const [],
@@ -743,23 +436,51 @@ class RelayAppliers {
     }
     return const [];
   }
-
-  /// Child positions travel as zero-padded strings on the server
-  /// (lexicographic ordering in `node_child_order`); accept both numbers and
-  /// strings.
-  double _readPosition(dynamic value) {
-    if (value is num) return value.toDouble();
-    if (value is String) return double.tryParse(value) ?? 0;
-    return 0;
-  }
-
-  /// `computed` is `{kind, expression}` on the wire; older payloads carried a
-  /// plain string. Store the JSON encoding in the local text column.
-  String? _readComputed(dynamic value) {
-    if (value is Map<String, dynamic>) return jsonEncode(value);
-    return value as String?;
-  }
 }
+
+/// Field-wise copy used by the v2 appliers (the local [Node] model predates
+/// copyWith for these fields).
+Node _copyWith(
+  Node node, {
+  String? name,
+  String? displayName,
+  String? icon,
+  String? color,
+  String? parentUuid,
+  double? sequence,
+}) =>
+    Node(
+      id: node.id,
+      uuid: node.uuid,
+      name: name ?? node.name,
+      displayName: displayName ?? node.displayName,
+      icon: icon ?? node.icon,
+      color: color ?? node.color,
+      parentId: node.parentId,
+      parentUuid: parentUuid ?? node.parentUuid,
+      pageId: node.pageId,
+      pageUuid: node.pageUuid,
+      sequence: sequence ?? node.sequence,
+      isPage: node.isPage,
+      isTask: node.isTask,
+      isDaily: node.isDaily,
+      isMonthly: node.isMonthly,
+      isYearly: node.isYearly,
+      isTable: node.isTable,
+      isAsset: node.isAsset,
+      isComment: node.isComment,
+      isDeleted: node.isDeleted,
+      isArchived: node.isArchived,
+      isPrivate: node.isPrivate,
+      classes: node.classes,
+      classesUuid: node.classesUuid,
+      tags: node.tags,
+      tagsUuid: node.tagsUuid,
+      properties: node.properties,
+      children: node.children,
+      createDate: node.createDate,
+      writeDate: node.writeDate,
+    );
 
 extension _NodeCopyWith on Node {
   Node copyWithProperties(Map<String, dynamic> value) => Node(
@@ -794,42 +515,6 @@ extension _NodeCopyWith on Node {
         createDate: createDate,
         writeDate: writeDate,
       );
-
-  Node copyWithClassesUuid(List<String> value) {
-    final flags = _deriveFlags(value);
-    return Node(
-      id: id,
-      uuid: uuid,
-      name: name,
-      displayName: displayName,
-      icon: icon,
-      color: color,
-      parentId: parentId,
-      parentUuid: parentUuid,
-      pageId: pageId,
-      pageUuid: pageUuid,
-      sequence: sequence,
-      isPage: isPage,
-      isTask: flags.isTask,
-      isDaily: flags.isDaily,
-      isMonthly: flags.isMonthly,
-      isYearly: flags.isYearly,
-      isTable: flags.isTable,
-      isAsset: flags.isAsset,
-      isComment: flags.isComment,
-      isDeleted: isDeleted,
-      isArchived: isArchived,
-      isPrivate: isPrivate,
-      classes: classes,
-      classesUuid: value,
-      tags: tags,
-      tagsUuid: tagsUuid,
-      properties: properties,
-      children: children,
-      createDate: createDate,
-      writeDate: writeDate,
-    );
-  }
 }
 
 ({

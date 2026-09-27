@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../secure/secure_storage.dart';
+import './api_key_interceptor.dart';
 import './auth_interceptor.dart';
 import './error_reporter.dart';
 
@@ -29,11 +30,16 @@ Future<CookieJar> sharedCookieJar() async {
 }
 
 /// Creates a [Dio] instance configured for the active Notees server.
+///
+/// [serverId] is the active server profile id; it lets
+/// [RelayApiKeyInterceptor] attach the per-server `X-API-Key` to relay
+/// requests (v2 M1 auth).
 Dio createApiClient({
   required String baseUrl,
   required SecureStorage secureStorage,
   CookieJar? cookieJar,
   bool trustSelfSigned = false,
+  String? serverId,
 }) {
   final dio = Dio(
     BaseOptions(
@@ -45,6 +51,9 @@ Dio createApiClient({
   );
 
   dio.interceptors.add(AuthInterceptor(secureStorage: secureStorage, dio: dio));
+  dio.interceptors.add(
+    RelayApiKeyInterceptor(secureStorage: secureStorage, serverId: serverId),
+  );
 
   if (cookieJar != null) {
     dio.interceptors.add(CookieManager(cookieJar));

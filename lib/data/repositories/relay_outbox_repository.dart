@@ -24,9 +24,11 @@ class PendingRelayEnvelope {
   factory PendingRelayEnvelope.fromRow(Map<String, dynamic> row) {
     final envelopeJson =
         jsonDecode(row['envelope_json'] as String) as Map<String, dynamic>;
-    // Envelopes persisted before protocolVersion existed are locally produced
-    // and always v1; stamp them so strict envelope parsing does not reject
-    // the app's own outbox.
+    // Envelopes persisted before protocolVersion existed are locally
+    // produced; stamp the current version so strict envelope parsing can
+    // proceed. Rows still failing parse (e.g. legacy v1 shapes predating
+    // deviceId) are surfaced by the outbox repository, which quarantines
+    // them instead of letting flush() wedge on an unreadable outbox.
     envelopeJson.putIfAbsent('protocolVersion', () => kRelayProtocolVersion);
     return PendingRelayEnvelope(
       id: row['id'] as int,
@@ -69,7 +71,27 @@ class RelayOutboxRepository {
       whereArgs: [now.millisecondsSinceEpoch],
       orderBy: 'created_at ASC',
     );
-    return rows.map(PendingRelayEnvelope.fromRow).toList();
+    final pending = <PendingRelayEnvelope>[];
+    for (final row in rows) {
+      try {
+        pending.add(PendingRelayEnvelope.fromRow(row));
+      } on FormatException {
+        // Unreadable (e.g. legacy v1) envelope: quarantine the row so a
+        // stale outbox entry cannot wedge the sync loop; it stays
+        // inspectable in `relay_outbox`.
+        await db.update(
+          'relay_outbox',
+          {
+            'state': 'quarantined',
+            'last_error': 'Unparseable envelope (legacy protocol version?)',
+            'next_retry_at': null,
+          },
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+      }
+    }
+    return pending;
   }
 
   Future<void> markInFlight(List<int> ids) async {

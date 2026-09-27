@@ -10,6 +10,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
 
+  const workspaceId = '10000000-0000-4000-8000-000000000001';
+
   group('SyncV2Service flush (server mode)', () {
     late AppDatabase database;
     late List<Map<String, dynamic>> pushed;
@@ -22,7 +24,7 @@ void main() {
       dio.interceptors.add(
         InterceptorsWrapper(
           onRequest: (options, handler) {
-            if (options.path == '/relay/batch') {
+            if (options.path == '/relay/v2/batch') {
               if (failPush) {
                 handler.reject(DioException(
                   requestOptions: options,
@@ -38,36 +40,36 @@ void main() {
               handler.resolve(Response(
                 requestOptions: options,
                 data: {
-                  'saved_count': envelopes.length,
-                  'saved_ids': envelopes.map((e) => e['id']).toList(),
+                  'savedCount': envelopes.length,
+                  'savedIds': envelopes.map((e) => e['id']).toList(),
                 },
                 statusCode: 200,
               ));
               return;
             }
-            if (options.path == '/relay/snapshot') {
+            if (options.path == '/relay/v2/snapshot') {
               handler.resolve(Response(
                 requestOptions: options,
                 data: const {
-                  'snapshot_id': null,
-                  'workspace_id': 'ws-1',
+                  'snapshotId': null,
                   'hlc': {'physical': 0, 'logical': 0},
-                  'has_snapshot': false,
-                  'restore_epoch': 0,
-                  'up_to_seq': null,
+                  'hasSnapshot': false,
+                  'restoreEpoch': 0,
+                  'upToSeq': null,
                 },
                 statusCode: 200,
               ));
               return;
             }
-            if (options.path == '/relay/catch-up') {
+            if (options.path == '/relay/v2/catch-up') {
               handler.resolve(Response(
                 requestOptions: options,
                 data: {
                   'envelopes': pushed,
-                  'next_after_seq': pushed.isEmpty ? null : pushed.length,
-                  'has_more': false,
-                  'restore_epoch': 0,
+                  'nextAfterSeq': pushed.isEmpty ? null : pushed.length,
+                  'hasMore': false,
+                  'restoreEpoch': 0,
+                  'totalRemaining': pushed.length,
                 },
                 statusCode: 200,
               ));
@@ -88,9 +90,9 @@ void main() {
       final service = SyncV2Service(
         database: database,
         dio: dio,
-        clientId: 'test-client',
+        clientId: '40000000-0000-4000-8000-000000000001',
       );
-      await service.setWorkspaceId('ws-1');
+      await service.setWorkspaceId(workspaceId);
       return service;
     }
 
@@ -100,7 +102,7 @@ void main() {
       final cache = NodeCacheRepository(database);
       await cache.upsertClass(uuid: 'class-1', name: 'Class');
       await cache.upsertPropertySchema(
-        PropertySchemaRow(uuid: 'schema-1', workspaceId: 'ws-1', name: 'P'),
+        PropertySchemaRow(uuid: 'schema-1', workspaceId: workspaceId, name: 'P'),
       );
     }
 
@@ -124,7 +126,7 @@ void main() {
       final service = await buildService(buildDio());
       await service.enqueue(
         type: 'create',
-        nodeUuid: 'page-1',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
         contentAst: AstBuilder.parseInline('Shopping'),
         isPage: true,
       );
@@ -132,10 +134,21 @@ void main() {
       final errors = await service.flush();
 
       expect(errors, isEmpty);
-      final node = await service.cache.getByUuid('page-1');
+      final node =
+          await service.cache.getByUuid('20000000-0000-4000-8000-000000000001');
       expect(node, isNotNull);
       expect(node!.displayName, 'Shopping');
       expect(node.isPage, isTrue);
+
+      // The wire envelope is a v2 object.create.
+      expect(pushed, hasLength(1));
+      expect(pushed.first['opType'], 'object.create');
+      expect(pushed.first['protocolVersion'], 2);
+      expect(pushed.first['payload']['objectId'],
+          '20000000-0000-4000-8000-000000000001');
+      expect(pushed.first['payload']['nodeType'], 'page');
+      expect(pushed.first['deviceId'], '40000000-0000-4000-8000-000000000001');
+      expect(pushed.first['client'], 'flutter');
 
       final db = await database.database;
       // The outbox is drained and the op recorded as locally applied.
@@ -150,7 +163,7 @@ void main() {
       final service = await buildService(buildDio());
       await service.enqueue(
         type: 'create',
-        nodeUuid: 'page-1',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
         contentAst: AstBuilder.parseInline('Shopping'),
         isPage: true,
       );
@@ -158,38 +171,44 @@ void main() {
 
       await service.enqueue(
         type: 'update_content',
-        nodeUuid: 'page-1',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
         contentAst: AstBuilder.parseInline('Groceries'),
       );
       await service.flush();
 
-      final node = await service.cache.getByUuid('page-1');
+      final node =
+          await service.cache.getByUuid('20000000-0000-4000-8000-000000000001');
       expect(node!.displayName, 'Groceries');
+      expect(pushed.last['opType'], 'object.update');
+      expect(pushed.last['payload']['contentAst'], isNotNull);
     });
 
     test('pull echo of own ops does not clobber or duplicate', () async {
       final service = await buildService(buildDio());
       await service.enqueue(
         type: 'create',
-        nodeUuid: 'page-1',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
         contentAst: AstBuilder.parseInline('Shopping'),
         isPage: true,
       );
       await service.enqueue(
         type: 'update_content',
-        nodeUuid: 'page-1',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
         contentAst: AstBuilder.parseInline('Groceries'),
       );
       await service.flush();
-      expect((await service.cache.getByUuid('page-1'))!.displayName,
+      expect(
+          (await service.cache.getByUuid('20000000-0000-4000-8000-000000000001'))!
+              .displayName,
           'Groceries');
 
       // The server echoes both own ops back on the next pull. The create
-      // echo must be a no-op (INSERT OR IGNORE parity) and the updateContent
-      // echo is skipped by the content HLC guard, so the rename survives.
+      // echo must be a no-op (first-create-wins parity) and the update echo
+      // is skipped by the content HLC guard, so the rename survives.
       await service.pull();
 
-      final node = await service.cache.getByUuid('page-1');
+      final node =
+          await service.cache.getByUuid('20000000-0000-4000-8000-000000000001');
       expect(node!.displayName, 'Groceries');
 
       final db = await database.database;
@@ -204,7 +223,7 @@ void main() {
       final service = await buildService(buildDio(failPush: true));
       await service.enqueue(
         type: 'create',
-        nodeUuid: 'page-1',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
         contentAst: AstBuilder.parseInline('Shopping'),
         isPage: true,
       );
@@ -212,12 +231,69 @@ void main() {
       final errors = await service.flush();
 
       expect(errors, isNotEmpty);
-      expect(await service.cache.getByUuid('page-1'), isNull);
+      expect(
+          await service.cache.getByUuid('20000000-0000-4000-8000-000000000001'),
+          isNull);
 
       final db = await database.database;
       // The row stays pending for a later retry.
       expect(await db.query('relay_outbox'), hasLength(1));
       expect(await db.query('relay_operations'), isEmpty);
+    });
+
+    test('archive maps to the v2 tombstone (object.delete permanent:false)',
+        () async {
+      final service = await buildService(buildDio());
+      await service.enqueue(
+        type: 'archive',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
+      );
+      await service.flush();
+
+      expect(pushed.single['opType'], 'object.delete');
+      expect(pushed.single['payload'], {
+        'objectId': '20000000-0000-4000-8000-000000000001',
+        'permanent': false,
+      });
+    });
+
+    test('legacy v1 outbox rows are quarantined, not wedged', () async {
+      // A pre-port outbox row: v1 envelope without deviceId/timestamp and
+      // with a v1 payload shape. Strict v2 parsing rejects it; flush must
+      // quarantine the row and keep flushing the rest.
+      final service = await buildService(buildDio());
+      await service.enqueue(
+        type: 'create',
+        nodeUuid: '20000000-0000-4000-8000-000000000002',
+        contentAst: AstBuilder.parseInline('Fresh'),
+        isPage: true,
+      );
+
+      final db = await database.database;
+      await db.insert('relay_outbox', {
+        'envelope_json':
+            '{"id":"0192a000-0000-7000-8000-000000000099","protocolVersion":1,'
+            '"workspaceId":"10000000-0000-4000-8000-000000000001",'
+            '"actorId":"40000000-0000-4000-8000-000000000001",'
+            '"hlc":{"physical":1,"logical":0},'
+            '"affectedNodeIds":["20000000-0000-4000-8000-000000000003"],'
+            '"opType":"node.create",'
+            '"payload":{"nodeId":"20000000-0000-4000-8000-000000000003","kind":"page"}}',
+        'state': 'pending',
+        'attempt_count': 0,
+        'created_at': DateTime.now().millisecondsSinceEpoch,
+      });
+
+      final errors = await service.flush();
+
+      expect(errors, isEmpty);
+      // The valid row flushed; the legacy row was quarantined for inspection.
+      expect(pushed, hasLength(1));
+      expect(pushed.single['payload']['objectId'],
+          '20000000-0000-4000-8000-000000000002');
+      final rows = await db.query('relay_outbox');
+      expect(rows, hasLength(1));
+      expect(rows.single['state'], 'quarantined');
     });
   });
 }

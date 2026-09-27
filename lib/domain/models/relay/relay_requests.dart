@@ -1,7 +1,7 @@
 import './hlc.dart';
 import './operation_envelope.dart';
 
-/// Request body for `POST /api/relay/batch`.
+/// Request body for `POST /api/relay/v2/batch` (WIRE.md §1).
 class RelayBatchRequest {
   const RelayBatchRequest({required this.envelopes});
 
@@ -12,7 +12,10 @@ class RelayBatchRequest {
       };
 }
 
-/// Response body for `POST /api/relay/batch`.
+/// Response body for `POST /api/relay/v2/batch` (WIRE.md §1).
+///
+/// Duplicate envelope ids are silently ignored server-side (idempotent
+/// retry), so [savedIds] may omit ids that were sent.
 class RelayBatchResponse {
   const RelayBatchResponse({
     required this.savedCount,
@@ -24,12 +27,13 @@ class RelayBatchResponse {
 
   factory RelayBatchResponse.fromJson(Map<String, dynamic> json) =>
       RelayBatchResponse(
-        savedCount: json['saved_count'] as int,
-        savedIds: (json['saved_ids'] as List<dynamic>).cast<String>(),
+        savedCount: (json['savedCount'] as num?)?.toInt() ?? 0,
+        savedIds: (json['savedIds'] as List<dynamic>? ?? const [])
+            .cast<String>(),
       );
 }
 
-/// Request body for `POST /api/relay/catch-up`.
+/// Request body for `POST /api/relay/v2/catch-up` (WIRE.md §1).
 class CatchUpRequest {
   const CatchUpRequest({
     required this.workspaceId,
@@ -45,46 +49,51 @@ class CatchUpRequest {
   final int limit;
 
   Map<String, dynamic> toJson() => {
-        'workspace_id': workspaceId,
-        'after_seq': afterSeq,
+        'workspaceId': workspaceId,
+        'afterSeq': afterSeq,
         'limit': limit,
       };
 }
 
-/// Response body for `POST /api/relay/catch-up`.
+/// Response body for `POST /api/relay/v2/catch-up` (WIRE.md §1).
 class CatchUpResponse {
   const CatchUpResponse({
     required this.envelopes,
     required this.nextAfterSeq,
     required this.hasMore,
     required this.restoreEpoch,
+    this.totalRemaining = 0,
   });
 
   final List<OperationEnvelope> envelopes;
 
-  /// Cursor to adopt and pass back as `after_seq`. Still set on the final
+  /// Cursor to adopt and pass back as `afterSeq`. Still set on the final
   /// page (`hasMore == false`) to the last envelope's seq; null only when the
   /// page is empty.
   final int? nextAfterSeq;
   final bool hasMore;
   final int restoreEpoch;
 
+  /// Number of envelopes with a seq greater than the request's `afterSeq`
+  /// (including this page) — lets the UI render global catch-up progress.
+  final int totalRemaining;
+
   factory CatchUpResponse.fromJson(Map<String, dynamic> json) => CatchUpResponse(
-        envelopes: (json['envelopes'] as List<dynamic>)
+        envelopes: (json['envelopes'] as List<dynamic>? ?? const [])
             .map((e) => OperationEnvelope.fromJson(e as Map<String, dynamic>))
             .toList(),
-        nextAfterSeq: json['next_after_seq'] as int?,
-        hasMore: json['has_more'] as bool,
-        restoreEpoch: json['restore_epoch'] as int,
+        nextAfterSeq: (json['nextAfterSeq'] as num?)?.toInt(),
+        hasMore: json['hasMore'] as bool? ?? false,
+        restoreEpoch: (json['restoreEpoch'] as num?)?.toInt() ?? 0,
+        totalRemaining: (json['totalRemaining'] as num?)?.toInt() ?? 0,
       );
 }
 
-/// Response body for `GET /api/relay/snapshot` (metadata only — the blob is
-/// served as a raw binary body by `GET /api/relay/snapshot/data`).
+/// Response body for `GET /api/relay/v2/snapshot` (metadata only — the blob
+/// is served as a raw binary body by `GET /api/relay/v2/snapshot/data`).
 class LatestSnapshotResponse {
   const LatestSnapshotResponse({
     required this.snapshotId,
-    required this.workspaceId,
     required this.hlc,
     required this.hasSnapshot,
     required this.restoreEpoch,
@@ -92,7 +101,6 @@ class LatestSnapshotResponse {
   });
 
   final String? snapshotId;
-  final String workspaceId;
   final Hlc hlc;
   final bool hasSnapshot;
   final int restoreEpoch;
@@ -104,11 +112,10 @@ class LatestSnapshotResponse {
 
   factory LatestSnapshotResponse.fromJson(Map<String, dynamic> json) =>
       LatestSnapshotResponse(
-        snapshotId: json['snapshot_id'] as String?,
-        workspaceId: json['workspace_id'] as String,
+        snapshotId: json['snapshotId'] as String?,
         hlc: Hlc.fromJson(json['hlc'] as Map<String, dynamic>),
-        hasSnapshot: json['has_snapshot'] as bool,
-        restoreEpoch: json['restore_epoch'] as int,
-        upToSeq: json['up_to_seq'] as int?,
+        hasSnapshot: json['hasSnapshot'] as bool? ?? false,
+        restoreEpoch: (json['restoreEpoch'] as num?)?.toInt() ?? 0,
+        upToSeq: (json['upToSeq'] as num?)?.toInt(),
       );
 }

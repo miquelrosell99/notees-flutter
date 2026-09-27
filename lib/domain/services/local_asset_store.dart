@@ -14,7 +14,7 @@ import '../models/relay/operation_payloads.dart';
 import './sync_v2_service.dart';
 
 /// Metadata sidecar for a locally stored asset, mirroring the server's
-/// `node_asset` row. The Flutter applier intentionally ignores `asset.upload`
+/// asset row. The Flutter applier intentionally ignores `asset.attach`
 /// (no local asset table), so local-mode rendering and the server-attach
 /// upload read this sidecar instead.
 class LocalAssetInfo {
@@ -179,23 +179,25 @@ class LocalAssetService {
 
     try {
       if (existingNodeUuid != null) {
+        // v2 has no class.assign op: a re-issued object.create with the
+        // asset class is the OR-Set membership carrier.
         await _sync.emitLocal(
-          opType: 'class.assign',
-          payload: OperationPayloads.classAssign(
-            nodeId: nodeId,
-            classId: SystemClassUuids.asset,
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: nodeId,
+            classIds: [SystemClassUuids.asset],
           ),
           affectedNodeIds: [nodeId, SystemClassUuids.asset],
         );
       } else {
         await _sync.emitLocal(
-          opType: 'node.create',
-          payload: OperationPayloads.nodeCreate(
-            nodeId: nodeId,
-            kind: 'block',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: nodeId,
+            nodeType: 'block',
             parentId: parentUuid,
             classIds: [SystemClassUuids.asset],
-            initialContent: AstBuilder.parseInline(
+            contentAst: AstBuilder.parseInline(
               content ?? p.basenameWithoutExtension(originalName),
             ),
           ),
@@ -203,15 +205,15 @@ class LocalAssetService {
         );
       }
       await _sync.emitLocal(
-        opType: 'asset.upload',
-        payload: <String, dynamic>{
-          'assetId': nodeId,
-          'nodeId': nodeId,
-          'assetHash': assetHash,
-          'mimeType': mime,
-          'sizeBytes': bytes.length,
-          'originalName': originalName,
-        },
+        opType: 'asset.attach',
+        payload: OperationPayloads.assetAttach(
+          objectId: nodeId,
+          assetId: nodeId,
+          hash: assetHash,
+          mimeType: mime,
+          size: bytes.length,
+          originalName: originalName,
+        ),
         affectedNodeIds: [nodeId],
       );
       await store.saveMetadata(info);

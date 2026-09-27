@@ -115,10 +115,10 @@ void main() {
         // No base URL: any network attempt would throw, so tests passing
         // prove the local upload performs no network I/O.
         dio: Dio(),
-        clientId: 'test-client',
+        clientId: '40000000-0000-4000-8000-000000000001',
         serverless: true,
       );
-      await syncService.setWorkspaceId('local-ws');
+      await syncService.setWorkspaceId('10000000-0000-4000-8000-000000000001');
     });
 
     tearDown(() async {
@@ -138,34 +138,37 @@ void main() {
       return db.query('relay_operations', orderBy: 'rowid');
     }
 
-    test('upload emits node.create + asset.upload mirroring the server shapes',
+    test('upload emits object.create + asset.attach with v2 payload shapes',
         () async {
       final file = await writeTempFile('voice.m4a', [10, 20, 30]);
       final service = LocalAssetService(syncService, store: store);
 
-      final info = await service.upload(file, parentUuid: 'parent-1');
+      final info = await service.upload(
+        file,
+        parentUuid: '60000000-0000-4000-8000-000000000001',
+      );
 
       final ops = await recordedOps();
       expect(ops, hasLength(2));
 
-      expect(ops[0]['op_type'], 'node.create');
+      expect(ops[0]['op_type'], 'object.create');
       final create =
           jsonDecode(ops[0]['payload'] as String) as Map<String, dynamic>;
-      expect(create['nodeId'], info.nodeId);
-      expect(create['kind'], 'block');
-      expect(create['parentId'], 'parent-1');
+      expect(create['objectId'], info.nodeId);
+      expect(create['nodeType'], 'block');
+      expect(create['parentId'], '60000000-0000-4000-8000-000000000001');
       expect(create['classIds'], [SystemClassUuids.asset]);
-      final initialContent = create['initialContent'] as List<dynamic>;
-      expect(initialContent.single['type'], 'paragraph');
+      final contentAst = create['contentAst'] as List<dynamic>;
+      expect(contentAst.single['type'], 'paragraph');
 
-      expect(ops[1]['op_type'], 'asset.upload');
+      expect(ops[1]['op_type'], 'asset.attach');
       final upload =
           jsonDecode(ops[1]['payload'] as String) as Map<String, dynamic>;
       expect(upload['assetId'], info.nodeId);
-      expect(upload['nodeId'], info.nodeId);
-      expect(upload['assetHash'], info.assetHash);
+      expect(upload['objectId'], info.nodeId);
+      expect(upload['hash'], info.assetHash);
       expect(upload['mimeType'], 'audio/mp4');
-      expect(upload['sizeBytes'], 3);
+      expect(upload['size'], 3);
       expect(upload['originalName'], 'voice.m4a');
 
       // The node landed in the derived cache flagged as an asset, and the ops
@@ -183,31 +186,38 @@ void main() {
           info.assetHash);
     });
 
-    test('conversion emits class.assign + asset.upload', () async {
+    test('conversion emits a membership object.create + asset.attach',
+        () async {
       await syncService.enqueue(
         type: 'create',
-        nodeUuid: 'n-existing',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
         contentAst: AstBuilder.parseInline('Block'),
       );
       await syncService.flush();
 
       final file = await writeTempFile('photo.png', [1, 2, 3, 4]);
       final service = LocalAssetService(syncService, store: store);
-      final info = await service.upload(file, existingNodeUuid: 'n-existing');
+      final info = await service.upload(
+        file,
+        existingNodeUuid: '20000000-0000-4000-8000-000000000001',
+      );
 
-      expect(info.nodeId, 'n-existing');
+      expect(info.nodeId, '20000000-0000-4000-8000-000000000001');
       expect(info.mimeType, 'image/png');
 
       final ops = await recordedOps();
       expect(ops, hasLength(3));
-      expect(ops[1]['op_type'], 'class.assign');
+      // v2 has no class.assign: a re-issued object.create with the asset
+      // class is the OR-Set membership carrier.
+      expect(ops[1]['op_type'], 'object.create');
       final assign =
           jsonDecode(ops[1]['payload'] as String) as Map<String, dynamic>;
-      expect(assign['nodeId'], 'n-existing');
-      expect(assign['classId'], SystemClassUuids.asset);
-      expect(ops[2]['op_type'], 'asset.upload');
+      expect(assign['objectId'], '20000000-0000-4000-8000-000000000001');
+      expect(assign['classIds'], [SystemClassUuids.asset]);
+      expect(ops[2]['op_type'], 'asset.attach');
 
-      final node = await syncService.cache.getByUuid('n-existing');
+      final node =
+          await syncService.cache.getByUuid('20000000-0000-4000-8000-000000000001');
       expect(node!.isAsset, isTrue);
     });
 
@@ -222,7 +232,7 @@ void main() {
       final noWorkspaceSync = SyncV2Service(
         database: orphanDatabase,
         dio: Dio(),
-        clientId: 'test-client',
+        clientId: '40000000-0000-4000-8000-000000000001',
         serverless: true,
       );
       final service = LocalAssetService(noWorkspaceSync, store: store);
