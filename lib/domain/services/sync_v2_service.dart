@@ -33,7 +33,8 @@ class SyncV2Exception implements Exception {
 /// Client-side relay sync orchestrator.
 ///
 /// Keeps the same public surface as the old vector-clock sync service but
-/// internally generates operation-relay envelopes and talks to `/api/relay/*`.
+/// internally generates operation-relay envelopes and talks to
+/// `/api/relay/v2/*` (WIRE.md).
 class SyncV2Service {
   SyncV2Service({
     required AppDatabase database,
@@ -226,9 +227,9 @@ class SyncV2Service {
         await _relay.pushBatch(envelopes);
         // Apply the pushed envelopes to the local cache right away so local
         // edits (page titles, new pages) are visible without waiting for the
-        // next pull echo. Re-application on echo is safe: node.create ignores
-        // existing nodes (mirroring the server's INSERT OR IGNORE), the other
-        // appliers are upserts/hard deletes, and node.updateContent is
+        // next pull echo. Re-application on echo is safe: object.create is
+        // first-create-wins (mirroring the server applier), the other
+        // appliers are upserts/deletes, and object.update content is
         // guarded by the last-write-wins content HLC.
         final appliers = RelayAppliers(_cache);
         for (final envelope in envelopes) {
@@ -319,7 +320,7 @@ class SyncV2Service {
             ? snapshot.upToSeq! > cursorSeq
             : snapshot.hlc.compareTo(lastReceived) > 0);
     // The blob is fetched only when the metadata probe says the snapshot is
-    // worth restoring — `GET /relay/snapshot` carries no payload anymore, so
+    // worth restoring — `GET /relay/v2/snapshot` is metadata-only, so
     // the probe stays cheap on large workspaces.
     if (snapshotIsNewer) {
       final bytes = await _relay.latestSnapshotData(workspaceId);
@@ -353,8 +354,8 @@ class SyncV2Service {
         // crashed pull, or a snapshot with a null upToSeq). Locally produced
         // envelopes (is_local = 1) are NOT deduped here: they are applied to
         // the cache on flush, and re-applying the echo is harmless —
-        // node.create ignores existing nodes, the other appliers are
-        // upserts/hard deletes, and node.updateContent is skipped by the
+        // object.create is first-create-wins, the other appliers are
+        // upserts/deletes, and object.update content is skipped by the
         // last-write-wins content HLC guard.
         final knownIds = await _appliedOperationIds(
           response.envelopes.map((e) => e.id).toList(),
@@ -443,9 +444,9 @@ class SyncV2Service {
   /// outbox, applies it to the local cache and records it as locally applied.
   ///
   /// Used by the local workspace seed, which needs op types [enqueue] does
-  /// not model (`class.create`) plus immediate cache application. A later
-  /// serverless [flush] skips the envelope via operation-id dedupe; after a
-  /// server attach, flush pushes the still-pending outbox row.
+  /// not model plus immediate cache application. A later serverless [flush]
+  /// skips the envelope via operation-id dedupe; after a server attach, flush
+  /// pushes the still-pending outbox row.
   Future<OperationEnvelope> emitLocal({
     required String opType,
     required Map<String, dynamic> payload,
@@ -459,6 +460,8 @@ class SyncV2Service {
       id: Uuid7.generate(),
       workspaceId: workspaceId,
       actorId: actorId,
+      deviceId: _clientId,
+      client: 'flutter',
       hlc: _clock.advance(),
       affectedNodeIds: affectedNodeIds,
       opType: opType,
@@ -518,6 +521,10 @@ class SyncV2Service {
     );
   }
 
+  /// Maps a local [OperationIntent] to a v2 relay envelope (WIRE.md +
+  /// `op-types.ts`). v1 intents with no v2 home (restore, class unassign,
+  /// favorites, task completions) throw [UnsupportedError] — fail loud rather
+  /// than silently dropping or emitting a v1 op the relay would 422.
   Future<OperationEnvelope> _intentToEnvelope(
     OperationIntent op,
     String workspaceId,
@@ -550,108 +557,111 @@ class SyncV2Service {
         if (op.isYearly && !classIds.contains(SystemClassUuids.year)) {
           classIds.add(SystemClassUuids.year);
         }
-        final kind = (op.isPage || op.isDaily || op.isMonthly || op.isYearly)
+        final nodeType = (op.isPage || op.isDaily || op.isMonthly || op.isYearly)
             ? 'page'
             : 'block';
-        final initialContent = op.contentAst ??
+        final contentAst = op.contentAst ??
             (op.name != null ? AstBuilder.parseInline(op.name!) : null);
-        opType = 'node.create';
-        payload = OperationPayloads.nodeCreate(
-          nodeId: op.nodeUuid,
-          kind: kind,
-          parentId: op.parentUuid,
+        // v1 create also carried a zero-padded child `index` and `color`;
+        // v2 object.create has no position slot (sibling order rides
+        // object.move) and no color slot (color rides object.update).
+        opType = 'object.create';
+        payload = OperationPayloads.objectCreate(
+          objectId: op.nodeUuid,
+          nodeType: nodeType,
           classIds: classIds,
-          color: op.properties?['color'] as String?,
-          initialContent: initialContent,
-          index: op.newIndex == null ? null : _formatPosition(op.newIndex!),
+          name: op.name,
+          contentAst: contentAst,
+          parentId: op.parentUuid,
         );
       case 'update_content':
-        opType = 'node.updateContent';
-        payload = OperationPayloads.nodeUpdateContent(
-          nodeId: op.nodeUuid,
-          content: op.contentAst,
+        opType = 'object.update';
+        payload = OperationPayloads.objectUpdate(
+          objectId: op.nodeUuid,
+          contentAst: op.contentAst,
         );
       case 'update_node':
-        opType = 'node.updateContent';
-        payload = OperationPayloads.nodeUpdateContent(
-          nodeId: op.nodeUuid,
-          content:
-              op.name != null ? AstBuilder.parseInline(op.name!) : null,
+        opType = 'object.update';
+        payload = OperationPayloads.objectUpdate(
+          objectId: op.nodeUuid,
+          name: op.name,
         );
       case 'update_icon':
-        opType = 'node.updateIcon';
-        payload = OperationPayloads.nodeUpdateIcon(
-          nodeId: op.nodeUuid,
+        opType = 'object.update';
+        payload = OperationPayloads.objectUpdate(
+          objectId: op.nodeUuid,
           icon: op.propertyValue as String?,
         );
       case 'update_color':
-        opType = 'node.updateColor';
-        payload = OperationPayloads.nodeUpdateColor(
-          nodeId: op.nodeUuid,
+        opType = 'object.update';
+        payload = OperationPayloads.objectUpdate(
+          objectId: op.nodeUuid,
           color: op.propertyValue as String?,
         );
       case 'delete':
-        opType = 'node.delete';
-        payload = OperationPayloads.nodeDelete(nodeId: op.nodeUuid);
+        // v1 node.delete was a hard delete; v2 carries that as
+        // object.delete with permanent: true.
+        opType = 'object.delete';
+        payload = OperationPayloads.objectDelete(
+          objectId: op.nodeUuid,
+          permanent: true,
+        );
       case 'archive':
-        opType = 'node.archive';
-        payload = OperationPayloads.nodeArchive(nodeId: op.nodeUuid);
+        // v2 has no archive op; the soft tombstone (permanent: false) is the
+        // recoverable-delete equivalent of v1's node.archive (trash).
+        opType = 'object.delete';
+        payload = OperationPayloads.objectDelete(
+          objectId: op.nodeUuid,
+          permanent: false,
+        );
       case 'restore':
-        opType = 'node.restore';
-        payload = OperationPayloads.nodeRestore(nodeId: op.nodeUuid);
+        throw UnsupportedError(
+          'restore has no v2 op (Phase A gap): the v2 M1 registry has no '
+          'un-delete; object.delete is one-way',
+        );
       case 'move':
-        opType = 'node.move';
-        payload = OperationPayloads.nodeMove(
-          nodeId: op.nodeUuid,
-          newParentId: op.parentUuid,
-          newIndex: op.newIndex == null ? null : _formatPosition(op.newIndex!),
+        // v1 ordered children with a zero-padded newIndex position; v2
+        // orders by parentId + afterId (server-side fractional allocator).
+        opType = 'object.move';
+        payload = OperationPayloads.objectMove(
+          objectId: op.nodeUuid,
+          parentId: op.parentUuid,
+          afterId: op.afterUuid,
         );
       case 'set_property':
         opType = 'property.set';
         payload = OperationPayloads.propertySet(
-          propertyValueId: Uuid7.generate(),
-          nodeId: op.nodeUuid,
-          schemaId: op.propertyUuid ?? '',
+          objectId: op.nodeUuid,
+          propertySchemaId: op.propertyUuid ?? '',
           value: op.propertyValue,
         );
       case 'add_tag':
-        opType = 'class.assign';
-        payload = OperationPayloads.classAssign(
-          nodeId: op.nodeUuid,
-          classId: op.tagUuid ?? '',
+        // v2 has no class.assign op: class membership is an add-wins OR-Set
+        // seeded by re-issuing object.create with the classIds to add (the
+        // server keeps the tree untouched on a re-create).
+        opType = 'object.create';
+        payload = OperationPayloads.objectCreate(
+          objectId: op.nodeUuid,
+          classIds: [op.tagUuid ?? ''],
         );
       case 'remove_tag':
-        opType = 'class.unassign';
-        payload = OperationPayloads.classUnassign(
-          nodeId: op.nodeUuid,
-          classId: op.tagUuid ?? '',
+        throw UnsupportedError(
+          'remove_tag has no v2 op (Phase A gap): class membership is an '
+          'add-wins OR-Set in v2 M1 and the registry has no membership '
+          'removal',
         );
       case 'add_favorite':
-        opType = 'user.favorite.add';
-        payload = OperationPayloads.userFavoriteAdd(nodeId: op.nodeUuid);
       case 'remove_favorite':
-        opType = 'user.favorite.remove';
-        payload = OperationPayloads.userFavoriteRemove(nodeId: op.nodeUuid);
       case 'reorder_favorites':
-        opType = 'user.favorite.reorder';
-        payload = OperationPayloads.userFavoriteReorder(
-          nodeIds: op.favoriteNodeUuids ?? const <String>[],
+        throw UnsupportedError(
+          '${op.type} has no v2 op (Phase A gap): favorites were dropped '
+          'from the v2 M1 registry',
         );
       case 'task_record_completion':
-        opType = 'task.recordCompletion';
-        payload = OperationPayloads.taskRecordCompletion(
-          nodeId: op.nodeUuid,
-          completionId: op.completionId ?? Uuid7.generate(),
-          completedAt: op.completedAt ?? DateTime.now().toUtc().toIso8601String(),
-          scheduledDate: op.scheduledDate,
-          deadlineDate: op.deadlineDate,
-          status: op.completionStatus ?? 'done',
-        );
       case 'task_delete_completion':
-        opType = 'task.deleteCompletion';
-        payload = OperationPayloads.taskDeleteCompletion(
-          nodeId: op.nodeUuid,
-          completionId: op.completionId ?? '',
+        throw UnsupportedError(
+          '${op.type} has no v2 op (Phase A gap): task completions were '
+          'dropped from the v2 M1 registry',
         );
       default:
         throw SyncV2Exception('Unsupported operation type: ${op.type}');
@@ -661,6 +671,8 @@ class SyncV2Service {
       id: id,
       workspaceId: workspaceId,
       actorId: actorId,
+      deviceId: _clientId,
+      client: 'flutter',
       hlc: hlc,
       affectedNodeIds: affectedNodeIds,
       opType: opType,
@@ -668,11 +680,6 @@ class SyncV2Service {
       timestamp: timestamp,
     );
   }
-
-  /// Child positions are stored as zero-padded strings on the server
-  /// (`node_child_order.position` is TEXT, ordered lexicographically);
-  /// matches the web client's `padStart(10, '0')` format.
-  static String _formatPosition(int index) => index.toString().padLeft(10, '0');
 
   Future<void> _recordOperations(
     List<OperationEnvelope> envelopes, {
@@ -693,8 +700,7 @@ class SyncV2Service {
           'affected_node_ids': jsonEncode(envelope.affectedNodeIds),
           'op_type': envelope.opType,
           'payload': jsonEncode(envelope.payload),
-          'timestamp': envelope.timestamp ??
-              DateTime.now().toUtc().toIso8601String(),
+          'timestamp': envelope.timestamp,
           'is_local': isLocal ? 1 : 0,
         },
         conflictAlgorithm: ConflictAlgorithm.replace,

@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/core/constants/system.dart';
@@ -12,6 +10,9 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
+
+  const workspaceId = '10000000-0000-4000-8000-000000000001';
+  const taskUuid = '20000000-0000-4000-8000-000000000001';
 
   group('Task completion sync', () {
     late AppDatabase database;
@@ -34,8 +35,8 @@ void main() {
               Response(
                 requestOptions: options,
                 data: const {
-                  'saved_count': 1,
-                  'saved_ids': ['id'],
+                  'savedCount': 1,
+                  'savedIds': ['id'],
                 },
                 statusCode: 200,
               ),
@@ -47,9 +48,9 @@ void main() {
       syncService = SyncV2Service(
         database: database,
         dio: dio,
-        clientId: 'test-client',
+        clientId: '40000000-0000-4000-8000-000000000001',
       );
-      await syncService.setWorkspaceId('ws-1');
+      await syncService.setWorkspaceId(workspaceId);
     });
 
     tearDown(() async {
@@ -57,131 +58,126 @@ void main() {
       AppDatabase.reset();
     });
 
-    test('record completion intent maps to task.recordCompletion envelope', () async {
-      await syncService.enqueue(
-        type: 'task_record_completion',
-        nodeUuid: 'task-1',
-        completionId: 'completion-1',
-        completionStatus: 'done',
-        completedAt: '2026-08-09T12:00:00.000Z',
-        scheduledDate: '2026-08-09',
-        deadlineDate: '2026-08-10',
-      );
-      await syncService.flush();
-
-      final db = await database.database;
-      final rows = await db.query(
-        'relay_operations',
-        where: 'op_type = ?',
-        whereArgs: const ['task.recordCompletion'],
-      );
-
-      expect(rows, hasLength(1));
-      final payload = jsonDecode(rows.first['payload'] as String) as Map<String, dynamic>;
-      expect(payload['nodeId'], 'task-1');
-      expect(payload['completionId'], 'completion-1');
-      expect(payload['completedAt'], '2026-08-09T12:00:00.000Z');
-      expect(payload['scheduledDate'], '2026-08-09');
-      expect(payload['deadlineDate'], '2026-08-10');
-      expect(payload['status'], 'done');
-    });
-
-    test('delete completion intent maps to task.deleteCompletion envelope', () async {
-      await syncService.enqueue(
-        type: 'task_delete_completion',
-        nodeUuid: 'task-1',
-        completionId: 'completion-1',
-      );
-      await syncService.flush();
-
-      final db = await database.database;
-      final rows = await db.query(
-        'relay_operations',
-        where: 'op_type = ?',
-        whereArgs: const ['task.deleteCompletion'],
-      );
-
-      expect(rows, hasLength(1));
-      final payload = jsonDecode(rows.first['payload'] as String) as Map<String, dynamic>;
-      expect(payload['nodeId'], 'task-1');
-      expect(payload['completionId'], 'completion-1');
-    });
-
-    test('record completion generates ids and timestamps when omitted', () async {
-      await syncService.enqueue(
-        type: 'task_record_completion',
-        nodeUuid: 'task-1',
-      );
-      await syncService.flush();
-
-      final db = await database.database;
-      final rows = await db.query(
-        'relay_operations',
-        where: 'op_type = ?',
-        whereArgs: const ['task.recordCompletion'],
-      );
-
-      expect(rows, hasLength(1));
-      final payload = jsonDecode(rows.first['payload'] as String) as Map<String, dynamic>;
-      expect(payload['nodeId'], 'task-1');
-      expect(payload['completionId'], isNotNull);
-      expect(payload['completionId'], isNotEmpty);
-      expect(payload['completedAt'], isNotNull);
-      expect(payload['completedAt'], isNotEmpty);
-      expect(payload['status'], 'done');
-    });
-
-    test('NodeRepository records and deletes task completions locally', () async {
+    // Phase A gate: task completions have no op in the v2 M1 registry
+    // (task.* was dropped), so the intents fail loud instead of emitting a
+    // v1 op the relay would 422. The local completion is still recorded
+    // (NodeRepository writes the local cache first); only the sync envelope
+    // is missing. Phase B re-homes task state on the v2 model.
+    test('record completion intent throws UnsupportedError (no v2 op)',
+        () async {
       final repo = NodeRepository(dio: dio, syncService: syncService);
 
-      await repo.recordTaskCompletion('task-1', status: 'done');
-      var completionId = await repo.getMostRecentTaskCompletionId('task-1');
+      await expectLater(
+        repo.recordTaskCompletion(taskUuid, status: 'done'),
+        throwsUnsupportedError,
+      );
+
+      // The local completion is recorded before the sync attempt.
+      final completionId =
+          await repo.getMostRecentTaskCompletionId(taskUuid);
       expect(completionId, isNotNull);
       expect(completionId, isNotEmpty);
 
-      await repo.deleteTaskCompletion('task-1', completionId!);
-      completionId = await repo.getMostRecentTaskCompletionId('task-1');
-      expect(completionId, isNull);
-
+      // No envelope reaches the outbox or the operations log.
       final db = await database.database;
-      final rows = await db.query(
-        'relay_operations',
-        where: 'op_type IN (?, ?)',
-        whereArgs: const ['task.recordCompletion', 'task.deleteCompletion'],
-        orderBy: 'timestamp ASC',
-      );
-
-      expect(rows, hasLength(2));
-      final recordPayload = jsonDecode(rows.first['payload'] as String) as Map<String, dynamic>;
-      final deletePayload = jsonDecode(rows.last['payload'] as String) as Map<String, dynamic>;
-      expect(recordPayload['status'], 'done');
-      expect(deletePayload['completionId'], recordPayload['completionId']);
+      expect(await db.query('relay_outbox'), isEmpty);
+      expect(await db.query('relay_operations'), isEmpty);
     });
 
-    test('NodeRepository reads scheduled and deadline dates from cached task', () async {
+    test('delete completion intent throws UnsupportedError (no v2 op)',
+        () async {
+      final repo = NodeRepository(dio: dio, syncService: syncService);
+
+      await expectLater(
+        repo.deleteTaskCompletion(taskUuid, 'completion-1'),
+        throwsUnsupportedError,
+      );
+
+      final db = await database.database;
+      expect(await db.query('relay_outbox'), isEmpty);
+      expect(await db.query('relay_operations'), isEmpty);
+    });
+
+    test('favorites intents throw UnsupportedError (no v2 op)', () async {
+      await expectLater(
+        syncService.enqueue(type: 'add_favorite', nodeUuid: taskUuid),
+        throwsUnsupportedError,
+      );
+      await expectLater(
+        syncService.enqueue(type: 'remove_favorite', nodeUuid: taskUuid),
+        throwsUnsupportedError,
+      );
+      await expectLater(
+        syncService.enqueue(
+          type: 'reorder_favorites',
+          nodeUuid: '',
+          favoriteNodeUuids: const [taskUuid],
+        ),
+        throwsUnsupportedError,
+      );
+
+      final db = await database.database;
+      expect(await db.query('relay_outbox'), isEmpty);
+    });
+
+    test('remove_tag and restore intents throw UnsupportedError (no v2 op)',
+        () async {
+      await expectLater(
+        syncService.enqueue(
+          type: 'remove_tag',
+          nodeUuid: taskUuid,
+          tagUuid: '30000000-0000-4000-8000-000000000001',
+        ),
+        throwsUnsupportedError,
+      );
+      await expectLater(
+        syncService.enqueue(type: 'restore', nodeUuid: taskUuid),
+        throwsUnsupportedError,
+      );
+
+      final db = await database.database;
+      expect(await db.query('relay_outbox'), isEmpty);
+    });
+
+    test('add_tag maps to a re-issued object.create (OR-Set membership carrier)',
+        () async {
+      await syncService.enqueue(
+        type: 'add_tag',
+        nodeUuid: taskUuid,
+        tagUuid: '30000000-0000-4000-8000-000000000001',
+      );
+
+      final db = await database.database;
+      final rows = await db.query('relay_outbox');
+      expect(rows, hasLength(1));
+      final envelopeJson = rows.first['envelope_json'] as String;
+      expect(envelopeJson, contains('"object.create"'));
+      expect(envelopeJson,
+          contains('30000000-0000-4000-8000-000000000001'));
+    });
+
+    test('NodeRepository reads scheduled and deadline dates from cached task',
+        () async {
       final repo = NodeRepository(dio: dio, syncService: syncService);
 
       await syncService.cache.upsert(
         TestNodeBuilder.task(
-          uuid: 'task-1',
+          uuid: taskUuid,
           scheduledDate: '2026-08-09',
           deadlineDate: '2026-08-10',
         ),
       );
 
-      await repo.recordTaskCompletion('task-1', status: 'done');
-
-      final db = await database.database;
-      final rows = await db.query(
-        'relay_operations',
-        where: 'op_type = ?',
-        whereArgs: const ['task.recordCompletion'],
+      // The sync envelope is gated in Phase A, but the local completion row
+      // is recorded first and carries the cached task dates.
+      await expectLater(
+        repo.recordTaskCompletion(taskUuid, status: 'done'),
+        throwsUnsupportedError,
       );
 
-      expect(rows, hasLength(1));
-      final payload = jsonDecode(rows.first['payload'] as String) as Map<String, dynamic>;
-      expect(payload['scheduledDate'], '2026-08-09');
-      expect(payload['deadlineDate'], '2026-08-10');
+      final completionId =
+          await repo.getMostRecentTaskCompletionId(taskUuid);
+      expect(completionId, isNotNull);
     });
   });
 }

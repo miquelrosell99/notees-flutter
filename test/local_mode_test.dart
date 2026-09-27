@@ -107,10 +107,10 @@ void main() {
         // No base URL: any network attempt would throw, so tests passing
         // prove push/pull perform no network I/O.
         dio: Dio(),
-        clientId: 'test-client',
+        clientId: '40000000-0000-4000-8000-000000000001',
         serverless: true,
       );
-      await syncService.setWorkspaceId('local-ws');
+      await syncService.setWorkspaceId('10000000-0000-4000-8000-000000000001');
     });
 
     tearDown(() async {
@@ -121,14 +121,14 @@ void main() {
     test('flush applies envelopes locally and keeps the outbox', () async {
       await syncService.enqueue(
         type: 'create',
-        nodeUuid: 'n-1',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
         contentAst: AstBuilder.parseInline('Hello'),
         isPage: true,
       );
 
       await syncService.flush();
 
-      final node = await syncService.cache.getByUuid('n-1');
+      final node = await syncService.cache.getByUuid('20000000-0000-4000-8000-000000000001');
       expect(node, isNotNull);
       expect(node!.displayName, 'Hello');
       expect(node.isPage, isTrue);
@@ -148,26 +148,26 @@ void main() {
 
     test('pull is a no-op', () async {
       await syncService.pull();
-      expect(await syncService.cache.getByUuid('n-1'), isNull);
+      expect(await syncService.cache.getByUuid('20000000-0000-4000-8000-000000000001'), isNull);
     });
 
     test('remapWorkspace rewrites outbox, operations and favorites', () async {
       await syncService.enqueue(
         type: 'create',
-        nodeUuid: 'n-1',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
         contentAst: AstBuilder.parseInline('Hello'),
         isPage: true,
       );
       await syncService.flush();
       await syncService.cache.addFavorite(
-        'local-ws',
-        'n-1',
+        '10000000-0000-4000-8000-000000000001',
+        '20000000-0000-4000-8000-000000000001',
         actorId: syncService.actorId,
       );
 
       await syncService.remapWorkspace(
-        'local-ws',
-        'server-ws',
+        '10000000-0000-4000-8000-000000000001',
+        '50000000-0000-4000-8000-000000000001',
         actorId: 'user-1',
       );
 
@@ -176,17 +176,17 @@ void main() {
       expect(outbox, hasLength(1));
       final envelope =
           jsonDecode(outbox.first['envelope_json'] as String) as Map<String, dynamic>;
-      expect(envelope['workspaceId'], 'server-ws');
+      expect(envelope['workspaceId'], '50000000-0000-4000-8000-000000000001');
       expect(envelope['actorId'], 'user-1');
 
       final ops = await db.query('relay_operations');
       expect(ops, hasLength(1));
-      expect(ops.first['workspace_id'], 'server-ws');
+      expect(ops.first['workspace_id'], '50000000-0000-4000-8000-000000000001');
       expect(ops.first['actor_id'], 'user-1');
 
       final favorites = await db.query('user_favorite');
       expect(favorites, hasLength(1));
-      expect(favorites.first['workspace_id'], 'server-ws');
+      expect(favorites.first['workspace_id'], '50000000-0000-4000-8000-000000000001');
       expect(favorites.first['actor_id'], 'user-1');
     });
   });
@@ -205,10 +205,10 @@ void main() {
       syncService = SyncV2Service(
         database: database,
         dio: Dio(),
-        clientId: 'test-client',
+        clientId: '40000000-0000-4000-8000-000000000001',
         serverless: true,
       );
-      await syncService.setWorkspaceId('local-ws');
+      await syncService.setWorkspaceId('10000000-0000-4000-8000-000000000001');
     });
 
     tearDown(() async {

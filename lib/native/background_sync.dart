@@ -75,6 +75,7 @@ void _backgroundSyncCallback() {
         secureStorage: secureStorage,
         trustSelfSigned: activeServer.trustSelfSigned,
         cookieJar: await sharedCookieJar(),
+        serverId: activeServer.id,
       );
       final clientId = await getClientId(prefs);
       final syncService = SyncV2Service(
@@ -175,6 +176,7 @@ Future<void> _updateWidgetData(SharedPreferences prefs) async {
       secureStorage: secureStorage,
       trustSelfSigned: activeServer.trustSelfSigned,
       cookieJar: await sharedCookieJar(),
+      serverId: activeServer.id,
     );
     final clientId = await getClientId(prefs);
     // Background isolates cannot open an encrypted SQLCipher database, so fall
@@ -216,6 +218,7 @@ Future<void> _completeTaskFromWidget(SharedPreferences prefs, String uuid) async
       secureStorage: secureStorage,
       trustSelfSigned: activeServer.trustSelfSigned,
       cookieJar: await sharedCookieJar(),
+      serverId: activeServer.id,
     );
     final clientId = await getClientId(prefs);
     // When local DB encryption is enabled the background isolate cannot access
