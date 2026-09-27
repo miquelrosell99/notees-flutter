@@ -43,7 +43,49 @@ class LocalWorkspaceSeed {
     'danger': SystemClassUuids.danger,
     'success': SystemClassUuids.success,
     'cloze': SystemClassUuids.cloze,
+    'source': SystemClassUuids.source,
+    'song': SystemClassUuids.song,
+    'tv_series': SystemClassUuids.tvSeries,
+    'conference': SystemClassUuids.conference,
   };
+
+  /// Icons for the classes the citations-model revision added (TS manifest
+  /// `SYSTEM_CLASS_ICONS`); the legacy v1 mobile subset seeds without icons.
+  static const Map<String, String> systemClassIcons = {
+    'source': 'mdiBookshelf',
+    'song': 'mdiMusicNote',
+    'tv_series': 'mdiTelevisionClassic',
+    'conference': 'mdiPresentation',
+  };
+
+  /// Canonical extends edges for the new classes (TS manifest
+  /// `SYSTEM_CLASS_EXTENDS`): all three extend `source`.
+  static const Map<String, List<String>> systemClassExtends = {
+    'song': ['source'],
+    'tv_series': ['source'],
+    'conference': ['source'],
+  };
+
+  /// System property specs the citations-model revision touched (TS manifest
+  /// `SYSTEM_PROPERTY_SPECS`): `authors` changed to a plain verbatim text
+  /// list; `linkedAuthors` is new (explicit person linkage to `agent`).
+  static const List<SeedPropertySpec> systemPropertySpecs = [
+    SeedPropertySpec(
+      name: 'authors',
+      propertySchemaId: SystemPropertyUuids.authors,
+      type: 'text',
+      multi: true,
+      bindTo: 'source',
+    ),
+    SeedPropertySpec(
+      name: 'linkedAuthors',
+      propertySchemaId: SystemPropertyUuids.linkedAuthors,
+      type: 'object',
+      multi: true,
+      bindTo: 'source',
+      targetClassFilter: <String>[SystemClassUuids.agent],
+    ),
+  ];
 
   /// Seeds missing system classes and default pages, idempotently.
   ///
@@ -63,10 +105,56 @@ class LocalWorkspaceSeed {
         payload: OperationPayloads.classCreate(
           classId: classId,
           name: entry.key,
+          icon: systemClassIcons[entry.key],
         ),
         affectedNodeIds: [classId],
       );
       emitted += 1;
+
+      final extendsNames = systemClassExtends[entry.key];
+      if (extendsNames != null) {
+        await _sync.emitLocal(
+          opType: 'class.setExtends',
+          payload: OperationPayloads.classSetExtends(
+            classId: classId,
+            parentClassIds: [
+              for (final parent in extendsNames)
+                systemClassNames[parent]!,
+            ],
+          ),
+          affectedNodeIds: [classId],
+        );
+        emitted += 1;
+      }
+    }
+
+    // Property schemas + their class bindings (citations revision).
+    for (var i = 0; i < systemPropertySpecs.length; i++) {
+      final spec = systemPropertySpecs[i];
+      if (await _sync.cache.getPropertySchemaRow(spec.propertySchemaId) != null) {
+        continue;
+      }
+      await _sync.emitLocal(
+        opType: 'propertySchema.create',
+        payload: OperationPayloads.propertySchemaCreate(
+          propertySchemaId: spec.propertySchemaId,
+          name: spec.name,
+          type: spec.type,
+          multi: spec.multi,
+          targetClassFilter: spec.targetClassFilter,
+        ),
+        affectedNodeIds: [spec.propertySchemaId],
+      );
+      await _sync.emitLocal(
+        opType: 'class.property.set',
+        payload: OperationPayloads.classPropertySet(
+          classId: systemClassNames[spec.bindTo]!,
+          propertySchemaId: spec.propertySchemaId,
+          sequence: i,
+        ),
+        affectedNodeIds: [systemClassNames[spec.bindTo]!],
+      );
+      emitted += 2;
     }
 
     final pages = <String, String>{
@@ -90,4 +178,26 @@ class LocalWorkspaceSeed {
 
     return emitted;
   }
+}
+
+/// One system property-schema spec entry (TS manifest
+/// `SYSTEM_PROPERTY_SPECS` slice the mobile seed mirrors).
+class SeedPropertySpec {
+  const SeedPropertySpec({
+    required this.name,
+    required this.propertySchemaId,
+    required this.type,
+    required this.multi,
+    required this.bindTo,
+    this.targetClassFilter,
+  });
+
+  final String name;
+  final String propertySchemaId;
+  final String type;
+  final bool multi;
+
+  /// Class name the schema binds to (key of [LocalWorkspaceSeed.systemClassNames]).
+  final String bindTo;
+  final List<String>? targetClassFilter;
 }
