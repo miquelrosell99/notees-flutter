@@ -99,6 +99,8 @@ class RelayAppliers {
       case 'class.property.unset':
         await _applyClassPropertyUnset(payload);
         return true;
+      case 'class.unassign':
+        return _applyClassUnassign(envelope, payload);
       case 'propertySchema.create':
         await _applyPropertySchemaCreate(payload);
         return true;
@@ -638,6 +640,31 @@ class RelayAppliers {
       payload['classId'] as String,
       payload['propertySchemaId'] as String,
     );
+  }
+
+  Future<bool> _applyClassUnassign(
+    OperationEnvelope envelope,
+    Map<String, dynamic> payload,
+  ) async {
+    final opType = envelope.opType;
+    final objectId = payload['objectId'] as String;
+    final classId = payload['classId'] as String;
+    if (await _cache.getByUuid(objectId) == null) {
+      throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
+    }
+    // OR-Set remove: the membership pair is tombstoned, gated strictly
+    // greater on (hlc, logical, actor) — an exact-HLC add wins the tie in
+    // either delivery order (the re-issued object.create seed comparator
+    // is >= on the actor tiebreak, the remove's is >).
+    final incoming = _incoming(envelope);
+    final stored = await _cache.classMemberWinner(objectId, classId);
+    if (stored == null || compareLww(incoming, stored) > 0) {
+      await _cache.upsertClassMember(objectId, classId, false, incoming);
+    }
+    // class_ids recompute from the present rows — bound defaults stop
+    // deriving (nothing stored), authored values survive by design.
+    await _cache.recomputeClassIds(objectId);
+    return true;
   }
 
   // --- property schemas -----------------------------------------------------------

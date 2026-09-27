@@ -33,6 +33,7 @@ void main() {
     'class-extends-cycle.json',
     'class-extends-m2m.json',
     'class-property-defaults.json',
+    'class-unassign.json',
     'object-move.json',
     'property-set-lww.json',
     'typed-link-mark.json',
