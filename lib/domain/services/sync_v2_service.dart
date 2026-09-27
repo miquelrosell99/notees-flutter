@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
@@ -12,6 +13,7 @@ import '../../data/models/node.dart';
 import '../../data/repositories/node_cache_repository.dart';
 import '../../data/repositories/relay_client.dart';
 import '../../data/repositories/relay_outbox_repository.dart';
+import '../../data/repositories/relay_ws_client.dart';
 import '../../data/repositories/sync_watermark_repository.dart';
 import '../models/relay/hlc.dart';
 import '../models/relay/operation_envelope.dart';
@@ -62,6 +64,14 @@ class SyncV2Service {
   /// with the envelopes applied so far and the total expected
   /// (applied + the server's totalRemaining).
   void Function(SyncPullProgress progress)? onPullProgress;
+
+  /// Test hook: overrides the WS connector used by [startRealtime] so tests
+  /// can script fake connections without a live socket.
+  WsConnector? wsConnectorOverride;
+
+  RelayWsClient? _ws;
+  bool _pullInFlight = false;
+  final _wsBuffer = <_WsOpsFrame>[];
 
   /// Offline (local-only) mode: the service never talks to the network.
   /// [pull] is a no-op and [flush] applies pending outbox envelopes to the
@@ -337,7 +347,15 @@ class SyncV2Service {
     if (serverless) return;
     final workspaceId = await getWorkspaceId();
     if (workspaceId == null) return;
-    await _pullGeneration(workspaceId, requeuePending: true);
+    _pullInFlight = true;
+    try {
+      await _pullGeneration(workspaceId, requeuePending: true);
+    } finally {
+      _pullInFlight = false;
+      // Frames buffered while catch-up ran apply now; id-dedupe makes the
+      // overlap harmless.
+      await _drainWsBuffer();
+    }
   }
 
   Future<void> _pullGeneration(
@@ -430,35 +448,9 @@ class SyncV2Service {
         return;
       }
       if (response.envelopes.isNotEmpty) {
-        // Dedupe against envelopes already applied from the server (a
-        // crashed pull, or a snapshot with a null upToSeq). Locally produced
-        // envelopes (is_local = 1) are NOT deduped here: they are applied to
-        // the cache on flush, and re-applying the echo is harmless — the
-        // appliers are row-LWW / first-create-wins idempotent.
-        final knownIds = await _appliedOperationIds(
-          response.envelopes.map((e) => e.id).toList(),
-        );
-        for (final envelope in response.envelopes) {
-          if (knownIds.contains(envelope.id)) continue;
-          try {
-            final applied = await appliers.apply(envelope);
-            await _recordOperations([envelope], isLocal: false);
-            if (applied) appliedOps++;
-          } on StoreError catch (e) {
-            // Typed applier failure (cycle, move guard, placement CHECK,
-            // payload validation): fail loud, and do NOT consume the
-            // envelope id — a later pull re-applies it, and a wipe resyncs
-            // the prefix deterministically (mirrors the v2 store, where a
-            // thrown apply rolls back with the dedupe record).
-            debugPrint(
-              'SyncV2Service: skipping ${envelope.id} (${envelope.opType}): $e',
-            );
-            continue;
-          }
-          if (envelope.hlc.compareTo(maxHlc) > 0) {
-            maxHlc = envelope.hlc;
-          }
-        }
+        final stats = await _applyServerEnvelopes(appliers, response.envelopes);
+        appliedOps += stats.applied;
+        if (stats.maxHlc.compareTo(maxHlc) > 0) maxHlc = stats.maxHlc;
       }
       onPullProgress?.call(
         SyncPullProgress(
@@ -491,6 +483,189 @@ class SyncV2Service {
       await flush();
       await _pullGeneration(workspaceId, requeuePending: false, depth: depth);
     }
+  }
+
+  /// Shared remote-apply path (catch-up pages and buffered WS ops frames):
+  /// dedupe against envelopes already applied from the server, apply through
+  /// the v2 appliers, record, and track the HLC watermark. Locally produced
+  /// envelopes (is_local = 1) are NOT deduped here: they are applied to the
+  /// cache on flush, and re-applying the echo is harmless — the appliers are
+  /// row-LWW / first-create-wins idempotent.
+  Future<_ApplyStats> _applyServerEnvelopes(
+    RelayAppliers appliers,
+    List<OperationEnvelope> envelopes,
+  ) async {
+    var applied = 0;
+    var maxHlc = const Hlc(physical: 0, logical: 0);
+    final knownIds = await _appliedOperationIds(
+      envelopes.map((e) => e.id).toList(),
+    );
+    for (final envelope in envelopes) {
+      if (knownIds.contains(envelope.id)) continue;
+      try {
+        final didApply = await appliers.apply(envelope);
+        await _recordOperations([envelope], isLocal: false);
+        if (didApply) applied++;
+      } on StoreError catch (e) {
+        // Typed applier failure (cycle, move guard, placement CHECK,
+        // payload validation): fail loud, and do NOT consume the
+        // envelope id — a later pull re-applies it, and a wipe resyncs
+        // the prefix deterministically (mirrors the v2 store, where a
+        // thrown apply rolls back with the dedupe record).
+        debugPrint(
+          'SyncV2Service: skipping ${envelope.id} (${envelope.opType}): $e',
+        );
+        continue;
+      }
+      if (envelope.hlc.compareTo(maxHlc) > 0) {
+        maxHlc = envelope.hlc;
+      }
+    }
+    return (applied: applied, maxHlc: maxHlc);
+  }
+
+  // --- realtime acceleration path (WIRE.md §2) -------------------------------
+
+  /// Starts the realtime WebSocket acceleration path for the current
+  /// workspace. [apiKey] authenticates the handshake (the per-server key the
+  /// Dio layer already attaches as `X-API-Key`).
+  ///
+  /// Every (re)connect sends a fresh `hello`: a restoreEpoch change or a
+  /// `latestSeq` ahead of the cursor triggers a catch-up pull; `ops` frames
+  /// buffer while a pull runs and drain through the same apply path as
+  /// catch-up (op-id dedupe makes the overlap harmless). Live frames never
+  /// advance the seq cursor — the socket is an accelerator only; a dropped
+  /// socket is indistinguishable from a delayed one and the cursor covers
+  /// the gap on the next pull.
+  void startRealtime({required String apiKey}) {
+    if (serverless || _ws != null) return;
+    final baseUrl = dio.options.baseUrl;
+    getWorkspaceId().then((workspaceId) {
+      if (workspaceId == null || _ws != null) return;
+      final client = RelayWsClient(
+        url: buildRelayWsUrl(baseUrl, workspaceId, apiKey),
+        connector: wsConnectorOverride,
+        onHello: (hello) {
+          unawaited(_onWsHello(hello, workspaceId));
+        },
+        onOps: (envelopes, seqs) {
+          _onRemoteOps(envelopes, seqs);
+        },
+        onAck: (savedIds) {
+          unawaited(_onWsAck(savedIds));
+        },
+        onError: (error) {
+          debugPrint('SyncV2Service: realtime error: $error');
+        },
+      );
+      _ws = client;
+      client.start();
+    });
+  }
+
+  /// Stops the realtime stream (clean close, no reconnect) and drops any
+  /// buffered frames.
+  Future<void> stopRealtime() async {
+    _wsBuffer.clear();
+    final client = _ws;
+    _ws = null;
+    if (client != null) {
+      await client.stop();
+    }
+  }
+
+  Future<void> _onWsHello(WsHelloInfo hello, String workspaceId) async {
+    final localEpoch = await _watermarks.getRestoreEpoch(workspaceId);
+    final cursor = await _watermarks.getCursorSeq(workspaceId);
+    if (hello.restoreEpoch != localEpoch) {
+      // The server restored/rebuilt: wipe + resync from 0 (the outbox is
+      // parked and re-pushed after the catch-up), then the pull's finally
+      // drains the frame buffer.
+      await _resyncFromEpochChange(workspaceId, hello.restoreEpoch);
+    } else if (hello.latestSeq > cursor) {
+      // Behind: catch up over HTTP from the seq cursor.
+      await pull();
+    } else {
+      await _drainWsBuffer();
+    }
+  }
+
+  /// Server restoreEpoch changed (advertised by a WS hello): park unsent
+  /// ops (the outbox survives), wipe the derived state, and resync from
+  /// seq 0. Mirrors the v2 engine's resyncFromEpochChange.
+  Future<void> _resyncFromEpochChange(String workspaceId, int newEpoch) async {
+    await _cache.clear();
+    await _watermarks.resetWorkspace(workspaceId);
+    await _watermarks.setReceived(
+      workspaceId,
+      const Hlc(physical: 0, logical: 0),
+      restoreEpoch: newEpoch,
+      cursorSeq: 0,
+    );
+    await _pullGeneration(workspaceId, requeuePending: true);
+  }
+
+  void _onRemoteOps(
+    List<Map<String, dynamic>> envelopes,
+    Map<String, int> seqs,
+  ) {
+    if (envelopes.isEmpty) return;
+    _wsBuffer.add((envelopes: envelopes, seqs: seqs));
+    if (!_pullInFlight) {
+      unawaited(_drainWsBuffer());
+    }
+  }
+
+  Future<void> _drainWsBuffer() async {
+    if (_pullInFlight) return;
+    while (_wsBuffer.isNotEmpty && !_pullInFlight) {
+      final frame = _wsBuffer.removeAt(0);
+      try {
+        final envelopes = [
+          for (final raw in frame.envelopes)
+            OperationEnvelope.fromJson(raw),
+        ];
+        final stats = await _applyServerEnvelopes(
+          RelayAppliers(_cache),
+          envelopes,
+        );
+        if (stats.maxHlc.physical > 0) {
+          _clock.update(stats.maxHlc);
+        }
+      } on FormatException catch (e) {
+        // Unparseable frame: drop the remaining buffer — unapplied frames
+        // never advanced the cursor, so the next pull re-fetches them
+        // through catch-up (v1 buffer-drop semantics).
+        _wsBuffer.clear();
+        debugPrint('SyncV2Service: dropping WS buffer after $e');
+        return;
+      }
+    }
+  }
+
+  Future<void> _onWsAck(List<String> savedIds) async {
+    // Server acks ids pushed over the socket (a no-op for HTTP-pushed ids).
+    await _outbox.removeByEnvelopeIds(savedIds);
+  }
+
+  /// Builds a v2 derived-state snapshot from the local cache and uploads it
+  /// to the relay (`PUT /snapshot/data`). Explicit/manual only — settings
+  /// surfaces the trigger; the client never auto-uploads on pull. The
+  /// covering HLC is the pushed watermark (falling back to received).
+  Future<void> uploadSnapshot() async {
+    if (serverless) return;
+    final workspaceId = await getWorkspaceId();
+    if (workspaceId == null) return;
+    final bytes = await _cache.buildV2SnapshotBytes(workspaceId);
+    if (bytes == null || bytes.isEmpty) return;
+    final hlc = await _watermarks.getPushed(workspaceId) ??
+        await _watermarks.getReceived(workspaceId) ??
+        const Hlc(physical: 0, logical: 0);
+    await _relay.uploadSnapshot(
+      workspaceId: workspaceId,
+      bytes: bytes,
+      hlc: hlc,
+    );
   }
 
   /// Ids from [ids] already recorded as applied from the server.
@@ -845,3 +1020,11 @@ class SyncV2Service {
     );
   }
 }
+
+
+/// Apply outcome of a server envelope batch.
+typedef _ApplyStats = ({int applied, Hlc maxHlc});
+
+/// One buffered realtime `ops` frame.
+typedef _WsOpsFrame =
+    ({List<Map<String, dynamic>> envelopes, Map<String, int> seqs});

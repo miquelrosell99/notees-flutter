@@ -70,6 +70,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// Manual snapshot-upload trigger (explicit only — the client never
+  /// auto-uploads on pull).
+  Future<void> _uploadSnapshot(BuildContext context) async {
+    final auth = context.read<AuthProvider>();
+    final sync = auth.syncService;
+    if (sync == null) return;
+    try {
+      await sync.uploadSnapshot();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Snapshot uploaded')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Snapshot upload failed: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _switchWorkspace(Workspace workspace) async {
     HapticFeedback.lightImpact();
     final auth = context.read<AuthProvider>();
@@ -431,6 +453,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     }).toList(),
                   ),
+          ),
+          const SizedBox(height: 28),
+          ],
+          if (!auth.isLocalMode) ...[
+          SectionTitle(icon: MdiIcons.cloudUploadOutline, label: 'Sync'),
+          const SizedBox(height: 8),
+          FleetCard(
+            child: ListTile(
+              leading: Icon(MdiIcons.cloudUploadOutline),
+              title: const Text('Upload workspace snapshot'),
+              subtitle: const Text(
+                'Sends the local derived state to the relay so other devices can restore from it',
+              ),
+              trailing: Icon(MdiIcons.chevronRight),
+              onTap: () => _uploadSnapshot(context),
+            ),
           ),
           const SizedBox(height: 28),
           ],

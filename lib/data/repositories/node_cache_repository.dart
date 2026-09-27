@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
@@ -124,6 +124,11 @@ class NodeCacheRepository {
   NodeCacheRepository(this._database);
 
   final AppDatabase _database;
+
+  /// Opens the temp-file DB used by [buildV2SnapshotBytes]. Production uses
+  /// the platform sqflite plugin; tests override this with the ffi factory
+  /// (sqflite_common_ffi is a dev dependency and cannot be imported here).
+  static Future<Database> Function(String path) snapshotDbOpener = openDatabase;
 
   static const _lastSyncKey = 'sync_v1_last_sync';
 
@@ -2092,6 +2097,308 @@ class NodeCacheRepository {
       [workspaceId, userId, limit],
     );
     return rows.map(_nodeFromRow).toList();
+  }
+
+  // === Client-produced v2 snapshots (restoreFromSnapshot's inverse) =========
+
+  /// Serializes the local derived state into a v2 derived-state snapshot
+  /// (the store schema in `v2/packages/store/src/schema.ts`) — the inverse
+  /// of [restoreFromSnapshot], used by the explicit snapshot-upload trigger.
+  ///
+  /// The bytes are a real SQLite database file: a temp-file DB is populated
+  /// from the local tables (nodes incl. title/position/node_type/hlc winner,
+  /// fractional child order, classes + extends closure, OR-Set membership,
+  /// property rows with their LWW winners, collection membership, edges) and
+  /// read back as bytes. Search/FTS and stats tables are intentionally
+  /// skipped: the server rebuilds them on restore.
+  Future<Uint8List?> buildV2SnapshotBytes(String workspaceId) async {
+    final tempDir = await getTemporaryDirectory();
+    final tempPath = join(
+      tempDir.path,
+      'notees_snapshot_build_${DateTime.now().millisecondsSinceEpoch}.db',
+    );
+    final tempFile = File(tempPath);
+
+    Database? buildDb;
+    try {
+      buildDb = await snapshotDbOpener(tempPath);
+      await _createV2SnapshotSchema(buildDb);
+      await _populateV2Snapshot(buildDb, workspaceId);
+      // Read back the raw file bytes (flush by closing first).
+      await buildDb.close();
+      buildDb = null;
+      return await tempFile.readAsBytes();
+    } catch (error) {
+      // A failed build must never crash the caller (the upload is
+      // best-effort); surface the reason for debugging.
+      debugPrint('buildV2SnapshotBytes failed: $error');
+      return null;
+    } finally {
+      await buildDb?.close();
+      try {
+        if (await tempFile.exists()) await tempFile.delete();
+      } catch (_) {
+        // Best-effort cleanup.
+      }
+    }
+  }
+
+  Future<void> _createV2SnapshotSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE node (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        node_type TEXT NOT NULL DEFAULT 'block',
+        parent_id TEXT,
+        class_ids TEXT NOT NULL DEFAULT '[]',
+        name TEXT,
+        content TEXT NOT NULL DEFAULT '[]',
+        icon TEXT,
+        color TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT,
+        updated_at TEXT,
+        created_by TEXT,
+        updated_by TEXT,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE node_child_order (
+        parent_id TEXT NOT NULL,
+        child_id TEXT NOT NULL,
+        position TEXT NOT NULL,
+        PRIMARY KEY (parent_id, child_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE class (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        icon TEXT,
+        color TEXT,
+        description TEXT,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE class_member_set (
+        node_id TEXT NOT NULL,
+        class_id TEXT NOT NULL,
+        present INTEGER NOT NULL,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        PRIMARY KEY (node_id, class_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE class_extends (
+        class_id TEXT NOT NULL,
+        parent_class_id TEXT NOT NULL,
+        PRIMARY KEY (class_id, parent_class_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE class_hierarchy (
+        class_id TEXT NOT NULL,
+        ancestor_id TEXT NOT NULL,
+        PRIMARY KEY (class_id, ancestor_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE property_schema (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'text',
+        multi INTEGER NOT NULL DEFAULT 0,
+        scope TEXT NOT NULL DEFAULT 'global',
+        options TEXT NOT NULL DEFAULT '[]',
+        target_class_filter TEXT,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT,
+        updated_at TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE property_value (
+        id TEXT PRIMARY KEY,
+        node_id TEXT NOT NULL,
+        property_schema_id TEXT NOT NULL,
+        value TEXT NOT NULL,
+        idx INTEGER NOT NULL DEFAULT 0,
+        metadata TEXT,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE property_value_tombstone (
+        node_id TEXT NOT NULL,
+        property_schema_id TEXT NOT NULL,
+        idx INTEGER NOT NULL DEFAULT 0,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        PRIMARY KEY (node_id, property_schema_id, idx)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE collection_member (
+        collection_id TEXT NOT NULL,
+        object_id TEXT NOT NULL,
+        present INTEGER NOT NULL,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        PRIMARY KEY (collection_id, object_id)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE edge (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL DEFAULT '',
+        source_id TEXT NOT NULL,
+        target_id TEXT,
+        type TEXT NOT NULL,
+        verb TEXT,
+        metadata TEXT,
+        created_at TEXT
+      )
+    ''');
+  }
+
+  Future<void> _populateV2Snapshot(Database db, String workspaceId) async {
+    final local = await _database.database;
+
+    // icon/color live in the node payload JSON (node_cache has no columns
+    // for them); title/position/node_type/hlc ride in the v16 columns.
+    final nodeRows = await local.rawQuery(
+      'SELECT uuid, name, title, position, node_type, parent_uuid, classes_uuid, '
+      'is_deleted, is_archived, write_date, hlc_physical, hlc_logical, '
+      'actor_id, payload FROM node_cache',
+    );
+    final batch = db.batch();
+    for (final row in nodeRows) {
+      final payload = jsonDecode(row['payload'] as String) as Map<String, dynamic>;
+      final nodeType = row['node_type'] as String? ??
+          ((payload['is_page'] as bool? ?? false) ? 'page' : 'block');
+      final isDeleted = (row['is_deleted'] as int? ?? 0) == 1;
+      final isArchived = (row['is_archived'] as int? ?? 0) == 1;
+      final content = row['name'] as String? ?? '[]';
+      final position = row['position'] as String?;
+      batch.insert('node', {
+        'id': row['uuid'],
+        'workspace_id': workspaceId,
+        'node_type': nodeType,
+        'parent_id': row['parent_uuid'],
+        'class_ids': row['classes_uuid'] ?? '[]',
+        'name': row['title'],
+        'content': content,
+        'icon': payload['icon'],
+        'color': payload['color'],
+        'is_active': (isDeleted || isArchived) ? 0 : 1,
+        'created_at': payload['create_date'],
+        'updated_at': row['write_date'],
+        'hlc_physical': row['hlc_physical'] ?? 0,
+        'hlc_logical': row['hlc_logical'] ?? 0,
+        'actor_id': row['actor_id'],
+      });
+      if (row['parent_uuid'] != null && position != null) {
+        batch.insert('node_child_order', {
+          'parent_id': row['parent_uuid'],
+          'child_id': row['uuid'],
+          'position': position,
+        });
+      }
+    }
+
+    final classRows = await local.rawQuery(
+      'SELECT uuid, name, icon, color, description, active, created_at, updated_at '
+      'FROM class_cache',
+    );
+    for (final row in classRows) {
+      batch.insert('class', {
+        'id': row['uuid'],
+        'workspace_id': workspaceId,
+        'name': row['name'],
+        'icon': row['icon'],
+        'color': row['color'],
+        'description': row['description'],
+        'active': row['active'] ?? 1,
+        'created_at': row['created_at'],
+        'updated_at': row['updated_at'],
+      });
+    }
+
+    for (final table in [
+      'class_member_set',
+      'class_extends',
+      'class_hierarchy',
+      'collection_member',
+    ]) {
+      final rows = await local.rawQuery('SELECT * FROM $table');
+      for (final row in rows) {
+        batch.insert(table, Map<String, dynamic>.from(row));
+      }
+    }
+
+    final schemaRows = await local.rawQuery('SELECT * FROM property_schema');
+    for (final row in schemaRows) {
+      batch.insert('property_schema', {
+        'id': row['uuid'],
+        'workspace_id': workspaceId,
+        'name': row['name'],
+        'type': row['type'],
+        'multi': row['multi'] ?? 0,
+        'scope': row['scope'] ?? 'global',
+        'options': row['options'] ?? '[]',
+        'target_class_filter': row['class_filter_uuids'],
+        'active': row['active'] ?? 1,
+        'created_at': row['created_at'],
+        'updated_at': row['updated_at'],
+      });
+    }
+
+    final valueRows = await local.rawQuery('SELECT * FROM property_value');
+    for (final row in valueRows) {
+      batch.insert('property_value', {
+        'id': row['id'],
+        'node_id': row['node_uuid'],
+        'property_schema_id': row['property_schema_id'],
+        'value': row['value'],
+        'idx': row['idx'] ?? 0,
+        'metadata': row['metadata'],
+        'hlc_physical': row['hlc_physical'] ?? 0,
+        'hlc_logical': row['hlc_logical'] ?? 0,
+        'actor_id': row['actor_id'],
+      });
+    }
+    final tombRows =
+        await local.rawQuery('SELECT * FROM property_value_tombstone');
+    for (final row in tombRows) {
+      batch.insert('property_value_tombstone', {
+        'node_id': row['node_uuid'],
+        'property_schema_id': row['property_schema_id'],
+        'idx': row['idx'] ?? 0,
+        'hlc_physical': row['hlc_physical'] ?? 0,
+        'hlc_logical': row['hlc_logical'] ?? 0,
+        'actor_id': row['actor_id'],
+      });
+    }
+
+    final edgeRows = await local.rawQuery('SELECT * FROM edge');
+    for (final row in edgeRows) {
+      batch.insert('edge', Map<String, dynamic>.from(row));
+    }
+    await batch.commit(noResult: true);
   }
 
   // === Edge index (derived references; v2 store edges.ts port) ===========
