@@ -257,6 +257,137 @@ void main() {
       });
     });
 
+    test('validation_failed wire error quarantines the chunk with the code',
+        () async {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.badResponse,
+                response: Response(
+                  requestOptions: options,
+                  data: const {
+                    'error': {
+                      'code': 'validation_failed',
+                      'message': 'payload invalid',
+                      'status': 422,
+                    },
+                  },
+                  statusCode: 422,
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      final service = await buildService(dio);
+      await service.enqueue(
+        type: 'create',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
+        contentAst: AstBuilder.parseInline('Shopping'),
+        isPage: true,
+      );
+
+      final errors = await service.flush();
+
+      expect(errors, isNotEmpty);
+      final db = await database.database;
+      final rows = await db.query('relay_outbox');
+      expect(rows, hasLength(1));
+      expect(rows.single['state'], 'quarantined');
+      expect(rows.single['last_error'], contains('validation_failed'));
+    });
+
+    test('idempotency_replay wire error treats the chunk as acked', () async {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.badResponse,
+                response: Response(
+                  requestOptions: options,
+                  data: const {
+                    'error': {
+                      'code': 'idempotency_replay',
+                      'message': 'already stored',
+                      'status': 409,
+                    },
+                  },
+                  statusCode: 409,
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      final service = await buildService(dio);
+      await service.enqueue(
+        type: 'create',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
+        contentAst: AstBuilder.parseInline('Shopping'),
+        isPage: true,
+      );
+
+      final errors = await service.flush();
+
+      expect(errors, isEmpty);
+      final db = await database.database;
+      expect(await db.query('relay_outbox'), isEmpty);
+      // Locally applied + recorded despite the replay rejection.
+      final node =
+          await service.cache.getByUuid('20000000-0000-4000-8000-000000000001');
+      expect(node, isNotNull);
+      expect(await db.query('relay_operations'), hasLength(1));
+    });
+
+    test('unauthenticated wire error retries instead of quarantining', () async {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.badResponse,
+                response: Response(
+                  requestOptions: options,
+                  data: const {
+                    'error': {
+                      'code': 'unauthenticated',
+                      'message': 'bad key',
+                      'status': 401,
+                    },
+                  },
+                  statusCode: 401,
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      final service = await buildService(dio);
+      await service.enqueue(
+        type: 'create',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
+        contentAst: AstBuilder.parseInline('Shopping'),
+        isPage: true,
+      );
+
+      final errors = await service.flush();
+
+      expect(errors, isNotEmpty);
+      final db = await database.database;
+      final rows = await db.query('relay_outbox');
+      expect(rows, hasLength(1));
+      expect(rows.single['state'], 'failed'); // retry scheduled, not quarantined
+    });
+
     test('legacy v1 outbox rows are quarantined, not wedged', () async {
       // A pre-port outbox row: v1 envelope without deviceId/timestamp and
       // with a v1 payload shape. Strict v2 parsing rejects it; flush must

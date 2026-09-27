@@ -32,17 +32,13 @@ class SyncWatermarkRepository {
     int cursorSeq = 0,
   }) async {
     final db = await _database.database;
-    await db.insert(
-      'sync_watermark',
-      {
-        'workspace_id': workspaceId,
-        'hlc_physical': hlc.physical,
-        'hlc_logical': hlc.logical,
-        'restore_epoch': restoreEpoch,
-        'cursor_seq': cursorSeq,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('sync_watermark', {
+      'workspace_id': workspaceId,
+      'hlc_physical': hlc.physical,
+      'hlc_logical': hlc.logical,
+      'restore_epoch': restoreEpoch,
+      'cursor_seq': cursorSeq,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// Highest applied server-assigned envelope seq for [workspaceId].
@@ -78,15 +74,11 @@ class SyncWatermarkRepository {
 
   Future<void> setPushed(String workspaceId, Hlc hlc) async {
     final db = await _database.database;
-    await db.insert(
-      'sync_push_watermark',
-      {
-        'workspace_id': workspaceId,
-        'hlc_physical': hlc.physical,
-        'hlc_logical': hlc.logical,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('sync_push_watermark', {
+      'workspace_id': workspaceId,
+      'hlc_physical': hlc.physical,
+      'hlc_logical': hlc.logical,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<int> getRestoreEpoch(String workspaceId) async {
@@ -119,10 +111,8 @@ class SyncWatermarkRepository {
       where: 'workspace_id = ?',
       whereArgs: [workspaceId],
     );
-    await db.delete(
-      'relay_outbox',
-      where: "envelope_json LIKE ?",
-      whereArgs: ['%"workspaceId":"$workspaceId"%'],
-    );
+    // The outbox deliberately survives a workspace reset: unsent local ops
+    // are parked (v2 restoreEpoch recovery) and re-pushed after the resync
+    // catch-up; envelope-id dedupe on the server makes the overlap harmless.
   }
 }

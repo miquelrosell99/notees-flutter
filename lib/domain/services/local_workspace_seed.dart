@@ -5,9 +5,9 @@ import './sync_v2_service.dart';
 
 /// Client-side local workspace seed for offline (serverless) mode.
 ///
-/// Mirrors the web client's seed and the server seed: emits `class.create` +
-/// `object.update` (class name) for every system class, then `object.create`
-/// for the Inbox and the user's personal page (scratchpad).
+/// Mirrors the web client's seed and the server seed: emits `class.create`
+/// for every system class, then `object.create` for the Inbox and the user's
+/// personal page (scratchpad).
 ///
 /// Ops go through the normal outbox/applier path ([SyncV2Service.emitLocal]),
 /// so the local derived state matches what a server-seeded workspace would
@@ -56,20 +56,17 @@ class LocalWorkspaceSeed {
     for (final entry in systemClassNames.entries) {
       final classId = entry.value;
       if (await _sync.cache.getClassByUuid(classId) != null) continue;
+      // v2 class.create carries the name; no separate content op is needed
+      // (v1 emitted a node.updateContent for the class-page title).
       await _sync.emitLocal(
         opType: 'class.create',
-        payload: OperationPayloads.classCreate(classId: classId, name: entry.key),
-        affectedNodeIds: [classId],
-      );
-      await _sync.emitLocal(
-        opType: 'object.update',
-        payload: OperationPayloads.objectUpdate(
-          objectId: classId,
+        payload: OperationPayloads.classCreate(
+          classId: classId,
           name: entry.key,
         ),
         affectedNodeIds: [classId],
       );
-      emitted += 2;
+      emitted += 1;
     }
 
     final pages = <String, String>{

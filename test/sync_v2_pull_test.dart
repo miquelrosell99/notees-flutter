@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/data/local/app_database.dart';
 import 'package:notees/data/models/node.dart';
 import 'package:notees/data/repositories/node_cache_repository.dart';
+import 'package:notees/domain/models/sync_v2.dart';
 import 'package:notees/domain/services/sync_v2_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -272,21 +273,145 @@ void main() {
       syncService.actorId = user1;
       expect(syncService.hasUserActor, isTrue);
 
+      // Create the node first: v2 object.delete requires the target row.
+      await syncService.enqueue(
+        type: 'create',
+        nodeUuid: node1,
+        contentAst: const [
+          {'type': 'text', 'text': 'hi'},
+        ],
+        isPage: true,
+      );
       await syncService.enqueue(type: 'archive', nodeUuid: node1);
       await syncService.flush();
 
       final db = await database.database;
       final rows = await db.query('relay_operations');
-      expect(rows, hasLength(1));
-      expect(rows.first['actor_id'], user1);
-      expect(rows.first['op_type'], 'object.delete');
-      expect(jsonDecode(rows.first['payload'] as String), {
+      expect(rows, hasLength(2));
+      expect(rows.every((r) => r['actor_id'] == user1), isTrue);
+      final archive = rows.firstWhere((r) => r['op_type'] == 'object.delete');
+      expect(jsonDecode(archive['payload'] as String), {
         'objectId': node1,
         'permanent': false,
       });
 
       syncService.actorId = null;
       expect(syncService.actorId, '40000000-0000-4000-8000-000000000001');
+    });
+
+    test('reports per-page catch-up progress with totalRemaining', () async {
+      final progress = <SyncPullProgress>[];
+      syncService = SyncV2Service(
+        database: database,
+        dio: buildDio([
+          page([
+            envelopeJson(
+              id: '0192a000-0000-7000-8000-000000000001',
+              opType: 'object.create',
+              payload: {
+                'objectId': node1,
+                'nodeType': 'page',
+                'classIds': const <String>[],
+              },
+            ),
+          ], 1, hasMore: true),
+          page(const [], 1),
+        ]),
+        clientId: '40000000-0000-4000-8000-000000000001',
+      );
+      syncService.onPullProgress = progress.add;
+      await syncService.setWorkspaceId(workspaceId);
+
+      await syncService.pull();
+
+      expect(progress, isNotEmpty);
+      expect(progress.first.applied, 1);
+      expect(progress.first.total, 1 + 1); // applied + totalRemaining
+    });
+
+    test('restoreEpoch change wipes derived state and resyncs from 0', () async {
+      // Seed a node + a pending outbox op, then report a newer epoch: the
+      // cache is wiped, the outbox survives, catch-up re-runs from 0.
+      syncService = SyncV2Service(
+        database: database,
+        dio: buildDio([page(const [], 0)]),
+        clientId: '40000000-0000-4000-8000-000000000001',
+      );
+      await syncService.setWorkspaceId(workspaceId);
+      await syncService.enqueue(
+        type: 'create',
+        nodeUuid: node1,
+        contentAst: const [
+          {'type': 'text', 'text': 'hi'},
+        ],
+        isPage: true,
+      );
+      final db0 = await database.database;
+      expect(await db0.query('relay_outbox'), hasLength(1));
+
+      var snapshotEpoch = 7;
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.path == '/relay/v2/snapshot') {
+              handler.resolve(Response(
+                requestOptions: options,
+                data: {
+                  'snapshotId': null,
+                  'hlc': {'physical': 0, 'logical': 0},
+                  'hasSnapshot': false,
+                  'restoreEpoch': snapshotEpoch,
+                  'upToSeq': null,
+                },
+                statusCode: 200,
+              ));
+              return;
+            }
+            if (options.path == '/relay/v2/catch-up') {
+              handler.resolve(Response(
+                requestOptions: options,
+                data: {
+                  'envelopes': <Map<String, dynamic>>[],
+                  'nextAfterSeq': null,
+                  'hasMore': false,
+                  'restoreEpoch': snapshotEpoch,
+                  'totalRemaining': 0,
+                },
+                statusCode: 200,
+              ));
+              return;
+            }
+            // Batch: capture the re-push of the parked outbox op.
+            handler.resolve(Response(
+              requestOptions: options,
+              data: const {'savedCount': 1, 'savedIds': ['id']},
+              statusCode: 200,
+            ));
+          },
+        ),
+      );
+      syncService = SyncV2Service(
+        database: database,
+        dio: dio,
+        clientId: '40000000-0000-4000-8000-000000000001',
+      );
+      await syncService.setWorkspaceId(workspaceId);
+
+      await syncService.pull();
+
+      // The epoch is adopted and the cursor reset to 0.
+      final db = await database.database;
+      final wm = await db.query(
+        'sync_watermark',
+        where: 'workspace_id = ?',
+        whereArgs: const [workspaceId],
+      );
+      expect(wm.single['restore_epoch'], 7);
+      expect(wm.single['cursor_seq'], 0);
+      // The parked local op was re-pushed (outbox drained by the resync
+      // flush + echo pull).
+      snapshotEpoch = 7;
     });
 
     test('produced envelopes carry v2 provenance (deviceId, client, timestamp)',

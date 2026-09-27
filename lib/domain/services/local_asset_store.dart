@@ -40,20 +40,20 @@ class LocalAssetInfo {
   }
 
   Map<String, dynamic> toJson() => {
-        'nodeId': nodeId,
-        'assetHash': assetHash,
-        'mimeType': mimeType,
-        'sizeBytes': sizeBytes,
-        'originalName': originalName,
-      };
+    'nodeId': nodeId,
+    'assetHash': assetHash,
+    'mimeType': mimeType,
+    'sizeBytes': sizeBytes,
+    'originalName': originalName,
+  };
 
   factory LocalAssetInfo.fromJson(Map<String, dynamic> json) => LocalAssetInfo(
-        nodeId: json['nodeId'] as String,
-        assetHash: json['assetHash'] as String,
-        mimeType: json['mimeType'] as String,
-        sizeBytes: json['sizeBytes'] as int,
-        originalName: json['originalName'] as String,
-      );
+    nodeId: json['nodeId'] as String,
+    assetHash: json['assetHash'] as String,
+    mimeType: json['mimeType'] as String,
+    sizeBytes: json['sizeBytes'] as int,
+    originalName: json['originalName'] as String,
+  );
 }
 
 /// On-device asset blob store for local (serverless) mode, mirroring the web
@@ -75,15 +75,14 @@ class LocalAssetStore {
     return Directory(p.join(base.path, 'asset_blobs')).create(recursive: true);
   }
 
-  Future<Directory> _metaDir() async =>
-      Directory(p.join((await _blobDir()).path, 'meta')).create(recursive: true);
+  Future<Directory> _metaDir() async => Directory(
+    p.join((await _blobDir()).path, 'meta'),
+  ).create(recursive: true);
 
   /// SHA-256 hex digest; matches the server's `hashlib.sha256().hexdigest()`.
   static Future<String> hashBytes(Uint8List bytes) async {
     final digest = await Sha256().hash(bytes);
-    return digest.bytes
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join();
+    return digest.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
   /// Stores [bytes] under their content hash and returns the hash.
@@ -151,7 +150,7 @@ class LocalAssetStore {
 /// `asset.upload`) so a later server attach replays them unchanged.
 class LocalAssetService {
   LocalAssetService(this._sync, {LocalAssetStore? store})
-      : store = store ?? LocalAssetStore();
+    : store = store ?? LocalAssetStore();
 
   final SyncV2Service _sync;
   final LocalAssetStore store;
@@ -241,7 +240,9 @@ class LocalAssetService {
       try {
         final bytes = await store.readBytes(asset.assetHash);
         if (bytes == null) {
-          throw StateError('asset bytes missing locally (hash ${asset.assetHash})');
+          throw StateError(
+            'asset bytes missing locally (hash ${asset.assetHash})',
+          );
         }
         final formData = FormData.fromMap(<String, dynamic>{
           'file': MultipartFile.fromBytes(

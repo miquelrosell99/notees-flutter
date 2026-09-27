@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/core/constants/system.dart';
 import 'package:notees/core/utils/ast_builder.dart';
@@ -6,6 +8,7 @@ import 'package:notees/data/repositories/node_cache_repository.dart';
 import 'package:notees/domain/models/relay/hlc.dart';
 import 'package:notees/domain/models/relay/operation_envelope.dart';
 import 'package:notees/domain/models/relay/operation_payloads.dart';
+import 'package:notees/domain/models/relay/store_errors.dart';
 import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -14,6 +17,7 @@ void main() {
   sqfliteFfiInit();
 
   group('RelayAppliers (v2 registry) against SQLite', () {
+    late AppDatabase database;
     late NodeCacheRepository cache;
     late RelayAppliers appliers;
 
@@ -46,10 +50,15 @@ void main() {
         ':memory:',
         options: OpenDatabaseOptions(singleInstance: false),
       );
-      final db = AppDatabase.fromDatabase(ffiDb);
-      await db.initializeSchema();
-      cache = NodeCacheRepository(db);
+      database = AppDatabase.fromDatabase(ffiDb);
+      await database.initializeSchema();
+      cache = NodeCacheRepository(database);
       appliers = RelayAppliers(cache);
+    });
+
+    tearDown(() async {
+      await database.close();
+      AppDatabase.reset();
     });
 
     test('applies object.create with class flags', () async {
@@ -158,7 +167,10 @@ void main() {
       ));
 
       final node = await cache.getByUuid(nodeUuid);
-      expect(node!.displayName, 'Renamed');
+      // The v2 scalar name lands in the title field, not the content slot.
+      expect(node!.title, 'Renamed');
+      expect(node.displayName, 'Renamed');
+      expect(node.name, ''); // content untouched by the name update
       expect(node.icon, 'folder');
       expect(node.color, '#5B7D5B');
     });
@@ -166,13 +178,23 @@ void main() {
     test('applies property.set and property.unset by propertySchemaId',
         () async {
       const nodeUuid = '00000000-0000-0000-0000-000000000102';
+      const pageUuid = '00000000-0000-0000-0000-000000000199';
 
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000e0',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: pageUuid,
+          nodeType: 'page',
+        ),
+      ));
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-0000000000e9',
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: nodeUuid,
           nodeType: 'block',
+          parentId: pageUuid,
           classIds: [SystemClassUuids.task],
         ),
       ));
@@ -190,6 +212,15 @@ void main() {
       var node = await cache.getByUuid(nodeUuid);
       expect(node!.properties[SystemPropertyUuids.taskDeadline], '2026-08-10');
 
+      // The derived property_value table is the LWW authority.
+      final db = await database.database;
+      final rows = await db.rawQuery(
+        'SELECT value, idx FROM property_value WHERE node_uuid = ? AND property_schema_id = ?',
+        [nodeUuid, SystemPropertyUuids.taskDeadline],
+      );
+      expect(rows, hasLength(1));
+      expect(jsonDecode(rows.single['value'] as String), '2026-08-10');
+
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-0000000000eb',
         opType: 'property.unset',
@@ -201,6 +232,37 @@ void main() {
       ));
       node = await cache.getByUuid(nodeUuid);
       expect(node!.properties[SystemPropertyUuids.taskDeadline], isNull);
+      expect(
+        await db.rawQuery(
+          'SELECT COUNT(*) AS c FROM property_value WHERE node_uuid = ?',
+          [nodeUuid],
+        ).then((r) => r.single['c']),
+        0,
+      );
+      // The tombstone survives (and blocks stale re-set below).
+      final tombstones = await db.rawQuery(
+        'SELECT COUNT(*) AS c FROM property_value_tombstone WHERE node_uuid = ?',
+        [nodeUuid],
+      );
+      expect(tombstones.single['c'], 1);
+
+      // A stale re-set (older HLC than the tombstone) is dropped.
+      final reverted = await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000ec',
+        opType: 'property.set',
+        payload: OperationPayloads.propertySet(
+          objectId: nodeUuid,
+          propertySchemaId: SystemPropertyUuids.taskDeadline,
+          value: '2026-01-01',
+        ),
+        physical: 2,
+      ));
+      expect(reverted, isFalse);
+      expect(
+        (await cache.getByUuid(nodeUuid))!
+            .properties[SystemPropertyUuids.taskDeadline],
+        isNull,
+      );
     });
 
     test('applies class.create, update, setExtends and delete', () async {
@@ -221,6 +283,14 @@ void main() {
       expect(cls!.displayName, 'Project');
       expect(cls.color, '#5B7D5B');
 
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000ecp',
+        opType: 'class.create',
+        payload: OperationPayloads.classCreate(
+          classId: parentUuid,
+          name: 'Parent',
+        ),
+      ));
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-0000000000ed',
         opType: 'class.setExtends',
@@ -261,6 +331,15 @@ void main() {
       const archivedUuid = '00000000-0000-0000-0000-000000000105';
       const doomedUuid = '00000000-0000-0000-0000-000000000106';
 
+      const pageUuid = '00000000-0000-0000-0000-00000000019a';
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f0',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: pageUuid,
+          nodeType: 'page',
+        ),
+      ));
       for (final (uuid, idSuffix) in [
         (archivedUuid, 'f1'),
         (doomedUuid, 'f2'),
@@ -271,6 +350,7 @@ void main() {
           payload: OperationPayloads.objectCreate(
             objectId: uuid,
             nodeType: 'page',
+            parentId: pageUuid,
           ),
         ));
       }
@@ -353,15 +433,35 @@ void main() {
     test('object.delete permanent:true removes the node and its derived rows',
         () async {
       const nodeUuid = '00000000-0000-0000-0000-000000000701';
+      const pageUuid = '00000000-0000-0000-0000-00000000019b';
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f0',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: pageUuid,
+          nodeType: 'page',
+        ),
+      ));
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-0000000000f8',
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: nodeUuid,
           nodeType: 'block',
+          parentId: pageUuid,
           classIds: [SystemClassUuids.task],
           contentAst: AstBuilder.parseInline('Doomed'),
         ),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f9b',
+        opType: 'property.set',
+        payload: OperationPayloads.propertySet(
+          objectId: nodeUuid,
+          propertySchemaId: SystemPropertyUuids.taskDeadline,
+          value: '2026-08-10',
+        ),
+        physical: 2,
       ));
       await cache.applyFavoriteAdd(
         '0192a000-0000-7000-8000-000000000001',
@@ -440,9 +540,10 @@ void main() {
       ));
       var c = await cache.getByUuid(blockC);
       expect(c!.parentUuid, blockA);
+      expect(c.position, 'a');
 
-      // Place B immediately after A inside the page: with A at sequence 0
-      // and no further siblings, B lands at sequence 1.
+      // Place B immediately after A inside the page: sibling midpoint after
+      // A's 'a' with no further sibling appends 'aa'.
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-000000000106',
         opType: 'object.move',
@@ -455,9 +556,12 @@ void main() {
       ));
       c = await cache.getByUuid(blockB);
       expect(c!.parentUuid, pageUuid);
-      expect(c.sequence, 1.0);
+      expect(c.position, 'aa');
       final order = (await cache.getChildren(pageUuid)).map((n) => n.uuid);
       expect(order, [blockA, blockB]);
+      final aChildren =
+          (await cache.getChildren(blockA)).map((n) => n.uuid);
+      expect(aChildren, [blockC]);
     });
 
     test('skips stale object.update content (last-write-wins HLC)', () async {
@@ -581,6 +685,138 @@ void main() {
       }
       // Nothing was written for the unknown node.
       expect(await cache.getByUuid(nodeUuid), isNull);
+    });
+
+    test('object.update with only contentDeltaB64 fails loud (Yjs pending)',
+        () async {
+      const nodeUuid = '00000000-0000-0000-0000-00000000080a';
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000201',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: nodeUuid,
+          nodeType: 'page',
+        ),
+      ));
+      expect(
+        () async => appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000202',
+          opType: 'object.update',
+          payload: {
+            'objectId': nodeUuid,
+            'contentDeltaB64': 'AAAA',
+          },
+          physical: 2,
+        )),
+        throwsA(isA<UnsupportedCarrierError>()),
+      );
+    });
+
+    test('object.delete/move on a missing node throws NodeNotFoundError',
+        () async {
+      expect(
+        () async => appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000203',
+          opType: 'object.delete',
+          payload: OperationPayloads.objectDelete(
+            objectId: '00000000-0000-0000-0000-0000000008ff',
+          ),
+        )),
+        throwsA(isA<NodeNotFoundError>()),
+      );
+    });
+
+    test('class.setExtends cycle throws and leaves state unchanged', () async {
+      const root = '00000000-0000-0000-0000-0000000008c1';
+      const leaf = '00000000-0000-0000-0000-0000000008c2';
+      for (final (id, classId, name) in [
+        ('204', root, 'Root'),
+        ('205', leaf, 'Leaf'),
+      ]) {
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-0000000002$id',
+          opType: 'class.create',
+          payload: OperationPayloads.classCreate(classId: classId, name: name),
+        ));
+      }
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000206',
+        opType: 'class.setExtends',
+        payload: OperationPayloads.classSetExtends(
+          classId: leaf,
+          parentClassIds: [root],
+        ),
+        physical: 2,
+      ));
+      expect(
+        () async => appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000207',
+          opType: 'class.setExtends',
+          payload: OperationPayloads.classSetExtends(
+            classId: root,
+            parentClassIds: [leaf],
+          ),
+          physical: 3,
+        )),
+        throwsA(isA<CycleError>()),
+      );
+      final db = await database.database;
+      final edges =
+          await db.rawQuery('SELECT COUNT(*) AS c FROM class_extends');
+      expect(edges.single['c'], 1);
+      final rootClosure = await db.rawQuery(
+        'SELECT ancestor_id FROM class_hierarchy WHERE class_id = ? ORDER BY ancestor_id',
+        [root],
+      );
+      expect(rootClosure.map((r) => r['ancestor_id']).toList(), [root]);
+    });
+
+    test('collection membership is an add-wins OR-Set', () async {
+      const collectionId = '00000000-0000-0000-0000-0000000008d1';
+      const objectId = '00000000-0000-0000-0000-0000000008d2';
+      final add = await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000208',
+        opType: 'collection.member.add',
+        payload: OperationPayloads.collectionMemberAdd(
+          collectionId: collectionId,
+          objectId: objectId,
+        ),
+        physical: 2,
+      ));
+      expect(add, isTrue);
+      // Equal-(hlc, actor) remove loses to the add (add-wins).
+      final remove = await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000209',
+        opType: 'collection.member.remove',
+        payload: OperationPayloads.collectionMemberRemove(
+          collectionId: collectionId,
+          objectId: objectId,
+        ),
+        physical: 2,
+      ));
+      expect(remove, isFalse);
+      final db = await database.database;
+      final rows = await db.rawQuery(
+        'SELECT present FROM collection_member WHERE collection_id = ? AND object_id = ?',
+        [collectionId, objectId],
+      );
+      expect(rows.single['present'], 1);
+    });
+
+    test('fractional allocator midpoint matrix (store.ts port)', () {
+      expect(RelayAppliers.nextChildPosition(null), 'a');
+      expect(RelayAppliers.nextChildPosition('a'), 'aa');
+      expect(RelayAppliers.nextChildPosition('aa'), 'aaa');
+      expect(RelayAppliers.midpointBetween('a', 'c'), 'b');
+      // Adjacent chars descend, then the empty/empty core takes the average
+      // of the boundary chars (0x60..0x7b) -> 'm'.
+      expect(RelayAppliers.midpointBetween('a', 'b'), 'am');
+      expect(RelayAppliers.midpointBetween('a', 'z'), 'm');
+      // Same expectations as the monorepo store tests ('a`' is the
+      // lexicographic midpoint between 'a' and 'aa').
+      expect(RelayAppliers.midpointBetween('a', 'aa'), 'a`');
+      expect(RelayAppliers.midpointBetween('aa', 'aaa'), 'aa`');
+      expect(RelayAppliers.midpointBetween('a', 'aaa'), 'a`');
     });
   });
 }
