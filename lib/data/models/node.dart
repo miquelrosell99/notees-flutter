@@ -34,6 +34,12 @@ class Node {
     this.createDate,
     this.writeDate,
     this.extendsUuid = const [],
+    this.title,
+    this.position,
+    this.nodeType,
+    this.hlcPhysical = 0,
+    this.hlcLogical = 0,
+    this.actorId,
   });
 
   final int id;
@@ -70,11 +76,31 @@ class Node {
   /// For class-definition nodes: UUIDs of classes this class extends.
   final List<String> extendsUuid;
 
+  /// v2 scalar name slot (object.update `name`): the title, kept separate
+  /// from the content AST stored in [name]. Display prefers this over
+  /// content-derived plain text.
+  final String? title;
+
+  /// Lexicographic fractional sibling position (v2 `node_child_order`
+  /// equivalent); null for legacy rows that only have [sequence].
+  final String? position;
+
+  /// v2 structural role: 'page' | 'block' | 'class'. Null for legacy rows
+  /// (isPage carries the information).
+  final String? nodeType;
+
+  /// Row-LWW winner for v2 object.update/object.move: an incoming write whose
+  /// (hlc, actor) does not beat these values is dropped.
+  final int hlcPhysical;
+  final int hlcLogical;
+  final String? actorId;
+
   bool get isJournal => isDaily || isMonthly || isYearly;
 
   factory Node.fromJson(Map<String, dynamic> json) {
     final childrenJson = json['children'] as List<dynamic>?;
-    final classesUuid = (json['classes_uuid'] as List<dynamic>?)?.cast<String>() ??
+    final classesUuid =
+        (json['classes_uuid'] as List<dynamic>?)?.cast<String>() ??
         (json['class_ids'] as List<dynamic>?)?.cast<String>() ??
         (json['class_uuids'] as List<dynamic>?)?.cast<String>() ??
         const [];
@@ -83,23 +109,30 @@ class Node {
     // The backend uses both legacy mobile keys (is_daily/monthly/yearly) and
     // current server keys (is_day/month/year). Fall back to class UUIDs when
     // neither set of flags is present.
-    final isDaily = (json['is_daily'] as bool? ?? false) ||
+    final isDaily =
+        (json['is_daily'] as bool? ?? false) ||
         (json['is_day'] as bool? ?? false) ||
         classesUuid.contains(SystemClassUuids.day);
-    final isMonthly = (json['is_monthly'] as bool? ?? false) ||
+    final isMonthly =
+        (json['is_monthly'] as bool? ?? false) ||
         (json['is_month'] as bool? ?? false) ||
         classesUuid.contains(SystemClassUuids.month);
-    final isYearly = (json['is_yearly'] as bool? ?? false) ||
+    final isYearly =
+        (json['is_yearly'] as bool? ?? false) ||
         (json['is_year'] as bool? ?? false) ||
         classesUuid.contains(SystemClassUuids.year);
 
-    // Some payloads use camelCase displayName; prefer display_name then fall
-    // back to parsing the name AST/string.
-    var displayName = (json['display_name'] as String?)?.trim() ??
+    // Display resolution: an explicit display_name (set by local optimistic
+    // writes) wins; then the v2 scalar title; finally the content plain text.
+    final title = json['title'] as String?;
+    var displayName =
+        (json['display_name'] as String?)?.trim() ??
         (json['displayName'] as String?)?.trim() ??
         '';
     if (displayName.isEmpty) {
-      displayName = astToPlainText(name);
+      displayName = title?.trim().isNotEmpty == true
+          ? title!.trim()
+          : astToPlainText(name);
     }
 
     return Node(
@@ -128,17 +161,29 @@ class Node {
       classes: (json['classes'] as List<dynamic>?)?.cast<int>() ?? const [],
       classesUuid: classesUuid,
       tags: (json['tags'] as List<dynamic>?)?.cast<int>() ?? const [],
-      tagsUuid: (json['tags_uuid'] as List<dynamic>?)?.cast<String>() ??
+      tagsUuid:
+          (json['tags_uuid'] as List<dynamic>?)?.cast<String>() ??
           (json['tag_ids'] as List<dynamic>?)?.cast<String>() ??
           (json['tag_uuids'] as List<dynamic>?)?.cast<String>() ??
           const [],
       properties: (json['properties'] as Map<String, dynamic>?) ?? const {},
-      children: childrenJson?.map((e) => Node.fromJson(e as Map<String, dynamic>)).toList() ?? const [],
+      children:
+          childrenJson
+              ?.map((e) => Node.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
       createDate: json['create_date'] as String?,
       writeDate: json['write_date'] as String?,
-      extendsUuid: (json['extends_uuid'] as List<dynamic>?)?.cast<String>() ??
+      extendsUuid:
+          (json['extends_uuid'] as List<dynamic>?)?.cast<String>() ??
           (json['extends'] as List<dynamic>?)?.cast<String>() ??
           const [],
+      title: title,
+      position: json['position'] as String?,
+      nodeType: json['node_type'] as String?,
+      hlcPhysical: (json['hlc_physical'] as num?)?.toInt() ?? 0,
+      hlcLogical: (json['hlc_logical'] as num?)?.toInt() ?? 0,
+      actorId: json['actor_id'] as String?,
     );
   }
 
@@ -181,6 +226,12 @@ class Node {
       createDate: createDate,
       writeDate: writeDate,
       extendsUuid: extendsUuid,
+      title: title,
+      position: position,
+      nodeType: nodeType,
+      hlcPhysical: hlcPhysical,
+      hlcLogical: hlcLogical,
+      actorId: actorId,
     );
   }
 
@@ -218,40 +269,52 @@ class Node {
       createDate: createDate,
       writeDate: writeDate,
       extendsUuid: extendsUuid,
+      title: title,
+      position: position,
+      nodeType: nodeType,
+      hlcPhysical: hlcPhysical,
+      hlcLogical: hlcLogical,
+      actorId: actorId,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'uuid': uuid,
-        'name': name,
-        'display_name': displayName,
-        'icon': icon,
-        'color': color,
-        'parent_id': parentId,
-        'parent_uuid': parentUuid,
-        'page_id': pageId,
-        'page_uuid': pageUuid,
-        'sequence': sequence,
-        'is_page': isPage,
-        'is_task': isTask,
-        'is_daily': isDaily,
-        'is_monthly': isMonthly,
-        'is_yearly': isYearly,
-        'is_table': isTable,
-        'is_asset': isAsset,
-        'is_comment': isComment,
-        'is_deleted': isDeleted,
-        'is_archived': isArchived,
-        'is_private': isPrivate,
-        'classes': classes,
-        'classes_uuid': classesUuid,
-        'tags': tags,
-        'tags_uuid': tagsUuid,
-        'properties': properties,
-        'children': children.map((e) => e.toJson()).toList(),
-        'create_date': createDate,
-        'write_date': writeDate,
-        'extends_uuid': extendsUuid,
-      };
+    'id': id,
+    'uuid': uuid,
+    'name': name,
+    'display_name': displayName,
+    'icon': icon,
+    'color': color,
+    'parent_id': parentId,
+    'parent_uuid': parentUuid,
+    'page_id': pageId,
+    'page_uuid': pageUuid,
+    'sequence': sequence,
+    'is_page': isPage,
+    'is_task': isTask,
+    'is_daily': isDaily,
+    'is_monthly': isMonthly,
+    'is_yearly': isYearly,
+    'is_table': isTable,
+    'is_asset': isAsset,
+    'is_comment': isComment,
+    'is_deleted': isDeleted,
+    'is_archived': isArchived,
+    'is_private': isPrivate,
+    'classes': classes,
+    'classes_uuid': classesUuid,
+    'tags': tags,
+    'tags_uuid': tagsUuid,
+    'properties': properties,
+    'children': children.map((e) => e.toJson()).toList(),
+    'create_date': createDate,
+    'write_date': writeDate,
+    'extends_uuid': extendsUuid,
+    'title': title,
+    'position': position,
+    'node_type': nodeType,
+    'hlc_physical': hlcPhysical,
+    'hlc_logical': hlcLogical,
+    'actor_id': actorId,
+  };
 }

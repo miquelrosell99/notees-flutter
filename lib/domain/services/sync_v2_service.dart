@@ -16,6 +16,7 @@ import '../../data/repositories/sync_watermark_repository.dart';
 import '../models/relay/hlc.dart';
 import '../models/relay/operation_envelope.dart';
 import '../models/relay/operation_payloads.dart';
+import '../models/relay/store_errors.dart';
 import '../models/sync_v2.dart';
 import './hlc_clock.dart';
 import './relay_appliers.dart';
@@ -41,12 +42,12 @@ class SyncV2Service {
     required this.dio,
     required this._clientId,
     this.serverless = false,
-  })  : _database = database,
-        _outbox = RelayOutboxRepository(database),
-        _watermarks = SyncWatermarkRepository(database),
-        _cache = NodeCacheRepository(database),
-        _clock = HlcClock(),
-        _relay = RelayClient(dio: dio);
+  }) : _database = database,
+       _outbox = RelayOutboxRepository(database),
+       _watermarks = SyncWatermarkRepository(database),
+       _cache = NodeCacheRepository(database),
+       _clock = HlcClock(),
+       _relay = RelayClient(dio: dio);
 
   final AppDatabase _database;
   final RelayOutboxRepository _outbox;
@@ -56,6 +57,11 @@ class SyncV2Service {
   final RelayClient _relay;
   final Dio dio;
   final String _clientId;
+
+  /// Optional catch-up progress listener, invoked once per catch-up page
+  /// with the envelopes applied so far and the total expected
+  /// (applied + the server's totalRemaining).
+  void Function(SyncPullProgress progress)? onPullProgress;
 
   /// Offline (local-only) mode: the service never talks to the network.
   /// [pull] is a no-op and [flush] applies pending outbox envelopes to the
@@ -92,11 +98,10 @@ class SyncV2Service {
 
   Future<void> setWorkspaceId(String workspaceId) async {
     final db = await _database.database;
-    await db.insert(
-      'sync_state',
-      {'key': _workspaceIdKey, 'value': workspaceId},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('sync_state', {
+      'key': _workspaceIdKey,
+      'value': workspaceId,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<String?> getWorkspaceId() async {
@@ -149,11 +154,15 @@ class SyncV2Service {
       throw const SyncV2Exception('No workspace configured');
     }
 
-    // Guard: a content op with a null AST omits the `content` key on the
-    // wire, the server rejects it with 422, and the op would sit in the
-    // quarantine forever. Skip it instead and surface via the log.
-    final producesNullContent = (type == 'update_content' && contentAst == null) ||
-        (type == 'update_node' && name == null);
+    // Guard: an op that would miss a field the v2 registry requires (null
+    // content, or a missing property/tag target) is rejected by the relay
+    // with 422 and would sit in the quarantine forever. Skip it instead and
+    // surface via the log.
+    final producesNullContent =
+        (type == 'update_content' && contentAst == null) ||
+        (type == 'update_node' && name == null) ||
+        (type == 'set_property' && propertyUuid == null) ||
+        ((type == 'add_tag' || type == 'remove_tag') && tagUuid == null);
     if (producesNullContent) {
       debugPrint(
         'SyncV2Service: skipping $type for $nodeUuid with null content '
@@ -204,6 +213,15 @@ class SyncV2Service {
 
   /// Sends pending relay envelopes to the server and updates local state.
   ///
+  /// A 200 acks the whole chunk (WIRE.md: duplicate ids are silently
+  /// ignored, so savedIds may omit resent ids). v2 wire error codes decide
+  /// retry vs quarantine: `validation_failed`/`not_found` are permanent
+  /// (quarantine), `unauthenticated`/`forbidden`/`rate_limited`/`conflict`
+  /// retry with backoff, and `idempotency_replay` means the server already
+  /// holds the chunk — it is treated as acked. Typed applier failures
+  /// ([StoreError]: cycles, guards, validation) quarantine with the typed
+  /// reason instead of retrying forever.
+  ///
   /// Returns a list of errors for operations that need retry or quarantine.
   Future<List<String>> flush() async {
     final pending = await _outbox.pending();
@@ -216,60 +234,71 @@ class SyncV2Service {
 
     final errors = <String>[];
     for (var i = 0; i < pending.length; i += _pushChunkSize) {
-      final end =
-          i + _pushChunkSize < pending.length ? i + _pushChunkSize : pending.length;
+      final end = i + _pushChunkSize < pending.length
+          ? i + _pushChunkSize
+          : pending.length;
       final chunk = pending.sublist(i, end);
       final ids = chunk.map((p) => p.id).toList();
+      final envelopes = chunk.map((p) => p.envelope).toList();
 
       await _outbox.markInFlight(ids);
       try {
-        final envelopes = chunk.map((p) => p.envelope).toList();
         await _relay.pushBatch(envelopes);
-        // Apply the pushed envelopes to the local cache right away so local
-        // edits (page titles, new pages) are visible without waiting for the
-        // next pull echo. Re-application on echo is safe: object.create is
-        // first-create-wins (mirroring the server applier), the other
-        // appliers are upserts/deletes, and object.update content is
-        // guarded by the last-write-wins content HLC.
-        final appliers = RelayAppliers(_cache);
-        for (final envelope in envelopes) {
-          await appliers.apply(envelope);
-        }
-        await _recordOperations(envelopes, isLocal: true);
-        await _updatePushWatermark(envelopes);
+        await _applyLocalAndRecord(envelopes);
         await _outbox.removeAll(ids);
       } on DioException catch (e) {
+        final wireError = RelayWireError.tryParse(e);
         final status = e.response?.statusCode;
-        final error = e.message ?? 'Relay push failed';
-        if (status == 401 || status == 403) {
-          // Auth errors are retryable; the token may be refreshed before the
-          // next flush attempt. Do not quarantine them.
-          for (final p in chunk) {
-            await _outbox.markRetry(
-              id: p.id,
-              error: error,
-            );
-          }
-          errors.add(error);
-        } else if (status != null && status >= 400 && status < 500) {
-          await _quarantine(ids, error);
-          errors.add(error);
-        } else {
-          for (final p in chunk) {
-            await _outbox.markRetry(
-              id: p.id,
-              error: error,
-            );
-          }
-          errors.add(error);
+        // The quarantine/retry reason carries the stable machine code.
+        final error = wireError != null
+            ? '${wireError.code}: ${wireError.message}'
+            : e.message ?? 'Relay push failed';
+        switch (wireError?.code) {
+          case 'idempotency_replay':
+            // The server already persisted these envelopes (the original ack
+            // was lost); adopt them like a normal ack.
+            await _applyLocalAndRecord(envelopes);
+            await _outbox.removeAll(ids);
+          case 'validation_failed':
+          case 'not_found':
+            await _quarantine(ids, error);
+            errors.add(error);
+          case 'unauthenticated':
+          case 'forbidden':
+          case 'rate_limited':
+          case 'conflict':
+            for (final p in chunk) {
+              await _outbox.markRetry(id: p.id, error: error);
+            }
+            errors.add(error);
+          default:
+            if (status == 401 || status == 403) {
+              // Auth errors are retryable; the token may be refreshed before
+              // the next flush attempt. Do not quarantine them.
+              for (final p in chunk) {
+                await _outbox.markRetry(id: p.id, error: error);
+              }
+              errors.add(error);
+            } else if (status != null && status >= 400 && status < 500) {
+              await _quarantine(ids, error);
+              errors.add(error);
+            } else {
+              for (final p in chunk) {
+                await _outbox.markRetry(id: p.id, error: error);
+              }
+              errors.add(error);
+            }
         }
+      } on StoreError catch (e) {
+        // A typed applier failure is permanent for this op: quarantine with
+        // the typed reason (e.g. CycleError) rather than retrying forever.
+        final error = e.toString();
+        await _quarantine(ids, error);
+        errors.add(error);
       } catch (e) {
         final error = e.toString();
         for (final p in chunk) {
-          await _outbox.markRetry(
-            id: p.id,
-            error: error,
-          );
+          await _outbox.markRetry(id: p.id, error: error);
         }
         errors.add(error);
       }
@@ -281,24 +310,58 @@ class SyncV2Service {
     return errors;
   }
 
-  /// Pulls server-side relay envelopes since the last pull and applies them to
-  /// the local node cache.
+  /// Applies locally produced envelopes to the cache right away so local
+  /// edits (page titles, new pages) are visible without waiting for the next
+  /// pull echo, and records them as locally applied. Re-application of the
+  /// echo is safe: appliers are row-LWW / first-create-wins idempotent.
+  Future<void> _applyLocalAndRecord(List<OperationEnvelope> envelopes) async {
+    final appliers = RelayAppliers(_cache);
+    for (final envelope in envelopes) {
+      await appliers.apply(envelope);
+    }
+    await _recordOperations(envelopes, isLocal: true);
+    await _updatePushWatermark(envelopes);
+  }
+
+  /// Pulls server-side relay envelopes since the last pull and applies them
+  /// to the local node cache.
   ///
   /// Catch-up is driven by the server-assigned seq cursor persisted in
   /// `sync_watermark.cursor_seq`; the HLC watermark is only kept for
   /// snapshot-freshness decisions and for advancing the local HLC clock used
-  /// when producing new operations.
+  /// when producing new operations. `restoreEpoch` changes wipe the derived
+  /// state and resync from seq 0 (pending outbox ops survive and are
+  /// re-pushed after the catch-up, mirroring the v2 engine's park/resync).
+  /// Per-page progress is reported through [onPullProgress].
   Future<void> pull() async {
     if (serverless) return;
     final workspaceId = await getWorkspaceId();
     if (workspaceId == null) return;
+    await _pullGeneration(workspaceId, requeuePending: true);
+  }
 
+  Future<void> _pullGeneration(
+    String workspaceId, {
+    required bool requeuePending,
+    int depth = 0,
+  }) async {
     final snapshot = await _relay.latestSnapshot(workspaceId);
-    final localEpoch = await _watermarks.getRestoreEpoch(workspaceId);
+    var localEpoch = await _watermarks.getRestoreEpoch(workspaceId);
 
+    var resynced = false;
     if (snapshot.restoreEpoch != localEpoch) {
+      // Server restored/rebuilt: park unsent ops (the outbox survives the
+      // wipe), drop the derived state, and resync from seq 0.
       await _cache.clear();
       await _watermarks.resetWorkspace(workspaceId);
+      await _watermarks.setReceived(
+        workspaceId,
+        const Hlc(physical: 0, logical: 0),
+        restoreEpoch: snapshot.restoreEpoch,
+        cursorSeq: 0,
+      );
+      localEpoch = snapshot.restoreEpoch;
+      resynced = true;
     }
 
     // If the class or property-schema cache is empty (e.g. after a schema
@@ -311,11 +374,13 @@ class SyncV2Service {
 
     var cursorSeq = await _watermarks.getCursorSeq(workspaceId);
     var lastReceived =
-        await _watermarks.getReceived(workspaceId) ?? const Hlc(physical: 0, logical: 0);
+        await _watermarks.getReceived(workspaceId) ??
+        const Hlc(physical: 0, logical: 0);
     // Snapshot freshness is decided by the seq cursor (SPEC §2.1); the HLC
     // comparison is only a fallback for snapshots recorded before the seq
     // cursor existed (upToSeq == null).
-    final snapshotIsNewer = snapshot.hasSnapshot &&
+    final snapshotIsNewer =
+        snapshot.hasSnapshot &&
         (snapshot.upToSeq != null
             ? snapshot.upToSeq! > cursorSeq
             : snapshot.hlc.compareTo(lastReceived) > 0);
@@ -344,37 +409,69 @@ class SyncV2Service {
     // deduped on apply.
     final appliers = RelayAppliers(_cache);
     var maxHlc = lastReceived;
+    var appliedOps = 0;
     while (true) {
       final response = await _relay.catchUp(
         workspaceId: workspaceId,
         afterSeq: cursorSeq,
       );
+      if (response.restoreEpoch != localEpoch) {
+        // The server restored mid-pull: wipe and run one fresh generation.
+        if (depth >= 1) {
+          throw const SyncV2Exception(
+            'restoreEpoch changed repeatedly during pull',
+          );
+        }
+        await _pullGeneration(
+          workspaceId,
+          requeuePending: requeuePending,
+          depth: depth + 1,
+        );
+        return;
+      }
       if (response.envelopes.isNotEmpty) {
         // Dedupe against envelopes already applied from the server (a
         // crashed pull, or a snapshot with a null upToSeq). Locally produced
         // envelopes (is_local = 1) are NOT deduped here: they are applied to
-        // the cache on flush, and re-applying the echo is harmless —
-        // object.create is first-create-wins, the other appliers are
-        // upserts/deletes, and object.update content is skipped by the
-        // last-write-wins content HLC guard.
+        // the cache on flush, and re-applying the echo is harmless — the
+        // appliers are row-LWW / first-create-wins idempotent.
         final knownIds = await _appliedOperationIds(
           response.envelopes.map((e) => e.id).toList(),
         );
         for (final envelope in response.envelopes) {
           if (knownIds.contains(envelope.id)) continue;
-          await appliers.apply(envelope);
-          await _recordOperations([envelope], isLocal: false);
+          try {
+            final applied = await appliers.apply(envelope);
+            await _recordOperations([envelope], isLocal: false);
+            if (applied) appliedOps++;
+          } on StoreError catch (e) {
+            // Typed applier failure (cycle, move guard, placement CHECK,
+            // payload validation): fail loud, and do NOT consume the
+            // envelope id — a later pull re-applies it, and a wipe resyncs
+            // the prefix deterministically (mirrors the v2 store, where a
+            // thrown apply rolls back with the dedupe record).
+            debugPrint(
+              'SyncV2Service: skipping ${envelope.id} (${envelope.opType}): $e',
+            );
+            continue;
+          }
           if (envelope.hlc.compareTo(maxHlc) > 0) {
             maxHlc = envelope.hlc;
           }
         }
       }
+      onPullProgress?.call(
+        SyncPullProgress(
+          applied: appliedOps,
+          total: appliedOps + response.totalRemaining,
+        ),
+      );
       final next = response.nextAfterSeq;
       if (next != null) cursorSeq = next;
       await _watermarks.setReceived(
         workspaceId,
         maxHlc,
-        restoreEpoch: snapshot.restoreEpoch,
+        restoreEpoch: localEpoch,
         cursorSeq: cursorSeq,
       );
       // On the final page nextAfterSeq is still set to the last envelope's
@@ -386,6 +483,13 @@ class SyncV2Service {
 
     if (await _cache.shouldReindexSearch()) {
       await _cache.reindexAll();
+    }
+
+    if (resynced && requeuePending) {
+      // The outbox survived the wipe: push the parked local ops, then pull
+      // once more to fold their echoes into the rebuilt state.
+      await flush();
+      await _pullGeneration(workspaceId, requeuePending: false, depth: depth);
     }
   }
 
@@ -487,7 +591,10 @@ class SyncV2Service {
 
     // Outbox rows embed the workspace/actor ids inside the envelope JSON;
     // rewrite row by row instead of relying on SQLite JSON1 availability.
-    final rows = await db.query('relay_outbox', columns: ['id', 'envelope_json']);
+    final rows = await db.query(
+      'relay_outbox',
+      columns: ['id', 'envelope_json'],
+    );
     for (final row in rows) {
       final envelopeJson =
           jsonDecode(row['envelope_json'] as String) as Map<String, dynamic>;
@@ -533,10 +640,7 @@ class SyncV2Service {
     final hlc = _clock.advance();
     final affectedNodeIds = op.type == 'reorder_favorites'
         ? (op.favoriteNodeUuids ?? const <String>[])
-        : [
-            op.nodeUuid,
-            if (op.parentUuid != null) op.parentUuid!,
-          ];
+        : [op.nodeUuid, if (op.parentUuid != null) op.parentUuid!];
     final timestamp = DateTime.now().toUtc().toIso8601String();
 
     late final String opType;
@@ -557,10 +661,13 @@ class SyncV2Service {
         if (op.isYearly && !classIds.contains(SystemClassUuids.year)) {
           classIds.add(SystemClassUuids.year);
         }
-        final nodeType = (op.isPage || op.isDaily || op.isMonthly || op.isYearly)
+        // v2 context default: workspace root → page, child → block.
+        final nodeType =
+            (op.isPage || op.isDaily || op.isMonthly || op.isYearly)
             ? 'page'
-            : 'block';
-        final contentAst = op.contentAst ??
+            : (op.parentUuid == null ? 'page' : 'block');
+        final contentAst =
+            op.contentAst ??
             (op.name != null ? AstBuilder.parseInline(op.name!) : null);
         // v1 create also carried a zero-padded child `index` and `color`;
         // v2 object.create has no position slot (sibling order rides
@@ -689,22 +796,18 @@ class SyncV2Service {
     final db = await _database.database;
     final batch = db.batch();
     for (final envelope in envelopes) {
-      batch.insert(
-        'relay_operations',
-        {
-          'id': envelope.id,
-          'workspace_id': envelope.workspaceId,
-          'actor_id': envelope.actorId,
-          'hlc_physical': envelope.hlc.physical,
-          'hlc_logical': envelope.hlc.logical,
-          'affected_node_ids': jsonEncode(envelope.affectedNodeIds),
-          'op_type': envelope.opType,
-          'payload': jsonEncode(envelope.payload),
-          'timestamp': envelope.timestamp,
-          'is_local': isLocal ? 1 : 0,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      batch.insert('relay_operations', {
+        'id': envelope.id,
+        'workspace_id': envelope.workspaceId,
+        'actor_id': envelope.actorId,
+        'hlc_physical': envelope.hlc.physical,
+        'hlc_logical': envelope.hlc.logical,
+        'affected_node_ids': jsonEncode(envelope.affectedNodeIds),
+        'op_type': envelope.opType,
+        'payload': jsonEncode(envelope.payload),
+        'timestamp': envelope.timestamp,
+        'is_local': isLocal ? 1 : 0,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
   }
@@ -736,11 +839,7 @@ class SyncV2Service {
     final db = await _database.database;
     await db.update(
       'relay_outbox',
-      {
-        'state': 'quarantined',
-        'last_error': error,
-        'next_retry_at': null,
-      },
+      {'state': 'quarantined', 'last_error': error, 'next_retry_at': null},
       where: 'id IN (${ids.map((_) => '?').join(', ')})',
       whereArgs: ids,
     );

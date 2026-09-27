@@ -16,6 +16,7 @@ import '../models/node.dart';
 import '../models/page_content.dart';
 import '../models/property.dart';
 import '../../domain/models/relay/hlc.dart';
+import '../../domain/models/relay/lww.dart';
 import '../../domain/models/search_filters.dart';
 
 /// Lightweight in-memory representation of a row from the server's `class` table.
@@ -127,7 +128,11 @@ class NodeCacheRepository {
 
   Future<String?> getLastSync() async {
     final db = await _database.database;
-    final rows = await db.query('sync_state', where: 'key = ?', whereArgs: [_lastSyncKey]);
+    final rows = await db.query(
+      'sync_state',
+      where: 'key = ?',
+      whereArgs: [_lastSyncKey],
+    );
     if (rows.isEmpty) return null;
     return rows.first['value'] as String?;
   }
@@ -135,14 +140,17 @@ class NodeCacheRepository {
   Future<void> setLastSync(String? value) async {
     final db = await _database.database;
     if (value == null) {
-      await db.delete('sync_state', where: 'key = ?', whereArgs: [_lastSyncKey]);
+      await db.delete(
+        'sync_state',
+        where: 'key = ?',
+        whereArgs: [_lastSyncKey],
+      );
       return;
     }
-    await db.insert(
-      'sync_state',
-      {'key': _lastSyncKey, 'value': value},
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('sync_state', {
+      'key': _lastSyncKey,
+      'value': value,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> upsert(Node node) async {
@@ -179,29 +187,77 @@ class NodeCacheRepository {
     if (uuids.isEmpty) return;
     final db = await _database.database;
     final placeholders = uuids.map((_) => '?').join(',');
-    await db.rawDelete('DELETE FROM node_cache WHERE uuid IN ($placeholders)', uuids);
+    await db.rawDelete(
+      'DELETE FROM node_cache WHERE uuid IN ($placeholders)',
+      uuids,
+    );
   }
 
-  /// Hard-deletes [uuid] and all of its derived rows, matching the server's
-  /// `node.delete` / `node.permanentDelete` semantics: the operation log has
-  /// no soft-delete in the derived node table — archival (`is_archived`) is
-  /// the recoverable concept.
+  /// Hard-deletes [uuid] and its whole subtree plus derived rows, matching
+  /// the v2 `object.delete permanent:true` semantics: node rows, search
+  /// index, favorites, task completions/recurrence, share rows, content-HLC
+  /// markers, class membership, and property rows all go. (The v1 server
+  /// cascade only removed the single row; v2 deletes the subtree.)
   Future<void> hardDelete(String uuid) async {
+    final ids = await subtreeUuids(uuid);
+    if (ids.isEmpty) return;
+    final placeholders = ids.map((_) => '?').join(',');
     final db = await _database.database;
     await db.transaction((txn) async {
-      await txn.delete('node_cache', where: 'uuid = ?', whereArgs: [uuid]);
-      await txn.delete('search_index', where: 'node_uuid = ?', whereArgs: [uuid]);
-      await txn.delete('user_favorite', where: 'node_uuid = ?', whereArgs: [uuid]);
-      await txn.delete('task_completion', where: 'node_uuid = ?', whereArgs: [uuid]);
-      await txn.delete('task_recurrence', where: 'node_uuid = ?', whereArgs: [uuid]);
-      await txn.delete('node_user_share', where: 'node_uuid = ?', whereArgs: [uuid]);
-      await txn.delete('node_content_hlc', where: 'node_uuid = ?', whereArgs: [uuid]);
+      await txn.rawDelete(
+        'DELETE FROM node_cache WHERE uuid IN ($placeholders)',
+        ids,
+      );
+      await txn.rawDelete(
+        'DELETE FROM search_index WHERE node_uuid IN ($placeholders)',
+        ids,
+      );
+      await txn.rawDelete(
+        'DELETE FROM user_favorite WHERE node_uuid IN ($placeholders)',
+        ids,
+      );
+      await txn.rawDelete(
+        'DELETE FROM task_completion WHERE node_uuid IN ($placeholders)',
+        ids,
+      );
+      await txn.rawDelete(
+        'DELETE FROM task_recurrence WHERE node_uuid IN ($placeholders)',
+        ids,
+      );
+      await txn.rawDelete(
+        'DELETE FROM node_user_share WHERE node_uuid IN ($placeholders)',
+        ids,
+      );
+      await txn.rawDelete(
+        'DELETE FROM node_content_hlc WHERE node_uuid IN ($placeholders)',
+        ids,
+      );
+      await txn.rawDelete(
+        'DELETE FROM class_member_set WHERE node_uuid IN ($placeholders)',
+        ids,
+      );
+      await txn.rawDelete(
+        'DELETE FROM property_value WHERE node_uuid IN ($placeholders)',
+        ids,
+      );
+      await txn.rawDelete(
+        'DELETE FROM property_value_tombstone WHERE node_uuid IN ($placeholders)',
+        ids,
+      );
+      await txn.rawDelete(
+        'DELETE FROM collection_member WHERE object_id IN ($placeholders)',
+        ids,
+      );
     });
   }
 
   Future<Node?> getByUuid(String uuid) async {
     final db = await _database.database;
-    final rows = await db.query('node_cache', where: 'uuid = ?', whereArgs: [uuid]);
+    final rows = await db.query(
+      'node_cache',
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
     if (rows.isEmpty) return null;
     return _nodeFromRow(rows.first);
   }
@@ -228,14 +284,46 @@ class NodeCacheRepository {
 
   Future<void> clear() async {
     final db = await _database.database;
-    await db.delete('node_cache');
+    await db.transaction((txn) async {
+      await txn.delete('node_cache');
+      await txn.delete('class_member_set');
+      await txn.delete('class_extends');
+      await txn.delete('class_hierarchy');
+      await txn.delete('property_value');
+      await txn.delete('property_value_tombstone');
+      await txn.delete('collection_member');
+    });
   }
 
-  /// Restores the local node cache from a server-derived snapshot byte payload.
+  /// Ids of [uuid] and its whole subtree (inclusive), via a parent walk.
+  Future<List<String>> subtreeUuids(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      '''
+      WITH RECURSIVE subtree(uuid) AS (
+        SELECT uuid FROM node_cache WHERE uuid = ?
+        UNION ALL
+        SELECT n.uuid FROM subtree s JOIN node_cache n ON n.parent_uuid = s.uuid
+      )
+      SELECT uuid FROM subtree ORDER BY uuid
+    ''',
+      [uuid],
+    );
+    return rows.map((r) => r['uuid'] as String).toList();
+  }
+
+  /// Restores the local node cache from a server-derived snapshot byte
+  /// payload.
   ///
-  /// The snapshot is a SQLite database file containing the server's derived
-  /// `node`, `property_value`, and `node_child_order` tables. This method opens
-  /// it in a temp file, reads the relevant rows, and rebuilds `node_cache`.
+  /// The v2 snapshot is a serialized derived-state SQLite database (the
+  /// store schema in `v2/packages/store/src/schema.ts`). This method opens it
+  /// in a temp file and maps the v2 shape into the local cache: `node`
+  /// (node_type/is_active/name/class_ids + hlc winner) into `node_cache`,
+  /// `node_child_order.position` strings into the fractional `position`
+  /// column, `class_member_set` and `property_value` rows into the local
+  /// derived tables, `class_extends` into the edge/closure tables (closure
+  /// rebuilt deterministically), and `class` / `property_schema` /
+  /// `class_property` into their caches.
   Future<void> restoreFromSnapshot(Uint8List bytes, String workspaceId) async {
     final tempDir = await getTemporaryDirectory();
     final tempPath = join(
@@ -248,10 +336,7 @@ class NodeCacheRepository {
     Database? snapshotDb;
     try {
       snapshotDb = await openDatabase(tempPath);
-      final nodes = await readNodesFromSnapshotDatabase(snapshotDb, workspaceId);
-      final classes = await _readClassesFromSnapshotDatabase(snapshotDb, workspaceId);
-      final propertySchemas = await _readPropertySchemasFromSnapshotDatabase(snapshotDb, workspaceId);
-      final classPropertyEdges = await _readClassPropertyEdgesFromSnapshotDatabase(snapshotDb, workspaceId);
+      final snapshot = await readSnapshot(snapshotDb, workspaceId);
       final db = await _database.database;
       await db.transaction((txn) async {
         await txn.delete('node_cache');
@@ -263,9 +348,15 @@ class NodeCacheRepository {
         // HLC; catch-up resumes from the snapshot cursor, so stale-op
         // detection restarts from scratch.
         await txn.delete('node_content_hlc');
+        await txn.delete('class_member_set');
+        await txn.delete('class_extends');
+        await txn.delete('class_hierarchy');
+        await txn.delete('property_value');
+        await txn.delete('property_value_tombstone');
+        await txn.delete('collection_member');
         final now = DateTime.now().millisecondsSinceEpoch;
         final nodeBatch = txn.batch();
-        for (final node in nodes) {
+        for (final node in snapshot.nodes) {
           nodeBatch.insert(
             'node_cache',
             _nodeToRow(node, now),
@@ -273,9 +364,40 @@ class NodeCacheRepository {
           );
         }
         await nodeBatch.commit(noResult: true);
-        await _indexNodesInTxn(txn, nodes.where((n) => !n.isDeleted).toList());
+        await _indexNodesInTxn(
+          txn,
+          snapshot.nodes.where((n) => !n.isDeleted).toList(),
+        );
+        final memberBatch = txn.batch();
+        for (final row in snapshot.classMemberRows) {
+          memberBatch.insert('class_member_set', row);
+        }
+        await memberBatch.commit(noResult: true);
+        final valueBatch = txn.batch();
+        for (final row in snapshot.propertyValueRows) {
+          valueBatch.insert('property_value', row);
+        }
+        await valueBatch.commit(noResult: true);
+        final tombstoneBatch = txn.batch();
+        for (final row in snapshot.propertyTombstoneRows) {
+          tombstoneBatch.insert('property_value_tombstone', row);
+        }
+        await tombstoneBatch.commit(noResult: true);
+        final collectionBatch = txn.batch();
+        for (final row in snapshot.collectionMemberRows) {
+          collectionBatch.insert('collection_member', row);
+        }
+        await collectionBatch.commit(noResult: true);
+        final extendsBatch = txn.batch();
+        for (final (classId, parentId) in snapshot.classExtendsEdges) {
+          extendsBatch.insert('class_extends', {
+            'class_id': classId,
+            'parent_class_id': parentId,
+          });
+        }
+        await extendsBatch.commit(noResult: true);
         final classBatch = txn.batch();
-        for (final cls in classes) {
+        for (final cls in snapshot.classes) {
           classBatch.insert(
             'class_cache',
             _classToRow(cls),
@@ -284,7 +406,7 @@ class NodeCacheRepository {
         }
         await classBatch.commit(noResult: true);
         final propertyBatch = txn.batch();
-        for (final schema in propertySchemas) {
+        for (final schema in snapshot.propertySchemas) {
           propertyBatch.insert(
             'property_schema',
             _propertySchemaToRow(schema),
@@ -293,7 +415,7 @@ class NodeCacheRepository {
         }
         await propertyBatch.commit(noResult: true);
         final edgeBatch = txn.batch();
-        for (final edge in classPropertyEdges) {
+        for (final edge in snapshot.classPropertyEdges) {
           edgeBatch.insert(
             'class_property_edge',
             _classPropertyEdgeToRow(edge),
@@ -302,6 +424,8 @@ class NodeCacheRepository {
         }
         await edgeBatch.commit(noResult: true);
       });
+      // Closure is rebuilt after the class cache + edges land.
+      await rebuildClassHierarchy();
     } finally {
       await snapshotDb?.close();
       try {
@@ -312,10 +436,133 @@ class NodeCacheRepository {
     }
   }
 
-  /// Reads [Node] objects from a server-derived snapshot database.
+  /// Reads the v2 snapshot into a [SnapshotRestoreData] bundle.
   ///
   /// Exposed for testing; most callers should use [restoreFromSnapshot].
-  Future<List<Node>> readNodesFromSnapshotDatabase(Database db, String workspaceId) async {
+  Future<SnapshotRestoreData> readSnapshot(
+    Database db,
+    String workspaceId,
+  ) async {
+    final nodes = await readNodesFromSnapshotDatabase(db, workspaceId);
+    final nodeIds = nodes.map((n) => n.uuid).toList();
+    final placeholders = nodeIds.map((_) => '?').join(',');
+
+    // OR-Set membership rows (keyed by the snapshot's node ids).
+    final classMemberRows = <Map<String, dynamic>>[];
+    if (nodeIds.isNotEmpty) {
+      final rows = await db.rawQuery(
+        'SELECT node_id, class_id, present, hlc_physical, hlc_logical, actor_id '
+        'FROM class_member_set WHERE node_id IN ($placeholders) ORDER BY node_id, class_id',
+        nodeIds,
+      );
+      for (final row in rows) {
+        classMemberRows.add({
+          'node_uuid': row['node_id'],
+          'class_id': row['class_id'],
+          'present': row['present'],
+          'hlc_physical': row['hlc_physical'] ?? 0,
+          'hlc_logical': row['hlc_logical'] ?? 0,
+          'actor_id': row['actor_id'],
+        });
+      }
+    }
+
+    // Property rows with their LWW winners.
+    final propertyValueRows = <Map<String, dynamic>>[];
+    final propertyTombstoneRows = <Map<String, dynamic>>[];
+    if (nodeIds.isNotEmpty) {
+      final rows = await db.rawQuery(
+        'SELECT node_id, property_schema_id, value, idx, metadata, hlc_physical, '
+        'hlc_logical, actor_id FROM property_value '
+        'WHERE node_id IN ($placeholders) ORDER BY node_id, property_schema_id, idx',
+        nodeIds,
+      );
+      for (final row in rows) {
+        propertyValueRows.add({
+          'id': '${row['node_id']}:${row['property_schema_id']}:${row['idx']}',
+          'node_uuid': row['node_id'],
+          'property_schema_id': row['property_schema_id'],
+          'value': row['value'],
+          'idx': row['idx'] ?? 0,
+          'metadata': row['metadata'],
+          'hlc_physical': row['hlc_physical'] ?? 0,
+          'hlc_logical': row['hlc_logical'] ?? 0,
+          'actor_id': row['actor_id'],
+        });
+      }
+      final tombRows = await db.rawQuery(
+        'SELECT node_id, property_schema_id, idx, hlc_physical, hlc_logical, '
+        'actor_id FROM property_value_tombstone WHERE node_id IN ($placeholders)',
+        nodeIds,
+      );
+      for (final row in tombRows) {
+        propertyTombstoneRows.add({
+          'node_uuid': row['node_id'],
+          'property_schema_id': row['property_schema_id'],
+          'idx': row['idx'] ?? 0,
+          'hlc_physical': row['hlc_physical'] ?? 0,
+          'hlc_logical': row['hlc_logical'] ?? 0,
+          'actor_id': row['actor_id'],
+        });
+      }
+    }
+
+    // Collection membership.
+    final collectionMemberRows = <Map<String, dynamic>>[];
+    if (nodeIds.isNotEmpty) {
+      final collectionRows = await db.rawQuery(
+        'SELECT collection_id, object_id, present, hlc_physical, hlc_logical, '
+        'actor_id FROM collection_member WHERE object_id IN ($placeholders)',
+        nodeIds,
+      );
+      for (final row in collectionRows) {
+        collectionMemberRows.add({
+          'collection_id': row['collection_id'],
+          'object_id': row['object_id'],
+          'present': row['present'],
+          'hlc_physical': row['hlc_physical'] ?? 0,
+          'hlc_logical': row['hlc_logical'] ?? 0,
+          'actor_id': row['actor_id'],
+        });
+      }
+    }
+
+    // Direct extends edges.
+    final extendsRows = await db.rawQuery(
+      'SELECT class_id, parent_class_id FROM class_extends ORDER BY class_id, parent_class_id',
+    );
+    final classExtendsEdges = extendsRows
+        .map((r) => (r['class_id'] as String, r['parent_class_id'] as String))
+        .toList();
+
+    return SnapshotRestoreData(
+      nodes: nodes,
+      classes: await _readClassesFromSnapshotDatabase(db, workspaceId),
+      propertySchemas: await _readPropertySchemasFromSnapshotDatabase(
+        db,
+        workspaceId,
+      ),
+      classPropertyEdges: await _readClassPropertyEdgesFromSnapshotDatabase(
+        db,
+        workspaceId,
+      ),
+      classMemberRows: classMemberRows,
+      propertyValueRows: propertyValueRows,
+      propertyTombstoneRows: propertyTombstoneRows,
+      collectionMemberRows: collectionMemberRows,
+      classExtendsEdges: classExtendsEdges,
+    );
+  }
+
+  /// Reads [Node] objects from a v2 server-derived snapshot database.
+  ///
+  /// Exposed for testing; most callers should use [restoreFromSnapshot].
+  /// Class rows (`node_type = 'class'`) are skipped: the local cache keeps
+  /// classes in `class_cache`, which is the structural authority here.
+  Future<List<Node>> readNodesFromSnapshotDatabase(
+    Database db,
+    String workspaceId,
+  ) async {
     final nodeRows = await db.query(
       'node',
       where: 'workspace_id = ?',
@@ -326,13 +573,15 @@ class NodeCacheRepository {
     final nodeIds = nodeRows.map((r) => r['id'] as String).toList();
     final placeholders = nodeIds.map((_) => '?').join(',');
 
-    // Read property values for these nodes.
+    // Property values for these nodes, projected per (node, schema): a
+    // single idx row stays a scalar, multiple rows become a list.
     final propertiesByNode = <String, Map<String, dynamic>>{};
     final propRows = await db.rawQuery(
       'SELECT node_id, property_schema_id, value, idx FROM property_value '
-      'WHERE node_id IN ($placeholders) ORDER BY idx ASC',
+      'WHERE node_id IN ($placeholders) ORDER BY property_schema_id, idx ASC',
       nodeIds,
     );
+    final grouped = <String, Map<String, List<dynamic>>>{};
     for (final row in propRows) {
       final nodeId = row['node_id'] as String;
       final schemaId = row['property_schema_id'] as String;
@@ -343,43 +592,55 @@ class NodeCacheRepository {
       } catch (_) {
         decoded = rawValue;
       }
-      (propertiesByNode[nodeId] ??= {})[schemaId] = decoded;
+      ((grouped[nodeId] ??= {})[schemaId] ??= []).add(decoded);
     }
+    grouped.forEach((nodeId, bySchema) {
+      final projected = <String, dynamic>{};
+      bySchema.forEach((schemaId, values) {
+        projected[schemaId] = values.length == 1 ? values.single : values;
+      });
+      propertiesByNode[nodeId] = projected;
+    });
 
-    // Read child order positions.
-    final sequenceByNode = <String, double>{};
+    // Fractional child-order positions (kept as strings).
+    final positionByNode = <String, String>{};
     final orderRows = await db.rawQuery(
       'SELECT child_id, position FROM node_child_order WHERE child_id IN ($placeholders)',
       nodeIds,
     );
     for (final row in orderRows) {
-      final childId = row['child_id'] as String;
       final position = row['position'] as String?;
-      sequenceByNode[childId] = double.tryParse(position ?? '') ?? 0.0;
+      if (position != null) {
+        positionByNode[row['child_id'] as String] = position;
+      }
     }
 
-    return nodeRows.map((row) {
+    return nodeRows.where((row) => row['node_type'] != 'class').map((row) {
       final uuid = row['id'] as String;
-      final kind = row['kind'] as String?;
+      final nodeType = row['node_type'] as String? ?? 'block';
       final classIdsJson = row['class_ids'] as String?;
-      final classIds = (jsonDecode(classIdsJson ?? '[]') as List<dynamic>).cast<String>();
+      final classIds = (jsonDecode(classIdsJson ?? '[]') as List<dynamic>)
+          .cast<String>();
       final contentJson = row['content'] as String?;
-      final content = (jsonDecode(contentJson ?? '[]') as List<dynamic>).cast<Map<String, dynamic>>();
+      final content = (jsonDecode(contentJson ?? '[]') as List<dynamic>)
+          .cast<Map<String, dynamic>>();
       // The derived content column can hold the CRDT text wrapper
       // ([{type:'text', text:'<real AST JSON>'}]); unwrap before storing so
       // titles render as text instead of raw JSON.
       final name = jsonEncode(unwrapCrdtContentAst(content));
+      final title = row['name'] as String?;
 
       return Node(
         id: 0,
         uuid: uuid,
         name: name,
-        displayName: astToPlainText(name),
+        displayName: title?.isNotEmpty == true ? title! : astToPlainText(name),
         icon: row['icon'] as String?,
         color: row['color'] as String?,
         parentUuid: row['parent_id'] as String?,
-        sequence: sequenceByNode[uuid] ?? 0.0,
-        isPage: kind == 'page',
+        sequence: double.tryParse(positionByNode[uuid] ?? '') ?? 0.0,
+        position: positionByNode[uuid],
+        isPage: nodeType == 'page',
         isTask: classIds.contains(SystemClassUuids.task),
         isDaily: classIds.contains(SystemClassUuids.day),
         isMonthly: classIds.contains(SystemClassUuids.month),
@@ -388,38 +649,49 @@ class NodeCacheRepository {
         isAsset: classIds.contains(SystemClassUuids.asset),
         isComment: classIds.contains(SystemClassUuids.comment),
         isDeleted: false,
-        isArchived: (row['active'] as int? ?? 1) == 0,
+        isArchived: (row['is_active'] as int? ?? 1) == 0,
         classesUuid: classIds,
         properties: propertiesByNode[uuid] ?? const {},
         createDate: row['created_at'] as String?,
         writeDate: row['updated_at'] as String?,
+        title: title,
+        nodeType: nodeType,
+        hlcPhysical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+        hlcLogical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+        actorId: row['actor_id'] as String?,
       );
     }).toList();
   }
 
-  /// Reads class rows from a server-derived snapshot database.
-  Future<List<_ClassRow>> _readClassesFromSnapshotDatabase(Database db, String workspaceId) async {
+  /// Reads class rows from a v2 server-derived snapshot database.
+  Future<List<_ClassRow>> _readClassesFromSnapshotDatabase(
+    Database db,
+    String workspaceId,
+  ) async {
     final rows = await db.query(
       'class',
       where: 'workspace_id = ? AND active = 1',
       whereArgs: [workspaceId],
       orderBy: 'name ASC',
     );
+    final extendsByClass = <String, List<String>>{};
+    final edgeRows = await db.rawQuery(
+      'SELECT class_id, parent_class_id FROM class_extends ORDER BY class_id, parent_class_id',
+    );
+    for (final edge in edgeRows) {
+      (extendsByClass[edge['class_id'] as String] ??= []).add(
+        edge['parent_class_id'] as String,
+      );
+    }
     return rows.map((row) {
-      final extendsRaw = row['extends_class_ids'] as String?;
-      List<String> extendsUuids;
-      try {
-        extendsUuids = (jsonDecode(extendsRaw ?? '[]') as List<dynamic>).cast<String>();
-      } catch (_) {
-        extendsUuids = const [];
-      }
+      final classId = row['id'] as String;
       return _ClassRow(
-        uuid: row['id'] as String,
+        uuid: classId,
         name: _normalizeClassName(row['name'] as String?),
         icon: row['icon'] as String?,
         color: row['color'] as String?,
         description: row['description'] as String?,
-        extendsUuids: extendsUuids,
+        extendsUuids: extendsByClass[classId] ?? const [],
         active: (row['active'] as int? ?? 1) == 1,
         createdAt: row['created_at'] as String?,
         updatedAt: row['updated_at'] as String?,
@@ -427,8 +699,11 @@ class NodeCacheRepository {
     }).toList();
   }
 
-  /// Reads property-schema rows from a server-derived snapshot database.
-  Future<List<PropertySchemaRow>> _readPropertySchemasFromSnapshotDatabase(Database db, String workspaceId) async {
+  /// Reads property-schema rows from a v2 server-derived snapshot database.
+  Future<List<PropertySchemaRow>> _readPropertySchemasFromSnapshotDatabase(
+    Database db,
+    String workspaceId,
+  ) async {
     final rows = await db.query(
       'property_schema',
       where: 'workspace_id = ? AND active = 1',
@@ -437,49 +712,38 @@ class NodeCacheRepository {
     return rows.map((row) {
       List<String> classFilterUuids;
       List<Map<String, dynamic>> options;
-      Map<String, dynamic>? validationRules;
-      dynamic defaultValue;
       try {
-        classFilterUuids = (jsonDecode(row['class_filter_uuids'] as String? ?? '[]') as List<dynamic>).cast<String>();
+        classFilterUuids =
+            (jsonDecode(row['target_class_filter'] as String? ?? '[]')
+                    as List<dynamic>)
+                .cast<String>();
       } catch (_) {
         classFilterUuids = const [];
       }
       try {
-        options = (jsonDecode(row['options'] as String? ?? '[]') as List<dynamic>).cast<Map<String, dynamic>>();
+        options =
+            (jsonDecode(row['options'] as String? ?? '[]') as List<dynamic>)
+                .cast<Map<String, dynamic>>();
       } catch (_) {
         options = const [];
-      }
-      try {
-        final raw = row['validation_rules'] as String?;
-        validationRules = raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
-      } catch (_) {
-        validationRules = null;
-      }
-      try {
-        final raw = row['default_value'] as String?;
-        defaultValue = raw == null ? null : jsonDecode(raw);
-      } catch (_) {
-        defaultValue = row['default_value'];
       }
       return PropertySchemaRow(
         uuid: row['id'] as String,
         workspaceId: row['workspace_id'] as String,
         name: row['name'] as String,
-        icon: row['icon'] as String?,
         type: row['type'] as String? ?? 'text',
         multi: (row['multi'] as int? ?? 0) == 1,
-        isSystem: (row['is_system'] as int? ?? 0) == 1,
+        isSystem: false,
         scope: row['scope'] as String? ?? 'global',
-        nodeUuid: row['node_id'] as String?,
-        iconVisibility: row['icon_visibility'] as String?,
-        validationRules: validationRules,
-        required: (row['required'] as int? ?? 0) == 1,
-        readonly: (row['readonly'] as int? ?? 0) == 1,
-        hideWhenEmpty: (row['hide_when_empty'] as int? ?? 0) == 1,
-        defaultValue: defaultValue,
+        iconVisibility: null,
+        validationRules: null,
+        required: false,
+        readonly: false,
+        hideWhenEmpty: false,
+        defaultValue: null,
         classFilterUuids: classFilterUuids,
         options: options,
-        computed: row['computed'] as String?,
+        computed: null,
         active: (row['active'] as int? ?? 1) == 1,
         createdAt: row['created_at'] as String?,
         updatedAt: row['updated_at'] as String?,
@@ -487,12 +751,20 @@ class NodeCacheRepository {
     }).toList();
   }
 
-  /// Reads class-property-edge rows from a server-derived snapshot database.
-  Future<List<ClassPropertyEdgeRow>> _readClassPropertyEdgesFromSnapshotDatabase(Database db, String workspaceId) async {
-    final rows = await db.query(
-      'class_property_edge',
-      where: 'class_id IN (SELECT id FROM class WHERE workspace_id = ? AND active = 1)',
-      whereArgs: [workspaceId],
+  /// Reads class-property binding rows from a v2 server-derived snapshot
+  /// database (the v2 `class_property` table; empty by default in M1).
+  Future<List<ClassPropertyEdgeRow>>
+  _readClassPropertyEdgesFromSnapshotDatabase(
+    Database db,
+    String workspaceId,
+  ) async {
+    final rows = await db.rawQuery(
+      'SELECT cp.class_id, cp.property_schema_id, cp.sequence, cp.default_value, '
+      'cp.required, cp.readonly, cp.hide_when_empty '
+      'FROM class_property cp '
+      'JOIN class c ON c.id = cp.class_id '
+      'WHERE c.workspace_id = ? AND c.active = 1',
+      [workspaceId],
     );
     return rows.map((row) {
       dynamic defaultValue;
@@ -507,10 +779,16 @@ class NodeCacheRepository {
         propertyUuid: row['property_schema_id'] as String,
         sequence: row['sequence'] as int? ?? 0,
         defaultValue: defaultValue,
-        hidden: (row['hidden'] as int? ?? 0) == 1,
-        required: row['required'] == null ? null : (row['required'] as int) == 1,
-        readonly: row['readonly'] == null ? null : (row['readonly'] as int) == 1,
-        hideWhenEmpty: row['hide_when_empty'] == null ? null : (row['hide_when_empty'] as int) == 1,
+        hidden: false,
+        required: row['required'] == null
+            ? null
+            : (row['required'] as int) == 1,
+        readonly: row['readonly'] == null
+            ? null
+            : (row['readonly'] as int) == 1,
+        hideWhenEmpty: row['hide_when_empty'] == null
+            ? null
+            : (row['hide_when_empty'] as int) == 1,
       );
     }).toList();
   }
@@ -523,7 +801,8 @@ class NodeCacheRepository {
     final db = await _database.database;
     final rows = await db.query(
       'node_cache',
-      where: 'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND is_daily = 0 AND is_monthly = 0 AND is_yearly = 0',
+      where:
+          'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND is_daily = 0 AND is_monthly = 0 AND is_yearly = 0',
       orderBy: "COALESCE(write_date, '') DESC, synced_at DESC",
       limit: limit,
     );
@@ -535,7 +814,8 @@ class NodeCacheRepository {
     final db = await _database.database;
     final rows = await db.query(
       'node_cache',
-      where: 'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND parent_uuid IS NULL AND is_daily = 0 AND is_monthly = 0 AND is_yearly = 0',
+      where:
+          'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND parent_uuid IS NULL AND is_daily = 0 AND is_monthly = 0 AND is_yearly = 0',
       orderBy: "COALESCE(write_date, '') DESC",
     );
     return rows.map(_nodeFromRow).toList();
@@ -570,10 +850,7 @@ class NodeCacheRepository {
       where: 'active = 1',
       orderBy: 'name ASC',
     );
-    const hidden = <String>{
-      SystemClassUuids.class_,
-      SystemClassUuids.page,
-    };
+    const hidden = <String>{SystemClassUuids.class_, SystemClassUuids.page};
     return rows
         .map(_classFromRow)
         .where((c) => !hidden.contains(c.uuid))
@@ -626,21 +903,535 @@ class NodeCacheRepository {
     String? updatedAt,
   }) async {
     final db = await _database.database;
-    await db.insert(
-      'class_cache',
-      {
-        'uuid': uuid,
-        'name': _normalizeClassName(name),
-        'icon': icon,
-        'color': color,
-        'description': description,
-        'extends_uuid': jsonEncode(extendsUuids ?? const <String>[]),
-        'active': active ? 1 : 0,
-        'created_at': createdAt,
-        'updated_at': updatedAt,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    await db.insert('class_cache', {
+      'uuid': uuid,
+      'name': _normalizeClassName(name),
+      'icon': icon,
+      'color': color,
+      'description': description,
+      'extends_uuid': jsonEncode(extendsUuids ?? const <String>[]),
+      'active': active ? 1 : 0,
+      'created_at': createdAt,
+      'updated_at': updatedAt,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  // === v2 derived state (relay-v2 appliers; see AppDatabase._migrateV16) ===
+
+  /// Row-level LWW metadata for [uuid]'s node row, if any.
+  Future<NodeRowMeta?> getRowMeta(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'node_cache',
+      columns: ['node_type', 'hlc_physical', 'hlc_logical', 'actor_id'],
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+      limit: 1,
     );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return NodeRowMeta(
+      nodeType: row['node_type'] as String?,
+      physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+      logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+      actor: row['actor_id'] as String? ?? '',
+    );
+  }
+
+  /// True when [uuid] is a class (v2 classes are tree-external: they can
+  /// never be a parent). Classes live in [class_cache]; a node row with
+  /// node_type 'class' also counts.
+  Future<bool> isClassNode(String uuid) async {
+    final meta = await getRowMeta(uuid);
+    if (meta?.nodeType == 'class') return true;
+    return await getClassByUuid(uuid) != null;
+  }
+
+  // --- fractional child positions --------------------------------------
+
+  /// The stored fractional position of [childUuid] under [parentUuid].
+  Future<String?> childPosition(String parentUuid, String childUuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'node_cache',
+      columns: ['position'],
+      where: 'parent_uuid = ? AND uuid = ?',
+      whereArgs: [parentUuid, childUuid],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['position'] as String?;
+  }
+
+  /// Lexicographically-last child position under [parentUuid]
+  /// (append-after target); optionally excluding [excludeChildUuid].
+  Future<String?> lastChildPosition(
+    String parentUuid, {
+    String? excludeChildUuid,
+  }) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'node_cache',
+      columns: ['position'],
+      where: excludeChildUuid == null
+          ? 'parent_uuid = ? AND position IS NOT NULL'
+          : 'parent_uuid = ? AND position IS NOT NULL AND uuid != ?',
+      whereArgs: excludeChildUuid == null
+          ? [parentUuid]
+          : [parentUuid, excludeChildUuid],
+      orderBy: 'position DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['position'] as String?;
+  }
+
+  /// The first sibling position strictly after [afterPosition] under
+  /// [parentUuid], excluding [excludeChildUuid] (the moving child).
+  Future<String?> nextSiblingPosition(
+    String parentUuid,
+    String afterPosition, {
+    String? excludeChildUuid,
+  }) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'node_cache',
+      columns: ['position'],
+      where: excludeChildUuid == null
+          ? 'parent_uuid = ? AND position > ?'
+          : 'parent_uuid = ? AND position > ? AND uuid != ?',
+      whereArgs: excludeChildUuid == null
+          ? [parentUuid, afterPosition]
+          : [parentUuid, afterPosition, excludeChildUuid],
+      orderBy: 'position ASC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['position'] as String?;
+  }
+
+  // --- OR-Set class membership ------------------------------------------
+
+  /// Winner row of the (node, class) membership pair, if any.
+  Future<LwwWinner?> classMemberWinner(String nodeUuid, String classId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'class_member_set',
+      columns: ['hlc_physical', 'hlc_logical', 'actor_id'],
+      where: 'node_uuid = ? AND class_id = ?',
+      whereArgs: [nodeUuid, classId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return (
+      physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+      logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+      actor: row['actor_id'] as String? ?? '',
+    );
+  }
+
+  /// Upserts a membership pair when [incoming] beats the stored winner
+  /// (or no row exists).
+  Future<void> upsertClassMember(
+    String nodeUuid,
+    String classId,
+    bool present,
+    LwwWinner incoming,
+  ) async {
+    final db = await _database.database;
+    await db.insert('class_member_set', {
+      'node_uuid': nodeUuid,
+      'class_id': classId,
+      'present': present ? 1 : 0,
+      'hlc_physical': incoming.physical,
+      'hlc_logical': incoming.logical,
+      'actor_id': incoming.actor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Recomputes [uuid]'s class list from the membership OR-Set's present
+  /// rows (sorted) and refreshes the class-derived flags.
+  Future<void> recomputeClassIds(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'class_member_set',
+      columns: ['class_id'],
+      where: 'node_uuid = ? AND present = 1',
+      whereArgs: [uuid],
+      orderBy: 'class_id ASC',
+    );
+    final classIds = rows.map((r) => r['class_id'] as String).toList();
+    final node = await getByUuid(uuid);
+    if (node == null) return;
+    final flags = _deriveFlags(classIds);
+    await upsert(
+      Node(
+        id: node.id,
+        uuid: node.uuid,
+        name: node.name,
+        displayName: node.displayName,
+        icon: node.icon,
+        color: node.color,
+        parentId: node.parentId,
+        parentUuid: node.parentUuid,
+        pageId: node.pageId,
+        pageUuid: node.pageUuid,
+        sequence: node.sequence,
+        position: node.position,
+        isPage: node.isPage,
+        isTask: flags.isTask,
+        isDaily: flags.isDaily,
+        isMonthly: flags.isMonthly,
+        isYearly: flags.isYearly,
+        isTable: flags.isTable,
+        isAsset: flags.isAsset,
+        isComment: flags.isComment,
+        isDeleted: node.isDeleted,
+        isArchived: node.isArchived,
+        isPrivate: node.isPrivate,
+        classes: node.classes,
+        classesUuid: classIds,
+        tags: node.tags,
+        tagsUuid: node.tagsUuid,
+        properties: node.properties,
+        children: node.children,
+        createDate: node.createDate,
+        writeDate: node.writeDate,
+        extendsUuid: node.extendsUuid,
+        title: node.title,
+        nodeType: node.nodeType,
+        hlcPhysical: node.hlcPhysical,
+        hlcLogical: node.hlcLogical,
+        actorId: node.actorId,
+      ),
+    );
+  }
+
+  // --- class extends + hierarchy closure --------------------------------
+
+  /// All direct extends edges (class_id, parent_class_id), sorted.
+  Future<List<(String, String)>> classExtendsEdges() async {
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      'SELECT class_id, parent_class_id FROM class_extends '
+      'ORDER BY class_id, parent_class_id',
+    );
+    return rows
+        .map((r) => (r['class_id'] as String, r['parent_class_id'] as String))
+        .toList();
+  }
+
+  /// Replace semantics: [parentClassIds] IS the class's full parent set.
+  Future<void> replaceClassExtends(
+    String classId,
+    List<String> parentClassIds,
+  ) async {
+    final db = await _database.database;
+    await db.transaction((txn) async {
+      await txn.delete(
+        'class_extends',
+        where: 'class_id = ?',
+        whereArgs: [classId],
+      );
+      final batch = txn.batch();
+      for (final parentId in parentClassIds.toSet()) {
+        batch.insert('class_extends', {
+          'class_id': classId,
+          'parent_class_id': parentId,
+        });
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  /// True when [ancestorId] is in [classId]'s pre-write closure.
+  Future<bool> hierarchyContains(String classId, String ancestorId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'class_hierarchy',
+      columns: ['ancestor_id'],
+      where: 'class_id = ? AND ancestor_id = ?',
+      whereArgs: [classId, ancestorId],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
+  /// Deterministic full rebuild of the class_hierarchy closure from the
+  /// class_extends edge set (port of the v2 store's rebuildClassHierarchy:
+  /// rows inserted per class in sorted id order with sorted ancestor
+  /// order, so wipe -> replay converges to identical state).
+  Future<void> rebuildClassHierarchy() async {
+    final db = await _database.database;
+    final classes = await db.rawQuery(
+      'SELECT uuid FROM class_cache WHERE active = 1 ORDER BY uuid',
+    );
+    final edges = await classExtendsEdges();
+    final parentsById = <String, List<String>>{};
+    for (final (classId, parentId) in edges) {
+      (parentsById[classId] ??= []).add(parentId);
+    }
+    await db.transaction((txn) async {
+      await txn.delete('class_hierarchy');
+      final batch = txn.batch();
+      for (final row in classes) {
+        final classId = row['uuid'] as String;
+        final ancestors = <String>{};
+        final visited = {classId};
+        final queue = [...(parentsById[classId] ?? const <String>[])];
+        while (queue.isNotEmpty) {
+          final cursor = queue.removeAt(0);
+          if (visited.contains(cursor)) continue;
+          visited.add(cursor);
+          ancestors.add(cursor);
+          queue.addAll(parentsById[cursor] ?? const <String>[]);
+        }
+        batch.insert('class_hierarchy', {
+          'class_id': classId,
+          'ancestor_id': classId,
+        });
+        for (final ancestorId in ancestors.toList()..sort()) {
+          batch.insert('class_hierarchy', {
+            'class_id': classId,
+            'ancestor_id': ancestorId,
+          });
+        }
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  // --- multi-value properties (LWW + tombstones) -------------------------
+
+  /// Winner of the live property slot, if any.
+  Future<LwwWinner?> propertyValueWinner(
+    String nodeUuid,
+    String schemaId,
+    int idx,
+  ) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'property_value',
+      columns: ['hlc_physical', 'hlc_logical', 'actor_id'],
+      where: 'node_uuid = ? AND property_schema_id = ? AND idx = ?',
+      whereArgs: [nodeUuid, schemaId, idx],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return (
+      physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+      logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+      actor: row['actor_id'] as String? ?? '',
+    );
+  }
+
+  /// Winner of the slot's tombstone, if any.
+  Future<LwwWinner?> propertyTombstoneWinner(
+    String nodeUuid,
+    String schemaId,
+    int idx,
+  ) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'property_value_tombstone',
+      columns: ['hlc_physical', 'hlc_logical', 'actor_id'],
+      where: 'node_uuid = ? AND property_schema_id = ? AND idx = ?',
+      whereArgs: [nodeUuid, schemaId, idx],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return (
+      physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+      logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+      actor: row['actor_id'] as String? ?? '',
+    );
+  }
+
+  Future<void> upsertPropertyValue(
+    String nodeUuid,
+    String schemaId,
+    int idx,
+    String valueJson,
+    String? metadataJson,
+    LwwWinner incoming,
+  ) async {
+    final db = await _database.database;
+    await db.insert('property_value', {
+      'id': '$nodeUuid:$schemaId:$idx',
+      'node_uuid': nodeUuid,
+      'property_schema_id': schemaId,
+      'value': valueJson,
+      'idx': idx,
+      'metadata': metadataJson,
+      'hlc_physical': incoming.physical,
+      'hlc_logical': incoming.logical,
+      'actor_id': incoming.actor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> deletePropertyValue(
+    String nodeUuid,
+    String schemaId,
+    int idx,
+  ) async {
+    final db = await _database.database;
+    await db.delete(
+      'property_value',
+      where: 'node_uuid = ? AND property_schema_id = ? AND idx = ?',
+      whereArgs: [nodeUuid, schemaId, idx],
+    );
+  }
+
+  /// Upserts the slot tombstone when [incoming] beats the stored winner.
+  Future<void> upsertPropertyTombstone(
+    String nodeUuid,
+    String schemaId,
+    int idx,
+    LwwWinner incoming,
+  ) async {
+    final db = await _database.database;
+    await db.insert('property_value_tombstone', {
+      'node_uuid': nodeUuid,
+      'property_schema_id': schemaId,
+      'idx': idx,
+      'hlc_physical': incoming.physical,
+      'hlc_logical': incoming.logical,
+      'actor_id': incoming.actor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// All live property rows for [nodeUuid], ordered by schema then idx.
+  Future<List<PropertyValueRow>> propertyValuesFor(String nodeUuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'property_value',
+      where: 'node_uuid = ?',
+      whereArgs: [nodeUuid],
+      orderBy: 'property_schema_id ASC, idx ASC',
+    );
+    return rows.map((row) {
+      dynamic decoded;
+      try {
+        decoded = jsonDecode(row['value'] as String);
+      } catch (_) {
+        decoded = row['value'];
+      }
+      dynamic metadata;
+      final rawMetadata = row['metadata'] as String?;
+      if (rawMetadata != null) {
+        try {
+          metadata = jsonDecode(rawMetadata);
+        } catch (_) {
+          metadata = rawMetadata;
+        }
+      }
+      return PropertyValueRow(
+        schemaId: row['property_schema_id'] as String,
+        idx: (row['idx'] as num?)?.toInt() ?? 0,
+        value: decoded,
+        metadata: metadata,
+      );
+    }).toList();
+  }
+
+  /// Rebuilds the node's payload `properties` projection from the
+  /// property_value table (single row -> scalar, multiple rows -> list).
+  Future<void> projectNodeProperties(String nodeUuid) async {
+    final node = await getByUuid(nodeUuid);
+    if (node == null) return;
+    final rows = await propertyValuesFor(nodeUuid);
+    final bySchema = <String, List<dynamic>>{};
+    for (final row in rows) {
+      (bySchema[row.schemaId] ??= []).add(row.value);
+    }
+    final projected = <String, dynamic>{};
+    bySchema.forEach((schemaId, values) {
+      projected[schemaId] = values.length == 1 ? values.single : values;
+    });
+    await upsert(
+      Node(
+        id: node.id,
+        uuid: node.uuid,
+        name: node.name,
+        displayName: node.displayName,
+        icon: node.icon,
+        color: node.color,
+        parentId: node.parentId,
+        parentUuid: node.parentUuid,
+        pageId: node.pageId,
+        pageUuid: node.pageUuid,
+        sequence: node.sequence,
+        position: node.position,
+        isPage: node.isPage,
+        isTask: node.isTask,
+        isDaily: node.isDaily,
+        isMonthly: node.isMonthly,
+        isYearly: node.isYearly,
+        isTable: node.isTable,
+        isAsset: node.isAsset,
+        isComment: node.isComment,
+        isDeleted: node.isDeleted,
+        isArchived: node.isArchived,
+        isPrivate: node.isPrivate,
+        classes: node.classes,
+        classesUuid: node.classesUuid,
+        tags: node.tags,
+        tagsUuid: node.tagsUuid,
+        properties: projected,
+        children: node.children,
+        createDate: node.createDate,
+        writeDate: node.writeDate,
+        extendsUuid: node.extendsUuid,
+        title: node.title,
+        nodeType: node.nodeType,
+        hlcPhysical: node.hlcPhysical,
+        hlcLogical: node.hlcLogical,
+        actorId: node.actorId,
+      ),
+    );
+  }
+
+  // --- collection membership (OR-Set) -----------------------------------
+
+  Future<LwwWinner?> collectionMemberWinner(
+    String collectionId,
+    String objectId,
+  ) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'collection_member',
+      columns: ['hlc_physical', 'hlc_logical', 'actor_id'],
+      where: 'collection_id = ? AND object_id = ?',
+      whereArgs: [collectionId, objectId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return (
+      physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+      logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+      actor: row['actor_id'] as String? ?? '',
+    );
+  }
+
+  Future<void> upsertCollectionMember(
+    String collectionId,
+    String objectId,
+    bool present,
+    LwwWinner incoming,
+  ) async {
+    final db = await _database.database;
+    await db.insert('collection_member', {
+      'collection_id': collectionId,
+      'object_id': objectId,
+      'present': present ? 1 : 0,
+      'hlc_physical': incoming.physical,
+      'hlc_logical': incoming.logical,
+      'actor_id': incoming.actor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// Marks a class as deleted/inactive.
@@ -665,14 +1456,19 @@ class NodeCacheRepository {
     );
   }
 
-  /// Direct children of [parentUuid].
+  /// Direct children of [parentUuid] in v2 fractional position order.
+  ///
+  /// Rows carrying a lexicographic `position` sort before legacy rows, which
+  /// keep falling back to the numeric `sequence`.
   Future<List<Node>> getChildren(String parentUuid) async {
     final db = await _database.database;
     final rows = await db.query(
       'node_cache',
       where: 'parent_uuid = ? AND is_deleted = 0 AND is_archived = 0',
       whereArgs: [parentUuid],
-      orderBy: 'sequence ASC, synced_at DESC',
+      orderBy:
+          'CASE WHEN position IS NULL THEN 1 ELSE 0 END, position ASC, '
+          'sequence ASC, synced_at DESC',
     );
     return rows.map(_nodeFromRow).toList();
   }
@@ -729,17 +1525,46 @@ class NodeCacheRepository {
     return PageContent(node: pageNode, linkedReferences: const []);
   }
 
-  /// Properties currently stored on [uuid].
+  /// Live properties of [uuid], read from the derived `property_value` table
+  /// (the v2 LWW authority). Multiple idx rows under one schema surface as a
+  /// list; a single row stays a scalar. Legacy rows that predate the table
+  /// fall back to the payload projection.
   Future<List<NodePropertyValue>> getNodeProperties(String uuid) async {
+    final rows = await propertyValuesFor(uuid);
+    if (rows.isNotEmpty) {
+      final bySchema = <String, List<dynamic>>{};
+      for (final row in rows) {
+        (bySchema[row.schemaId] ??= []).add(row.value);
+      }
+      final entries = <NodePropertyValue>[];
+      for (final entry in bySchema.entries) {
+        final schema = await getPropertySchema(entry.key);
+        entries.add(
+          NodePropertyValue(
+            property:
+                schema ??
+                _knownPropertySchemas[entry.key] ??
+                _genericProperty(entry.key),
+            values: entry.value,
+          ),
+        );
+      }
+      return entries;
+    }
     final node = await getByUuid(uuid);
     if (node == null) return const [];
     final entries = <NodePropertyValue>[];
     for (final entry in node.properties.entries) {
       final schema = await getPropertySchema(entry.key);
-      entries.add(NodePropertyValue(
-        property: schema ?? _knownPropertySchemas[entry.key] ?? _genericProperty(entry.key),
-        values: [entry.value],
-      ));
+      entries.add(
+        NodePropertyValue(
+          property:
+              schema ??
+              _knownPropertySchemas[entry.key] ??
+              _genericProperty(entry.key),
+          values: [entry.value],
+        ),
+      );
     }
     return entries;
   }
@@ -766,7 +1591,9 @@ class NodeCacheRepository {
   }
 
   /// Property schemas attached to [classUuids] via class-property edges.
-  Future<List<Property>> getPropertySchemasForClasses(List<String> classUuids) async {
+  Future<List<Property>> getPropertySchemasForClasses(
+    List<String> classUuids,
+  ) async {
     if (classUuids.isEmpty) return const [];
     final db = await _database.database;
     final placeholders = classUuids.map((_) => '?').join(',');
@@ -872,7 +1699,11 @@ class NodeCacheRepository {
       candidateUuids = await searchLocal(filters.query, limit: 1000);
       if (candidateUuids.isEmpty) return const [];
     } else {
-      final rows = await db.query('node_cache', columns: ['uuid'], where: 'is_deleted = 0 AND is_archived = 0');
+      final rows = await db.query(
+        'node_cache',
+        columns: ['uuid'],
+        where: 'is_deleted = 0 AND is_archived = 0',
+      );
       candidateUuids = rows.map((r) => r['uuid'] as String).toList();
     }
 
@@ -882,7 +1713,10 @@ class NodeCacheRepository {
 
     final start = (filters.page - 1) * filters.limit;
     if (start >= filtered.length) return const [];
-    return filtered.sublist(start, (start + filters.limit).clamp(0, filtered.length));
+    return filtered.sublist(
+      start,
+      (start + filters.limit).clamp(0, filtered.length),
+    );
   }
 
   // === Local search index ===
@@ -895,9 +1729,14 @@ class NodeCacheRepository {
   // fall back to workspace-scoped behavior (single-user installs).
 
   /// Favorite nodes for [workspaceId] in order.
-  Future<List<Node>> getFavorites(String workspaceId, {int limit = 50, String? actorId}) async {
+  Future<List<Node>> getFavorites(
+    String workspaceId, {
+    int limit = 50,
+    String? actorId,
+  }) async {
     final db = await _database.database;
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT nc.payload
       FROM user_favorite uf
       INNER JOIN node_cache nc ON nc.uuid = uf.node_uuid
@@ -905,12 +1744,17 @@ class NodeCacheRepository {
         AND nc.is_deleted = 0 AND nc.is_archived = 0
       ORDER BY uf.position ASC, uf.updated_at DESC
       LIMIT ?
-    ''', [workspaceId, ?actorId, limit]);
+    ''',
+      [workspaceId, ?actorId, limit],
+    );
     return rows.map(_nodeFromRow).toList();
   }
 
   /// UUIDs of favorite nodes for [workspaceId] in order.
-  Future<List<String>> getFavoriteUuids(String workspaceId, {String? actorId}) async {
+  Future<List<String>> getFavoriteUuids(
+    String workspaceId, {
+    String? actorId,
+  }) async {
     final db = await _database.database;
     final rows = await db.query(
       'user_favorite',
@@ -924,29 +1768,36 @@ class NodeCacheRepository {
     return rows.map((r) => r['node_uuid'] as String).toList();
   }
 
-  Future<void> addFavorite(String workspaceId, String nodeUuid, {String? actorId}) async {
+  Future<void> addFavorite(
+    String workspaceId,
+    String nodeUuid, {
+    String? actorId,
+  }) async {
     final db = await _database.database;
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT COALESCE(MAX(position), -1) AS pos
       FROM user_favorite
       WHERE workspace_id = ? AND actor_id = ?
-    ''', [workspaceId, actorId ?? '']);
+    ''',
+      [workspaceId, actorId ?? ''],
+    );
     final pos = (rows.first['pos'] as int? ?? -1) + 1;
     final now = DateTime.now().millisecondsSinceEpoch;
-    await db.insert(
-      'user_favorite',
-      {
-        'workspace_id': workspaceId,
-        'actor_id': actorId ?? '',
-        'node_uuid': nodeUuid,
-        'position': pos,
-        'updated_at': now,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('user_favorite', {
+      'workspace_id': workspaceId,
+      'actor_id': actorId ?? '',
+      'node_uuid': nodeUuid,
+      'position': pos,
+      'updated_at': now,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<void> removeFavorite(String workspaceId, String nodeUuid, {String? actorId}) async {
+  Future<void> removeFavorite(
+    String workspaceId,
+    String nodeUuid, {
+    String? actorId,
+  }) async {
     final db = await _database.database;
     await db.delete(
       'user_favorite',
@@ -957,7 +1808,11 @@ class NodeCacheRepository {
     );
   }
 
-  Future<void> reorderFavorites(String workspaceId, List<String> nodeUuids, {String? actorId}) async {
+  Future<void> reorderFavorites(
+    String workspaceId,
+    List<String> nodeUuids, {
+    String? actorId,
+  }) async {
     final db = await _database.database;
     final now = DateTime.now().millisecondsSinceEpoch;
     final actor = actorId ?? '';
@@ -974,32 +1829,37 @@ class NodeCacheRepository {
       }
       await txn.delete(
         'user_favorite',
-        where: 'workspace_id = ? AND actor_id = ? AND node_uuid NOT IN (${nodeUuids.map((_) => '?').join(',')})',
+        where:
+            'workspace_id = ? AND actor_id = ? AND node_uuid NOT IN (${nodeUuids.map((_) => '?').join(',')})',
         whereArgs: [workspaceId, actor, ...nodeUuids],
       );
       for (var i = 0; i < nodeUuids.length; i++) {
-        await txn.insert(
-          'user_favorite',
-          {
-            'workspace_id': workspaceId,
-            'actor_id': actor,
-            'node_uuid': nodeUuids[i],
-            'position': i,
-            'updated_at': now,
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        await txn.insert('user_favorite', {
+          'workspace_id': workspaceId,
+          'actor_id': actor,
+          'node_uuid': nodeUuids[i],
+          'position': i,
+          'updated_at': now,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
     });
   }
 
   /// Applies a `user.favorite.add` operation to the local derived state.
-  Future<void> applyFavoriteAdd(String workspaceId, String actorId, String nodeUuid) async {
+  Future<void> applyFavoriteAdd(
+    String workspaceId,
+    String actorId,
+    String nodeUuid,
+  ) async {
     await addFavorite(workspaceId, nodeUuid, actorId: actorId);
   }
 
   /// Applies a `user.favorite.remove` operation to the local derived state.
-  Future<void> applyFavoriteRemove(String workspaceId, String actorId, String nodeUuid) async {
+  Future<void> applyFavoriteRemove(
+    String workspaceId,
+    String actorId,
+    String nodeUuid,
+  ) async {
     await removeFavorite(workspaceId, nodeUuid, actorId: actorId);
   }
 
@@ -1024,23 +1884,22 @@ class NodeCacheRepository {
     String? status,
   }) async {
     final db = await _database.database;
-    await db.insert(
-      'task_completion',
-      {
-        'completion_id': completionId,
-        'node_uuid': nodeUuid,
-        'completed_at': completedAt,
-        'scheduled_date': scheduledDate,
-        'deadline_date': deadlineDate,
-        'status': status,
-        'created_at': DateTime.now().millisecondsSinceEpoch,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('task_completion', {
+      'completion_id': completionId,
+      'node_uuid': nodeUuid,
+      'completed_at': completedAt,
+      'scheduled_date': scheduledDate,
+      'deadline_date': deadlineDate,
+      'status': status,
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// Deletes a task completion from the local derived state.
-  Future<void> deleteTaskCompletion(String nodeUuid, String completionId) async {
+  Future<void> deleteTaskCompletion(
+    String nodeUuid,
+    String completionId,
+  ) async {
     final db = await _database.database;
     await db.delete(
       'task_completion',
@@ -1166,22 +2025,18 @@ class NodeCacheRepository {
     String? createdAt,
   }) async {
     final db = await _database.database;
-    await db.insert(
-      'node_user_share',
-      {
-        'workspace_id': workspaceId,
-        'node_uuid': nodeUuid,
-        'target_user_id': targetUserId,
-        'role': role,
-        'permission_bits': permissionBits,
-        'share_id': (shareId == null || shareId.isEmpty)
-            ? const Uuid().v7()
-            : shareId,
-        'created_by': createdBy,
-        'created_at': createdAt ?? DateTime.now().toUtc().toIso8601String(),
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('node_user_share', {
+      'workspace_id': workspaceId,
+      'node_uuid': nodeUuid,
+      'target_user_id': targetUserId,
+      'role': role,
+      'permission_bits': permissionBits,
+      'share_id': (shareId == null || shareId.isEmpty)
+          ? const Uuid().v7()
+          : shareId,
+      'created_by': createdBy,
+      'created_at': createdAt ?? DateTime.now().toUtc().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// Applies a `share.user.revoke` operation to the local derived state.
@@ -1219,7 +2074,8 @@ class NodeCacheRepository {
     int limit = 50,
   }) async {
     final db = await _database.database;
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT nc.payload
       FROM node_user_share nus
       INNER JOIN node_cache nc ON nc.uuid = nus.node_uuid
@@ -1227,7 +2083,9 @@ class NodeCacheRepository {
         AND nc.is_deleted = 0 AND nc.is_archived = 0
       ORDER BY nus.created_at DESC
       LIMIT ?
-    ''', [workspaceId, userId, limit]);
+    ''',
+      [workspaceId, userId, limit],
+    );
     return rows.map(_nodeFromRow).toList();
   }
 
@@ -1252,15 +2110,11 @@ class NodeCacheRepository {
   /// Records [hlc] as the last applied content HLC for [uuid].
   Future<void> setContentHlc(String uuid, Hlc hlc) async {
     final db = await _database.database;
-    await db.insert(
-      'node_content_hlc',
-      {
-        'node_uuid': uuid,
-        'hlc_physical': hlc.physical,
-        'hlc_logical': hlc.logical,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('node_content_hlc', {
+      'node_uuid': uuid,
+      'hlc_physical': hlc.physical,
+      'hlc_logical': hlc.logical,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// Indexes a single node, replacing any existing index rows for it.
@@ -1285,7 +2139,8 @@ class NodeCacheRepository {
 
     final db = await _database.database;
     final placeholders = terms.map((_) => '?').join(',');
-    final rows = await db.rawQuery('''
+    final rows = await db.rawQuery(
+      '''
       SELECT si.node_uuid, SUM(si.rank) as score
       FROM search_index si
       INNER JOIN node_cache nc ON nc.uuid = si.node_uuid
@@ -1293,7 +2148,9 @@ class NodeCacheRepository {
       GROUP BY si.node_uuid
       ORDER BY score DESC
       LIMIT ?
-    ''', [...terms, limit]);
+    ''',
+      [...terms, limit],
+    );
 
     return rows.map((row) => row['node_uuid'] as String).toList();
   }
@@ -1312,8 +2169,12 @@ class NodeCacheRepository {
   /// indicates a fresh table that needs backfilling.
   Future<bool> shouldReindexSearch() async {
     final db = await _database.database;
-    final indexRows = await db.rawQuery('SELECT COUNT(*) as count FROM search_index');
-    final cacheRows = await db.rawQuery('SELECT COUNT(*) as count FROM node_cache');
+    final indexRows = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM search_index',
+    );
+    final cacheRows = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM node_cache',
+    );
     final indexCount = indexRows.first['count'] as int? ?? 0;
     final cacheCount = cacheRows.first['count'] as int? ?? 0;
     return indexCount == 0 && cacheCount > 0;
@@ -1345,6 +2206,13 @@ class NodeCacheRepository {
       'write_date': node.writeDate,
       'payload': jsonEncode(node.toJson()),
       'synced_at': syncedAt,
+      // v2 derived-state columns (see AppDatabase._migrateV16).
+      'title': node.title,
+      'position': node.position,
+      'node_type': node.nodeType,
+      'hlc_physical': node.hlcPhysical,
+      'hlc_logical': node.hlcLogical,
+      'actor_id': node.actorId,
     };
   }
 
@@ -1414,7 +2282,8 @@ class NodeCacheRepository {
     }
 
     if (filters.dateFrom != null || filters.dateTo != null) {
-      final dateStr = node.properties[SystemPropertyUuids.taskDeadline] as String?;
+      final dateStr =
+          node.properties[SystemPropertyUuids.taskDeadline] as String?;
       if (dateStr == null || dateStr.isEmpty) return false;
       final date = DateTime.tryParse(dateStr);
       if (date == null) return false;
@@ -1431,11 +2300,17 @@ class NodeCacheRepository {
     final orderFactor = filters.order == SortOrder.asc ? 1 : -1;
     switch (filters.sortBy) {
       case SortBy.name:
-        nodes.sort((a, b) => orderFactor * a.displayName.compareTo(b.displayName));
+        nodes.sort(
+          (a, b) => orderFactor * a.displayName.compareTo(b.displayName),
+        );
       case SortBy.writeDate:
-        nodes.sort((a, b) => orderFactor * _compareDates(a.writeDate, b.writeDate));
+        nodes.sort(
+          (a, b) => orderFactor * _compareDates(a.writeDate, b.writeDate),
+        );
       case SortBy.createDate:
-        nodes.sort((a, b) => orderFactor * _compareDates(a.createDate, b.createDate));
+        nodes.sort(
+          (a, b) => orderFactor * _compareDates(a.createDate, b.createDate),
+        );
       case SortBy.dueDate:
         nodes.sort((a, b) {
           final ad = _taskDeadline(a);
@@ -1454,7 +2329,7 @@ class NodeCacheRepository {
       case SortBy.manual:
         nodes.sort((a, b) => orderFactor * a.sequence.compareTo(b.sequence));
       case SortBy.relevance:
-      // Relevance ordering is already provided by searchLocal.
+        // Relevance ordering is already provided by searchLocal.
         break;
     }
   }
@@ -1543,27 +2418,33 @@ class NodeCacheRepository {
   static final List<SelectionOption> _taskStatusOptions = TaskStatuses.all
       .asMap()
       .entries
-      .map((e) => SelectionOption(
-            id: e.key,
-            uuid: const Uuid().v5(Namespace.url.value, 'notees:task-status:${e.value}'),
-            name: e.value,
-          ))
+      .map(
+        (e) => SelectionOption(
+          id: e.key,
+          uuid: const Uuid().v5(
+            Namespace.url.value,
+            'notees:task-status:${e.value}',
+          ),
+          name: e.value,
+        ),
+      )
       .toList();
 
-  static final List<SelectionOption> _taskPriorityOptions = const [
-    'Low',
-    'Medium',
-    'High',
-    'Urgent',
-  ]
-      .asMap()
-      .entries
-      .map((e) => SelectionOption(
-            id: e.key,
-            uuid: const Uuid().v5(Namespace.url.value, 'notees:task-priority:${e.value}'),
-            name: e.value,
-          ))
-      .toList();
+  static final List<SelectionOption> _taskPriorityOptions =
+      const ['Low', 'Medium', 'High', 'Urgent']
+          .asMap()
+          .entries
+          .map(
+            (e) => SelectionOption(
+              id: e.key,
+              uuid: const Uuid().v5(
+                Namespace.url.value,
+                'notees:task-priority:${e.value}',
+              ),
+              name: e.value,
+            ),
+          )
+          .toList();
 
   // === Class cache helpers ===
 
@@ -1615,18 +2496,24 @@ class NodeCacheRepository {
     Map<String, dynamic>? validationRules;
     dynamic defaultValue;
     try {
-      classFilterUuids = (jsonDecode(row['class_filter_uuids'] as String? ?? '[]') as List<dynamic>).cast<String>();
+      classFilterUuids =
+          (jsonDecode(row['class_filter_uuids'] as String? ?? '[]')
+                  as List<dynamic>)
+              .cast<String>();
     } catch (_) {
       classFilterUuids = const [];
     }
     try {
-      options = (jsonDecode(row['options'] as String? ?? '[]') as List<dynamic>).cast<Map<String, dynamic>>();
+      options = (jsonDecode(row['options'] as String? ?? '[]') as List<dynamic>)
+          .cast<Map<String, dynamic>>();
     } catch (_) {
       options = const [];
     }
     try {
       final raw = row['validation_rules'] as String?;
-      validationRules = raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
+      validationRules = raw == null
+          ? null
+          : jsonDecode(raw) as Map<String, dynamic>;
     } catch (_) {
       validationRules = null;
     }
@@ -1673,11 +2560,15 @@ class NodeCacheRepository {
       'scope': schema.scope,
       'node_uuid': schema.nodeUuid,
       'icon_visibility': schema.iconVisibility,
-      'validation_rules': schema.validationRules == null ? null : jsonEncode(schema.validationRules),
+      'validation_rules': schema.validationRules == null
+          ? null
+          : jsonEncode(schema.validationRules),
       'required': schema.required ? 1 : 0,
       'readonly': schema.readonly ? 1 : 0,
       'hide_when_empty': schema.hideWhenEmpty ? 1 : 0,
-      'default_value': schema.defaultValue == null ? null : jsonEncode(schema.defaultValue),
+      'default_value': schema.defaultValue == null
+          ? null
+          : jsonEncode(schema.defaultValue),
       'class_filter_uuids': jsonEncode(schema.classFilterUuids),
       'options': jsonEncode(schema.options),
       'computed': schema.computed,
@@ -1692,22 +2583,28 @@ class NodeCacheRepository {
     List<String> classFilters;
     Map<String, dynamic>? validationRules;
     try {
-      options = ((jsonDecode(row['options'] as String? ?? '[]') as List<dynamic>?) ?? const [])
-          .map((e) => _selectionOptionFromJson(e as Map<String, dynamic>))
-          .toList();
+      options =
+          ((jsonDecode(row['options'] as String? ?? '[]') as List<dynamic>?) ??
+                  const [])
+              .map((e) => _selectionOptionFromJson(e as Map<String, dynamic>))
+              .toList();
     } catch (_) {
       options = const [];
     }
     try {
-      classFilters = (jsonDecode(row['class_filter_uuids'] as String? ?? '[]') as List<dynamic>)
-          .map((e) => e.toString())
-          .toList();
+      classFilters =
+          (jsonDecode(row['class_filter_uuids'] as String? ?? '[]')
+                  as List<dynamic>)
+              .map((e) => e.toString())
+              .toList();
     } catch (_) {
       classFilters = const [];
     }
     try {
       final raw = row['validation_rules'] as String?;
-      validationRules = raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
+      validationRules = raw == null
+          ? null
+          : jsonDecode(raw) as Map<String, dynamic>;
     } catch (_) {
       validationRules = null;
     }
@@ -1732,7 +2629,8 @@ class NodeCacheRepository {
 
   SelectionOption _selectionOptionFromJson(Map<String, dynamic> json) {
     final id = json['id'];
-    final uuid = (json['uuid'] as String?) ??
+    final uuid =
+        (json['uuid'] as String?) ??
         (json['selection_line_uuid'] as String?) ??
         (json['id']?.toString() ?? '');
     return SelectionOption(
@@ -1750,11 +2648,15 @@ class NodeCacheRepository {
       'class_uuid': edge.classUuid,
       'property_uuid': edge.propertyUuid,
       'sequence': edge.sequence,
-      'default_value': edge.defaultValue == null ? null : jsonEncode(edge.defaultValue),
+      'default_value': edge.defaultValue == null
+          ? null
+          : jsonEncode(edge.defaultValue),
       'hidden': edge.hidden ? 1 : 0,
       'required': edge.required == null ? null : (edge.required! ? 1 : 0),
       'readonly': edge.readonly == null ? null : (edge.readonly! ? 1 : 0),
-      'hide_when_empty': edge.hideWhenEmpty == null ? null : (edge.hideWhenEmpty! ? 1 : 0),
+      'hide_when_empty': edge.hideWhenEmpty == null
+          ? null
+          : (edge.hideWhenEmpty! ? 1 : 0),
     };
   }
 
@@ -1786,7 +2688,10 @@ class NodeCacheRepository {
     );
   }
 
-  Future<void> deleteClassPropertyEdge(String classUuid, String propertyUuid) async {
+  Future<void> deleteClassPropertyEdge(
+    String classUuid,
+    String propertyUuid,
+  ) async {
     final db = await _database.database;
     await db.delete(
       'class_property_edge',
@@ -1795,7 +2700,10 @@ class NodeCacheRepository {
     );
   }
 
-  Future<void> reorderClassPropertyEdges(String classUuid, List<String> orderedPropertyUuids) async {
+  Future<void> reorderClassPropertyEdges(
+    String classUuid,
+    List<String> orderedPropertyUuids,
+  ) async {
     final db = await _database.database;
     await db.transaction((txn) async {
       for (var i = 0; i < orderedPropertyUuids.length; i++) {
@@ -1820,4 +2728,87 @@ class NodeCacheRepository {
     }
     return trimmed.isEmpty ? 'Untitled class' : trimmed;
   }
+}
+
+/// Row-level LWW metadata read from a `node_cache` row (v2 derived columns).
+class NodeRowMeta {
+  const NodeRowMeta({
+    this.nodeType,
+    required this.physical,
+    required this.logical,
+    required this.actor,
+  });
+
+  final String? nodeType;
+  final int physical;
+  final int logical;
+  final String actor;
+
+  LwwWinner get winner => (physical: physical, logical: logical, actor: actor);
+}
+
+/// One live row of the derived `property_value` table.
+class PropertyValueRow {
+  const PropertyValueRow({
+    required this.schemaId,
+    required this.idx,
+    required this.value,
+    this.metadata,
+  });
+
+  final String schemaId;
+  final int idx;
+  final dynamic value;
+  final dynamic metadata;
+}
+
+/// Class-derived flags (task/journal/table/asset/comment), mirroring the
+/// applier's flag derivation from a node's class list.
+({
+  bool isTask,
+  bool isDaily,
+  bool isMonthly,
+  bool isYearly,
+  bool isTable,
+  bool isAsset,
+  bool isComment,
+})
+_deriveFlags(List<String> classIds) {
+  return (
+    isTask: classIds.contains(SystemClassUuids.task),
+    isDaily: classIds.contains(SystemClassUuids.day),
+    isMonthly: classIds.contains(SystemClassUuids.month),
+    isYearly: classIds.contains(SystemClassUuids.year),
+    isTable: classIds.contains(SystemClassUuids.table),
+    isAsset: classIds.contains(SystemClassUuids.asset),
+    isComment: classIds.contains(SystemClassUuids.comment),
+  );
+}
+
+/// Bundle of everything read from a v2 server-derived snapshot database,
+/// ready to be written into the local derived-state tables.
+class SnapshotRestoreData {
+  const SnapshotRestoreData({
+    required this.nodes,
+    required this.classes,
+    required this.propertySchemas,
+    required this.classPropertyEdges,
+    required this.classMemberRows,
+    required this.propertyValueRows,
+    required this.propertyTombstoneRows,
+    required this.collectionMemberRows,
+    required this.classExtendsEdges,
+  });
+
+  final List<Node> nodes;
+
+  // ignore: library_private_types_in_public_api
+  final List<_ClassRow> classes;
+  final List<PropertySchemaRow> propertySchemas;
+  final List<ClassPropertyEdgeRow> classPropertyEdges;
+  final List<Map<String, dynamic>> classMemberRows;
+  final List<Map<String, dynamic>> propertyValueRows;
+  final List<Map<String, dynamic>> propertyTombstoneRows;
+  final List<Map<String, dynamic>> collectionMemberRows;
+  final List<(String, String)> classExtendsEdges;
 }

@@ -28,7 +28,9 @@ class RelayClient {
   ///
   /// Envelopes are plaintext JSON on the wire; confidentiality comes from the
   /// transport layer (TLS/Tailscale), not from the envelope itself.
-  Future<RelayBatchResponse> pushBatch(List<OperationEnvelope> envelopes) async {
+  Future<RelayBatchResponse> pushBatch(
+    List<OperationEnvelope> envelopes,
+  ) async {
     final response = await dio.post<Map<String, dynamic>>(
       _batchPath,
       data: RelayBatchRequest(envelopes: envelopes).toJson(),
@@ -108,4 +110,41 @@ class RelayException implements Exception {
 
   @override
   String toString() => 'RelayException: $message';
+}
+
+/// Parsed v2 wire error envelope (WIRE.md §3):
+/// `{"error": {"code", "message", "status"}}` with stable machine codes.
+class RelayWireError {
+  const RelayWireError({
+    required this.code,
+    required this.message,
+    required this.status,
+  });
+
+  final String code;
+  final String message;
+  final int status;
+
+  /// Extracts the wire error from a failed request, or null when the body
+  /// does not carry the v2 envelope shape.
+  static RelayWireError? tryParse(DioException error) {
+    final data = error.response?.data;
+    if (data is Map<String, dynamic>) {
+      final err = data['error'];
+      if (err is Map<String, dynamic> && err['code'] is String) {
+        return RelayWireError(
+          code: err['code'] as String,
+          message: err['message'] as String? ?? err['code'] as String,
+          status:
+              (err['status'] as num?)?.toInt() ??
+              error.response?.statusCode ??
+              0,
+        );
+      }
+    }
+    return null;
+  }
+
+  @override
+  String toString() => 'RelayWireError($code, $status): $message';
 }

@@ -239,21 +239,26 @@ void main() {
         ':memory:',
         options: OpenDatabaseOptions(singleInstance: false),
       );
+      // v2 derived-state schema (v2/packages/store/src/schema.ts).
       await snapshotDb.execute('''
         CREATE TABLE node (
           id TEXT PRIMARY KEY,
           workspace_id TEXT NOT NULL,
-          kind TEXT NOT NULL,
-          class_ids TEXT NOT NULL DEFAULT '[]',
+          node_type TEXT NOT NULL DEFAULT 'block',
           parent_id TEXT,
+          class_ids TEXT NOT NULL DEFAULT '[]',
+          name TEXT,
           content TEXT NOT NULL DEFAULT '[]',
           icon TEXT,
           color TEXT,
-          active INTEGER NOT NULL DEFAULT 1,
+          is_active INTEGER NOT NULL DEFAULT 1,
           created_at TEXT,
           updated_at TEXT,
           created_by TEXT,
-          updated_by TEXT
+          updated_by TEXT,
+          hlc_physical INTEGER NOT NULL DEFAULT 0,
+          hlc_logical INTEGER NOT NULL DEFAULT 0,
+          actor_id TEXT
         )
       ''');
       await snapshotDb.execute('''
@@ -262,7 +267,22 @@ void main() {
           node_id TEXT NOT NULL,
           property_schema_id TEXT NOT NULL,
           value TEXT NOT NULL,
-          idx INTEGER NOT NULL DEFAULT 0
+          idx INTEGER NOT NULL DEFAULT 0,
+          metadata TEXT,
+          hlc_physical INTEGER NOT NULL DEFAULT 0,
+          hlc_logical INTEGER NOT NULL DEFAULT 0,
+          actor_id TEXT
+        )
+      ''');
+      await snapshotDb.execute('''
+        CREATE TABLE property_value_tombstone (
+          node_id TEXT NOT NULL,
+          property_schema_id TEXT NOT NULL,
+          idx INTEGER NOT NULL DEFAULT 0,
+          hlc_physical INTEGER NOT NULL DEFAULT 0,
+          hlc_logical INTEGER NOT NULL DEFAULT 0,
+          actor_id TEXT,
+          PRIMARY KEY (node_id, property_schema_id, idx)
         )
       ''');
       await snapshotDb.execute('''
@@ -273,42 +293,116 @@ void main() {
           PRIMARY KEY (parent_id, child_id)
         )
       ''');
+      await snapshotDb.execute('''
+        CREATE TABLE class (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          icon TEXT,
+          color TEXT,
+          description TEXT,
+          active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT,
+          updated_at TEXT
+        )
+      ''');
+      await snapshotDb.execute('''
+        CREATE TABLE class_extends (
+          class_id TEXT NOT NULL,
+          parent_class_id TEXT NOT NULL,
+          PRIMARY KEY (class_id, parent_class_id)
+        )
+      ''');
+      await snapshotDb.execute('''
+        CREATE TABLE class_member_set (
+          node_id TEXT NOT NULL,
+          class_id TEXT NOT NULL,
+          present INTEGER NOT NULL,
+          hlc_physical INTEGER NOT NULL DEFAULT 0,
+          hlc_logical INTEGER NOT NULL DEFAULT 0,
+          actor_id TEXT,
+          PRIMARY KEY (node_id, class_id)
+        )
+      ''');
+      await snapshotDb.execute('''
+        CREATE TABLE property_schema (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL DEFAULT 'text',
+          multi INTEGER NOT NULL DEFAULT 0,
+          scope TEXT NOT NULL DEFAULT 'global',
+          options TEXT NOT NULL DEFAULT '[]',
+          target_class_filter TEXT,
+          active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT,
+          updated_at TEXT
+        )
+      ''');
+      await snapshotDb.execute('''
+        CREATE TABLE class_property (
+          class_id TEXT NOT NULL,
+          property_schema_id TEXT NOT NULL,
+          sequence INTEGER NOT NULL DEFAULT 0,
+          required INTEGER,
+          readonly INTEGER,
+          hide_when_empty INTEGER,
+          default_value TEXT,
+          PRIMARY KEY (class_id, property_schema_id)
+        )
+      ''');
+      await snapshotDb.execute('''
+        CREATE TABLE collection_member (
+          collection_id TEXT NOT NULL,
+          object_id TEXT NOT NULL,
+          present INTEGER NOT NULL,
+          hlc_physical INTEGER NOT NULL DEFAULT 0,
+          hlc_logical INTEGER NOT NULL DEFAULT 0,
+          actor_id TEXT,
+          PRIMARY KEY (collection_id, object_id)
+        )
+      ''');
     });
 
     tearDown(() async {
       await snapshotDb.close();
     });
 
-    test('reads page, task, properties, and child order from snapshot', () async {
+    test('reads page, task, properties, and child order from a v2 snapshot',
+        () async {
       const workspaceId = 'ws-1';
       await snapshotDb.insert('node', {
         'id': 'page-1',
         'workspace_id': workspaceId,
-        'kind': 'page',
+        'node_type': 'page',
         'class_ids': '[]',
+        'name': 'Hello page',
         'parent_id': null,
         'content': '[{"type":"paragraph","children":[{"type":"text","text":"Hello"}]}]',
         'icon': '📄',
         'color': null,
-        'active': 1,
+        'is_active': 1,
         'updated_at': '2026-01-02T10:00:00Z',
+        'hlc_physical': 1727200000000,
+        'hlc_logical': 0,
+        'actor_id': 'actor-1',
       });
       await snapshotDb.insert('node', {
         'id': 'task-1',
         'workspace_id': workspaceId,
-        'kind': 'block',
+        'node_type': 'block',
         'class_ids': '["${SystemClassUuids.task}"]',
         'parent_id': 'page-1',
         'content': '[{"type":"paragraph","children":[{"type":"text","text":"Buy milk"}]}]',
-        'active': 1,
+        'is_active': 1,
         'updated_at': '2026-01-02T11:00:00Z',
       });
       await snapshotDb.insert('node', {
         'id': 'archived-1',
         'workspace_id': workspaceId,
-        'kind': 'page',
+        'node_type': 'page',
         'class_ids': '[]',
-        'active': 0,
+        'is_active': 0,
         'updated_at': '2026-01-01T00:00:00Z',
       });
       await snapshotDb.insert('property_value', {
@@ -317,11 +411,19 @@ void main() {
         'property_schema_id': SystemPropertyUuids.taskStatus,
         'value': '"Pending"',
         'idx': 0,
+        'hlc_physical': 1727200000000,
+        'hlc_logical': 0,
+        'actor_id': 'actor-1',
       });
       await snapshotDb.insert('node_child_order', {
         'parent_id': 'page-1',
         'child_id': 'task-1',
-        'position': '2.5',
+        'position': 'a',
+      });
+      await snapshotDb.insert('class_member_set', {
+        'node_id': 'task-1',
+        'class_id': SystemClassUuids.task,
+        'present': 1,
       });
 
       // We need a NodeCacheRepository to call the helper; the AppDatabase
@@ -330,23 +432,27 @@ void main() {
       final appDb = AppDatabase.inMemory();
       final readerRepo = NodeCacheRepository(appDb);
 
-      final nodes = await readerRepo.readNodesFromSnapshotDatabase(
-        snapshotDb,
-        workspaceId,
-      );
+      final snapshot = await readerRepo.readSnapshot(snapshotDb, workspaceId);
+      final nodes = snapshot.nodes;
 
       expect(nodes.length, 3);
 
       final page = nodes.firstWhere((n) => n.uuid == 'page-1');
       expect(page.isPage, isTrue);
-      expect(page.displayName, 'Hello');
+      expect(page.nodeType, 'page');
+      expect(page.title, 'Hello page');
+      expect(page.displayName, 'Hello page');
       expect(page.icon, '📄');
+      expect(page.hlcPhysical, 1727200000000);
 
       final task = nodes.firstWhere((n) => n.uuid == 'task-1');
       expect(task.isTask, isTrue);
       expect(task.parentUuid, 'page-1');
-      expect(task.sequence, 2.5);
+      // v2 fractional positions stay strings.
+      expect(task.position, 'a');
       expect(task.properties[SystemPropertyUuids.taskStatus], 'Pending');
+      expect(snapshot.propertyValueRows, hasLength(1));
+      expect(snapshot.classMemberRows, hasLength(1));
 
       final archived = nodes.firstWhere((n) => n.uuid == 'archived-1');
       expect(archived.isPage, isTrue);

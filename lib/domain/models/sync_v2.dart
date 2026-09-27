@@ -61,37 +61,38 @@ class OperationIntent {
   final List<String>? favoriteNodeUuids;
 
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'client_id': clientId,
-        'seq': seq,
-        'node_uuid': nodeUuid,
-        if (parentUuid != null) 'parent_uuid': parentUuid,
-        if (afterUuid != null) 'after_uuid': afterUuid,
-        if (newIndex != null) 'new_index': newIndex,
-        if (contentAst != null) 'content_ast': contentAst,
-        if (name != null) 'name': name,
-        if (classUuid != null) 'class_uuid': classUuid,
-        if (tagUuid != null) 'tag_uuid': tagUuid,
-        if (classUuids != null) 'class_uuids': classUuids,
-        if (tagUuids != null) 'tag_uuids': tagUuids,
-        if (isDeleted != null) 'is_deleted': isDeleted,
-        if (properties != null) 'properties': properties,
-        if (propertyUuid != null) 'property_uuid': propertyUuid,
-        if (propertyValue != null) 'property_value': propertyValue,
-        if (completionId != null) 'completion_id': completionId,
-        if (completionStatus != null) 'completion_status': completionStatus,
-        if (completedAt != null) 'completed_at': completedAt,
-        if (scheduledDate != null) 'scheduled_date': scheduledDate,
-        if (deadlineDate != null) 'deadline_date': deadlineDate,
-        'is_page': isPage,
-        'is_task': isTask,
-        'is_daily': isDaily,
-        'is_monthly': isMonthly,
-        'is_yearly': isYearly,
-        if (favoriteNodeUuids != null) 'favorite_node_uuids': favoriteNodeUuids,
-      };
+    'type': type,
+    'client_id': clientId,
+    'seq': seq,
+    'node_uuid': nodeUuid,
+    if (parentUuid != null) 'parent_uuid': parentUuid,
+    if (afterUuid != null) 'after_uuid': afterUuid,
+    if (newIndex != null) 'new_index': newIndex,
+    if (contentAst != null) 'content_ast': contentAst,
+    if (name != null) 'name': name,
+    if (classUuid != null) 'class_uuid': classUuid,
+    if (tagUuid != null) 'tag_uuid': tagUuid,
+    if (classUuids != null) 'class_uuids': classUuids,
+    if (tagUuids != null) 'tag_uuids': tagUuids,
+    if (isDeleted != null) 'is_deleted': isDeleted,
+    if (properties != null) 'properties': properties,
+    if (propertyUuid != null) 'property_uuid': propertyUuid,
+    if (propertyValue != null) 'property_value': propertyValue,
+    if (completionId != null) 'completion_id': completionId,
+    if (completionStatus != null) 'completion_status': completionStatus,
+    if (completedAt != null) 'completed_at': completedAt,
+    if (scheduledDate != null) 'scheduled_date': scheduledDate,
+    if (deadlineDate != null) 'deadline_date': deadlineDate,
+    'is_page': isPage,
+    'is_task': isTask,
+    'is_daily': isDaily,
+    'is_monthly': isMonthly,
+    'is_yearly': isYearly,
+    if (favoriteNodeUuids != null) 'favorite_node_uuids': favoriteNodeUuids,
+  };
 
-  factory OperationIntent.fromJson(Map<String, dynamic> json) => OperationIntent(
+  factory OperationIntent.fromJson(Map<String, dynamic> json) =>
+      OperationIntent(
         type: json['type'] as String,
         clientId: json['client_id'] as String,
         seq: json['seq'] as int,
@@ -101,7 +102,7 @@ class OperationIntent {
         newIndex: json['new_index'] as int?,
         contentAst: json['content_ast'] != null
             ? (json['content_ast'] as List<dynamic>)
-                .cast<Map<String, dynamic>>()
+                  .cast<Map<String, dynamic>>()
             : null,
         name: json['name'] as String?,
         classUuid: json['class_uuid'] as String?,
@@ -130,4 +131,13 @@ class OperationIntent {
             ? (json['favorite_node_uuids'] as List<dynamic>).cast<String>()
             : null,
       );
+}
+
+/// Catch-up progress snapshot emitted per pull page: [applied] envelopes so
+/// far, [total] expected (applied + the server's totalRemaining).
+class SyncPullProgress {
+  const SyncPullProgress({required this.applied, required this.total});
+
+  final int applied;
+  final int total;
 }

@@ -24,7 +24,8 @@ class AppDatabase {
   factory AppDatabase() => _instance ??= AppDatabase._internal();
 
   /// Returns an in-memory database instance for tests.
-  factory AppDatabase.inMemory() => _inMemoryInstance ??= AppDatabase._internal(':memory:');
+  factory AppDatabase.inMemory() =>
+      _inMemoryInstance ??= AppDatabase._internal(':memory:');
   static AppDatabase? _inMemoryInstance;
 
   /// Wraps an already-opened database for tests.
@@ -68,7 +69,7 @@ class AppDatabase {
     final path = await _path;
     return openDatabase(
       path,
-      version: 15,
+      version: 16,
       password: encryptionPassword,
       onCreate: (db, version) async {
         await _createOfflineQueue(db);
@@ -87,6 +88,7 @@ class AppDatabase {
         await _createPropertySchema(db);
         await _createClassPropertyEdge(db);
         await _createNodeUserShare(db);
+        await _migrateV16(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -138,7 +140,141 @@ class AppDatabase {
         if (oldVersion < 15) {
           await _createNodeUserShare(db);
         }
+        if (oldVersion < 16) {
+          await _migrateV16(db);
+        }
       },
+    );
+  }
+
+  /// v16 — derived-state depth for the relay-v2 appliers:
+  ///  - `node_cache` gains the v2 row shape: scalar `title` (the v2 `name`
+  ///    slot, split from the content `name` column), lexicographic
+  ///    fractional `position`, `node_type`, and the row-LWW winner
+  ///    (`hlc_physical`, `hlc_logical`, `actor_id`);
+  ///  - new derived tables mirroring the v2 store: OR-Set class membership,
+  ///    m2m class extends + transitive closure, multi-value property rows
+  ///    with LWW tombstones, and collection membership.
+  Future<void> _migrateV16(Database db) async {
+    await _addColumnIfMissing(db, 'node_cache', 'title', 'TEXT');
+    await _addColumnIfMissing(db, 'node_cache', 'position', 'TEXT');
+    await _addColumnIfMissing(db, 'node_cache', 'node_type', 'TEXT');
+    await _addColumnIfMissing(
+      db,
+      'node_cache',
+      'hlc_physical',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await _addColumnIfMissing(
+      db,
+      'node_cache',
+      'hlc_logical',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await _addColumnIfMissing(db, 'node_cache', 'actor_id', 'TEXT');
+    await _createClassMemberSet(db);
+    await _createClassExtends(db);
+    await _createPropertyValue(db);
+    await _createCollectionMember(db);
+  }
+
+  Future<void> _createClassMemberSet(Database db) async {
+    // OR-Set of class assignments (add-wins, LWW per (node, class) pair by
+    // (hlc, actor)); the applier projects the present rows into
+    // node_cache.classes_uuid. Mirrors v2 store schema.ts class_member_set.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS class_member_set (
+        node_uuid TEXT NOT NULL,
+        class_id TEXT NOT NULL,
+        present INTEGER NOT NULL,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        PRIMARY KEY (node_uuid, class_id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_class_member_set_class ON class_member_set(class_id)',
+    );
+  }
+
+  Future<void> _createClassExtends(Database db) async {
+    // Direct m2m extends edges (class.setExtends replace semantics) plus the
+    // applier-maintained transitive closure (self-row included). Mirrors v2
+    // store class_extends / class_hierarchy.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS class_extends (
+        class_id TEXT NOT NULL,
+        parent_class_id TEXT NOT NULL,
+        PRIMARY KEY (class_id, parent_class_id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_class_extends_parent ON class_extends(parent_class_id)',
+    );
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS class_hierarchy (
+        class_id TEXT NOT NULL,
+        ancestor_id TEXT NOT NULL,
+        PRIMARY KEY (class_id, ancestor_id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_class_hierarchy_ancestor ON class_hierarchy(ancestor_id)',
+    );
+  }
+
+  Future<void> _createPropertyValue(Database db) async {
+    // Multi-value property rows keyed by (node, schema, idx) with row-level
+    // LWW winner and a tombstone table (tombstone wins over a live write with
+    // equal (hlc, actor)). Mirrors v2 store property_value /
+    // property_value_tombstone.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS property_value (
+        id TEXT PRIMARY KEY,
+        node_uuid TEXT NOT NULL,
+        property_schema_id TEXT NOT NULL,
+        value TEXT NOT NULL,
+        idx INTEGER NOT NULL DEFAULT 0,
+        metadata TEXT,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        UNIQUE (node_uuid, property_schema_id, idx)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_property_value_node ON property_value(node_uuid)',
+    );
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS property_value_tombstone (
+        node_uuid TEXT NOT NULL,
+        property_schema_id TEXT NOT NULL,
+        idx INTEGER NOT NULL DEFAULT 0,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        PRIMARY KEY (node_uuid, property_schema_id, idx)
+      )
+    ''');
+  }
+
+  Future<void> _createCollectionMember(Database db) async {
+    // OR-Set membership for collection nodes (add-wins per member pair).
+    // Mirrors v2 store collection_member.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS collection_member (
+        collection_id TEXT NOT NULL,
+        object_id TEXT NOT NULL,
+        present INTEGER NOT NULL,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        PRIMARY KEY (collection_id, object_id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_collection_member_object ON collection_member(object_id)',
     );
   }
 
@@ -212,11 +348,17 @@ class AppDatabase {
         synced_at INTEGER NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX idx_node_cache_parent ON node_cache(parent_uuid)');
-    await db.execute('CREATE INDEX idx_node_cache_deleted ON node_cache(is_deleted)');
+    await db.execute(
+      'CREATE INDEX idx_node_cache_parent ON node_cache(parent_uuid)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_node_cache_deleted ON node_cache(is_deleted)',
+    );
     await db.execute('CREATE INDEX idx_node_cache_page ON node_cache(is_page)');
     await db.execute('CREATE INDEX idx_node_cache_task ON node_cache(is_task)');
-    await db.execute('CREATE INDEX idx_node_cache_daily ON node_cache(is_daily)');
+    await db.execute(
+      'CREATE INDEX idx_node_cache_daily ON node_cache(is_daily)',
+    );
   }
 
   /// Adds [column] to [table] unless it already exists. Column migrations
@@ -236,18 +378,54 @@ class AppDatabase {
 
   Future<void> _migrateNodeCacheV6(Database db) async {
     await _addColumnIfMissing(db, 'node_cache', 'classes_uuid', 'TEXT');
-    await _addColumnIfMissing(db, 'node_cache', 'is_page', 'INTEGER NOT NULL DEFAULT 0');
-    await _addColumnIfMissing(db, 'node_cache', 'is_task', 'INTEGER NOT NULL DEFAULT 0');
-    await _addColumnIfMissing(db, 'node_cache', 'is_daily', 'INTEGER NOT NULL DEFAULT 0');
-    await _addColumnIfMissing(db, 'node_cache', 'is_monthly', 'INTEGER NOT NULL DEFAULT 0');
-    await _addColumnIfMissing(db, 'node_cache', 'is_yearly', 'INTEGER NOT NULL DEFAULT 0');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_node_cache_page ON node_cache(is_page)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_node_cache_task ON node_cache(is_task)');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_node_cache_daily ON node_cache(is_daily)');
+    await _addColumnIfMissing(
+      db,
+      'node_cache',
+      'is_page',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await _addColumnIfMissing(
+      db,
+      'node_cache',
+      'is_task',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await _addColumnIfMissing(
+      db,
+      'node_cache',
+      'is_daily',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await _addColumnIfMissing(
+      db,
+      'node_cache',
+      'is_monthly',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await _addColumnIfMissing(
+      db,
+      'node_cache',
+      'is_yearly',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_node_cache_page ON node_cache(is_page)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_node_cache_task ON node_cache(is_task)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_node_cache_daily ON node_cache(is_daily)',
+    );
   }
 
   Future<void> _migrateNodeCacheV8(Database db) async {
-    await _addColumnIfMissing(db, 'node_cache', 'is_archived', 'INTEGER NOT NULL DEFAULT 0');
+    await _addColumnIfMissing(
+      db,
+      'node_cache',
+      'is_archived',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
   }
 
   Future<void> _migrateNodeCacheV12(Database db) async {
@@ -265,7 +443,8 @@ class AppDatabase {
       final uuid = row['uuid'] as String?;
       final classesJson = row['classes_uuid'] as String?;
       if (uuid == null || classesJson == null) continue;
-      final classIds = (jsonDecode(classesJson) as List<dynamic>).cast<String>();
+      final classIds = (jsonDecode(classesJson) as List<dynamic>)
+          .cast<String>();
       if (!classIds.contains(pageClassUuid)) continue;
       classIds.remove(pageClassUuid);
       await db.update(
@@ -291,8 +470,12 @@ class AppDatabase {
         PRIMARY KEY (workspace_id, actor_id, node_uuid)
       )
     ''');
-    await db.execute('CREATE INDEX idx_user_favorite_workspace ON user_favorite(workspace_id)');
-    await db.execute('CREATE INDEX idx_user_favorite_position ON user_favorite(workspace_id, actor_id, position)');
+    await db.execute(
+      'CREATE INDEX idx_user_favorite_workspace ON user_favorite(workspace_id)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_user_favorite_position ON user_favorite(workspace_id, actor_id, position)',
+    );
   }
 
   Future<void> _migrateFavoritesV14(Database db) async {
@@ -314,8 +497,12 @@ class AppDatabase {
     ''');
     await db.execute('DROP TABLE user_favorite');
     await db.execute('ALTER TABLE user_favorite_new RENAME TO user_favorite');
-    await db.execute('CREATE INDEX idx_user_favorite_workspace ON user_favorite(workspace_id)');
-    await db.execute('CREATE INDEX idx_user_favorite_position ON user_favorite(workspace_id, actor_id, position)');
+    await db.execute(
+      'CREATE INDEX idx_user_favorite_workspace ON user_favorite(workspace_id)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_user_favorite_position ON user_favorite(workspace_id, actor_id, position)',
+    );
   }
 
   Future<void> _createSearchIndex(Database db) async {
@@ -328,8 +515,12 @@ class AppDatabase {
         PRIMARY KEY (term, node_uuid, field)
       )
     ''');
-    await db.execute('CREATE INDEX idx_search_index_term ON search_index(term)');
-    await db.execute('CREATE INDEX idx_search_index_node ON search_index(node_uuid)');
+    await db.execute(
+      'CREATE INDEX idx_search_index_term ON search_index(term)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_search_index_node ON search_index(node_uuid)',
+    );
   }
 
   Future<void> _createRelayOutbox(Database db) async {
@@ -344,8 +535,12 @@ class AppDatabase {
         created_at INTEGER NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX idx_relay_outbox_state_retry ON relay_outbox(state, next_retry_at)');
-    await db.execute('CREATE INDEX idx_relay_outbox_created ON relay_outbox(created_at)');
+    await db.execute(
+      'CREATE INDEX idx_relay_outbox_state_retry ON relay_outbox(state, next_retry_at)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_relay_outbox_created ON relay_outbox(created_at)',
+    );
   }
 
   Future<void> _createRelayOperations(Database db) async {
@@ -363,7 +558,9 @@ class AppDatabase {
         is_local INTEGER NOT NULL DEFAULT 0
       )
     ''');
-    await db.execute('CREATE INDEX idx_relay_operations_workspace_hlc ON relay_operations(workspace_id, hlc_physical, hlc_logical)');
+    await db.execute(
+      'CREATE INDEX idx_relay_operations_workspace_hlc ON relay_operations(workspace_id, hlc_physical, hlc_logical)',
+    );
   }
 
   Future<void> _createSyncWatermark(Database db) async {
@@ -414,8 +611,12 @@ class AppDatabase {
         created_at INTEGER NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX idx_task_completion_node ON task_completion(node_uuid)');
-    await db.execute('CREATE INDEX idx_task_completion_created ON task_completion(node_uuid, created_at DESC)');
+    await db.execute(
+      'CREATE INDEX idx_task_completion_node ON task_completion(node_uuid)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_task_completion_created ON task_completion(node_uuid, created_at DESC)',
+    );
   }
 
   Future<void> _createTaskRecurrence(Database db) async {
@@ -430,7 +631,9 @@ class AppDatabase {
         updated_at TEXT
       )
     ''');
-    await db.execute('CREATE INDEX idx_task_recurrence_node ON task_recurrence(node_uuid)');
+    await db.execute(
+      'CREATE INDEX idx_task_recurrence_node ON task_recurrence(node_uuid)',
+    );
   }
 
   Future<void> _createNodeUserShare(Database db) async {
@@ -449,8 +652,12 @@ class AppDatabase {
         PRIMARY KEY (workspace_id, node_uuid, target_user_id)
       )
     ''');
-    await db.execute('CREATE INDEX idx_node_user_share_target ON node_user_share(workspace_id, target_user_id)');
-    await db.execute('CREATE INDEX idx_node_user_share_share ON node_user_share(share_id)');
+    await db.execute(
+      'CREATE INDEX idx_node_user_share_target ON node_user_share(workspace_id, target_user_id)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_node_user_share_share ON node_user_share(share_id)',
+    );
   }
 
   Future<void> _createNodeContentHlc(Database db) async {
@@ -479,7 +686,9 @@ class AppDatabase {
         updated_at TEXT
       )
     ''');
-    await db.execute('CREATE INDEX idx_class_cache_active ON class_cache(active)');
+    await db.execute(
+      'CREATE INDEX idx_class_cache_active ON class_cache(active)',
+    );
   }
 
   Future<void> _createPropertySchema(Database db) async {
@@ -508,9 +717,15 @@ class AppDatabase {
         updated_at TEXT
       )
     ''');
-    await db.execute('CREATE INDEX idx_property_schema_workspace ON property_schema(workspace_id)');
-    await db.execute('CREATE INDEX idx_property_schema_node ON property_schema(node_uuid)');
-    await db.execute('CREATE INDEX idx_property_schema_active ON property_schema(active)');
+    await db.execute(
+      'CREATE INDEX idx_property_schema_workspace ON property_schema(workspace_id)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_property_schema_node ON property_schema(node_uuid)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_property_schema_active ON property_schema(active)',
+    );
   }
 
   Future<void> _createClassPropertyEdge(Database db) async {
@@ -527,8 +742,12 @@ class AppDatabase {
         PRIMARY KEY (class_uuid, property_uuid)
       )
     ''');
-    await db.execute('CREATE INDEX idx_class_property_edge_class ON class_property_edge(class_uuid)');
-    await db.execute('CREATE INDEX idx_class_property_edge_property ON class_property_edge(property_uuid)');
+    await db.execute(
+      'CREATE INDEX idx_class_property_edge_class ON class_property_edge(class_uuid)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_class_property_edge_property ON class_property_edge(property_uuid)',
+    );
   }
 
   /// Creates the full schema on an already-opened test database.
@@ -550,6 +769,7 @@ class AppDatabase {
     await _createPropertySchema(db);
     await _createClassPropertyEdge(db);
     await _createNodeUserShare(db);
+    await _migrateV16(db);
   }
 
   Future<int> enqueue(String method, String payload) async {
@@ -567,10 +787,7 @@ class AppDatabase {
 
   Future<List<Map<String, dynamic>>> pending() async {
     final db = await database;
-    return db.query(
-      'offline_queue',
-      orderBy: 'created_at ASC',
-    );
+    return db.query('offline_queue', orderBy: 'created_at ASC');
   }
 
   Future<void> remove(int id) async {

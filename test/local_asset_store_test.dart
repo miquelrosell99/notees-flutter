@@ -140,6 +140,14 @@ void main() {
 
     test('upload emits object.create + asset.attach with v2 payload shapes',
         () async {
+      // v2 object.create requires the parent row to exist.
+      await syncService.enqueue(
+        type: 'create',
+        nodeUuid: '60000000-0000-4000-8000-000000000001',
+        contentAst: AstBuilder.parseInline('Folder'),
+        isPage: true,
+      );
+      await syncService.flush();
       final file = await writeTempFile('voice.m4a', [10, 20, 30]);
       final service = LocalAssetService(syncService, store: store);
 
@@ -149,11 +157,11 @@ void main() {
       );
 
       final ops = await recordedOps();
-      expect(ops, hasLength(2));
+      expect(ops, hasLength(3));
 
-      expect(ops[0]['op_type'], 'object.create');
+      expect(ops[1]['op_type'], 'object.create');
       final create =
-          jsonDecode(ops[0]['payload'] as String) as Map<String, dynamic>;
+          jsonDecode(ops[1]['payload'] as String) as Map<String, dynamic>;
       expect(create['objectId'], info.nodeId);
       expect(create['nodeType'], 'block');
       expect(create['parentId'], '60000000-0000-4000-8000-000000000001');
@@ -161,9 +169,9 @@ void main() {
       final contentAst = create['contentAst'] as List<dynamic>;
       expect(contentAst.single['type'], 'paragraph');
 
-      expect(ops[1]['op_type'], 'asset.attach');
+      expect(ops[2]['op_type'], 'asset.attach');
       final upload =
-          jsonDecode(ops[1]['payload'] as String) as Map<String, dynamic>;
+          jsonDecode(ops[2]['payload'] as String) as Map<String, dynamic>;
       expect(upload['assetId'], info.nodeId);
       expect(upload['objectId'], info.nodeId);
       expect(upload['hash'], info.assetHash);
@@ -178,7 +186,7 @@ void main() {
       expect(node!.isAsset, isTrue);
       expect(node.displayName, 'voice');
       final db = await database.database;
-      expect(await db.query('relay_outbox'), hasLength(2));
+      expect(await db.query('relay_outbox'), hasLength(3));
 
       // Bytes are stored content-addressed on disk.
       expect(await store.readBytes(info.assetHash), [10, 20, 30]);
