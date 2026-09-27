@@ -290,7 +290,7 @@ class RelayAppliers {
     String? newName = node.name;
     var newDisplay = node.displayName;
     if (contentAst is List<dynamic>) {
-      newName = AstBuilder.serialize(contentAst.cast<Map<String, dynamic>>());
+      newName = AstBuilder.serialize(normalizeContentAst(contentAst));
       newDisplay = newTitle?.isNotEmpty == true
           ? newTitle!
           : astToPlainText(newName);
@@ -317,6 +317,9 @@ class RelayAppliers {
         actorId: incoming.actor,
       ),
     );
+    if (contentAst is List<dynamic>) {
+      await _cache.rebuildEdges(objectId, at: envelope.timestamp);
+    }
     return true;
   }
 

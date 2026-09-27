@@ -69,7 +69,7 @@ class AppDatabase {
     final path = await _path;
     return openDatabase(
       path,
-      version: 16,
+      version: 17,
       password: encryptionPassword,
       onCreate: (db, version) async {
         await _createOfflineQueue(db);
@@ -89,6 +89,7 @@ class AppDatabase {
         await _createClassPropertyEdge(db);
         await _createNodeUserShare(db);
         await _migrateV16(db);
+        await _createEdge(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -142,6 +143,9 @@ class AppDatabase {
         }
         if (oldVersion < 16) {
           await _migrateV16(db);
+        }
+        if (oldVersion < 17) {
+          await _createEdge(db);
         }
       },
     );
@@ -257,6 +261,26 @@ class AppDatabase {
         PRIMARY KEY (node_uuid, property_schema_id, idx)
       )
     ''');
+  }
+
+  /// Derived reference index (never authored): mention/typed_link edges
+  /// projected from content tokens plus node-typed property values. Mirrors
+  /// the v2 store `edge` table.
+  Future<void> _createEdge(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS edge (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL DEFAULT '',
+        source_id TEXT NOT NULL,
+        target_id TEXT,
+        type TEXT NOT NULL,
+        verb TEXT,
+        metadata TEXT,
+        created_at TEXT
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_edge_source ON edge(source_id, type)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_edge_target ON edge(target_id, type)');
   }
 
   Future<void> _createCollectionMember(Database db) async {
@@ -770,6 +794,7 @@ class AppDatabase {
     await _createClassPropertyEdge(db);
     await _createNodeUserShare(db);
     await _migrateV16(db);
+    await _createEdge(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

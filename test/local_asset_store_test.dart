@@ -167,7 +167,9 @@ void main() {
       expect(create['parentId'], '60000000-0000-4000-8000-000000000001');
       expect(create['classIds'], [SystemClassUuids.asset]);
       final contentAst = create['contentAst'] as List<dynamic>;
-      expect(contentAst.single['type'], 'paragraph');
+      // v2 flat grammar: a single text run, no paragraph wrapper.
+      expect(contentAst.single['type'], 'text');
+      expect(contentAst.single['text'], contains('voice'));
 
       expect(ops[2]['op_type'], 'asset.attach');
       final upload =

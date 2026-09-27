@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:cryptography/cryptography.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
@@ -247,6 +248,10 @@ class NodeCacheRepository {
       await txn.rawDelete(
         'DELETE FROM collection_member WHERE object_id IN ($placeholders)',
         ids,
+      );
+      await txn.rawDelete(
+        'DELETE FROM edge WHERE source_id IN ($placeholders) OR target_id IN ($placeholders)',
+        [...ids, ...ids],
       );
     });
   }
@@ -2089,6 +2094,167 @@ class NodeCacheRepository {
     return rows.map(_nodeFromRow).toList();
   }
 
+  // === Edge index (derived references; v2 store edges.ts port) ===========
+
+  /// Rebuilds the derived `edge` rows for [sourceId] from its current
+  /// content tokens and node-typed property values:
+  ///
+  ///  - `mention` — mention tokens (edge per instance);
+  ///  - `typed_link` — typed-link word marks, top-level and inside quotes;
+  ///    target_id stays NULL by design (candidateSpans are recorded,
+  ///    resolution is M2 work); verb is the free string or the bound
+  ///    propertySchemaId; metadata carries locator/candidateSpans + text;
+  ///  - `property` — node-typed property values (`{"nodeId": ...}`), with
+  ///    verb = propertySchemaId.
+  ///
+  /// Edge ids are deterministic (sha256 over source/type/target/verb/
+  /// metadata/occurrence), so wipe -> replay converges to identical rows.
+  Future<void> rebuildEdges(String sourceId, {String? at}) async {
+    final db = await _database.database;
+    final node = await getByUuid(sourceId);
+    if (node == null) {
+      // Node gone: drop everything this source ever derived.
+      await db.delete('edge', where: 'source_id = ?', whereArgs: [sourceId]);
+      return;
+    }
+
+    final desired = <_DesiredEdge>[];
+    void walk(List<Map<String, dynamic>> tokens) {
+      for (final token in tokens) {
+        switch (token['type']) {
+          case 'mention':
+            final target = token['targetNodeId'] as String?;
+            if (target != null && target.isNotEmpty) {
+              desired.add(_DesiredEdge(
+                targetId: target,
+                type: 'mention',
+              ));
+            }
+          case 'typed_link':
+            final rawVerb = token['verb'];
+            final verb = rawVerb is String
+                ? rawVerb
+                : rawVerb is Map<String, dynamic>
+                    ? rawVerb['propertySchemaId'] as String?
+                    : null;
+            final metadata = <String, dynamic>{};
+            final rawMetadata = token['metadata'];
+            if (rawMetadata is Map<String, dynamic>) {
+              metadata.addAll(rawMetadata);
+            }
+            final text = token['text'];
+            if (text is String) metadata['text'] = text;
+            desired.add(_DesiredEdge(
+              targetId: null,
+              type: 'typed_link',
+              verb: verb,
+              metadata: metadata.isEmpty ? null : jsonEncode(metadata),
+            ));
+          case 'quote':
+            final children = token['children'];
+            if (children is List) {
+              walk([
+                for (final child in children)
+                  if (child is Map<String, dynamic>) child,
+              ]);
+            }
+        }
+      }
+    }
+
+    walk(contentTokensFromSource(node.name));
+
+    // Node-typed property values project into the edge index.
+    for (final row in await propertyValuesFor(sourceId)) {
+      final value = row.value;
+      if (value is Map<String, dynamic>) {
+        final target = value['nodeId'];
+        if (target is String && target.isNotEmpty) {
+          desired.add(_DesiredEdge(
+            targetId: target,
+            type: 'property',
+            verb: row.schemaId,
+            metadata: row.metadata is Map<String, dynamic>
+                ? jsonEncode(row.metadata)
+                : null,
+          ));
+        }
+      }
+    }
+
+    final desiredIds = <String>{};
+    final occurrenceByKey = <String, int>{};
+    final sha = Sha256();
+    final batch = db.batch();
+    for (final edge in desired) {
+      final key = '${edge.type}\u0000${edge.targetId ?? ''}'
+          '\u0000${edge.verb ?? ''}\u0000${edge.metadata ?? ''}';
+      final occurrence = occurrenceByKey[key] ?? 0;
+      occurrenceByKey[key] = occurrence + 1;
+      final digest = await sha.hash(utf8.encode([
+        sourceId,
+        edge.type,
+        edge.targetId ?? '',
+        edge.verb ?? '',
+        edge.metadata ?? '',
+        '$occurrence',
+      ].join('\u0000')));
+      final id = digest.bytes
+          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+          .join();
+      desiredIds.add(id);
+      batch.insert(
+        'edge',
+        {
+          'id': id,
+          'source_id': sourceId,
+          'target_id': edge.targetId,
+          'type': edge.type,
+          'verb': edge.verb,
+          'metadata': edge.metadata,
+          // Content-derived edges stamp the applying op; property edges stay
+          // NULL so cross-order replays do not diverge on a timestamp.
+          'created_at': edge.type == 'property' ? null : at,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    final existing = await db.query(
+      'edge',
+      columns: ['id'],
+      where: 'source_id = ?',
+      whereArgs: [sourceId],
+    );
+    for (final row in existing) {
+      if (!desiredIds.contains(row['id'])) {
+        batch.delete('edge', where: 'id = ?', whereArgs: [row['id']]);
+      }
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Edges pointing at [targetId] (backlinks), ordered deterministically.
+  Future<List<Map<String, dynamic>>> backlinks(String targetId) async {
+    final db = await _database.database;
+    return db.query(
+      'edge',
+      where: 'target_id = ?',
+      whereArgs: [targetId],
+      orderBy: 'source_id, type, verb, id',
+    );
+  }
+
+  /// All edges derived from [sourceId] (outgoing references).
+  Future<List<Map<String, dynamic>>> references(String sourceId) async {
+    final db = await _database.database;
+    return db.query(
+      'edge',
+      where: 'source_id = ?',
+      whereArgs: [sourceId],
+      orderBy: 'type, verb, id',
+    );
+  }
+
   // === Content LWW tracking ===
 
   /// The last applied `node.updateContent` HLC for [uuid], if any.
@@ -2811,4 +2977,20 @@ class SnapshotRestoreData {
   final List<Map<String, dynamic>> propertyTombstoneRows;
   final List<Map<String, dynamic>> collectionMemberRows;
   final List<(String, String)> classExtendsEdges;
+}
+
+
+/// One desired derived edge (v2 store DesiredEdge port).
+class _DesiredEdge {
+  const _DesiredEdge({
+    required this.targetId,
+    required this.type,
+    this.verb,
+    this.metadata,
+  });
+
+  final String? targetId;
+  final String type;
+  final String? verb;
+  final String? metadata;
 }
