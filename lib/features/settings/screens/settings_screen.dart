@@ -100,6 +100,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final repo = WorkspaceRepository(dio: auth.dio!);
       await repo.switchWorkspace(workspace.uuid);
+      // Point the sync service + realtime subscription at the new workspace.
+      await auth.switchWorkspace(workspace.uuid);
       if (!mounted) return;
       context.go('/dashboard');
     } catch (e) {
