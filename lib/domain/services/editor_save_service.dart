@@ -19,11 +19,12 @@ class EditorSaveService {
     required List<EditorBlockSnapshot> roots,
     required List<String> deletedUuids,
   }) async {
-    // Update page title.
+    // Update the page title: v2 carries it in the scalar `name` slot
+    // (object.update name:), separate from the content token stream.
     await syncService.enqueue(
-      type: 'update_content',
+      type: 'update_node',
       nodeUuid: pageUuid,
-      contentAst: AstBuilder.parseInline(title),
+      name: title,
     );
 
     // Update existing blocks and create new blocks.
@@ -99,11 +100,14 @@ class EditorSaveService {
           contentAst: AstBuilder.parseInline(node.text),
         );
         if (node.parentUuid != null && node.parentUuid != effectiveParent) {
+          // v2 move orders siblings by parentId + afterId (the previous
+          // sibling is the anchor the editor already knows).
+          final afterUuid = i > 0 ? nodes[i - 1].uuid : null;
           await service.enqueue(
             type: 'move',
             nodeUuid: node.uuid,
             parentUuid: effectiveParent,
-            newIndex: i,
+            afterUuid: afterUuid,
           );
         }
       }

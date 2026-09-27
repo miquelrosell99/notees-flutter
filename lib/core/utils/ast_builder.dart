@@ -1,170 +1,138 @@
 import 'dart:convert';
 
-/// Lightweight AST builder/parser for Notees node content.
+import '../../domain/models/content/content_token.dart';
+
+/// Builder/parser for Notees block content in the v2 flat token grammar
+/// (SCHEMA.md "Content grammar" — the port of content-mark.ts).
 ///
 /// The mobile editor edits blocks as plain text with lightweight Markdown-like
-/// markers. Before saving, the text is parsed into the backend AST shape so the
-/// web app can render links and inline styles correctly.
+/// markers; before saving, the text is parsed into the flat token stream so
+/// the web app and the relay speak one grammar. v2 has no block-level
+/// segments: newlines inside a block become `hard_break` tokens, headings do
+/// not exist (a literal `# ` stays text), and inline styles are `marks` on
+/// text runs rather than nested nodes.
 ///
 /// Supported syntax:
-/// - `# `, `## `, `### ` at line start → heading
-/// - `**bold**` → strong
-/// - `*italic*` → em
-/// - `__underline__` → underline
-/// - `~~strike~~` → strikethrough
-/// - `==highlight==` → highlight
-/// - `` `code` `` → code
-/// - `[[nodeId]]` or `[[nodeId|label]]` → node_link (ref_type: node)
-/// - `{{classId}}` or `{{classId|label}}` → node_link (ref_type: class)
+/// - `**bold**` → text run with the `bold` mark
+/// - `*italic*` → `italic` mark
+/// - `__underline__` → `highlight` mark (the v2 mark set has no underline)
+/// - `~~strike~~` → `strike` mark
+/// - `==highlight==` → `highlight` mark
+/// - `` `code` `` → `code` mark
+/// - `[[nodeId]]` or `[[nodeId|label]]` → mention token
+/// - `{{classId}}` or `{{classId|label}}` → class_chip token
+/// - newlines → hard_break tokens
 class AstBuilder {
   AstBuilder._();
 
-  /// Parses [text] into a one-paragraph or heading AST document.
+  /// Parses [text] into the flat v2 token stream.
   static List<Map<String, dynamic>> parseInline(String text) {
-    final heading = _parseHeading(text);
-    if (heading != null) return [heading];
-    final children = _parseInlineChildren(text);
-    if (children.isEmpty) return [];
-    return [
-      {'type': 'paragraph', 'children': children},
-    ];
-  }
-
-  static Map<String, dynamic>? _parseHeading(String text) {
-    for (var level = 3; level >= 1; level--) {
-      final prefix = '${'#' * level} ';
-      if (text.startsWith(prefix)) {
-        return {
-          'type': 'heading',
-          'level': level,
-          'children': _parseInlineChildren(text.substring(prefix.length)),
-        };
-      }
+    final tokens = <Map<String, dynamic>>[];
+    final lines = text.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      if (i > 0) tokens.add(const {'type': 'hard_break'});
+      tokens.addAll(_parseInlineChildren(lines[i]));
     }
-    return null;
+    return tokens;
   }
 
-  /// Serializes an AST document to JSON.
+  /// Serializes a token stream to JSON.
   static String serialize(List<Map<String, dynamic>> ast) => jsonEncode(ast);
 
-  /// Converts an AST document back to the mobile editor's Markdown-like text.
-  static String toMarkdown(List<Map<String, dynamic>> ast) {
-    final buffer = StringBuffer();
-    for (var i = 0; i < ast.length; i++) {
-      _writeMarkdown(ast[i], buffer);
-      if (i < ast.length - 1) buffer.write('\n');
-    }
-    return buffer.toString();
-  }
+  /// Builds a simple text token.
+  static Map<String, dynamic> text(String value) => {
+    'type': 'text',
+    'text': value,
+  };
 
-  static void _writeMarkdown(dynamic node, StringBuffer buffer) {
-    if (node is! Map<String, dynamic>) return;
-    final type = node['type'] as String?;
-
-    String inner;
-    switch (type) {
-      case 'paragraph':
-        for (final child in (node['children'] as List? ?? [])) {
-          _writeMarkdown(child, buffer);
-        }
-      case 'heading':
-        final level = (node['level'] as int?)?.clamp(1, 6) ?? 1;
-        buffer.write('${'#' * level} ');
-        for (final child in (node['children'] as List? ?? [])) {
-          _writeMarkdown(child, buffer);
-        }
-      case 'text':
-        buffer.write(node['text'] ?? '');
-      case 'code':
-        buffer.write('`${node['text'] ?? ''}`');
-      case 'strong':
-        inner = _collectMarkdown(node['children']);
-        buffer.write('**$inner**');
-      case 'em':
-        inner = _collectMarkdown(node['children']);
-        buffer.write('*$inner*');
-      case 'underline':
-        inner = _collectMarkdown(node['children']);
-        buffer.write('__${inner}__');
-      case 'strikethrough':
-        inner = _collectMarkdown(node['children']);
-        buffer.write('~~$inner~~');
-      case 'highlight':
-        inner = _collectMarkdown(node['children']);
-        buffer.write('==$inner==');
-      case 'node_link':
-        final linkId = node['link_id'] as String? ?? '';
-        final target = linkId.split(':').first;
-        final label = node['label'] as String?;
-        final refType = node['ref_type'] as String? ?? 'node';
-        final open = refType == 'class' ? '{{' : '[[';
-        final close = refType == 'class' ? '}}' : ']]';
-        if (label != null && label.isNotEmpty) {
-          buffer.write('$open$target|$label$close');
-        } else {
-          buffer.write('$open$target$close');
-        }
-      case 'external_link':
-        final url = node['url'] as String? ?? '';
-        final text = _collectMarkdown(node['children']);
-        buffer.write('[$text]($url)');
-      default:
-        for (final child in (node['children'] as List? ?? [])) {
-          _writeMarkdown(child, buffer);
-        }
-    }
-  }
-
-  static String _collectMarkdown(dynamic nodes) {
-    final buffer = StringBuffer();
-    if (nodes is List) {
-      for (final child in nodes) {
-        _writeMarkdown(child, buffer);
-      }
-    }
-    return buffer.toString();
-  }
-
-  /// Extracts plain text from an AST document.
-  static String toPlainText(List<Map<String, dynamic>> ast) {
-    final buffer = StringBuffer();
-    for (final block in ast) {
-      _writePlainText(block, buffer);
-      buffer.write(' ');
-    }
-    return buffer.toString().trim();
-  }
-
-  static void _writePlainText(dynamic node, StringBuffer buffer) {
-    if (node is! Map<String, dynamic>) return;
-    final type = node['type'] as String?;
-    if (type == 'text' || type == 'code') {
-      buffer.write(node['text'] ?? '');
-    } else if (node['children'] is List) {
-      for (final child in node['children'] as List) {
-        _writePlainText(child, buffer);
-      }
-    }
-  }
-
-  /// Builds a simple text node.
-  static Map<String, dynamic> text(String value) => {'type': 'text', 'text': value};
-
-  /// Builds a node_link AST node.
+  /// Builds a mention token (v2 node_link replacement).
   static Map<String, dynamic> nodeLink({
     required String targetId,
     String? linkUuid,
     String? label,
     String refType = 'node',
   }) {
+    if (refType == 'class') {
+      return {
+        'type': 'class_chip',
+        'classId': targetId,
+        if (label != null && label.isNotEmpty) 'displayText': label,
+      };
+    }
     return {
-      'type': 'node_link',
-      'link_id': linkUuid == null ? targetId : '$targetId:$linkUuid',
-      'ref_type': refType,
-      // ignore: use_null_aware_elements
-      if (label != null) 'label': label,
+      'type': 'mention',
+      'targetNodeId': targetId,
+      'text': label ?? targetId,
+      if (linkUuid != null && linkUuid.isNotEmpty) 'linkId': linkUuid,
     };
   }
+
+  /// Converts a token stream back to the mobile editor's Markdown-like text.
+  ///
+  /// hard_break tokens flush the line ('\n'); mention chips round-trip to
+  /// `[[target|text]]`, class chips to `{{classId|displayText}}`.
+  static String toMarkdown(List<Map<String, dynamic>> ast) {
+    final buffer = StringBuffer();
+    for (final token in ast) {
+      _writeMarkdown(token, buffer);
+    }
+    return buffer.toString();
+  }
+
+  static void _writeMarkdown(Map<String, dynamic> token, StringBuffer buffer) {
+    switch (token['type']) {
+      case 'hard_break':
+        buffer.write('\n');
+      case 'text':
+        final text = token['text'] as String? ?? '';
+        final marks = ((token['marks'] as List<dynamic>?) ?? const [])
+            .cast<String>();
+        var rendered = text;
+        if (marks.contains('code')) rendered = '`$rendered`';
+        if (marks.contains('bold')) rendered = '**$rendered**';
+        if (marks.contains('italic')) rendered = '*$rendered*';
+        if (marks.contains('strike')) rendered = '~~$rendered~~';
+        if (marks.contains('highlight')) rendered = '==$rendered==';
+        buffer.write(rendered);
+      case 'mention':
+        final target = token['targetNodeId'] as String? ?? '';
+        final text = token['text'] as String? ?? '';
+        buffer.write(text.isNotEmpty ? '[[$target|$text]]' : '[[$target]]');
+      case 'class_chip':
+        final classId = token['classId'] as String? ?? '';
+        final display = token['displayText'] as String?;
+        buffer.write(
+          display != null && display.isNotEmpty
+              ? '{{$classId|$display}}'
+              : '{{$classId}}',
+        );
+      case 'typed_link':
+        buffer.write(token['text'] as String? ?? '');
+      case 'external_link':
+        buffer.write('[${token['text'] ?? ''}](${token['href'] ?? ''})');
+      case 'math':
+        buffer.write('\$${token['expression'] ?? ''}\$');
+      case 'quote':
+        for (final child
+            in (token['children'] as List<dynamic>? ?? const <dynamic>[])) {
+          if (child is Map<String, dynamic>) _writeMarkdown(child, buffer);
+        }
+      case 'asset_ref':
+      case 'embed_ref':
+      case 'query':
+      case 'whiteboard':
+        // Block-scale placeholders: the editor text form keeps a label so
+        // the token is not silently lost on re-save.
+        buffer.write('[${token['type']}]');
+      default:
+        final text = token['text'];
+        if (text is String) buffer.write(text);
+    }
+  }
+
+  /// Extracts plain text from a token stream (the v2 excerpt derivation).
+  static String toPlainText(List<Map<String, dynamic>> ast) =>
+      plainTextExcerpt(parseContentAst(ast));
 
   static final _inlineRe = RegExp(
     r'(?<code>`[^`]+`)'
@@ -191,9 +159,9 @@ class AstBuilder {
       }
 
       final raw = match.group(0)!;
-      final node = _parseMatch(raw, match);
-      if (node != null) {
-        nodes.add(node);
+      final produced = _parseMatch(raw, match);
+      if (produced != null) {
+        nodes.addAll(produced);
       }
 
       pos = end;
@@ -203,49 +171,97 @@ class AstBuilder {
       nodes.add(AstBuilder.text(text.substring(pos)));
     }
 
-    return nodes;
+    return _mergeAdjacentText(nodes);
   }
 
-  static Map<String, dynamic>? _parseMatch(String raw, RegExpMatch match) {
+  /// Merges adjacent plain text runs produced by the split so the stream
+  /// stays compact (the v2 grammar has no run boundaries to preserve).
+  static List<Map<String, dynamic>> _mergeAdjacentText(
+    List<Map<String, dynamic>> nodes,
+  ) {
+    final merged = <Map<String, dynamic>>[];
+    for (final node in nodes) {
+      final last = merged.isEmpty ? null : merged.last;
+      if (last != null &&
+          last['type'] == 'text' &&
+          node['type'] == 'text' &&
+          (last['marks'] as List?)?.isEmpty != false &&
+          (node['marks'] as List?)?.isEmpty != false) {
+        last['text'] = '${last['text']}${node['text']}';
+      } else {
+        merged.add(Map<String, dynamic>.from(node));
+      }
+    }
+    return merged;
+  }
+
+  static List<Map<String, dynamic>>? _parseMatch(
+    String raw,
+    RegExpMatch match,
+  ) {
     if (match.namedGroup('code') != null) {
-      return {'type': 'code', 'text': raw.substring(1, raw.length - 1)};
+      return [
+        {
+          'type': 'text',
+          'text': raw.substring(1, raw.length - 1),
+          'marks': const ['code'],
+        },
+      ];
     }
     if (match.namedGroup('bolditalic') != null) {
-      final inner = raw.substring(3, raw.length - 3);
-      return {
-        'type': 'strong',
-        'children': [
-          {'type': 'em', 'children': _parseInlineChildren(inner)},
-        ],
-      };
+      return _markedText(raw.substring(3, raw.length - 3), const [
+        'bold',
+        'italic',
+      ]);
     }
     if (match.namedGroup('bold') != null) {
-      final inner = raw.substring(2, raw.length - 2);
-      return {'type': 'strong', 'children': _parseInlineChildren(inner)};
+      return _markedText(raw.substring(2, raw.length - 2), const ['bold']);
     }
     if (match.namedGroup('italic') != null) {
-      final inner = raw.substring(1, raw.length - 1);
-      return {'type': 'em', 'children': _parseInlineChildren(inner)};
+      return _markedText(raw.substring(1, raw.length - 1), const ['italic']);
     }
     if (match.namedGroup('underline') != null) {
-      final inner = raw.substring(2, raw.length - 2);
-      return {'type': 'underline', 'children': _parseInlineChildren(inner)};
+      return _markedText(raw.substring(2, raw.length - 2), const ['highlight']);
     }
     if (match.namedGroup('strike') != null) {
-      final inner = raw.substring(2, raw.length - 2);
-      return {'type': 'strikethrough', 'children': _parseInlineChildren(inner)};
+      return _markedText(raw.substring(2, raw.length - 2), const ['strike']);
     }
     if (match.namedGroup('highlight') != null) {
-      final inner = raw.substring(2, raw.length - 2);
-      return {'type': 'highlight', 'children': _parseInlineChildren(inner)};
+      return _markedText(raw.substring(2, raw.length - 2), const ['highlight']);
     }
     if (match.namedGroup('nodelink') != null) {
-      return _parseLink(raw.substring(2, raw.length - 2), 'node');
+      return [_parseLink(raw.substring(2, raw.length - 2), 'node')];
     }
     if (match.namedGroup('classlink') != null) {
-      return _parseLink(raw.substring(2, raw.length - 2), 'class');
+      return [_parseLink(raw.substring(2, raw.length - 2), 'class')];
     }
     return null;
+  }
+
+  /// Parses a marked span's inner text with the full inline grammar so
+  /// `**[[id|x]]**` composes; the marks ride along on every produced text
+  /// run while pills (mention/class chips) pass through unstyled.
+  static List<Map<String, dynamic>> _markedText(
+    String inner,
+    List<String> marks,
+  ) {
+    final children = _parseInlineChildren(inner);
+    final out = <Map<String, dynamic>>[];
+    for (final child in children) {
+      if (child['type'] == 'text') {
+        final existing =
+            ((child['marks'] as List<dynamic>?) ?? const <dynamic>[])
+                .cast<String>();
+        out.add({
+          'type': 'text',
+          'text': child['text'],
+          'marks': [...existing, ...marks],
+        });
+      } else {
+        out.add(child);
+      }
+    }
+    return out;
   }
 
   static Map<String, dynamic> _parseLink(String inner, String refType) {

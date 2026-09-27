@@ -1,9 +1,12 @@
-/// Converts Notees node names (stored as JSON AST documents) into plain text.
+/// Content-stream normalization and plain-text derivation for Notees node
+/// content (stored as JSON in the node `name` slot).
 ///
-/// The backend stores every node `name` as a JSON-encoded AST, so the mobile
-/// app must never render `name` directly. This helper extracts readable text
-/// from that AST for use as a fallback when the backend does not provide a
-/// resolved `display_name`.
+/// The v2 wire/local format is the flat token stream (SCHEMA.md "Content
+/// grammar"); rows written before the port still carry the v1 nested block
+/// AST (paragraph/heading children with strong/em/strikethrough/highlight/
+/// underline mark nodes and node_link pills). [normalizeContentAst] detects
+/// the shape and converts legacy documents to flat tokens so the renderer,
+/// the excerpt derivation, and the edge derivation all speak one grammar.
 ///
 /// Notees
 /// Copyright (C) 2026 Miquel Rosell Tarragó
@@ -11,6 +14,8 @@
 library;
 
 import 'dart:convert';
+
+import '../../domain/models/content/content_token.dart';
 
 /// Unwraps the CRDT text wrapper around a stored AST document.
 ///
@@ -40,38 +45,242 @@ List<dynamic> unwrapCrdtContentAst(List<dynamic> ast) {
   return inner is List && inner.isNotEmpty ? inner : ast;
 }
 
-/// Extracts plain text from a Notees AST document.
+/// True when [ast] is already a flat v2 token stream (top-level tokens with
+/// v2 `type` discriminators).
+bool isFlatTokenStream(List<dynamic> ast) {
+  if (ast.isEmpty) return true;
+  const flatTypes = {
+    'text',
+    'typed_link',
+    'mention',
+    'class_chip',
+    'external_link',
+    'math',
+    'hard_break',
+    'asset_ref',
+    'embed_ref',
+    'query',
+    'whiteboard',
+    'quote',
+  };
+  for (final entry in ast) {
+    if (entry is! Map<String, dynamic>) return false;
+    final type = entry['type'];
+    if (type is! String || !flatTypes.contains(type)) return false;
+  }
+  return true;
+}
+
+/// Normalizes a stored content document to the flat v2 token stream:
+/// unwraps CRDT-wrapped rows, detects legacy v1 nested AST documents and
+/// converts them (marks, node_link pills, code/math), and passes flat
+/// streams through unchanged.
+List<Map<String, dynamic>> normalizeContentAst(List<dynamic> ast) {
+  final unwrapped = unwrapCrdtContentAst(ast);
+  if (isFlatTokenStream(unwrapped)) {
+    return unwrapped.whereType<Map<String, dynamic>>().toList();
+  }
+  return legacyAstToTokens(unwrapped);
+}
+
+/// Converts a legacy v1 nested AST document into the flat v2 token stream.
 ///
-/// Returns an empty string for null/empty input. If [source] is not valid
-/// AST JSON, it is returned as-is so non-AST names still display.
-String astToPlainText(String? source) {
-  if (source == null || source.isEmpty) {
-    return '';
-  }
-
-  final dynamic parsed = _tryParseJson(source);
-  if (parsed == null) {
-    // Not JSON — treat as a legacy plain-text name.
-    return source.trim();
-  }
-
-  final blocks = parsed is List ? unwrapCrdtContentAst(parsed) : <dynamic>[];
-  final buffer = StringBuffer();
-
-  for (var i = 0; i < blocks.length; i++) {
-    final block = blocks[i];
+/// Mapping decisions (v1 port):
+///  - paragraph/heading children flatten into the same stream (v2 has no
+///    block-level segments; heading levels do not exist in the grammar and
+///    their text is kept verbatim);
+///  - strong/em/strikethrough/underline/highlight mark nodes fold into
+///    `marks` on text runs (underline → highlight: the v2 mark set has no
+///    underline); nested marks merge;
+///  - node_link pills become `mention` tokens (target from the link_id's
+///    `target` prefix; ref_type class → `class_chip`);
+///  - code nodes become text runs with the `code` mark; math nodes, external
+///    links, and hard breaks map one-to-one; user_mention degrades to a
+///    plain '@label' text run (the v2 grammar has no user token).
+List<Map<String, dynamic>> legacyAstToTokens(List<dynamic> ast) {
+  final out = <Map<String, dynamic>>[];
+  for (final block in ast) {
     if (block is! Map<String, dynamic>) continue;
+    _convertBlock(block, out, {});
+  }
+  return out;
+}
 
-    final text = _renderBlock(block);
-    if (text.isNotEmpty) {
-      if (buffer.isNotEmpty) {
-        buffer.write(' ');
+void _convertBlock(
+  Map<String, dynamic> block,
+  List<Map<String, dynamic>> out,
+  Set<String> inheritedMarks,
+) {
+  switch (block['type']) {
+    case 'paragraph':
+    case 'heading':
+      for (final child in (block['children'] as List? ?? const [])) {
+        if (child is Map<String, dynamic>) {
+          _convertInline(child, out, inheritedMarks);
+        }
       }
-      buffer.write(text);
+    case 'text':
+      // Bare document-level text leaf.
+      final text = block['text'];
+      if (text is String) {
+        out.add(_textToken(text, inheritedMarks));
+      }
+    case 'whiteboard':
+      final data = block['data'];
+      if (data is Map<String, dynamic>) {
+        out.add({'type': 'whiteboard', 'layout': data});
+      }
+    case 'query':
+      final data = block['data'];
+      out.add({
+        'type': 'query',
+        'queryAst': data is Map<String, dynamic> ? data : const {},
+      });
+    default:
+      // Unknown legacy block: try its children so no text is lost.
+      for (final child in (block['children'] as List? ?? const [])) {
+        if (child is Map<String, dynamic>) {
+          _convertInline(child, out, inheritedMarks);
+        }
+      }
+  }
+}
+
+void _convertInline(
+  Map<String, dynamic> node,
+  List<Map<String, dynamic>> out,
+  Set<String> inheritedMarks,
+) {
+  switch (node['type']) {
+    case 'text':
+      final text = node['text'];
+      if (text is String) {
+        out.add(_textToken(text, inheritedMarks));
+      }
+    case 'hard_break':
+      out.add(const {'type': 'hard_break'});
+    case 'strong':
+      _convertChildren(node, out, inheritedMarks, 'bold');
+    case 'em':
+      _convertChildren(node, out, inheritedMarks, 'italic');
+    case 'strikethrough':
+      _convertChildren(node, out, inheritedMarks, 'strike');
+    case 'underline':
+    case 'highlight':
+      _convertChildren(node, out, inheritedMarks, 'highlight');
+    case 'code':
+      final text = node['text'];
+      out.add(
+        _textToken(text is String ? text : '', {...inheritedMarks, 'code'}),
+      );
+    case 'math':
+      final expression = node['expression'];
+      out.add({
+        'type': 'math',
+        'expression': expression is String ? expression : '',
+      });
+    case 'external_link':
+      final url = node['url'];
+      out.add({
+        'type': 'external_link',
+        'href': url is String ? url : '',
+        'text': _collectPlain(node),
+      });
+    case 'node_link':
+      final linkId = node['link_id'] as String? ?? '';
+      final target = linkId.split(':').first;
+      final label = node['label'] as String? ?? '';
+      final refType = node['ref_type'] as String? ?? 'node';
+      if (refType == 'class') {
+        out.add({
+          'type': 'class_chip',
+          'classId': target,
+          if (label.isNotEmpty) 'displayText': label,
+        });
+      } else {
+        out.add({
+          'type': 'mention',
+          'targetNodeId': target,
+          'text': label.isEmpty ? target : label,
+        });
+      }
+    case 'user_mention':
+      final label = node['label'];
+      out.add(_textToken('@${label is String ? label : ''}', inheritedMarks));
+    default:
+      for (final child in (node['children'] as List? ?? const [])) {
+        if (child is Map<String, dynamic>) {
+          _convertInline(child, out, inheritedMarks);
+        }
+      }
+  }
+}
+
+void _convertChildren(
+  Map<String, dynamic> node,
+  List<Map<String, dynamic>> out,
+  Set<String> inheritedMarks,
+  String mark,
+) {
+  final merged = {...inheritedMarks, mark};
+  for (final child in (node['children'] as List? ?? const [])) {
+    if (child is Map<String, dynamic>) {
+      _convertInline(child, out, merged);
+    }
+  }
+}
+
+Map<String, dynamic> _textToken(String text, Set<String> marks) {
+  final valid = marks.where(kContentMarks.contains).toList(growable: false);
+  return {'type': 'text', 'text': text, if (valid.isNotEmpty) 'marks': valid};
+}
+
+String _collectPlain(Map<String, dynamic> node) {
+  final buffer = StringBuffer();
+  void walk(Map<String, dynamic> n) {
+    final text = n['text'];
+    if (text is String) buffer.write(text);
+    for (final child in (n['children'] as List? ?? const [])) {
+      if (child is Map<String, dynamic>) walk(child);
     }
   }
 
-  return _collapseWhitespace(buffer.toString());
+  walk(node);
+  return buffer.toString();
+}
+
+/// Parses a stored content document (serialized JSON or decoded list) into
+/// the flat v2 token stream. Null/invalid input yields an empty stream;
+/// legacy plain-text content becomes a single text run.
+List<Map<String, dynamic>> contentTokensFromSource(dynamic source) {
+  if (source == null) return const [];
+  if (source is String) {
+    if (source.isEmpty) return const [];
+    final parsed = _tryParseJson(source);
+    if (parsed is! List) {
+      // Legacy plain-text name.
+      return [
+        {'type': 'text', 'text': source},
+      ];
+    }
+    return normalizeContentAst(parsed);
+  }
+  if (source is List) return normalizeContentAst(source);
+  return const [];
+}
+
+/// The v2 excerpt over a stored content document: unwraps, normalizes
+/// (legacy-converting), and derives plain text per plainTextExcerpt.
+String contentSourceToExcerpt(dynamic source) =>
+    plainTextExcerpt(parseContentAst(contentTokensFromSource(source)));
+
+/// Extracts plain text from a Notees content document.
+///
+/// Backwards-compatible entry point: accepts the serialized JSON in the node
+/// `name` slot, a decoded document, or legacy plain text.
+String astToPlainText(dynamic source) {
+  if (source == null || (source is String && source.isEmpty)) return '';
+  return contentSourceToExcerpt(source);
 }
 
 dynamic _tryParseJson(String source) {
@@ -80,98 +289,4 @@ dynamic _tryParseJson(String source) {
   } on FormatException {
     return null;
   }
-}
-
-String _renderBlock(Map<String, dynamic> block) {
-  final type = block['type'] as String?;
-
-  switch (type) {
-    case 'paragraph':
-    case 'heading':
-      return _renderInlineSequence(block['children']);
-    case 'text':
-      // Bare inline text node at document level — CRDT text updates store
-      // these directly (the web client's collectTextLeaves fallback).
-      return block['text'] is String ? block['text'] as String : '';
-    case 'whiteboard':
-      return _renderWhiteboard(block);
-    case 'query':
-      return '';
-    default:
-      return '';
-  }
-}
-
-String _renderWhiteboard(Map<String, dynamic> block) {
-  final data = block['data'];
-  if (data is! Map<String, dynamic>) return '';
-
-  final elements = data['elements'];
-  if (elements is! List) return '';
-
-  final parts = <String>[];
-  for (final element in elements) {
-    if (element is! Map<String, dynamic>) continue;
-    final etype = element['type'] as String?;
-    final text = element['text'];
-    if ((etype == 'text' || etype == 'shape') && text is String && text.isNotEmpty) {
-      parts.add(text);
-    }
-  }
-
-  return parts.join(' ');
-}
-
-String _renderInlineSequence(dynamic children) {
-  if (children is! List) return '';
-
-  final buffer = StringBuffer();
-  for (final child in children) {
-    if (child is Map<String, dynamic>) {
-      buffer.write(_renderInline(child));
-    }
-  }
-  return buffer.toString();
-}
-
-String _renderInline(Map<String, dynamic> node) {
-  final type = node['type'] as String?;
-
-  switch (type) {
-    case 'text':
-      final text = node['text'];
-      return text is String ? text : '';
-    case 'hard_break':
-      return ' ';
-    case 'strong':
-    case 'em':
-    case 'strikethrough':
-    case 'highlight':
-    case 'underline':
-      return _renderInlineSequence(node['children']);
-    case 'code':
-      final text = node['text'];
-      return text is String ? text : '';
-    case 'math':
-      final expression = node['expression'];
-      return expression is String ? expression : '';
-    case 'external_link':
-      return _renderInlineSequence(node['children']);
-    case 'node_link':
-      final label = node['label'];
-      if (label is String && label.isNotEmpty) {
-        return label;
-      }
-      return '…';
-    case 'user_mention':
-      final label = node['label'];
-      return label is String ? '@$label' : '';
-    default:
-      return '';
-  }
-}
-
-String _collapseWhitespace(String text) {
-  final result = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-  return result;
 }
