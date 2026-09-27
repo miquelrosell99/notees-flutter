@@ -162,6 +162,20 @@ class RelayOutboxRepository {
     );
   }
 
+  /// Removes rows whose envelope carries one of [envelopeIds] — the WS
+  /// `ack` frame path (acknowledgements arrive as envelope ids, not row ids).
+  Future<void> removeByEnvelopeIds(List<String> envelopeIds) async {
+    if (envelopeIds.isEmpty) return;
+    final db = await _database.database;
+    for (final id in envelopeIds) {
+      await db.delete(
+        'relay_outbox',
+        where: 'envelope_json LIKE ?',
+        whereArgs: ['%"id":"$id"%'],
+      );
+    }
+  }
+
   Future<void> removeAll(List<int> ids) async {
     if (ids.isEmpty) return;
     final db = await _database.database;

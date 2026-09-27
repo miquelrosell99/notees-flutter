@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 
+import '../../domain/models/relay/hlc.dart';
 import '../../domain/models/relay/operation_envelope.dart';
 import '../../domain/models/relay/relay_requests.dart';
 
@@ -79,6 +80,31 @@ class RelayClient {
       throw const RelayException('Empty relay snapshot response');
     }
     return LatestSnapshotResponse.fromJson(data);
+  }
+
+  /// Upload a client-produced snapshot for [workspaceId] (WIRE.md §1:
+  /// `PUT /snapshot/data` with the covering HLC as query parameters).
+  ///
+  /// Callers decide when: only an explicit [SyncV2Service.uploadSnapshot]
+  /// trigger — the client never auto-uploads on pull.
+  Future<void> uploadSnapshot({
+    required String workspaceId,
+    required Uint8List bytes,
+    required Hlc hlc,
+  }) async {
+    await dio.put<List<int>>(
+      _snapshotDataPath,
+      queryParameters: {
+        'workspaceId': workspaceId,
+        'physical': hlc.physical,
+        'logical': hlc.logical,
+      },
+      data: bytes,
+      options: Options(
+        contentType: 'application/octet-stream',
+        responseType: ResponseType.bytes,
+      ),
+    );
   }
 
   /// Fetch the newest snapshot's blob for [workspaceId] as raw bytes.
