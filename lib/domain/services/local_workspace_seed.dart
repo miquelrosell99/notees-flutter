@@ -67,19 +67,12 @@ class LocalWorkspaceSeed {
   };
 
   /// System property specs the citations-model revision touched (TS manifest
-  /// `SYSTEM_PROPERTY_SPECS`): `authors` changed to a plain verbatim text
-  /// list; `linkedAuthors` is new (explicit person linkage to `agent`).
+  /// `SYSTEM_PROPERTY_SPECS`, FINAL owner reversion): `authors` is
+  /// node-typed again — explicit person linkage to `agent`.
   static const List<SeedPropertySpec> systemPropertySpecs = [
     SeedPropertySpec(
       name: 'authors',
       propertySchemaId: SystemPropertyUuids.authors,
-      type: 'text',
-      multi: true,
-      bindTo: 'source',
-    ),
-    SeedPropertySpec(
-      name: 'linkedAuthors',
-      propertySchemaId: SystemPropertyUuids.linkedAuthors,
       type: 'object',
       multi: true,
       bindTo: 'source',

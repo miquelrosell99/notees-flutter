@@ -222,10 +222,10 @@ void main() {
       // 25 system classes (21 legacy + source + song/tv_series/conference
       // from the citations revision; v2 class.create carries the name) +
       // 3 class.setExtends (the new classes extend source) +
-      // 2 propertySchema.create + 2 class.property.set (authors,
-      // linkedAuthors) + 2 pages (Inbox + scratchpad).
+      // 1 propertySchema.create + 1 class.property.set (authors, node-typed
+      // per the FINAL owner reversion) + 2 pages (Inbox + scratchpad).
       final emitted = await seed.ensureLocalWorkspace(displayName: 'Local user');
-      expect(emitted, 34);
+      expect(emitted, 32);
 
       final taskClass =
           await syncService.cache.getClassByUuid(SystemClassUuids.task);
@@ -242,11 +242,11 @@ void main() {
 
       final db = await database.database;
       // Seed ops stay in the outbox for a later server attach.
-      expect(await db.query('relay_outbox'), hasLength(34));
+      expect(await db.query('relay_outbox'), hasLength(32));
 
       // Re-running emits nothing.
       expect(await seed.ensureLocalWorkspace(displayName: 'Local user'), 0);
-      expect(await db.query('relay_outbox'), hasLength(34));
+      expect(await db.query('relay_outbox'), hasLength(32));
     });
   });
 }

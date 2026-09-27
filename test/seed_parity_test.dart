@@ -74,7 +74,6 @@ void main() {
         SystemPropertyUuids.extends_,
         SystemPropertyUuids.whiteboardData,
         SystemPropertyUuids.authors,
-        SystemPropertyUuids.linkedAuthors,
       ];
       const task = <String>[
         SystemPropertyUuids.taskStatus,
@@ -103,32 +102,38 @@ void main() {
       }
       expect(SystemPropertyUuids.authors,
           '00000000-0000-0000-0000-000000000012');
-      expect(SystemPropertyUuids.linkedAuthors,
-          '00000000-0000-0000-0000-000000000025');
+      // …0025 was withdrawn in the FINAL reversion (never reuse): the
+      // constant is gone, so every constant in this file carries a live id.
     });
   });
 
   group('citations-revision seed specs', () {
-    test('authors is verbatim text, never node-typed', () {
+    test('authors is node-typed (FINAL owner reversion)', () {
       final authors = LocalWorkspaceSeed.systemPropertySpecs
           .firstWhere((spec) => spec.name == 'authors');
       expect(authors.propertySchemaId, SystemPropertyUuids.authors);
-      expect(authors.type, 'text');
+      expect(authors.type, 'object');
       expect(authors.multi, isTrue);
       expect(authors.bindTo, 'source');
-      // The revision: no targetClassFilter — bibliography import writes
-      // author strings verbatim, never creating person nodes.
-      expect(authors.targetClassFilter, isNull);
+      expect(authors.targetClassFilter, [SystemClassUuids.agent]);
     });
 
-    test('linkedAuthors is the explicit person linkage', () {
-      final linked = LocalWorkspaceSeed.systemPropertySpecs
-          .firstWhere((spec) => spec.name == 'linkedAuthors');
-      expect(linked.propertySchemaId, SystemPropertyUuids.linkedAuthors);
-      expect(linked.type, 'object');
-      expect(linked.multi, isTrue);
-      expect(linked.bindTo, 'source');
-      expect(linked.targetClassFilter, [SystemClassUuids.agent]);
+    test('the linkedAuthors spec entry is gone (…0025 withdrawn)', () {
+      expect(
+        LocalWorkspaceSeed.systemPropertySpecs
+            .where((spec) => spec.name == 'linkedAuthors'),
+        isEmpty,
+      );
+      // No live constant references the withdrawn id: the value appears
+      // nowhere in the seed specs.
+      final referenced = <String>[
+        for (final spec in LocalWorkspaceSeed.systemPropertySpecs)
+          spec.propertySchemaId,
+      ];
+      expect(
+        referenced.contains('00000000-0000-0000-0000-000000000025'),
+        isFalse,
+      );
     });
 
     test('new classes extend source with the TS manifest icons', () {
@@ -188,9 +193,10 @@ void main() {
           await LocalWorkspaceSeed(syncService).ensureLocalWorkspace(
         displayName: 'Local user',
       );
-      // 25 class.create + 3 class.setExtends + 2 propertySchema.create +
-      // 2 class.property.set + 2 object.create (pages).
-      expect(emitted, 34);
+      // 25 class.create + 3 class.setExtends + 1 propertySchema.create +
+      // 1 class.property.set (authors, node-typed per the FINAL reversion)
+      // + 2 object.create (pages).
+      expect(emitted, 32);
 
       final db = await database.database;
 
@@ -223,7 +229,6 @@ void main() {
       // Property schemas + bindings on source.
       for (final schemaId in [
         SystemPropertyUuids.authors,
-        SystemPropertyUuids.linkedAuthors,
       ]) {
         final schema = await db.rawQuery(
           'SELECT name, type, multi FROM property_schema WHERE uuid = ?',
@@ -240,7 +245,7 @@ void main() {
         'SELECT type, multi FROM property_schema WHERE uuid = ?',
         [SystemPropertyUuids.authors],
       );
-      expect(authorsRow.single['type'], 'text');
+      expect(authorsRow.single['type'], 'object');
       expect(authorsRow.single['multi'], 1);
 
       // Idempotent re-run emits nothing.
