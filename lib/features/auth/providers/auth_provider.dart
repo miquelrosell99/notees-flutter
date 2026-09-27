@@ -100,6 +100,7 @@ class AuthProvider extends ChangeNotifier {
           await _restoreLocalSessionIfPresent();
         }
         _applyActorId();
+        await _applyRealtimeSession();
       } else {
         await _restoreLocalSessionIfPresent();
       }
@@ -140,6 +141,9 @@ class AuthProvider extends ChangeNotifier {
 
   /// Starts (or restores) an offline session for the local profile [uuid].
   Future<void> _startLocalSession(String uuid) async {
+    // A local session replaces any server session: its realtime stream must
+    // not outlive the swap.
+    await _syncService?.stopRealtime();
     _user = User(
       id: uuid,
       uuid: uuid,
@@ -214,6 +218,9 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> selectServer(ServerProfile server) async {
+    // The old sync service (and its realtime stream) belongs to the old
+    // server/session: stop it before the replacement drops the reference.
+    await _syncService?.stopRealtime();
     await serverRepository.setActiveServerId(server.id);
     _activeServer = server;
     _dio = createApiClient(
@@ -228,6 +235,34 @@ class AuthProvider extends ChangeNotifier {
     _applyActorId();
     _twoFactorChallenge = null;
     notifyListeners();
+  }
+
+  /// (Re)evaluates the realtime subscription for the current session: a
+  /// server session with an API key subscribes; anything else (logged out,
+  /// local mode, no key) stops the stream. Idempotent at each lifecycle
+  /// point — login, initialize, workspace switch, logout.
+  Future<void> _applyRealtimeSession() async {
+    final sync = _syncService;
+    if (sync == null) return;
+    await sync.stopRealtime();
+    final server = _activeServer;
+    if (server == null || _user == null || isLocalMode) return;
+    final key = await secureStorage.readApiKey(server.id);
+    if (key != null && key.isNotEmpty) {
+      sync.startRealtime(apiKey: key);
+    }
+  }
+
+  /// Switches the active workspace: points the sync service (and the
+  /// realtime subscription) at [workspaceId]. Call after the server accepted
+  /// the workspace switch.
+  Future<void> switchWorkspace(String workspaceId) async {
+    final sync = _syncService;
+    if (sync != null) {
+      await sync.stopRealtime();
+      await sync.setWorkspaceId(workspaceId);
+    }
+    await _applyRealtimeSession();
   }
 
   Future<void> login(String email, String password, {bool rememberMe = false}) async {
@@ -245,6 +280,7 @@ class AuthProvider extends ChangeNotifier {
           _applyActorId();
           await _switchToDefaultWorkspace();
           await _adoptLocalWorkspaceIfPending();
+          await _applyRealtimeSession();
         case TwoFactorChallenge():
           _twoFactorChallenge = result;
       }
@@ -274,6 +310,7 @@ class AuthProvider extends ChangeNotifier {
       _applyActorId();
       await _switchToDefaultWorkspace();
       await _adoptLocalWorkspaceIfPending();
+      await _applyRealtimeSession();
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -300,6 +337,7 @@ class AuthProvider extends ChangeNotifier {
       _applyActorId();
       await _switchToDefaultWorkspace();
       await _adoptLocalWorkspaceIfPending();
+      await _applyRealtimeSession();
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -320,6 +358,7 @@ class AuthProvider extends ChangeNotifier {
       _user = null;
       _applyActorId();
       _twoFactorChallenge = null;
+      await _applyRealtimeSession();
       notifyListeners();
     }
   }

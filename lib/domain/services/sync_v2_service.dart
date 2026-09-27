@@ -73,6 +73,24 @@ class SyncV2Service {
   bool _pullInFlight = false;
   final _wsBuffer = <_WsOpsFrame>[];
 
+  /// Bumped on every start/stop so a start whose workspace lookup finishes
+  /// after a stop can no-op (start→stop→start is safe mid-flight).
+  int _realtimeGeneration = 0;
+
+  /// Frame-triggered work (hello pulls, buffer drains, acks) kicked off
+  /// unawaited from the WS callbacks. [stopRealtime] waits for these so a
+  /// stop (or logout/teardown) never leaves callbacks running against
+  /// torn-down state.
+  final _pendingWsWork = <Future<void>>[];
+
+  /// Last realtime error (fail-loud framing, relay error frames, transport
+  /// failures). Exposed for the sync-status surface; the client
+  /// auto-reconnects transport failures, so this is informational.
+  String? lastRealtimeError;
+
+  /// Optional listener fired with [lastRealtimeError] on every WS error.
+  void Function(String error)? onRealtimeError;
+
   /// Offline (local-only) mode: the service never talks to the network.
   /// [pull] is a no-op and [flush] applies pending outbox envelopes to the
   /// local cache instead of pushing them; the rows stay in the outbox so a
@@ -538,23 +556,28 @@ class SyncV2Service {
   /// socket is indistinguishable from a delayed one and the cursor covers
   /// the gap on the next pull.
   void startRealtime({required String apiKey}) {
-    if (serverless || _ws != null) return;
+    if (serverless) return;
+    final generation = ++_realtimeGeneration;
     final baseUrl = dio.options.baseUrl;
     getWorkspaceId().then((workspaceId) {
+      // Stopped (or restarted) while the workspace lookup was in flight.
+      if (generation != _realtimeGeneration) return;
       if (workspaceId == null || _ws != null) return;
       final client = RelayWsClient(
         url: buildRelayWsUrl(baseUrl, workspaceId, apiKey),
         connector: wsConnectorOverride,
         onHello: (hello) {
-          unawaited(_onWsHello(hello, workspaceId));
+          _runWsWork(_onWsHello(hello, workspaceId));
         },
         onOps: (envelopes, seqs) {
           _onRemoteOps(envelopes, seqs);
         },
         onAck: (savedIds) {
-          unawaited(_onWsAck(savedIds));
+          _runWsWork(_onWsAck(savedIds));
         },
         onError: (error) {
+          lastRealtimeError = error.toString();
+          onRealtimeError?.call(lastRealtimeError!);
           debugPrint('SyncV2Service: realtime error: $error');
         },
       );
@@ -566,12 +589,28 @@ class SyncV2Service {
   /// Stops the realtime stream (clean close, no reconnect) and drops any
   /// buffered frames.
   Future<void> stopRealtime() async {
+    // Invalidate any start whose workspace lookup is still in flight.
+    _realtimeGeneration++;
     _wsBuffer.clear();
     final client = _ws;
     _ws = null;
     if (client != null) {
       await client.stop();
     }
+    // Drain work queued by in-flight frames: a stop (logout, workspace
+    // switch, teardown) must never leave callbacks running against state
+    // that has been closed behind them.
+    final pending = _pendingWsWork.toList(growable: false);
+    if (pending.isNotEmpty) {
+      await Future.wait(pending);
+    }
+  }
+
+  /// Runs [work] kicked off by a WS frame, tracking it for
+  /// [stopRealtime]'s drain.
+  void _runWsWork(Future<void> work) {
+    _pendingWsWork.add(work);
+    work.whenComplete(() => _pendingWsWork.remove(work));
   }
 
   Future<void> _onWsHello(WsHelloInfo hello, String workspaceId) async {
