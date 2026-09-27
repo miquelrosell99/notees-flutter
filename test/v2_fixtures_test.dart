@@ -32,6 +32,7 @@ void main() {
   const envelopeListFixtures = [
     'class-extends-cycle.json',
     'class-extends-m2m.json',
+    'class-property-defaults.json',
     'object-move.json',
     'property-set-lww.json',
     'typed-link-mark.json',

@@ -24,6 +24,8 @@ class OperationPayloads {
     'class.update',
     'class.delete',
     'class.setExtends',
+    'class.property.set',
+    'class.property.unset',
     'propertySchema.create',
     'propertySchema.update',
     'propertySchema.delete',
@@ -168,6 +170,43 @@ class OperationPayloads {
 
   /// [type] is the v2 property-schema enum (op-types.ts); [targetClassFilter]
   /// constrains node-typed (m2o/m2m) schemas to those classes.
+  /// Binding upsert: a configuration row on `class_property` (sequence,
+  /// flags, defaultValue). Row-level LWW by envelope HLC; omitted fields
+  /// KEEP their existing values (partial patch, not a replace). A null
+  /// parameter is indistinguishable from "leave unset" through typed Dart
+  /// params, so clearing a flag means passing `false` (the v2 applier maps
+  /// explicit null to false as well); send a raw map for JSON-null
+  /// defaultValue.
+  static Map<String, dynamic> classPropertySet({
+    required String classId,
+    required String propertySchemaId,
+    int? sequence,
+    bool? required,
+    bool? readonly,
+    bool? hideWhenEmpty,
+    dynamic defaultValue,
+  }) =>
+      _validated('class.property.set', {
+        'classId': classId,
+        'propertySchemaId': propertySchemaId,
+        'sequence': ?sequence,
+        'required': ?required,
+        'readonly': ?readonly,
+        'hideWhenEmpty': ?hideWhenEmpty,
+        'defaultValue': ?defaultValue,
+      });
+
+  /// Binding removal: deletes the `class_property` row. No tombstone — a
+  /// config row, last write wins (SCHEMA.md).
+  static Map<String, dynamic> classPropertyUnset({
+    required String classId,
+    required String propertySchemaId,
+  }) =>
+      _validated('class.property.unset', {
+        'classId': classId,
+        'propertySchemaId': propertySchemaId,
+      });
+
   static Map<String, dynamic> propertySchemaCreate({
     required String propertySchemaId,
     required String name,
@@ -389,6 +428,26 @@ class OperationPayloads {
         _strict(payload, {'classId', 'parentClassIds'});
         _uuid(payload, 'classId');
         _uuidList(payload, 'parentClassIds');
+      case 'class.property.set':
+        _strict(payload, {
+          'classId',
+          'propertySchemaId',
+          'sequence',
+          'required',
+          'readonly',
+          'hideWhenEmpty',
+          'defaultValue',
+        });
+        _uuid(payload, 'classId');
+        _uuid(payload, 'propertySchemaId');
+        _int(payload, 'sequence', required: false);
+        _boolNullable(payload, 'required', required: false);
+        _boolNullable(payload, 'readonly', required: false);
+        _boolNullable(payload, 'hideWhenEmpty', required: false);
+      case 'class.property.unset':
+        _strict(payload, {'classId', 'propertySchemaId'});
+        _uuid(payload, 'classId');
+        _uuid(payload, 'propertySchemaId');
       case 'propertySchema.create':
         _strict(payload, {
           'propertySchemaId',
@@ -576,6 +635,20 @@ class OperationPayloads {
     }
     if (value is! int || value < min) {
       throw FormatException('Field $key must be an int >= $min');
+    }
+  }
+
+  static void _boolNullable(Map<String, dynamic> payload, String key,
+      {bool required = true}) {
+    final value = payload[key];
+    if (value == null) {
+      if (required) {
+        throw FormatException('Missing required bool field: $key');
+      }
+      return;
+    }
+    if (value is! bool) {
+      throw FormatException('Field $key must be a bool or null');
     }
   }
 
