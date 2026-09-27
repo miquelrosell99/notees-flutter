@@ -94,6 +94,11 @@ class RelayAppliers {
       case 'class.setExtends':
         await _applyClassSetExtends(envelope, payload);
         return true;
+      case 'class.property.set':
+        return _applyClassPropertySet(envelope, payload);
+      case 'class.property.unset':
+        await _applyClassPropertyUnset(payload);
+        return true;
       case 'propertySchema.create':
         await _applyPropertySchemaCreate(payload);
         return true;
@@ -595,6 +600,44 @@ class RelayAppliers {
     await _cache.replaceClassExtends(classId, parentClassIds);
     await _cache.setClassExtends(classId, parentClassIds);
     await _cache.rebuildClassHierarchy();
+  }
+
+  Future<bool> _applyClassPropertySet(
+    OperationEnvelope envelope,
+    Map<String, dynamic> payload,
+  ) async {
+    final classId = payload['classId'] as String;
+    final schemaId = payload['propertySchemaId'] as String;
+    final incoming = _incoming(envelope);
+
+    final existing = await _cache.classPropertyBindingWinner(classId, schemaId);
+    if (existing != null && compareLww(incoming, existing) <= 0) {
+      return false;
+    }
+
+    final hasDefault = payload.containsKey('defaultValue');
+    await _cache.upsertClassPropertyBinding(
+      classId: classId,
+      schemaId: schemaId,
+      incoming: incoming,
+      sequence: (payload['sequence'] as num?)?.toInt(),
+      required: payload['required'] as bool?,
+      readonly: payload['readonly'] as bool?,
+      hideWhenEmpty: payload['hideWhenEmpty'] as bool?,
+      defaultValueJson: hasDefault
+          ? jsonEncode(payload.containsKey('defaultValue')
+              ? payload['defaultValue']
+              : null)
+          : null,
+    );
+    return true;
+  }
+
+  Future<void> _applyClassPropertyUnset(Map<String, dynamic> payload) async {
+    await _cache.deleteClassPropertyBinding(
+      payload['classId'] as String,
+      payload['propertySchemaId'] as String,
+    );
   }
 
   // --- property schemas -----------------------------------------------------------

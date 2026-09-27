@@ -69,7 +69,7 @@ class AppDatabase {
     final path = await _path;
     return openDatabase(
       path,
-      version: 17,
+      version: 18,
       password: encryptionPassword,
       onCreate: (db, version) async {
         await _createOfflineQueue(db);
@@ -90,6 +90,7 @@ class AppDatabase {
         await _createNodeUserShare(db);
         await _migrateV16(db);
         await _createEdge(db);
+        await _createClassProperty(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -146,6 +147,9 @@ class AppDatabase {
         }
         if (oldVersion < 17) {
           await _createEdge(db);
+        }
+        if (oldVersion < 18) {
+          await _createClassProperty(db);
         }
       },
     );
@@ -261,6 +265,31 @@ class AppDatabase {
         PRIMARY KEY (node_uuid, property_schema_id, idx)
       )
     ''');
+  }
+
+  /// Class → property-schema bindings (SCHEMA.md "Class properties"):
+  /// configuration rows (sequence, required, readonly, hideWhenEmpty,
+  /// defaultValue) authored by class.property.set/unset. The legacy
+  /// `class_property_edge` table (v1 UI read model) stays untouched.
+  Future<void> _createClassProperty(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS class_property (
+        class_id TEXT NOT NULL,
+        property_schema_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL DEFAULT 0,
+        required INTEGER,
+        readonly INTEGER,
+        hide_when_empty INTEGER,
+        default_value TEXT,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        PRIMARY KEY (class_id, property_schema_id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_class_property_schema ON class_property(property_schema_id)',
+    );
   }
 
   /// Derived reference index (never authored): mention/typed_link edges
@@ -795,6 +824,7 @@ class AppDatabase {
     await _createNodeUserShare(db);
     await _migrateV16(db);
     await _createEdge(db);
+    await _createClassProperty(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

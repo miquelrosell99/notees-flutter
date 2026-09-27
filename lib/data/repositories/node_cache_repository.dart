@@ -302,6 +302,8 @@ class NodeCacheRepository {
       await txn.delete('property_value');
       await txn.delete('property_value_tombstone');
       await txn.delete('collection_member');
+      await txn.delete('edge');
+      await txn.delete('class_property');
     });
   }
 
@@ -2401,6 +2403,276 @@ class NodeCacheRepository {
     await batch.commit(noResult: true);
   }
 
+  // === Class → property bindings + effective read model ====================
+  // (SCHEMA.md "Class properties"; ports of the v2 store's
+  // applyClassPropertySet/Unset and effective.ts getEffectiveProperties.)
+
+  /// Winner of a binding row, if any.
+  Future<LwwWinner?> classPropertyBindingWinner(
+    String classId,
+    String schemaId,
+  ) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'class_property',
+      columns: ['hlc_physical', 'hlc_logical', 'actor_id'],
+      where: 'class_id = ? AND property_schema_id = ?',
+      whereArgs: [classId, schemaId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return (
+      physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+      logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+      actor: row['actor_id'] as String? ?? '',
+    );
+  }
+
+  /// Upserts a binding row. Omitted fields KEEP their stored values (partial
+  /// patch, port of the SQL COALESCE); [defaultValueJson] is the JSON-encoded
+  /// default (null = leave untouched — JSON-null defaults ride raw maps).
+  Future<void> upsertClassPropertyBinding({
+    required String classId,
+    required String schemaId,
+    required LwwWinner incoming,
+    int? sequence,
+    bool? required,
+    bool? readonly,
+    bool? hideWhenEmpty,
+    String? defaultValueJson,
+  }) async {
+    final db = await _database.database;
+    final existing = await db.query(
+      'class_property',
+      where: 'class_id = ? AND property_schema_id = ?',
+      whereArgs: [classId, schemaId],
+      limit: 1,
+    );
+    final stored = existing.isEmpty ? const <String, dynamic>{} : existing.first;
+    await db.insert(
+      'class_property',
+      {
+        'class_id': classId,
+        'property_schema_id': schemaId,
+        'sequence': sequence ?? (stored['sequence'] as num?)?.toInt() ?? 0,
+        'required':
+            required == null ? stored['required'] : (required ? 1 : 0),
+        'readonly':
+            readonly == null ? stored['readonly'] : (readonly ? 1 : 0),
+        'hide_when_empty': hideWhenEmpty == null
+            ? stored['hide_when_empty']
+            : (hideWhenEmpty ? 1 : 0),
+        'default_value': defaultValueJson ?? stored['default_value'],
+        'hlc_physical': incoming.physical,
+        'hlc_logical': incoming.logical,
+        'actor_id': incoming.actor,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Binding removal: plain DELETE, no tombstone (SCHEMA.md).
+  Future<void> deleteClassPropertyBinding(
+    String classId,
+    String schemaId,
+  ) async {
+    final db = await _database.database;
+    await db.delete(
+      'class_property',
+      where: 'class_id = ? AND property_schema_id = ?',
+      whereArgs: [classId, schemaId],
+    );
+  }
+
+  /// Effective (schema, idx) rows for [nodeId]
+  /// (`effective(node, schema, idx) = authored ?? winning binding's default`).
+  Future<List<EffectiveProperty>> getEffectiveProperties(String nodeId) async {
+    final db = await _database.database;
+
+    // 1. Authored rows, tombstone-suppressed with the same rule the applier
+    //    enforces on write: a tombstone with >= (hlc, actor) blocks the value.
+    final authoredRows = await db.query(
+      'property_value',
+      columns: [
+        'property_schema_id',
+        'value',
+        'idx',
+        'metadata',
+        'hlc_physical',
+        'hlc_logical',
+        'actor_id',
+      ],
+      where: 'node_uuid = ?',
+      whereArgs: [nodeId],
+    );
+    final tombstoneRows = await db.query(
+      'property_value_tombstone',
+      columns: [
+        'property_schema_id',
+        'idx',
+        'hlc_physical',
+        'hlc_logical',
+        'actor_id',
+      ],
+      where: 'node_uuid = ?',
+      whereArgs: [nodeId],
+    );
+    bool suppressed(Map<String, dynamic> row) {
+      for (final tomb in tombstoneRows) {
+        if (tomb['property_schema_id'] == row['property_schema_id'] &&
+            tomb['idx'] == row['idx'] &&
+            compareLww(
+                  (
+                    physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+                    logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+                    actor: row['actor_id'] as String? ?? '',
+                  ),
+                  (
+                    physical: (tomb['hlc_physical'] as num?)?.toInt() ?? 0,
+                    logical: (tomb['hlc_logical'] as num?)?.toInt() ?? 0,
+                    actor: tomb['actor_id'] as String? ?? '',
+                  ),
+                ) <=
+                0) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // 2. The node's classes in assignment order: OR-Set add HLC ascending,
+    //    ties by class id.
+    // QueryResultSet is read-only: copy before sorting.
+    final memberRows = (await db.query(
+      'class_member_set',
+      columns: ['class_id', 'hlc_physical', 'hlc_logical'],
+      where: 'node_uuid = ? AND present = 1',
+      whereArgs: [nodeId],
+    ))
+        .toList();
+    memberRows.sort((a, b) {
+      final pa = (a['hlc_physical'] as num?)?.toInt() ?? 0;
+      final pb = (b['hlc_physical'] as num?)?.toInt() ?? 0;
+      if (pa != pb) return pa - pb;
+      final la = (a['hlc_logical'] as num?)?.toInt() ?? 0;
+      final lb = (b['hlc_logical'] as num?)?.toInt() ?? 0;
+      if (la != lb) return la - lb;
+      return (a['class_id'] as String).compareTo(b['class_id'] as String);
+    });
+
+    // 3. Winning binding per schema: the first class (in assignment order)
+    //    that binds the schema supplies the default AND the metadata.
+    final winnerBySchema =
+        <String, ({String classId, Map<String, dynamic> binding})>{};
+    for (final cls in memberRows) {
+      final classId = cls['class_id'] as String;
+      final bindings = await db.query(
+        'class_property',
+        where: 'class_id = ?',
+        whereArgs: [classId],
+      );
+      for (final binding in bindings) {
+        final schemaId = binding['property_schema_id'] as String;
+        winnerBySchema.putIfAbsent(
+          schemaId,
+          () => (classId: classId, binding: binding),
+        );
+      }
+    }
+
+    // 4. Schema rows for everything referenced (authored rows survive schema
+    //    deletion: the row renders with schema = null).
+    final schemaIds = <String>{
+      for (final row in authoredRows) row['property_schema_id'] as String,
+      ...winnerBySchema.keys,
+    };
+    final schemas = <String, EffectivePropertySchema>{};
+    if (schemaIds.isNotEmpty) {
+      final placeholders = schemaIds.map((_) => '?').join(',');
+      final rows = await db.rawQuery(
+        'SELECT uuid, name, type, multi FROM property_schema WHERE uuid IN ($placeholders)',
+        schemaIds.toList(),
+      );
+      for (final row in rows) {
+        schemas[row['uuid'] as String] = EffectivePropertySchema(
+          id: row['uuid'] as String,
+          name: row['name'] as String,
+          type: row['type'] as String? ?? 'text',
+          multi: (row['multi'] as num?)?.toInt() == 1,
+        );
+      }
+    }
+
+    bool? flag(dynamic value) => value == null ? null : value == 1;
+
+    // 5. Merge: authored wins per (schema, idx); a winning binding with a
+    //    default and no authored value at idx 0 derives a default row.
+    final rows = <String, EffectiveProperty>{};
+    for (final authored in authoredRows) {
+      if (suppressed(authored)) continue;
+      final schemaId = authored['property_schema_id'] as String;
+      final idx = (authored['idx'] as num?)?.toInt() ?? 0;
+      final winner = winnerBySchema[schemaId];
+      final metadata = authored['metadata'] as String?;
+      rows['$schemaId:$idx'] = EffectiveProperty(
+        propertySchemaId: schemaId,
+        idx: idx,
+        schema: schemas[schemaId],
+        value: _decodeJsonOrRaw(authored['value'] as String),
+        metadata: metadata == null ? null : _decodeJsonOrRaw(metadata),
+        source: 'authored',
+        boundBy: winner?.classId,
+        required: winner == null ? null : flag(winner.binding['required']),
+        readonly: winner == null ? null : flag(winner.binding['readonly']),
+        hideWhenEmpty:
+            winner == null ? null : flag(winner.binding['hide_when_empty']),
+        sequence: winner == null
+            ? null
+            : (winner.binding['sequence'] as num?)?.toInt(),
+      );
+    }
+    for (final entry in winnerBySchema.entries) {
+      final schemaId = entry.key;
+      final winner = entry.value;
+      final defaultRaw = winner.binding['default_value'];
+      if (defaultRaw == null) continue; // bound without a default
+      final key = '$schemaId:0';
+      if (rows.containsKey(key)) continue; // authored idx 0 shadows default
+      rows[key] = EffectiveProperty(
+        propertySchemaId: schemaId,
+        idx: 0,
+        schema: schemas[schemaId],
+        value: _decodeJsonOrRaw(defaultRaw as String),
+        metadata: null,
+        source: 'default',
+        boundBy: winner.classId,
+        required: flag(winner.binding['required']),
+        readonly: flag(winner.binding['readonly']),
+        hideWhenEmpty: flag(winner.binding['hide_when_empty']),
+        sequence: (winner.binding['sequence'] as num?)?.toInt(),
+      );
+    }
+
+    // 6. Deterministic presentation order: bound rows by binding sequence,
+    //    unbound authored rows last; schema name then idx as tiebreak.
+    final result = rows.values.toList();
+    String nameOf(EffectiveProperty row) =>
+        row.schema?.name ?? row.propertySchemaId;
+    result.sort((a, b) {
+      final boundDelta =
+          (a.boundBy == null ? 1 : 0) - (b.boundBy == null ? 1 : 0);
+      if (boundDelta != 0) return boundDelta;
+      final seqA = a.sequence ?? 0x7fffffffffffffff;
+      final seqB = b.sequence ?? 0x7fffffffffffffff;
+      if (seqA != seqB) return seqA - seqB;
+      final nameDelta = nameOf(a).compareTo(nameOf(b));
+      if (nameDelta != 0) return nameDelta;
+      return a.idx - b.idx;
+    });
+    return result;
+  }
+
   // === Edge index (derived references; v2 store edges.ts port) ===========
 
   /// Rebuilds the derived `edge` rows for [sourceId] from its current
@@ -3300,4 +3572,60 @@ class _DesiredEdge {
   final String type;
   final String? verb;
   final String? metadata;
+}
+
+
+/// The property-schema slice the effective read model exposes.
+class EffectivePropertySchema {
+  const EffectivePropertySchema({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.multi,
+  });
+
+  final String id;
+  final String name;
+  final String type;
+  final bool multi;
+}
+
+/// One effective (schema, idx) row for a node (port of the v2 store's
+/// EffectiveProperty): `source` tags authored vs derived; `boundBy` is the
+/// class supplying the binding metadata, or null when no current class binds
+/// the schema (an authored value whose binding went away stays visible).
+class EffectiveProperty {
+  const EffectiveProperty({
+    required this.propertySchemaId,
+    required this.idx,
+    required this.schema,
+    required this.value,
+    required this.metadata,
+    required this.source,
+    required this.boundBy,
+    required this.required,
+    required this.readonly,
+    required this.hideWhenEmpty,
+    required this.sequence,
+  });
+
+  final String propertySchemaId;
+  final int idx;
+  final EffectivePropertySchema? schema;
+  final dynamic value;
+  final dynamic metadata;
+  final String source; // 'authored' | 'default'
+  final String? boundBy;
+  final bool? required;
+  final bool? readonly;
+  final bool? hideWhenEmpty;
+  final int? sequence;
+}
+
+dynamic _decodeJsonOrRaw(String raw) {
+  try {
+    return jsonDecode(raw);
+  } catch (_) {
+    return raw;
+  }
 }
