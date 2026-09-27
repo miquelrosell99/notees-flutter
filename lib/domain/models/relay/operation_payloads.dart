@@ -26,6 +26,7 @@ class OperationPayloads {
     'class.setExtends',
     'class.property.set',
     'class.property.unset',
+    'class.unassign',
     'propertySchema.create',
     'propertySchema.update',
     'propertySchema.delete',
@@ -205,6 +206,18 @@ class OperationPayloads {
       _validated('class.property.unset', {
         'classId': classId,
         'propertySchemaId': propertySchemaId,
+      });
+
+  /// Class membership removal (SCHEMA.md "Class properties"): tombstones
+  /// the OR-Set pair. Authored property values always survive; bound
+  /// defaults simply stop being derived (nothing stored, nothing to clean).
+  static Map<String, dynamic> classUnassign({
+    required String objectId,
+    required String classId,
+  }) =>
+      _validated('class.unassign', {
+        'objectId': objectId,
+        'classId': classId,
       });
 
   static Map<String, dynamic> propertySchemaCreate({
@@ -448,6 +461,10 @@ class OperationPayloads {
         _strict(payload, {'classId', 'propertySchemaId'});
         _uuid(payload, 'classId');
         _uuid(payload, 'propertySchemaId');
+      case 'class.unassign':
+        _strict(payload, {'objectId', 'classId'});
+        _uuid(payload, 'objectId');
+        _uuid(payload, 'classId');
       case 'propertySchema.create':
         _strict(payload, {
           'propertySchemaId',
