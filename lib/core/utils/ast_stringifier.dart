@@ -274,6 +274,25 @@ List<Map<String, dynamic>> contentTokensFromSource(dynamic source) {
 String contentSourceToExcerpt(dynamic source) =>
     plainTextExcerpt(parseContentAst(contentTokensFromSource(source)));
 
+/// Flattens any token stream to text-only content (pages and classes carry
+/// text-only content — SCHEMA.md "title-is-content"). Port of
+/// `stringifyContentAst` in `packages/domain/src/node.ts`: block-scale
+/// structural widgets (whiteboard, query) survive as tokens — they are
+/// displays, not prose — and everything else folds into a single leading
+/// text run of the plain-text excerpt. Used by the appliers when a block's
+/// (possibly rich) content lands on a page/class node.
+List<Map<String, dynamic>> stringifyContentAst(
+  List<Map<String, dynamic>> ast,
+) {
+  final out = <Map<String, dynamic>>[
+    for (final token in ast)
+      if (token['type'] == 'whiteboard' || token['type'] == 'query') token,
+  ];
+  final text = plainTextExcerpt(parseContentAst(ast)).trim();
+  if (text.isNotEmpty) out.insert(0, {'type': 'text', 'text': text});
+  return out;
+}
+
 /// Extracts plain text from a Notees content document.
 ///
 /// Backwards-compatible entry point: accepts the serialized JSON in the node

@@ -9,9 +9,10 @@ import 'package:notees/domain/services/editor_save_service.dart';
 import 'package:notees/domain/services/sync_v2_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// Editor save path on the v2 grammar: titles ride the scalar `name` slot
-/// (object.update name:), content rides contentAst, and block moves pass the
-/// previous sibling as afterId (v2 sibling anchor).
+/// Editor save path on the v2 grammar: titles ride object.update
+/// contentAst (title-is-content — the protocol has no scalar name slot),
+/// content rides contentAst, and block moves pass the previous sibling as
+/// afterId (v2 sibling anchor).
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -122,7 +123,8 @@ void main() {
       return syncService;
     }
 
-    test('title rides object.update name:, content rides contentAst', () async {
+    test('title rides object.update contentAst, content rides contentAst',
+        () async {
       final syncService = await buildService();
       final service = EditorSaveService(syncService: syncService);
 
@@ -146,8 +148,12 @@ void main() {
 
       final title = pushed.first;
       expect(title['payload']['objectId'], pageUuid);
-      expect(title['payload']['name'], 'Shopping List');
-      expect(title['payload'].containsKey('contentAst'), isFalse);
+      // Title-is-content: the rename is a contentAst replacement; the wire
+      // has no scalar name field.
+      expect(title['payload']['contentAst'], [
+        {'type': 'text', 'text': 'Shopping List'},
+      ]);
+      expect(title['payload'].containsKey('name'), isFalse);
 
       final milk = pushed.last;
       expect(milk['payload']['contentAst'], [

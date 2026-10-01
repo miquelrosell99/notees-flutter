@@ -69,7 +69,7 @@ class AppDatabase {
     final path = await _path;
     return openDatabase(
       path,
-      version: 18,
+      version: 19,
       password: encryptionPassword,
       onCreate: (db, version) async {
         await _createOfflineQueue(db);
@@ -91,6 +91,7 @@ class AppDatabase {
         await _migrateV16(db);
         await _createEdge(db);
         await _createClassProperty(db);
+        await _migrateV19(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -151,13 +152,18 @@ class AppDatabase {
         if (oldVersion < 18) {
           await _createClassProperty(db);
         }
+        if (oldVersion < 19) {
+          await _migrateV19(db);
+        }
       },
     );
   }
 
   /// v16 — derived-state depth for the relay-v2 appliers:
   ///  - `node_cache` gains the v2 row shape: scalar `title` (the v2 `name`
-  ///    slot, split from the content `name` column), lexicographic
+  ///    slot, split from the content `name` column; since retired — the
+  ///    protocol has no node `name` field anymore (title-is-content,
+  ///    2026-10-01) — the column stays for legacy rows only), lexicographic
   ///    fractional `position`, `node_type`, and the row-LWW winner
   ///    (`hlc_physical`, `hlc_logical`, `actor_id`);
   ///  - new derived tables mirroring the v2 store: OR-Set class membership,
@@ -184,6 +190,44 @@ class AppDatabase {
     await _createClassExtends(db);
     await _createPropertyValue(db);
     await _createCollectionMember(db);
+  }
+
+  /// v19 — first-class tags + class ORDER (2026-10-01 protocol lockstep,
+  /// store schema v6→v7 parity):
+  ///  - `tag_member_set`: the tag-assignment OR-Set (same membership
+  ///    semantics as `class_member_set`, own table, no role overlap);
+  ///  - `node_cache.class_order`: the per-node user-defined class order list
+  ///    (class.reorder, LWW-by-arrival); the effective classes_uuid =
+  ///    ordered members first, then unlisted members sorted by id.
+  Future<void> _migrateV19(Database db) async {
+    await _createTagMemberSet(db);
+    await _addColumnIfMissing(
+      db,
+      'node_cache',
+      'class_order',
+      "TEXT NOT NULL DEFAULT '[]'",
+    );
+  }
+
+  Future<void> _createTagMemberSet(Database db) async {
+    // OR-Set of tag assignments (add-wins, LWW per (node, tag) pair by
+    // (hlc, actor)); the applier projects the present rows into
+    // node_cache's tags_uuid payload. Mirrors v2 store schema.ts
+    // tag_member_set.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS tag_member_set (
+        node_uuid TEXT NOT NULL,
+        tag_id TEXT NOT NULL,
+        present INTEGER NOT NULL,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        PRIMARY KEY (node_uuid, tag_id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_tag_member_set_tag ON tag_member_set(tag_id)',
+    );
   }
 
   Future<void> _createClassMemberSet(Database db) async {
@@ -825,6 +869,7 @@ class AppDatabase {
     await _migrateV16(db);
     await _createEdge(db);
     await _createClassProperty(db);
+    await _migrateV19(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

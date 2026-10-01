@@ -91,8 +91,9 @@ class LocalWorkspaceSeed {
     for (final entry in systemClassNames.entries) {
       final classId = entry.value;
       if (await _sync.cache.getClassByUuid(classId) != null) continue;
-      // v2 class.create carries the name; no separate content op is needed
-      // (v1 emitted a node.updateContent for the class-page title).
+      // v2 class.create carries the title as contentAst (title-is-content;
+      // the builder wraps the `name` convenience); no separate content op
+      // is needed (v1 emitted a node.updateContent for the class-page title).
       await _sync.emitLocal(
         opType: 'class.create',
         payload: OperationPayloads.classCreate(

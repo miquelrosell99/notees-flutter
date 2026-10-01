@@ -120,16 +120,22 @@ void main() {
       expect(await db.query('relay_outbox'), isEmpty);
     });
 
-    test('remove_tag and restore intents throw UnsupportedError (no v2 op)',
-        () async {
-      await expectLater(
-        syncService.enqueue(
-          type: 'remove_tag',
-          nodeUuid: taskUuid,
-          tagUuid: '30000000-0000-4000-8000-000000000001',
-        ),
-        throwsUnsupportedError,
+    test('remove_tag maps to tag.unassign (2026-10-01 registry)', () async {
+      await syncService.enqueue(
+        type: 'remove_tag',
+        nodeUuid: taskUuid,
+        tagUuid: '30000000-0000-4000-8000-000000000001',
       );
+
+      final db = await database.database;
+      final rows = await db.query('relay_outbox');
+      expect(rows, hasLength(1));
+      final envelopeJson = rows.first['envelope_json'] as String;
+      expect(envelopeJson, contains('"tag.unassign"'));
+      expect(envelopeJson, contains('30000000-0000-4000-8000-000000000001'));
+    });
+
+    test('restore intent throws UnsupportedError (no v2 op)', () async {
       await expectLater(
         syncService.enqueue(type: 'restore', nodeUuid: taskUuid),
         throwsUnsupportedError,
@@ -139,8 +145,8 @@ void main() {
       expect(await db.query('relay_outbox'), isEmpty);
     });
 
-    test('add_tag maps to a re-issued object.create (OR-Set membership carrier)',
-        () async {
+    test('add_tag maps to a re-issued object.create with tagIds '
+        '(OR-Set membership carrier)', () async {
       await syncService.enqueue(
         type: 'add_tag',
         nodeUuid: taskUuid,
@@ -152,6 +158,7 @@ void main() {
       expect(rows, hasLength(1));
       final envelopeJson = rows.first['envelope_json'] as String;
       expect(envelopeJson, contains('"object.create"'));
+      expect(envelopeJson, contains('"tagIds"'));
       expect(envelopeJson,
           contains('30000000-0000-4000-8000-000000000001'));
     });

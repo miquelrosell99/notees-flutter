@@ -13,7 +13,7 @@ void main() {
         objectId: objectId,
         nodeType: 'page',
         classIds: const [classId],
-        name: 'A page',
+        tagIds: const ['0192a000-0000-7000-8000-0000000000aa'],
         contentAst: const [
           {'type': 'text', 'text': 'hi'},
         ],
@@ -23,17 +23,44 @@ void main() {
       expect(payload['objectId'], objectId);
       expect(payload['nodeType'], 'page');
       expect(payload['classIds'], [classId]);
-      expect(payload['name'], 'A page');
+      expect(payload['tagIds'], ['0192a000-0000-7000-8000-0000000000aa']);
       expect(payload['contentAst'], hasLength(1));
       expect(payload['parentId'], isNull);
+      expect(payload.containsKey('name'), isFalse);
       expect(() => OperationPayloads.validatePayload('object.create', payload),
           returnsNormally);
     });
 
-    test('object.create defaults classIds to empty', () {
+    test('object.create defaults classIds and tagIds to empty', () {
       final payload = OperationPayloads.objectCreate(objectId: objectId);
       expect(payload['classIds'], isEmpty);
+      expect(payload['tagIds'], isEmpty);
       expect(payload.containsKey('nodeType'), isFalse);
+    });
+
+    test('object.create name convenience converts to a single text token', () {
+      final payload =
+          OperationPayloads.objectCreate(objectId: objectId, name: 'A page');
+      expect(payload['contentAst'], [
+        {'type': 'text', 'text': 'A page'},
+      ]);
+      expect(payload.containsKey('name'), isFalse);
+      expect(() => OperationPayloads.validatePayload('object.create', payload),
+          returnsNormally);
+    });
+
+    test('object.create contentAst wins over the name convenience', () {
+      final payload = OperationPayloads.objectCreate(
+        objectId: objectId,
+        name: 'dropped',
+        contentAst: const [
+          {'type': 'text', 'text': 'kept'},
+        ],
+      );
+      expect(payload['contentAst'], [
+        {'type': 'text', 'text': 'kept'},
+      ]);
+      expect(payload.containsKey('name'), isFalse);
     });
 
     test('object.update requires at least one field', () {
@@ -57,6 +84,57 @@ void main() {
         ),
         throwsArgumentError,
       );
+    });
+
+    test('class.create name convenience converts to contentAst', () {
+      final payload = OperationPayloads.classCreate(
+        classId: classId,
+        name: 'Genre',
+      );
+      expect(payload['contentAst'], [
+        {'type': 'text', 'text': 'Genre'},
+      ]);
+      expect(payload.containsKey('name'), isFalse);
+      expect(() => OperationPayloads.validatePayload('class.create', payload),
+          returnsNormally);
+    });
+
+    test('class.update accepts contentAst and keeps other fields', () {
+      final payload = OperationPayloads.classUpdate(
+        classId: classId,
+        contentAst: const [
+          {'type': 'text', 'text': 'Renamed class'},
+        ],
+        color: '#5B7D5B',
+      );
+      expect(payload['contentAst'], hasLength(1));
+      expect(payload['color'], '#5B7D5B');
+      expect(() => OperationPayloads.validatePayload('class.update', payload),
+          returnsNormally);
+    });
+
+    test('class.reorder carries objectId and the full ordered classIds', () {
+      final payload = OperationPayloads.classReorder(
+        objectId: objectId,
+        classIds: const [classId, '0192a000-0000-7000-8000-0000000000b1'],
+      );
+      expect(payload['objectId'], objectId);
+      expect(payload['classIds'], hasLength(2));
+      expect(payload.containsKey('tagIds'), isFalse);
+      expect(() => OperationPayloads.validatePayload('class.reorder', payload),
+          returnsNormally);
+      expect(OperationPayloads.isKnownOpType('class.reorder'), isTrue);
+    });
+
+    test('tag.unassign carries objectId and tagId', () {
+      final payload = OperationPayloads.tagUnassign(
+        objectId: objectId,
+        tagId: classId,
+      );
+      expect(payload, {'objectId': objectId, 'tagId': classId});
+      expect(() => OperationPayloads.validatePayload('tag.unassign', payload),
+          returnsNormally);
+      expect(OperationPayloads.isKnownOpType('tag.unassign'), isTrue);
     });
 
     test('object.delete defaults permanent to false', () {
@@ -148,6 +226,60 @@ void main() {
           'objectId': objectId,
           'permanent': true,
           'nodeId': objectId,
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('object payloads reject the retired name key (title-is-content)',
+        () {
+      expect(
+        () => OperationPayloads.validatePayload('object.create', {
+          'objectId': objectId,
+          'name': 'A page',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('object.update', {
+          'objectId': objectId,
+          'name': 'A page',
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('class payloads reject name and accept contentAst', () {
+      expect(
+        () => OperationPayloads.validatePayload('class.create', {
+          'classId': classId,
+          'name': 'Genre',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('class.update', {
+          'classId': classId,
+          'name': 'Genre',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('class.create', {
+          'classId': classId,
+          'contentAst': [
+            {'type': 'text', 'text': 'Genre'},
+          ],
+        }),
+        returnsNormally,
+      );
+    });
+
+    test('class.reorder rejects non-uuid class lists', () {
+      expect(
+        () => OperationPayloads.validatePayload('class.reorder', {
+          'objectId': objectId,
+          'classIds': ['nope'],
         }),
         throwsFormatException,
       );
