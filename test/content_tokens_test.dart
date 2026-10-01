@@ -438,6 +438,7 @@ void main() {
     test('typed-link-mark fixture payload derives mention + typed_link edges',
         () async {
       const pageId = '0192a000-0000-7000-8000-000000000010';
+      const blockId = '0192a000-0000-7000-8000-000000000020';
       const bookId = '0192a000-0000-7000-8000-000000000011';
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-000000000001',
@@ -447,12 +448,24 @@ void main() {
           nodeType: 'page',
         ),
       ));
+      // Blocks keep the full (rich) token stream — pages/classes carry
+      // text-only content (title-is-content), so the marked words live on a
+      // block, mirroring the v2 store's baseStoreWithBlock tests.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000002',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: blockId,
+          nodeType: 'block',
+          parentId: pageId,
+        ),
+      ));
       // The typed-link-mark.json fixture payload verbatim.
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-000000000101',
         opType: 'object.update',
         payload: {
-          'objectId': pageId,
+          'objectId': blockId,
           'contentAst': [
             {'type': 'text', 'text': 'Kuhn '},
             {
@@ -478,7 +491,7 @@ void main() {
       final db = await database.database;
       final edges = await db.rawQuery(
         'SELECT type, target_id, verb, metadata FROM edge WHERE source_id = ? ORDER BY type',
-        [pageId],
+        [blockId],
       );
       expect(edges, hasLength(2));
 
@@ -499,13 +512,14 @@ void main() {
       // backlinks(target) sees the mention edge.
       final backlinks = await cache.backlinks(bookId);
       expect(backlinks, hasLength(1));
-      expect(backlinks.single['source_id'], pageId);
+      expect(backlinks.single['source_id'], blockId);
       expect(backlinks.single['type'], 'mention');
     });
 
     test('stale edges die with their words on the next content update',
         () async {
       const pageId = '0192a000-0000-7000-8000-000000000010';
+      const blockId = '0192a000-0000-7000-8000-000000000020';
       const bookId = '0192a000-0000-7000-8000-000000000011';
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-000000000001',
@@ -515,8 +529,17 @@ void main() {
           nodeType: 'page',
         ),
       ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000002',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: blockId,
+          nodeType: 'block',
+          parentId: pageId,
+        ),
+      ));
       final withMention = {
-        'objectId': pageId,
+        'objectId': blockId,
         'contentAst': [
           {
             'type': 'mention',
@@ -539,7 +562,7 @@ void main() {
         id: '0192a000-0000-7000-8000-000000000003',
         opType: 'object.update',
         payload: {
-          'objectId': pageId,
+          'objectId': blockId,
           'contentAst': [
             {'type': 'text', 'text': 'no links here'},
           ],

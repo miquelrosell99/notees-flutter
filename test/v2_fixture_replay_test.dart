@@ -28,6 +28,7 @@ void main() {
   const ws = '0192a000-0000-7000-8000-000000000001';
   const nodePage = '0192a000-0000-7000-8000-000000000010';
   const nodeBook = '0192a000-0000-7000-8000-000000000011';
+  const nodeBlock = '0192a000-0000-7000-8000-000000000020';
   const propSchema = '0192a000-0000-7000-8000-0000000000a1';
   const bookClass = '00000000-0000-0000-0001-000000000025';
 
@@ -78,6 +79,26 @@ void main() {
         timestamp: '2026-09-24T12:00:00.000Z',
       );
 
+  /// The typed-link fixtures update the BLOCK under nodePage (the v2 store
+  /// tests seed it the same way via baseStoreWithBlock).
+  OperationEnvelope baseBlock(String nodeId, String parentId, int physical) =>
+      OperationEnvelope(
+        id: '0192a000-0000-7000-8000-0000000004$physical',
+        workspaceId: ws,
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'fixture-test-device',
+        hlc: Hlc(physical: physical, logical: 0),
+        affectedNodeIds: [nodeId],
+        opType: 'object.create',
+        payload: {
+          'objectId': nodeId,
+          'nodeType': 'block',
+          'classIds': <String>[],
+          'parentId': parentId,
+        },
+        timestamp: '2026-09-24T12:00:00.000Z',
+      );
+
   group('v2 fixture replay acceptance', () {
     late NodeCacheRepository cache;
     late RelayAppliers appliers;
@@ -105,13 +126,19 @@ void main() {
       await appliers.apply(basePage(nodeBook, 1));
     }
 
+    /// The typed-link fixtures target the block under nodePage.
+    Future<void> seedBaseWithBlock() async {
+      await seedBase();
+      await appliers.apply(baseBlock(nodeBlock, nodePage, 500));
+    }
+
     Future<List<Map<String, dynamic>>> raw(String sql,
         [List<Object?>? args]) async {
       final db = await database.database;
       return db.rawQuery(sql, args);
     }
 
-    test('object.create fixtures land names and OR-Set class ids', () async {
+    test('object.create fixtures land content and OR-Set class ids', () async {
       for (final envelope in <OperationEnvelope>[
         ...fixtureEnvelopes('envelope-minimal.json'),
         ...fixtureEnvelopes('object-create.json'),
@@ -124,9 +151,16 @@ void main() {
       expect(page!.nodeType, 'page');
       expect(book, isNotNull);
       expect(book!.nodeType, 'page');
-      // The v2 scalar name lands in the title field, not the content slot.
-      expect(book.title, 'The Structure of Scientific Revolutions');
+      // Title-is-content: the fixture's contentAst IS the title; there is
+      // no scalar name slot on the wire.
+      expect(book.title, isNull);
       expect(book.displayName, 'The Structure of Scientific Revolutions');
+      expect(
+        jsonDecode(book.name),
+        [
+          {'type': 'text', 'text': 'The Structure of Scientific Revolutions'},
+        ],
+      );
       // classIds seed the OR-Set membership, projected into classesUuid.
       expect(book.classesUuid, [bookClass]);
       final member = await raw(
@@ -185,20 +219,20 @@ void main() {
     });
 
     test('typed-link mark then deleted lands the final content', () async {
-      await seedBase();
+      await seedBaseWithBlock();
       for (final name in ['typed-link-mark.json', 'typed-link-mark-deleted.json']) {
         for (final envelope in fixtureEnvelopes(name)) {
           expect(await appliers.apply(envelope), isTrue);
         }
       }
-      final page = await cache.getByUuid(nodePage);
+      final block = await cache.getByUuid(nodeBlock);
       expect(
-        jsonDecode(page!.name),
+        jsonDecode(block!.name),
         [
           {'type': 'text', 'text': 'Kuhn cites earlier work.'},
         ],
       );
-      expect(page.displayName, 'Kuhn cites earlier work.');
+      expect(block.displayName, 'Kuhn cites earlier work.');
     });
 
     test('content updates converge regardless of order', () async {
@@ -206,9 +240,9 @@ void main() {
       final deleted = fixtureEnvelopes('typed-link-mark-deleted.json')[0];
 
       Future<String> contentOf() async =>
-          (await cache.getByUuid(nodePage))!.name;
+          (await cache.getByUuid(nodeBlock))!.name;
 
-      await seedBase();
+      await seedBaseWithBlock();
       await appliers.apply(mark);
       await appliers.apply(deleted);
       final forward = await contentOf();
@@ -222,7 +256,7 @@ void main() {
       await database.initializeSchema();
       cache = NodeCacheRepository(database);
       appliers = RelayAppliers(cache);
-      await seedBase();
+      await seedBaseWithBlock();
       await appliers.apply(deleted);
       await appliers.apply(mark);
       final backward = await contentOf();
@@ -332,17 +366,20 @@ void main() {
 
     test('re-applying the whole fixture set is state-idempotent', () async {
       final envelopes = allFixtureEnvelopes();
-      // Alphabetical fixture order lands typed-link-mark-deleted (higher
-      // HLC) before typed-link-mark, so the mark is legitimately dropped by
-      // row LWW on first replay — convergence, not a bug.
+      // The typed-link updates (physical 2000/3000) lose the row-LWW race to
+      // the object-move fixture (physical 7000+, which creates their target
+      // ...020 = "Move Fixture" earlier in the alphabetical order) — the
+      // same convergence the v2 store's all-fixtures replay produces. The
+      // page content stays the move fixture's title text; the typed-link
+      // content landing is covered by the block-seeded test above.
       for (final envelope in envelopes) {
         await appliers.apply(envelope);
       }
-      final page = await cache.getByUuid(nodePage);
+      final moveFixture = await cache.getByUuid(moveP);
       expect(
-        jsonDecode(page!.name),
+        jsonDecode(moveFixture!.name),
         [
-          {'type': 'text', 'text': 'Kuhn cites earlier work.'},
+          {'type': 'text', 'text': 'Move Fixture'},
         ],
       );
       final before = await raw(

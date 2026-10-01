@@ -1,13 +1,21 @@
 /// Factory functions and validation for the operation payloads of the
 /// Notees relay protocol v2.
 ///
-/// This is the Dart port of `v2/packages/protocol/src/op-types.ts` — the M1
-/// op registry (16 op types). Factories return plain JSON maps for direct
+/// This is the Dart port of `packages/protocol/src/op-types.ts` — the M1
+/// op registry (18 op types). Factories return plain JSON maps for direct
 /// storage in an [OperationEnvelope.payload]; every factory validates its
 /// output through [validatePayload] before returning, so producers fail loud
 /// at build time instead of earning a 422 `validation_failed` at relay
 /// ingest. Payloads are strict (zod `.strict()` parity): unknown keys are
 /// rejected.
+///
+/// Title-is-content (SCHEMA.md, 2026-10-01 lockstep): the protocol has no
+/// object/class `name` field — a node's title IS its content. The builders
+/// keep a [name] convenience that wraps the value in a single text token
+/// (`[{type: 'text', text: name}]`) when no explicit `contentAst` is given
+/// (web parity, `WorkspaceClient.createObject`); when both are given,
+/// `contentAst` wins and `name` is dropped. The validators reject a `name`
+/// key in object/class payloads like the relay does.
 class OperationPayloads {
   OperationPayloads._();
 
@@ -23,10 +31,12 @@ class OperationPayloads {
     'class.create',
     'class.update',
     'class.delete',
+    'class.unassign',
+    'class.reorder',
+    'tag.unassign',
     'class.setExtends',
     'class.property.set',
     'class.property.unset',
-    'class.unassign',
     'propertySchema.create',
     'propertySchema.update',
     'propertySchema.delete',
@@ -42,37 +52,49 @@ class OperationPayloads {
 
   // --- objects ----------------------------------------------------------------
 
+  /// Title-is-content: [name] is a convenience for the node's initial text
+  /// content (a single text token) and is dropped when [contentAst] is given
+  /// (`WorkspaceClient.createObject` parity). [tagIds] seeds the tag
+  /// membership OR-Set exactly like [classIds] seeds class membership.
   static Map<String, dynamic> objectCreate({
     required String objectId,
     String? nodeType,
     List<String>? classIds,
+    List<String>? tagIds,
     String? name,
     List<Map<String, dynamic>>? contentAst,
     String? parentId,
-  }) =>
-      _validated('object.create', {
-        'objectId': objectId,
-        'nodeType': ?nodeType,
-        'classIds': classIds ?? <String>[],
-        'name': ?name,
-        'contentAst': ?contentAst,
-        'parentId': ?parentId,
-      });
+  }) {
+    final effectiveContent =
+        contentAst ??
+        (name != null
+            ? <Map<String, dynamic>>[
+                {'type': 'text', 'text': name},
+              ]
+            : null);
+    return _validated('object.create', {
+      'objectId': objectId,
+      'nodeType': ?nodeType,
+      'classIds': classIds ?? <String>[],
+      'tagIds': tagIds ?? <String>[],
+      'contentAst': ?effectiveContent,
+      'parentId': ?parentId,
+    });
+  }
 
   /// At least one field beyond `objectId` is required, and exactly one
   /// content carrier (`contentAst` or `contentDeltaB64`) may be set
-  /// (`objectUpdatePayload.refine` in `op-types.ts`).
+  /// (`objectUpdatePayload.refine` in `op-types.ts`). There is no `name`
+  /// field (title-is-content): a rename is a `contentAst` replacement.
   static Map<String, dynamic> objectUpdate({
     required String objectId,
     String? nodeType,
-    String? name,
     String? icon,
     String? color,
     String? contentDeltaB64,
     List<Map<String, dynamic>>? contentAst,
   }) {
     if (nodeType == null &&
-        name == null &&
         icon == null &&
         color == null &&
         contentDeltaB64 == null &&
@@ -88,7 +110,6 @@ class OperationPayloads {
     return _validated('object.update', {
       'objectId': objectId,
       'nodeType': ?nodeType,
-      'name': ?name,
       'icon': ?icon,
       'color': ?color,
       'contentDeltaB64': ?contentDeltaB64,
@@ -121,34 +142,60 @@ class OperationPayloads {
 
   // --- classes & properties ---------------------------------------------------
 
+  /// Title-is-content: the class's title text rides `contentAst` (text-only
+  /// content, like pages). [name] is a convenience wrapped into a single
+  /// text token (`WorkspaceClient.createClass` parity).
   static Map<String, dynamic> classCreate({
     required String classId,
-    required String name,
-    String? icon,
-    String? color,
-    String? description,
-  }) =>
-      _validated('class.create', {
-        'classId': classId,
-        'name': name,
-        'icon': ?icon,
-        'color': ?color,
-        'description': ?description,
-      });
-
-  static Map<String, dynamic> classUpdate({
-    required String classId,
     String? name,
+    List<Map<String, dynamic>>? contentAst,
     String? icon,
     String? color,
     String? description,
   }) {
-    if (name == null && icon == null && color == null && description == null) {
+    final effectiveContent =
+        contentAst ??
+        (name != null
+            ? <Map<String, dynamic>>[
+                {'type': 'text', 'text': name},
+              ]
+            : null);
+    return _validated('class.create', {
+      'classId': classId,
+      'contentAst': ?effectiveContent,
+      'icon': ?icon,
+      'color': ?color,
+      'description': ?description,
+    });
+  }
+
+  /// Title-text replacement (text-only content), same contract as
+  /// [classCreate].
+  static Map<String, dynamic> classUpdate({
+    required String classId,
+    String? name,
+    List<Map<String, dynamic>>? contentAst,
+    String? icon,
+    String? color,
+    String? description,
+  }) {
+    if (name == null &&
+        contentAst == null &&
+        icon == null &&
+        color == null &&
+        description == null) {
       throw ArgumentError('class.update requires at least one field');
     }
+    final effectiveContent =
+        contentAst ??
+        (name != null
+            ? <Map<String, dynamic>>[
+                {'type': 'text', 'text': name},
+              ]
+            : null);
     return _validated('class.update', {
       'classId': classId,
-      'name': ?name,
+      'contentAst': ?effectiveContent,
       'icon': ?icon,
       'color': ?color,
       'description': ?description,
@@ -218,6 +265,31 @@ class OperationPayloads {
       _validated('class.unassign', {
         'objectId': objectId,
         'classId': classId,
+      });
+
+  /// Class ORDER (display-only, 2026-10-01): the membership OR-Set projects
+  /// class_ids sorted by id; user-defined order rides this dedicated op as an
+  /// LWW-by-arrival array. The effective class_ids = ordered members first,
+  /// then any unlisted members sorted by id (the store's recomputeClassIds).
+  static Map<String, dynamic> classReorder({
+    required String objectId,
+    required List<String> classIds,
+  }) =>
+      _validated('class.reorder', {
+        'objectId': objectId,
+        'classIds': classIds,
+      });
+
+  /// Tag removal (tag.unassign): the OR-Set remove complement of the
+  /// re-issued object.create add carrier — identical gating to
+  /// [classUnassign], own table (`tag_member_set`).
+  static Map<String, dynamic> tagUnassign({
+    required String objectId,
+    required String tagId,
+  }) =>
+      _validated('tag.unassign', {
+        'objectId': objectId,
+        'tagId': tagId,
       });
 
   static Map<String, dynamic> propertySchemaCreate({
@@ -375,21 +447,20 @@ class OperationPayloads {
           'objectId',
           'nodeType',
           'classIds',
-          'name',
+          'tagIds',
           'contentAst',
           'parentId',
         });
         _uuid(payload, 'objectId');
         _enum(payload, 'nodeType', _nodeTypes, required: false);
         _uuidList(payload, 'classIds', required: false);
-        _string(payload, 'name', max: 1024, required: false);
+        _uuidList(payload, 'tagIds', required: false);
         _list(payload, 'contentAst', required: false);
         _uuid(payload, 'parentId', required: false, nullable: true);
       case 'object.update':
         _strict(payload, {
           'objectId',
           'nodeType',
-          'name',
           'icon',
           'color',
           'contentDeltaB64',
@@ -397,7 +468,6 @@ class OperationPayloads {
         });
         _uuid(payload, 'objectId');
         _enum(payload, 'nodeType', _nodeTypes, required: false);
-        _string(payload, 'name', max: 1024, required: false);
         _string(payload, 'icon', max: 64, required: false);
         _string(payload, 'color', max: 32, required: false);
         _string(payload, 'contentDeltaB64', required: false);
@@ -421,16 +491,16 @@ class OperationPayloads {
         _uuid(payload, 'parentId', nullable: true);
         _uuid(payload, 'afterId', required: false);
       case 'class.create':
-        _strict(payload, {'classId', 'name', 'icon', 'color', 'description'});
+        _strict(payload, {'classId', 'contentAst', 'icon', 'color', 'description'});
         _uuid(payload, 'classId');
-        _string(payload, 'name', min: 1, max: 256);
+        _list(payload, 'contentAst', required: false);
         _string(payload, 'icon', max: 64, required: false);
         _string(payload, 'color', max: 32, required: false);
         _string(payload, 'description', max: 4096, required: false);
       case 'class.update':
-        _strict(payload, {'classId', 'name', 'icon', 'color', 'description'});
+        _strict(payload, {'classId', 'contentAst', 'icon', 'color', 'description'});
         _uuid(payload, 'classId');
-        _string(payload, 'name', min: 1, max: 256, required: false);
+        _list(payload, 'contentAst', required: false);
         _string(payload, 'icon', max: 64, required: false);
         _string(payload, 'color', max: 32, required: false);
         _string(payload, 'description', max: 4096, required: false);
@@ -465,6 +535,14 @@ class OperationPayloads {
         _strict(payload, {'objectId', 'classId'});
         _uuid(payload, 'objectId');
         _uuid(payload, 'classId');
+      case 'class.reorder':
+        _strict(payload, {'objectId', 'classIds'});
+        _uuid(payload, 'objectId');
+        _uuidList(payload, 'classIds');
+      case 'tag.unassign':
+        _strict(payload, {'objectId', 'tagId'});
+        _uuid(payload, 'objectId');
+        _uuid(payload, 'tagId');
       case 'propertySchema.create':
         _strict(payload, {
           'propertySchemaId',

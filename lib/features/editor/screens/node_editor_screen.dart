@@ -1938,9 +1938,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
     try {
       await auth.syncService!.enqueue(
-        type: 'remove_tag',
+        type: 'remove_class',
         nodeUuid: widget.nodeUuid,
-        tagUuid: classUuid,
+        classUuid: classUuid,
       );
       await auth.syncService!.flush();
       if (!mounted) return;

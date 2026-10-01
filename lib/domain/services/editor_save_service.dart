@@ -19,8 +19,8 @@ class EditorSaveService {
     required List<EditorBlockSnapshot> roots,
     required List<String> deletedUuids,
   }) async {
-    // Update the page title: v2 carries it in the scalar `name` slot
-    // (object.update name:), separate from the content token stream.
+    // Update the page title: title-is-content — the title rides the page's
+    // contentAst (a single text token), replacing the old scalar name slot.
     await syncService.enqueue(
       type: 'update_node',
       nodeUuid: pageUuid,

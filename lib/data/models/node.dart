@@ -37,6 +37,7 @@ class Node {
     this.title,
     this.position,
     this.nodeType,
+    this.classOrder = const [],
     this.hlcPhysical = 0,
     this.hlcLogical = 0,
     this.actorId,
@@ -76,9 +77,10 @@ class Node {
   /// For class-definition nodes: UUIDs of classes this class extends.
   final List<String> extendsUuid;
 
-  /// v2 scalar name slot (object.update `name`): the title, kept separate
-  /// from the content AST stored in [name]. Display prefers this over
-  /// content-derived plain text.
+  /// Legacy v1 scalar title slot, kept only so pre-title-is-content rows
+  /// still render. The v2 protocol has no object `name` field (title-is-
+  /// content, 2026-10-01): appliers never set this from v2 payloads; the
+  /// display name derives from the content AST stored in [name].
   final String? title;
 
   /// Lexicographic fractional sibling position (v2 `node_child_order`
@@ -88,6 +90,11 @@ class Node {
   /// v2 structural role: 'page' | 'block' | 'class'. Null for legacy rows
   /// (isPage carries the information).
   final String? nodeType;
+
+  /// User-defined class ORDER (class.reorder, LWW-by-arrival); the effective
+  /// classes_uuid = ordered members first, then unlisted members sorted by
+  /// id (store schema v7 `node.class_order` parity).
+  final List<String> classOrder;
 
   /// Row-LWW winner for v2 object.update/object.move: an incoming write whose
   /// (hlc, actor) does not beat these values is dropped.
@@ -181,6 +188,9 @@ class Node {
       title: title,
       position: json['position'] as String?,
       nodeType: json['node_type'] as String?,
+      classOrder:
+          (json['class_order'] as List<dynamic>?)?.cast<String>() ??
+          const [],
       hlcPhysical: (json['hlc_physical'] as num?)?.toInt() ?? 0,
       hlcLogical: (json['hlc_logical'] as num?)?.toInt() ?? 0,
       actorId: json['actor_id'] as String?,
@@ -229,6 +239,7 @@ class Node {
       title: title,
       position: position,
       nodeType: nodeType,
+      classOrder: classOrder,
       hlcPhysical: hlcPhysical,
       hlcLogical: hlcLogical,
       actorId: actorId,
@@ -272,6 +283,7 @@ class Node {
       title: title,
       position: position,
       nodeType: nodeType,
+      classOrder: classOrder,
       hlcPhysical: hlcPhysical,
       hlcLogical: hlcLogical,
       actorId: actorId,
@@ -313,6 +325,7 @@ class Node {
     'title': title,
     'position': position,
     'node_type': nodeType,
+    'class_order': classOrder,
     'hlc_physical': hlcPhysical,
     'hlc_logical': hlcLogical,
     'actor_id': actorId,

@@ -404,16 +404,16 @@ class NodeRepository {
       final nextSet = classes.toSet();
       for (final added in nextSet.difference(currentSet)) {
         await service.enqueue(
-          type: 'add_tag',
+          type: 'add_class',
           nodeUuid: uuid,
-          tagUuid: added,
+          classUuid: added,
         );
       }
       for (final removed in currentSet.difference(nextSet)) {
         await service.enqueue(
-          type: 'remove_tag',
+          type: 'remove_class',
           nodeUuid: uuid,
-          tagUuid: removed,
+          classUuid: removed,
         );
       }
     }

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/core/constants/system.dart';
 import 'package:notees/core/utils/ast_builder.dart';
+import 'package:notees/core/utils/ast_stringifier.dart';
 import 'package:notees/data/local/app_database.dart';
 import 'package:notees/data/repositories/node_cache_repository.dart';
 import 'package:notees/domain/models/relay/hlc.dart';
@@ -135,7 +136,7 @@ void main() {
       expect(node.isTask, isTrue);
     });
 
-    test('applies object.update name and icon/color upserts', () async {
+    test('applies object.update contentAst and icon/color upserts', () async {
       const nodeUuid = '00000000-0000-0000-0000-000000000104';
 
       await appliers.apply(envelope(
@@ -144,6 +145,7 @@ void main() {
         payload: OperationPayloads.objectCreate(
           objectId: nodeUuid,
           nodeType: 'page',
+          contentAst: AstBuilder.parseInline('Original'),
         ),
       ));
       await appliers.apply(envelope(
@@ -151,7 +153,8 @@ void main() {
         opType: 'object.update',
         payload: OperationPayloads.objectUpdate(
           objectId: nodeUuid,
-          name: 'Renamed',
+          // Title-is-content: a rename is a contentAst replacement.
+          contentAst: AstBuilder.parseInline('Renamed'),
         ),
         physical: 2,
       ));
@@ -167,12 +170,67 @@ void main() {
       ));
 
       final node = await cache.getByUuid(nodeUuid);
-      // The v2 scalar name lands in the title field, not the content slot.
-      expect(node!.title, 'Renamed');
-      expect(node.displayName, 'Renamed');
-      expect(node.name, ''); // content untouched by the name update
+      // The rename landed in the content slot; the display name derives
+      // from it. There is no scalar name slot on the v2 wire.
+      expect(node!.displayName, 'Renamed');
+      expect(AstBuilder.toPlainText(contentTokensFromSource(node.name)),
+          'Renamed');
+      expect(node.title, isNull);
       expect(node.icon, 'folder');
       expect(node.color, '#5B7D5B');
+    });
+
+    test('promoting a block to a page flattens its rich content (title-is-'
+        'content)', () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000105';
+      const blockUuid = '00000000-0000-0000-0000-000000000106';
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f1',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: pageUuid,
+          nodeType: 'page',
+        ),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f2',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: blockUuid,
+          nodeType: 'block',
+          parentId: pageUuid,
+          contentAst: const [
+            {'type': 'text', 'text': 'Todo: '},
+            {
+              'type': 'mention',
+              'targetNodeId': '00000000-0000-0000-0000-000000000199',
+              'text': 'shopping',
+            },
+          ],
+        ),
+        physical: 2,
+      ));
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f3',
+        opType: 'object.update',
+        payload: OperationPayloads.objectUpdate(
+          objectId: blockUuid,
+          nodeType: 'page',
+        ),
+        physical: 3,
+      ));
+
+      final node = await cache.getByUuid(blockUuid);
+      expect(node!.nodeType, 'page');
+      expect(node.isPage, isTrue);
+      // The rich stream flattened to a single text-only token (pages carry
+      // text-only content) and the display name re-derived from it.
+      expect(jsonDecode(node.name), [
+        {'type': 'text', 'text': 'Todo: shopping'},
+      ]);
+      expect(node.displayName, 'Todo: shopping');
     });
 
     test('applies property.set and property.unset by propertySchemaId',

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/constants/system.dart';
 import '../../core/utils/ast_builder.dart';
 import '../../core/utils/ast_stringifier.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_cache_repository.dart';
 import '../models/relay/lww.dart';
@@ -13,16 +14,21 @@ import '../models/relay/operation_payloads.dart';
 import '../models/relay/store_errors.dart';
 
 /// Applies v2 relay operation envelopes to the local derived state, porting
-/// `v2/packages/store/src/appliers.ts` semantics:
+/// `packages/store/src/appliers.ts` semantics:
 ///
 ///  - row-level LWW by (hlc_physical, hlc_logical, actor_id): higher HLC
 ///    wins, equal HLC breaks the tie on actor id (deterministic);
-///  - the v2 scalar `name` lands in the node's title field, kept separate
-///    from the content AST slot (Node.name);
+///  - title-is-content (2026-10-01 lockstep): the protocol has no node
+///    `name` field — a node's title IS its content; the display name is the
+///    content excerpt (date labels formatted), derived at apply time;
+///    pages/classes carry text-only content (a block promoted to page/class
+///    gets its rich stream flattened);
 ///  - sibling order uses the lexicographic fractional allocator
 ///    (midpointBetween/nextChildPosition), stored in node_cache.position;
-///  - class membership and collection membership are OR-Sets (add-wins per
-///    pair, LWW per pair by (hlc, actor)), projected into node rows;
+///  - class membership, tag membership and collection membership are
+///    OR-Sets (add-wins per pair, LWW per pair by (hlc, actor)), projected
+///    into node rows; user-defined class order rides class.reorder
+///    (LWW-by-arrival) and the class list projects ordered members first;
 ///  - class extends is m2m replace semantics with an applier-maintained
 ///    transitive closure; cycles fail loud with [CycleError];
 ///  - property values are LWW per (node, schema, idx) with tombstones;
@@ -101,6 +107,10 @@ class RelayAppliers {
         return true;
       case 'class.unassign':
         return _applyClassUnassign(envelope, payload);
+      case 'class.reorder':
+        return _applyClassReorder(payload);
+      case 'tag.unassign':
+        return _applyTagUnassign(envelope, payload);
       case 'propertySchema.create':
         await _applyPropertySchemaCreate(payload);
         return true;
@@ -191,12 +201,22 @@ class RelayAppliers {
     }
 
     // Seed OR-Set membership first: a re-issued create is the v2 membership
-    // carrier (add-wins per pair), even when the node already exists.
+    // carrier (add-wins per pair), even when the node already exists. The
+    // class add's comparator is >= on the actor tiebreak (an exact-HLC add
+    // beats a class.unassign remove in either delivery order); the tag add's
+    // is strictly-greater, matching the v2 store's tagMemberUpsert gating.
     final classIds = _readStringList(payload['classIds']);
     for (final classId in classIds) {
       final stored = await _cache.classMemberWinner(objectId, classId);
       if (stored == null || compareLww(incoming, stored) >= 0) {
         await _cache.upsertClassMember(objectId, classId, true, incoming);
+      }
+    }
+    final tagIds = _readStringList(payload['tagIds']);
+    for (final tagId in tagIds) {
+      final stored = await _cache.tagMemberWinner(objectId, tagId);
+      if (stored == null || compareLww(incoming, stored) > 0) {
+        await _cache.upsertTagMember(objectId, tagId, true, incoming);
       }
     }
 
@@ -205,17 +225,20 @@ class RelayAppliers {
     // dual-parent corruption class this op replaces).
     if (await _cache.getByUuid(objectId) != null) {
       if (classIds.isNotEmpty) await _cache.recomputeClassIds(objectId);
+      if (tagIds.isNotEmpty) await _cache.recomputeTagIds(objectId);
       return false;
     }
 
+    // Title-is-content: pages and classes carry text-only content; a block
+    // keeps the full token stream.
     final contentAst = payload['contentAst'];
-    final name = switch (contentAst) {
-      List<dynamic> list => AstBuilder.serialize(
-        list.cast<Map<String, dynamic>>(),
-      ),
-      _ => '',
+    final flatAst = switch (contentAst) {
+      List<dynamic> list => nodeType == 'block'
+          ? normalizeContentAst(list)
+          : stringifyContentAst(normalizeContentAst(list)),
+      _ => const <Map<String, dynamic>>[],
     };
-    final title = payload['name'] as String?;
+    final name = AstBuilder.serialize(flatAst);
     final flags = _deriveFlags(classIds);
     final position = parentId == null
         ? null
@@ -226,11 +249,12 @@ class RelayAppliers {
         id: 0,
         uuid: objectId,
         name: name,
-        displayName: title?.isNotEmpty == true ? title! : astToPlainText(name),
+        displayName: deriveDisplayName(name),
         parentUuid: parentId,
         position: position,
         sequence: double.tryParse(position ?? '') ?? 0.0,
         classesUuid: classIds,
+        tagsUuid: tagIds,
         isPage: nodeType == 'page',
         isTask: flags.isTask,
         isDaily: flags.isDaily,
@@ -241,7 +265,6 @@ class RelayAppliers {
         isComment: flags.isComment,
         properties: const {},
         writeDate: envelope.timestamp,
-        title: title,
         nodeType: nodeType,
         hlcPhysical: incoming.physical,
         hlcLogical: incoming.logical,
@@ -253,11 +276,12 @@ class RelayAppliers {
       // registry row locally (classes render from class_cache).
       await _cache.upsertClass(
         uuid: objectId,
-        name: title ?? astToPlainText(name),
+        name: deriveDisplayName(name),
         active: true,
       );
     }
     if (classIds.isNotEmpty) await _cache.recomputeClassIds(objectId);
+    if (tagIds.isNotEmpty) await _cache.recomputeTagIds(objectId);
     return true;
   }
 
@@ -290,28 +314,41 @@ class RelayAppliers {
     // Row-level last-write-wins: lower or equal (hlc, actor) writes drop.
     if (compareLww(incoming, rowWinner) <= 0) return false;
 
-    final title = payload['name'] as String?;
     final contentAst = payload['contentAst'];
-    // v2 `name` is the scalar title slot, never the content slot.
-    final newTitle = title ?? node.title;
+    final newNodeType = payload['nodeType'] as String? ?? node.nodeType;
+    // Title-is-content: contentAst replaces the node's content (the title
+    // lives in it); a block keeps the full token stream, other node types
+    // carry text-only content (promotion flattens rich streams).
     String? newName = node.name;
     var newDisplay = node.displayName;
     if (contentAst is List<dynamic>) {
-      newName = AstBuilder.serialize(normalizeContentAst(contentAst));
-      newDisplay = newTitle?.isNotEmpty == true
-          ? newTitle!
-          : astToPlainText(newName);
-    } else if (title != null) {
-      newDisplay = title;
+      final flatAst = newNodeType == 'block'
+          ? normalizeContentAst(contentAst)
+          : stringifyContentAst(normalizeContentAst(contentAst));
+      newName = AstBuilder.serialize(flatAst);
+      newDisplay = deriveDisplayName(newName);
+    } else if (node.nodeType == 'block' &&
+        newNodeType != 'block' &&
+        node.name.isNotEmpty) {
+      // Promotion without new content flattens the stored rich stream to
+      // text-only in the same op (pages/classes carry text-only content).
+      try {
+        final stored = jsonDecode(node.name);
+        if (stored is List<dynamic>) {
+          newName = AstBuilder.serialize(stringifyContentAst(
+            normalizeContentAst(stored),
+          ));
+          newDisplay = deriveDisplayName(newName);
+        }
+      } on FormatException {
+        // Not a JSON document (legacy plain text): already text-only.
+      }
     }
-
-    final newNodeType = payload['nodeType'] as String? ?? node.nodeType;
     await _cache.upsert(
       _copyWith(
         node,
         name: newName,
         displayName: newDisplay,
-        title: newTitle,
         nodeType: newNodeType,
         // A nodeType flip is promotion/demotion: the is_page query flag
         // follows it.
@@ -514,7 +551,9 @@ class RelayAppliers {
     final classId = payload['classId'] as String;
     await _cache.upsertClass(
       uuid: classId,
-      name: payload['name'] as String?,
+      // Title-is-content: the registry name is a denormalized cache of the
+      // class node's title text — the plain-text excerpt of contentAst.
+      name: _classTitle(payload),
       icon: payload['icon'] as String?,
       color: payload['color'] as String?,
       description: payload['description'] as String?,
@@ -538,8 +577,8 @@ class RelayAppliers {
     }
     await _cache.upsertClass(
       uuid: classId,
-      name: payload.containsKey('name')
-          ? payload['name'] as String?
+      name: payload.containsKey('contentAst')
+          ? _classTitle(payload)
           : existing.name,
       icon: payload.containsKey('icon')
           ? payload['icon'] as String?
@@ -551,6 +590,14 @@ class RelayAppliers {
       updatedAt: envelope.timestamp,
     );
     return true;
+  }
+
+  /// The class display name: the plain-text excerpt of the payload's
+  /// contentAst (title-is-content), "" when no contentAst is set.
+  String _classTitle(Map<String, dynamic> payload) {
+    final contentAst = payload['contentAst'];
+    if (contentAst is! List<dynamic>) return '';
+    return contentSourceToExcerpt(contentAst);
   }
 
   Future<void> _applyClassDelete(Map<String, dynamic> payload) async {
@@ -664,6 +711,44 @@ class RelayAppliers {
     // class_ids recompute from the present rows — bound defaults stop
     // deriving (nothing stored), authored values survive by design.
     await _cache.recomputeClassIds(objectId);
+    return true;
+  }
+
+  /// Class ORDER (class.reorder): display-only user ordering, LWW-by-arrival
+  /// — the write is unconditional and deterministic per op order, so
+  /// convergent replicas agree. The class_ids projection merges: ordered
+  /// members first, then unlisted members sorted by id (recomputeClassIds).
+  Future<bool> _applyClassReorder(Map<String, dynamic> payload) async {
+    final opType = 'class.reorder';
+    final objectId = payload['objectId'] as String;
+    final classIds = _readStringList(payload['classIds']);
+    if (await _cache.getByUuid(objectId) == null) {
+      throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
+    }
+    await _cache.setClassOrder(objectId, classIds);
+    await _cache.recomputeClassIds(objectId);
+    return true;
+  }
+
+  /// Tag removal (tag.unassign): the OR-Set remove complement of the
+  /// re-issued object.create add carrier — identical gating to
+  /// [_applyClassUnassign] (strictly-greater on (hlc, actor)), own table.
+  Future<bool> _applyTagUnassign(
+    OperationEnvelope envelope,
+    Map<String, dynamic> payload,
+  ) async {
+    final opType = 'tag.unassign';
+    final objectId = payload['objectId'] as String;
+    final tagId = payload['tagId'] as String;
+    if (await _cache.getByUuid(objectId) == null) {
+      throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
+    }
+    final incoming = _incoming(envelope);
+    final stored = await _cache.tagMemberWinner(objectId, tagId);
+    if (stored == null || compareLww(incoming, stored) > 0) {
+      await _cache.upsertTagMember(objectId, tagId, false, incoming);
+    }
+    await _cache.recomputeTagIds(objectId);
     return true;
   }
 
@@ -848,7 +933,6 @@ Node _copyWith(
   Node node, {
   String? name,
   String? displayName,
-  String? title,
   String? nodeType,
   String? icon,
   String? color,
@@ -893,8 +977,9 @@ Node _copyWith(
   createDate: node.createDate,
   writeDate: writeDate ?? node.writeDate,
   extendsUuid: node.extendsUuid,
-  title: title ?? node.title,
+  title: node.title,
   nodeType: nodeType ?? node.nodeType,
+  classOrder: node.classOrder,
   hlcPhysical: hlcPhysical ?? node.hlcPhysical,
   hlcLogical: hlcLogical ?? node.hlcLogical,
   actorId: actorId ?? node.actorId,

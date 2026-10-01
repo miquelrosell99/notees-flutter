@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/constants/system.dart';
 import '../../core/utils/ast_stringifier.dart';
+import '../../core/utils/node_display_name.dart';
 import '../../core/utils/search_index_builder.dart';
 import '../local/app_database.dart';
 import '../models/linked_reference.dart';
@@ -243,6 +244,10 @@ class NodeCacheRepository {
         ids,
       );
       await txn.rawDelete(
+        'DELETE FROM tag_member_set WHERE node_uuid IN ($placeholders)',
+        ids,
+      );
+      await txn.rawDelete(
         'DELETE FROM property_value WHERE node_uuid IN ($placeholders)',
         ids,
       );
@@ -297,6 +302,7 @@ class NodeCacheRepository {
     await db.transaction((txn) async {
       await txn.delete('node_cache');
       await txn.delete('class_member_set');
+      await txn.delete('tag_member_set');
       await txn.delete('class_extends');
       await txn.delete('class_hierarchy');
       await txn.delete('property_value');
@@ -361,6 +367,7 @@ class NodeCacheRepository {
         // detection restarts from scratch.
         await txn.delete('node_content_hlc');
         await txn.delete('class_member_set');
+        await txn.delete('tag_member_set');
         await txn.delete('class_extends');
         await txn.delete('class_hierarchy');
         await txn.delete('property_value');
@@ -385,6 +392,11 @@ class NodeCacheRepository {
           memberBatch.insert('class_member_set', row);
         }
         await memberBatch.commit(noResult: true);
+        final tagMemberBatch = txn.batch();
+        for (final row in snapshot.tagMemberRows) {
+          tagMemberBatch.insert('tag_member_set', row);
+        }
+        await tagMemberBatch.commit(noResult: true);
         final valueBatch = txn.batch();
         for (final row in snapshot.propertyValueRows) {
           valueBatch.insert('property_value', row);
@@ -461,6 +473,7 @@ class NodeCacheRepository {
 
     // OR-Set membership rows (keyed by the snapshot's node ids).
     final classMemberRows = <Map<String, dynamic>>[];
+    final tagMemberRows = <Map<String, dynamic>>[];
     if (nodeIds.isNotEmpty) {
       final rows = await db.rawQuery(
         'SELECT node_id, class_id, present, hlc_physical, hlc_logical, actor_id '
@@ -471,6 +484,27 @@ class NodeCacheRepository {
         classMemberRows.add({
           'node_uuid': row['node_id'],
           'class_id': row['class_id'],
+          'present': row['present'],
+          'hlc_physical': row['hlc_physical'] ?? 0,
+          'hlc_logical': row['hlc_logical'] ?? 0,
+          'actor_id': row['actor_id'],
+        });
+      }
+    }
+
+    // Pre-tags snapshots (store schema < v6) have no tag_member_set table;
+    // the store's migrate() creates it on restore, so an absent table just
+    // means "no tag rows".
+    if (nodeIds.isNotEmpty && await _snapshotHasTable(db, 'tag_member_set')) {
+      final tagRows = await db.rawQuery(
+        'SELECT node_id, tag_id, present, hlc_physical, hlc_logical, actor_id '
+        'FROM tag_member_set WHERE node_id IN ($placeholders) ORDER BY node_id, tag_id',
+        nodeIds,
+      );
+      for (final row in tagRows) {
+        tagMemberRows.add({
+          'node_uuid': row['node_id'],
+          'tag_id': row['tag_id'],
           'present': row['present'],
           'hlc_physical': row['hlc_physical'] ?? 0,
           'hlc_logical': row['hlc_logical'] ?? 0,
@@ -559,11 +593,23 @@ class NodeCacheRepository {
         workspaceId,
       ),
       classMemberRows: classMemberRows,
+      tagMemberRows: tagMemberRows,
       propertyValueRows: propertyValueRows,
       propertyTombstoneRows: propertyTombstoneRows,
       collectionMemberRows: collectionMemberRows,
       classExtendsEdges: classExtendsEdges,
     );
+  }
+
+  /// True when [table] exists in a snapshot database (older-schema snapshot
+  /// bytes may predate a table — CREATE TABLE IF NOT EXISTS in the store's
+  /// migrate() never alters, so restore must tolerate absent tables).
+  Future<bool> _snapshotHasTable(Database db, String table) async {
+    final rows = await db.rawQuery(
+      'SELECT name FROM sqlite_master WHERE type = ? AND name = ?',
+      ['table', table],
+    );
+    return rows.isNotEmpty;
   }
 
   /// Reads [Node] objects from a v2 server-derived snapshot database.
@@ -633,6 +679,12 @@ class NodeCacheRepository {
       final classIdsJson = row['class_ids'] as String?;
       final classIds = (jsonDecode(classIdsJson ?? '[]') as List<dynamic>)
           .cast<String>();
+      final tagIdsJson = row['tag_ids'] as String?;
+      final tagIds = (jsonDecode(tagIdsJson ?? '[]') as List<dynamic>)
+          .cast<String>();
+      final classOrderJson = row['class_order'] as String?;
+      final classOrder = (jsonDecode(classOrderJson ?? '[]') as List<dynamic>)
+          .cast<String>();
       final contentJson = row['content'] as String?;
       final content = (jsonDecode(contentJson ?? '[]') as List<dynamic>)
           .cast<Map<String, dynamic>>();
@@ -640,13 +692,15 @@ class NodeCacheRepository {
       // ([{type:'text', text:'<real AST JSON>'}]); unwrap before storing so
       // titles render as text instead of raw JSON.
       final name = jsonEncode(unwrapCrdtContentAst(content));
-      final title = row['name'] as String?;
 
       return Node(
         id: 0,
         uuid: uuid,
         name: name,
-        displayName: title?.isNotEmpty == true ? title! : astToPlainText(name),
+        // Title-is-content: the display name derives from the content
+        // excerpt (date labels formatted); there is no node `name` column
+        // on v2 snapshots anymore.
+        displayName: deriveDisplayName(name),
         icon: row['icon'] as String?,
         color: row['color'] as String?,
         parentUuid: row['parent_id'] as String?,
@@ -663,10 +717,11 @@ class NodeCacheRepository {
         isDeleted: false,
         isArchived: (row['is_active'] as int? ?? 1) == 0,
         classesUuid: classIds,
+        tagsUuid: tagIds,
+        classOrder: classOrder,
         properties: propertiesByNode[uuid] ?? const {},
         createDate: row['created_at'] as String?,
         writeDate: row['updated_at'] as String?,
-        title: title,
         nodeType: nodeType,
         hlcPhysical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
         hlcLogical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
@@ -1063,7 +1118,10 @@ class NodeCacheRepository {
   }
 
   /// Recomputes [uuid]'s class list from the membership OR-Set's present
-  /// rows (sorted) and refreshes the class-derived flags.
+  /// rows and refreshes the class-derived flags. User order
+  /// (node_cache.class_order, written by class.reorder) wins: ordered
+  /// members first, then any unlisted present members sorted by id
+  /// (recomputeClassIds in the v2 store appliers).
   Future<void> recomputeClassIds(String uuid) async {
     final db = await _database.database;
     final rows = await db.query(
@@ -1073,7 +1131,14 @@ class NodeCacheRepository {
       whereArgs: [uuid],
       orderBy: 'class_id ASC',
     );
-    final classIds = rows.map((r) => r['class_id'] as String).toList();
+    final present = rows.map((r) => r['class_id'] as String).toList();
+    final order = await classOrderOf(uuid);
+    final presentSet = present.toSet();
+    final orderedSet = order.toSet();
+    final classIds = <String>[
+      ...order.where(presentSet.contains),
+      ...present.where((id) => !orderedSet.contains(id)),
+    ];
     final node = await getByUuid(uuid);
     if (node == null) return;
     final flags = _deriveFlags(classIds);
@@ -1113,6 +1178,135 @@ class NodeCacheRepository {
         extendsUuid: node.extendsUuid,
         title: node.title,
         nodeType: node.nodeType,
+        classOrder: order,
+        hlcPhysical: node.hlcPhysical,
+        hlcLogical: node.hlcLogical,
+        actorId: node.actorId,
+      ),
+    );
+  }
+
+  /// The stored user-defined class order for [uuid] (class.reorder,
+  /// LWW-by-arrival); empty when never reordered.
+  Future<List<String>> classOrderOf(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'node_cache',
+      columns: ['class_order'],
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+      limit: 1,
+    );
+    if (rows.isEmpty) return const [];
+    try {
+      final parsed = jsonDecode(rows.first['class_order'] as String? ?? '[]');
+      if (parsed is List) return parsed.cast<String>();
+    } catch (_) {}
+    return const [];
+  }
+
+  /// Writes [uuid]'s full ordered class-member list (class.reorder applier;
+  /// display-only LWW-by-arrival, convergent per op order).
+  Future<void> setClassOrder(String uuid, List<String> classIds) async {
+    final db = await _database.database;
+    await db.update(
+      'node_cache',
+      {'class_order': jsonEncode(classIds)},
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
+  }
+
+  // --- OR-Set tag membership (page-scoped page assignments) ---------------
+
+  /// Winner row of the (node, tag) membership pair, if any.
+  Future<LwwWinner?> tagMemberWinner(String nodeUuid, String tagId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'tag_member_set',
+      columns: ['hlc_physical', 'hlc_logical', 'actor_id'],
+      where: 'node_uuid = ? AND tag_id = ?',
+      whereArgs: [nodeUuid, tagId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return (
+      physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+      logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+      actor: row['actor_id'] as String? ?? '',
+    );
+  }
+
+  /// Upserts a tag membership pair (the applier gates on the winner first).
+  Future<void> upsertTagMember(
+    String nodeUuid,
+    String tagId,
+    bool present,
+    LwwWinner incoming,
+  ) async {
+    final db = await _database.database;
+    await db.insert('tag_member_set', {
+      'node_uuid': nodeUuid,
+      'tag_id': tagId,
+      'present': present ? 1 : 0,
+      'hlc_physical': incoming.physical,
+      'hlc_logical': incoming.logical,
+      'actor_id': incoming.actor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Recomputes [uuid]'s tag list from the tag OR-Set's present rows
+  /// (sorted by id — recomputeTagIds in the v2 store appliers).
+  Future<void> recomputeTagIds(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'tag_member_set',
+      columns: ['tag_id'],
+      where: 'node_uuid = ? AND present = 1',
+      whereArgs: [uuid],
+      orderBy: 'tag_id ASC',
+    );
+    final tagIds = rows.map((r) => r['tag_id'] as String).toList();
+    final node = await getByUuid(uuid);
+    if (node == null) return;
+    await upsert(
+      Node(
+        id: node.id,
+        uuid: node.uuid,
+        name: node.name,
+        displayName: node.displayName,
+        icon: node.icon,
+        color: node.color,
+        parentId: node.parentId,
+        parentUuid: node.parentUuid,
+        pageId: node.pageId,
+        pageUuid: node.pageUuid,
+        sequence: node.sequence,
+        position: node.position,
+        isPage: node.isPage,
+        isTask: node.isTask,
+        isDaily: node.isDaily,
+        isMonthly: node.isMonthly,
+        isYearly: node.isYearly,
+        isTable: node.isTable,
+        isAsset: node.isAsset,
+        isComment: node.isComment,
+        isDeleted: node.isDeleted,
+        isArchived: node.isArchived,
+        isPrivate: node.isPrivate,
+        classes: node.classes,
+        classesUuid: node.classesUuid,
+        tags: node.tags,
+        tagsUuid: tagIds,
+        properties: node.properties,
+        children: node.children,
+        createDate: node.createDate,
+        writeDate: node.writeDate,
+        extendsUuid: node.extendsUuid,
+        title: node.title,
+        nodeType: node.nodeType,
+        classOrder: node.classOrder,
         hlcPhysical: node.hlcPhysical,
         hlcLogical: node.hlcLogical,
         actorId: node.actorId,
@@ -1399,6 +1593,7 @@ class NodeCacheRepository {
         extendsUuid: node.extendsUuid,
         title: node.title,
         nodeType: node.nodeType,
+        classOrder: node.classOrder,
         hlcPhysical: node.hlcPhysical,
         hlcLogical: node.hlcLogical,
         actorId: node.actorId,
@@ -1533,6 +1728,7 @@ class NodeCacheRepository {
       children: children,
       createDate: node.createDate,
       writeDate: node.writeDate,
+      classOrder: node.classOrder,
     );
     return PageContent(node: pageNode, linkedReferences: const []);
   }
@@ -2951,10 +3147,11 @@ class NodeCacheRepository {
       'write_date': node.writeDate,
       'payload': jsonEncode(node.toJson()),
       'synced_at': syncedAt,
-      // v2 derived-state columns (see AppDatabase._migrateV16).
+      // v2 derived-state columns (see AppDatabase._migrateV16 / _migrateV19).
       'title': node.title,
       'position': node.position,
       'node_type': node.nodeType,
+      'class_order': jsonEncode(node.classOrder),
       'hlc_physical': node.hlcPhysical,
       'hlc_logical': node.hlcLogical,
       'actor_id': node.actorId,
@@ -3539,6 +3736,7 @@ class SnapshotRestoreData {
     required this.propertySchemas,
     required this.classPropertyEdges,
     required this.classMemberRows,
+    required this.tagMemberRows,
     required this.propertyValueRows,
     required this.propertyTombstoneRows,
     required this.collectionMemberRows,
@@ -3552,6 +3750,7 @@ class SnapshotRestoreData {
   final List<PropertySchemaRow> propertySchemas;
   final List<ClassPropertyEdgeRow> classPropertyEdges;
   final List<Map<String, dynamic>> classMemberRows;
+  final List<Map<String, dynamic>> tagMemberRows;
   final List<Map<String, dynamic>> propertyValueRows;
   final List<Map<String, dynamic>> propertyTombstoneRows;
   final List<Map<String, dynamic>> collectionMemberRows;

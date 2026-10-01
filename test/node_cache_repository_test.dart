@@ -440,8 +440,11 @@ void main() {
       final page = nodes.firstWhere((n) => n.uuid == 'page-1');
       expect(page.isPage, isTrue);
       expect(page.nodeType, 'page');
-      expect(page.title, 'Hello page');
-      expect(page.displayName, 'Hello page');
+      // Title-is-content: the retired node `name` column is ignored; the
+      // display name derives from the content excerpt (legacy paragraph AST
+      // normalizes to 'Hello').
+      expect(page.title, isNull);
+      expect(page.displayName, 'Hello');
       expect(page.icon, '📄');
       expect(page.hlcPhysical, 1727200000000);
 

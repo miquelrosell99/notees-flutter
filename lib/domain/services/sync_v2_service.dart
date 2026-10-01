@@ -183,14 +183,15 @@ class SyncV2Service {
     }
 
     // Guard: an op that would miss a field the v2 registry requires (null
-    // content, or a missing property/tag target) is rejected by the relay
-    // with 422 and would sit in the quarantine forever. Skip it instead and
-    // surface via the log.
+    // content, or a missing property/tag/class target) is rejected by the
+    // relay with 422 and would sit in the quarantine forever. Skip it
+    // instead and surface via the log.
     final producesNullContent =
         (type == 'update_content' && contentAst == null) ||
         (type == 'update_node' && name == null) ||
         (type == 'set_property' && propertyUuid == null) ||
-        ((type == 'add_tag' || type == 'remove_tag') && tagUuid == null);
+        ((type == 'add_tag' || type == 'remove_tag') && tagUuid == null) ||
+        ((type == 'add_class' || type == 'remove_class') && classUuid == null);
     if (producesNullContent) {
       debugPrint(
         'SyncV2Service: skipping $type for $nodeUuid with null content '
@@ -792,6 +793,24 @@ class SyncV2Service {
     return envelope;
   }
 
+  /// User-defined class ORDER (class.reorder, display-only LWW-by-arrival):
+  /// writes the node's full ordered member list; the applier keeps ordered
+  /// members first and appends any unlisted present members sorted by id
+  /// (`WorkspaceClient.reorderClasses` parity). Applied locally, push kicked
+  /// off on the next flush.
+  Future<OperationEnvelope> reorderClasses({
+    required String objectId,
+    required List<String> classIds,
+  }) =>
+      emitLocal(
+        opType: 'class.reorder',
+        payload: OperationPayloads.classReorder(
+          objectId: objectId,
+          classIds: classIds,
+        ),
+        affectedNodeIds: [objectId],
+      );
+
   /// Rewrites the workspace (and optionally actor) id of all locally produced
   /// relay state: pending outbox envelopes, recorded operations and
   /// favorites. Called when a local profile attaches a server, so the
@@ -843,9 +862,9 @@ class SyncV2Service {
   }
 
   /// Maps a local [OperationIntent] to a v2 relay envelope (WIRE.md +
-  /// `op-types.ts`). v1 intents with no v2 home (restore, class unassign,
-  /// favorites, task completions) throw [UnsupportedError] — fail loud rather
-  /// than silently dropping or emitting a v1 op the relay would 422.
+  /// `op-types.ts`). v1 intents with no v2 home (restore, favorites, task
+  /// completions) throw [UnsupportedError] — fail loud rather than silently
+  /// dropping or emitting a v1 op the relay would 422.
   Future<OperationEnvelope> _intentToEnvelope(
     OperationIntent op,
     String workspaceId,
@@ -880,6 +899,9 @@ class SyncV2Service {
             (op.isPage || op.isDaily || op.isMonthly || op.isYearly)
             ? 'page'
             : (op.parentUuid == null ? 'page' : 'block');
+        // Title-is-content: `name` is only the initial text content when no
+        // explicit contentAst is given (the builder wraps it in a single
+        // text token; the editor path pre-parses markdown-ish markers here).
         final contentAst =
             op.contentAst ??
             (op.name != null ? AstBuilder.parseInline(op.name!) : null);
@@ -891,7 +913,7 @@ class SyncV2Service {
           objectId: op.nodeUuid,
           nodeType: nodeType,
           classIds: classIds,
-          name: op.name,
+          tagIds: op.tagUuids,
           contentAst: contentAst,
           parentId: op.parentUuid,
         );
@@ -902,10 +924,12 @@ class SyncV2Service {
           contentAst: op.contentAst,
         );
       case 'update_node':
+        // Title-is-content: the protocol has no object `name` field, so a
+        // rename is a contentAst replacement (the title IS the content).
         opType = 'object.update';
         payload = OperationPayloads.objectUpdate(
           objectId: op.nodeUuid,
-          name: op.name,
+          contentAst: AstBuilder.parseInline(op.name!),
         );
       case 'update_icon':
         opType = 'object.update';
@@ -956,20 +980,39 @@ class SyncV2Service {
           propertySchemaId: op.propertyUuid ?? '',
           value: op.propertyValue,
         );
-      case 'add_tag':
+      case 'add_class':
         // v2 has no class.assign op: class membership is an add-wins OR-Set
         // seeded by re-issuing object.create with the classIds to add (the
         // server keeps the tree untouched on a re-create).
         opType = 'object.create';
         payload = OperationPayloads.objectCreate(
           objectId: op.nodeUuid,
-          classIds: [op.tagUuid ?? ''],
+          classIds: [op.classUuid ?? ''],
+        );
+      case 'remove_class':
+        // Class membership removal (class.unassign): the OR-Set remove
+        // complement of the re-issued object.create add carrier.
+        opType = 'class.unassign';
+        payload = OperationPayloads.classUnassign(
+          objectId: op.nodeUuid,
+          classId: op.classUuid ?? '',
+        );
+      case 'add_tag':
+        // v2 has no tag.assign op: tag membership is an add-wins OR-Set
+        // seeded by re-issuing object.create with the tagIds to add (the
+        // server keeps the tree untouched on a re-create).
+        opType = 'object.create';
+        payload = OperationPayloads.objectCreate(
+          objectId: op.nodeUuid,
+          tagIds: [op.tagUuid ?? ''],
         );
       case 'remove_tag':
-        throw UnsupportedError(
-          'remove_tag has no v2 op (Phase A gap): class membership is an '
-          'add-wins OR-Set in v2 M1 and the registry has no membership '
-          'removal',
+        // Tag removal (2026-10-01 lockstep): the OR-Set remove complement
+        // of the re-issued object.create add carrier.
+        opType = 'tag.unassign';
+        payload = OperationPayloads.tagUnassign(
+          objectId: op.nodeUuid,
+          tagId: op.tagUuid ?? '',
         );
       case 'add_favorite':
       case 'remove_favorite':
