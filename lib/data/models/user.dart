@@ -33,18 +33,24 @@ class User {
     return parts.isEmpty ? email : parts;
   }
 
-  factory User.fromJson(Map<String, dynamic> json) => User(
-        id: json['id'] as String,
-        uuid: json['uuid'] as String,
-        email: json['email'] as String,
-        name: json['name'] as String?,
-        surnames: json['surnames'] as String?,
-        profilePic: json['profile_pic'] as String?,
-        role: json['role'] as String,
-        isActive: json['is_active'] as bool,
-        totpEnabled: json['totp_enabled'] as bool? ?? false,
-        isLocal: json['is_local'] as bool? ?? false,
-      );
+  // v2 server user: {id, email, displayName, name|null, surnames|null,
+  // avatarUrl|null, isAdmin}. Legacy keys (uuid/role/is_active/profile_pic)
+  // are read as fallbacks so older payloads keep parsing.
+  factory User.fromJson(Map<String, dynamic> json) {
+    final id = json['id'] as String;
+    return User(
+      id: id,
+      uuid: json['uuid'] as String? ?? id,
+      email: json['email'] as String,
+      name: json['name'] as String?,
+      surnames: json['surnames'] as String?,
+      profilePic: json['avatarUrl'] as String? ?? json['profile_pic'] as String?,
+      role: json['role'] as String? ?? (json['isAdmin'] == true ? 'admin' : 'member'),
+      isActive: json['is_active'] as bool? ?? true,
+      totpEnabled: json['totp_enabled'] as bool? ?? false,
+      isLocal: json['is_local'] as bool? ?? false,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
