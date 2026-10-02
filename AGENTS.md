@@ -79,7 +79,12 @@ Then download the artifact from the printed workflow run.
 **Tag releases**: pushing a `v*` tag (e.g. `v1.2.3`) runs
 `.github/workflows/release.yml`, which reuses `android.yml` to build a
 production-signed release APK and publishes a GitHub Release for the tag with
-the APK and its SHA-256 checksum attached.
+the APK and its SHA-256 checksum attached. The app version is derived from the
+tag at build time (`v2.0.0-m11` → versionName `2.0.0-m11`, versionCode
+`2000011`; plain `vX.Y.Z` → versionCode `(X·10000 + Y·100 + Z)·100`), so every
+release is a distinct in-place upgrade and any tag orders above its plain
+base. Non-tag builds keep the pubspec version — never reuse a tag that
+already exists.
 
 ## Local development
 
