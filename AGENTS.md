@@ -53,7 +53,7 @@ notees-flutter/
 ├── android/                  # Android platform project
 ├── ios/                      # iOS platform project
 ├── .github/workflows/        # Android CI
-├── scripts/                  # Build helpers (KGP + MDI icon patches)
+├── scripts/                  # Build helpers (KGP + MDI icon patches) + screenshots harness (scripts/screenshots)
 └── AGENTS.md                # This file
 ```
 
@@ -98,6 +98,10 @@ flutter analyze
 
 # Run tests
 flutter test
+
+# Capture per-screen screenshots for visual review (PNG output needs an
+# Android/iOS device or emulator; on the headless tester the flow still runs)
+./scripts/screenshots/run.sh
 
 # Build a debug APK for local install
 flutter build apk --debug

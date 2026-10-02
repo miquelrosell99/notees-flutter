@@ -17,6 +17,7 @@ import '../../../domain/models/search_filters.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../widgets/ast_rich_text.dart';
+import '../widgets/journal_calendar_picker.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/section_title.dart';
 
@@ -33,6 +34,7 @@ class JournalContinuousScreen extends StatefulWidget {
 }
 
 class _JournalContinuousScreenState extends State<JournalContinuousScreen> {
+  final _calendarPickerKey = GlobalKey<JournalCalendarPickerState>();
   List<PageContent> _journalContents = [];
   bool _loading = true;
   String? _error;
@@ -140,13 +142,21 @@ class _JournalContinuousScreenState extends State<JournalContinuousScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Jump to journal',
-                      style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                    Expanded(
+                      child: Text(
+                        'Jump to journal',
+                        style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        _calendarPickerKey.currentState?.jumpToCurrentMonth();
+                      },
+                      child: const Text('Today'),
                     ),
                     IconButton(
                       icon: Icon(MdiIcons.close),
@@ -164,7 +174,8 @@ class _JournalContinuousScreenState extends State<JournalContinuousScreen> {
                   GlobalWidgetsLocalizations.delegate,
                   FirstDayOfWeekLocalizationsDelegate(settings.firstDayOfWeek),
                 ],
-                child: _JournalCalendarPicker(
+                child: JournalCalendarPicker(
+                  key: _calendarPickerKey,
                   initialDate: now,
                   highlightedDates: existingDates,
                   onDateChanged: (date) {
@@ -364,213 +375,3 @@ class _JournalDayCard extends StatelessWidget {
   }
 }
 
-/// Calendar picker that highlights days with existing journal entries.
-class _JournalCalendarPicker extends StatefulWidget {
-  const _JournalCalendarPicker({
-    required this.initialDate,
-    required this.highlightedDates,
-    required this.onDateChanged,
-  });
-
-  final DateTime initialDate;
-  final Set<DateTime> highlightedDates;
-  final ValueChanged<DateTime> onDateChanged;
-
-  @override
-  State<_JournalCalendarPicker> createState() => _JournalCalendarPickerState();
-}
-
-class _JournalCalendarPickerState extends State<_JournalCalendarPicker> {
-  late DateTime _focusedMonth;
-
-  @override
-  void initState() {
-    super.initState();
-    _focusedMonth = DateTime(widget.initialDate.year, widget.initialDate.month);
-  }
-
-  bool _hasEntry(DateTime date) {
-    return widget.highlightedDates.contains(DateTime(date.year, date.month, date.day));
-  }
-
-  void _previousMonth() {
-    HapticFeedback.lightImpact();
-    setState(() {
-      _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month - 1);
-    });
-  }
-
-  void _nextMonth() {
-    HapticFeedback.lightImpact();
-    setState(() {
-      _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month + 1);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final firstDayOfWeek = Localizations.of<MaterialLocalizations>(context, MaterialLocalizations)
-            ?.firstDayOfWeekIndex ??
-        0;
-
-    final daysInMonth = DateUtils.getDaysInMonth(_focusedMonth.year, _focusedMonth.month);
-    final firstWeekday = DateTime(_focusedMonth.year, _focusedMonth.month, 1).weekday;
-    final leadingPadding = (firstWeekday - firstDayOfWeek + 7) % 7;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              IconButton(
-                icon: Icon(MdiIcons.chevronLeft),
-                tooltip: 'Previous month',
-                onPressed: _previousMonth,
-              ),
-              Text(
-                '${_monthName(_focusedMonth.month)} ${_focusedMonth.year}',
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-              IconButton(
-                icon: Icon(MdiIcons.chevronRight),
-                tooltip: 'Next month',
-                onPressed: _nextMonth,
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              for (var i = 0; i < 7; i++)
-                Expanded(
-                  child: Center(
-                    child: Text(
-                      _weekdayLabel((firstDayOfWeek + i) % 7),
-                      style: theme.textTheme.labelSmall?.copyWith(
-                            color: colors.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: GridView.count(
-            shrinkWrap: true,
-            crossAxisCount: 7,
-            childAspectRatio: 1,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              for (var i = 0; i < leadingPadding; i++) const SizedBox.shrink(),
-              for (var day = 1; day <= daysInMonth; day++)
-                _buildDayCell(day, colors, theme),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: colors.primary,
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              'Has entry',
-              style: theme.textTheme.bodySmall,
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-      ],
-    );
-  }
-
-  Widget _buildDayCell(int day, ColorScheme colors, ThemeData theme) {
-    final date = DateTime(_focusedMonth.year, _focusedMonth.month, day);
-    final hasEntry = _hasEntry(date);
-    final isToday = DateUtils.isSameDay(date, DateTime.now());
-
-    return InkWell(
-      onTap: () => widget.onDateChanged(date),
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        margin: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          color: isToday ? colors.primaryContainer : null,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              '$day',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                    color: isToday ? colors.onPrimaryContainer : colors.onSurface,
-                    fontWeight: isToday ? FontWeight.w700 : FontWeight.w500,
-                  ),
-            ),
-            if (hasEntry)
-              Container(
-                width: 5,
-                height: 5,
-                margin: const EdgeInsets.only(top: 2),
-                decoration: BoxDecoration(
-                  color: colors.primary,
-                  shape: BoxShape.circle,
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _monthName(int month) {
-    return switch (month) {
-      1 => 'January',
-      2 => 'February',
-      3 => 'March',
-      4 => 'April',
-      5 => 'May',
-      6 => 'June',
-      7 => 'July',
-      8 => 'August',
-      9 => 'September',
-      10 => 'October',
-      11 => 'November',
-      12 => 'December',
-      _ => '',
-    };
-  }
-
-  String _weekdayLabel(int weekday) {
-    return switch (weekday) {
-      DateTime.monday => 'M',
-      DateTime.tuesday => 'T',
-      DateTime.wednesday => 'W',
-      DateTime.thursday => 'T',
-      DateTime.friday => 'F',
-      DateTime.saturday => 'S',
-      DateTime.sunday => 'S',
-      _ => '',
-    };
-  }
-}

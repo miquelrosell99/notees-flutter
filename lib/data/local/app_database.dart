@@ -57,6 +57,12 @@ class AppDatabase {
   /// Set to `null` to use an unencrypted database.
   static String? encryptionPassword;
 
+  /// Test hook: overrides the database factory (integration/widget tests run
+  /// the cache on ffi SQLite; the SQLCipher plugin channel has no test
+  /// implementation and cannot be redirected via the package-global
+  /// `databaseFactory`).
+  static DatabaseFactory? debugDatabaseFactory;
+
   Future<Database> get database async => _db ??= await _open();
 
   Future<String> get _path async {
@@ -67,96 +73,111 @@ class AppDatabase {
 
   Future<Database> _open() async {
     final path = await _path;
+    final factory = debugDatabaseFactory;
+    if (factory != null) {
+      return factory.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 19,
+          onCreate: _onCreate,
+          onUpgrade: _onUpgrade,
+        ),
+      );
+    }
     return openDatabase(
       path,
       version: 19,
       password: encryptionPassword,
-      onCreate: (db, version) async {
-        await _createOfflineQueue(db);
-        await _createSyncState(db);
-        await _createNodeCache(db);
-        await _createSearchIndex(db);
-        await _createRelayOutbox(db);
-        await _createRelayOperations(db);
-        await _createSyncWatermark(db);
-        await _createSyncPushWatermark(db);
-        await _createFavorites(db);
-        await _createTaskCompletion(db);
-        await _createTaskRecurrence(db);
-        await _createNodeContentHlc(db);
-        await _createClassCache(db);
-        await _createPropertySchema(db);
-        await _createClassPropertyEdge(db);
-        await _createNodeUserShare(db);
-        await _migrateV16(db);
-        await _createEdge(db);
-        await _createClassProperty(db);
-        await _migrateV19(db);
-      },
-      onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < 2) {
-          await _createSyncOutbox(db);
-          await _createSyncState(db);
-        }
-        if (oldVersion < 3) {
-          await _createNodeCache(db);
-        }
-        if (oldVersion < 4) {
-          await _createSearchIndex(db);
-        }
-        if (oldVersion < 5) {
-          await _createRelayOutbox(db);
-          await _createRelayOperations(db);
-          await _createSyncWatermark(db);
-          await _createSyncPushWatermark(db);
-        }
-        if (oldVersion < 6) {
-          await _migrateNodeCacheV6(db);
-        }
-        if (oldVersion < 7) {
-          await _createFavorites(db);
-        }
-        if (oldVersion < 8) {
-          await _migrateNodeCacheV8(db);
-        }
-        if (oldVersion < 9) {
-          await _createTaskCompletion(db);
-        }
-        if (oldVersion < 10) {
-          await _createClassCache(db);
-        }
-        if (oldVersion < 11) {
-          await _createPropertySchema(db);
-          await _createClassPropertyEdge(db);
-        }
-        if (oldVersion < 12) {
-          await _migrateNodeCacheV12(db);
-        }
-        if (oldVersion < 13) {
-          await _migrateSyncWatermarkV13(db);
-        }
-        if (oldVersion < 14) {
-          await _migrateFavoritesV14(db);
-          await _createTaskRecurrence(db);
-          await _createNodeContentHlc(db);
-        }
-        if (oldVersion < 15) {
-          await _createNodeUserShare(db);
-        }
-        if (oldVersion < 16) {
-          await _migrateV16(db);
-        }
-        if (oldVersion < 17) {
-          await _createEdge(db);
-        }
-        if (oldVersion < 18) {
-          await _createClassProperty(db);
-        }
-        if (oldVersion < 19) {
-          await _migrateV19(db);
-        }
-      },
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
+  }
+
+  Future<void> _onCreate(Database db, int version) async {
+    await _createOfflineQueue(db);
+    await _createSyncState(db);
+    await _createNodeCache(db);
+    await _createSearchIndex(db);
+    await _createRelayOutbox(db);
+    await _createRelayOperations(db);
+    await _createSyncWatermark(db);
+    await _createSyncPushWatermark(db);
+    await _createFavorites(db);
+    await _createTaskCompletion(db);
+    await _createTaskRecurrence(db);
+    await _createNodeContentHlc(db);
+    await _createClassCache(db);
+    await _createPropertySchema(db);
+    await _createClassPropertyEdge(db);
+    await _createNodeUserShare(db);
+    await _migrateV16(db);
+    await _createEdge(db);
+    await _createClassProperty(db);
+    await _migrateV19(db);
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await _createSyncOutbox(db);
+      await _createSyncState(db);
+    }
+    if (oldVersion < 3) {
+      await _createNodeCache(db);
+    }
+    if (oldVersion < 4) {
+      await _createSearchIndex(db);
+    }
+    if (oldVersion < 5) {
+      await _createRelayOutbox(db);
+      await _createRelayOperations(db);
+      await _createSyncWatermark(db);
+      await _createSyncPushWatermark(db);
+    }
+    if (oldVersion < 6) {
+      await _migrateNodeCacheV6(db);
+    }
+    if (oldVersion < 7) {
+      await _createFavorites(db);
+    }
+    if (oldVersion < 8) {
+      await _migrateNodeCacheV8(db);
+    }
+    if (oldVersion < 9) {
+      await _createTaskCompletion(db);
+    }
+    if (oldVersion < 10) {
+      await _createClassCache(db);
+    }
+    if (oldVersion < 11) {
+      await _createPropertySchema(db);
+      await _createClassPropertyEdge(db);
+    }
+    if (oldVersion < 12) {
+      await _migrateNodeCacheV12(db);
+    }
+    if (oldVersion < 13) {
+      await _migrateSyncWatermarkV13(db);
+    }
+    if (oldVersion < 14) {
+      await _migrateFavoritesV14(db);
+      await _createTaskRecurrence(db);
+      await _createNodeContentHlc(db);
+    }
+    if (oldVersion < 15) {
+      await _createNodeUserShare(db);
+    }
+    if (oldVersion < 16) {
+      await _migrateV16(db);
+    }
+    if (oldVersion < 17) {
+      await _createEdge(db);
+    }
+    if (oldVersion < 18) {
+      await _createClassProperty(db);
+    }
+    if (oldVersion < 19) {
+      await _migrateV19(db);
+    }
   }
 
   /// v16 — derived-state depth for the relay-v2 appliers:
