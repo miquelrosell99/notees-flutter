@@ -15,16 +15,16 @@ class AuthRepository {
   Future<LoginResult> login({
     required String email,
     required String password,
-    bool rememberMe = false,
   }) async {
     final Map<String, dynamic> data;
     try {
       final response = await dio.post<Map<String, dynamic>>(
         '/auth/login',
+        // The v2 server's login body is strict {email, password} — extra
+        // keys are rejected with 422 (the old remember_me blocked login).
         data: {
           'email': email,
           'password': password,
-          'remember_me': rememberMe,
         },
       );
       data = response.data!;
@@ -163,15 +163,15 @@ class AuthRepository {
   }
 
   User _handleTokenResponse(Map<String, dynamic> data) {
-    final accessToken = data['access_token'] as String?;
+    // The v2 server returns the session as `token` (plus expiresAt/user/kdf);
+    // there is no refresh-token cookie surface.
+    final accessToken = data['token'] as String?;
     final userJson = data['user'] as Map<String, dynamic>?;
 
     if (accessToken == null || userJson == null) {
       throw const AuthException('Invalid response from server');
     }
 
-    // The refresh token arrives as an HTTPOnly cookie and lives in the shared
-    // cookie jar; only the access token goes to secure storage.
     secureStorage.writeAccessToken(accessToken);
 
     return User.fromJson(userJson);
