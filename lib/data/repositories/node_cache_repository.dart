@@ -1077,6 +1077,30 @@ class NodeCacheRepository {
     return rows.first['position'] as String?;
   }
 
+  /// The first sibling position strictly before [beforePosition] under
+  /// [parentUuid], excluding [excludeChildUuid] (the moving child).
+  Future<String?> prevSiblingPosition(
+    String parentUuid,
+    String beforePosition, {
+    String? excludeChildUuid,
+  }) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'node_cache',
+      columns: ['position'],
+      where: excludeChildUuid == null
+          ? 'parent_uuid = ? AND position < ?'
+          : 'parent_uuid = ? AND position < ? AND uuid != ?',
+      whereArgs: excludeChildUuid == null
+          ? [parentUuid, beforePosition]
+          : [parentUuid, beforePosition, excludeChildUuid],
+      orderBy: 'position DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['position'] as String?;
+  }
+
   // --- OR-Set class membership ------------------------------------------
 
   /// Winner row of the (node, class) membership pair, if any.

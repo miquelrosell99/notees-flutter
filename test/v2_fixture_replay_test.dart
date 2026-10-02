@@ -38,6 +38,13 @@ void main() {
   const moveB = '0192a000-0000-7000-8000-000000000022';
   const moveC = '0192a000-0000-7000-8000-000000000023';
 
+  // object-move-before.json ids.
+  const moveBeforeP = '0192a000-0000-7000-8000-000000000140';
+  const moveBeforeA = '0192a000-0000-7000-8000-000000000141';
+  const moveBeforeB = '0192a000-0000-7000-8000-000000000142';
+  const moveBeforeC = '0192a000-0000-7000-8000-000000000143';
+  const moveBeforeD = '0192a000-0000-7000-8000-000000000144';
+
   // class-extends-cycle.json ids.
   const cycleRoot = '0192a000-0000-7000-8000-0000000000d1';
   const cycleLeaf = '0192a000-0000-7000-8000-0000000000d2';
@@ -297,6 +304,32 @@ void main() {
       final cRows =
           await raw('SELECT COUNT(*) AS c FROM node_cache WHERE uuid = ?', [moveC]);
       expect(cRows.single['c'], 1);
+    });
+
+    test('object.move beforeId lands B, C, D, A with one row per node',
+        () async {
+      for (final envelope in fixtureEnvelopes('object-move-before.json')) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      expect(
+        (await cache.getChildren(moveBeforeP)).map((n) => n.uuid).toList(),
+        [moveBeforeB, moveBeforeC, moveBeforeD, moveBeforeA],
+      );
+      // Exactly one row per node — no dual-parent residue (the position
+      // lives on the node row; a second row for a child would mean
+      // corruption).
+      for (final child in [
+        moveBeforeA,
+        moveBeforeB,
+        moveBeforeC,
+        moveBeforeD,
+      ]) {
+        final rows = await raw(
+          'SELECT COUNT(*) AS c FROM node_cache WHERE uuid = ?',
+          [child],
+        );
+        expect(rows.single['c'], 1);
+      }
     });
 
     test('class-extends-m2m lands the child under both ancestors', () async {

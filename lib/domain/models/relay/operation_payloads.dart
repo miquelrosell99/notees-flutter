@@ -56,6 +56,9 @@ class OperationPayloads {
   /// content (a single text token) and is dropped when [contentAst] is given
   /// (`WorkspaceClient.createObject` parity). [tagIds] seeds the tag
   /// membership OR-Set exactly like [classIds] seeds class membership.
+  /// [afterId]/[beforeId] anchor the node next to that current sibling in
+  /// the parent's fractional child order (see [objectMove]); omit both to
+  /// append at the end.
   static Map<String, dynamic> objectCreate({
     required String objectId,
     String? nodeType,
@@ -64,6 +67,8 @@ class OperationPayloads {
     String? name,
     List<Map<String, dynamic>>? contentAst,
     String? parentId,
+    String? afterId,
+    String? beforeId,
   }) {
     final effectiveContent =
         contentAst ??
@@ -79,6 +84,8 @@ class OperationPayloads {
       'tagIds': tagIds ?? <String>[],
       'contentAst': ?effectiveContent,
       'parentId': ?parentId,
+      'afterId': ?afterId,
+      'beforeId': ?beforeId,
     });
   }
 
@@ -128,16 +135,24 @@ class OperationPayloads {
 
   /// [parentId] null means workspace root and is legal only for pages; the
   /// store's placement CHECKs reject a parentless block. [afterId] places the
-  /// node immediately after that sibling (omit to append at the end).
+  /// node immediately after that sibling, [beforeId] immediately before it
+  /// (the first-child placement fractional midpoints cannot otherwise
+  /// express); omit both to append at the end. At most one anchor is
+  /// meaningful: when both are present [afterId] wins — but an [afterId]
+  /// that is not a current sibling falls through to the [beforeId] branch,
+  /// and an anchor that is not a current sibling falls back to a defensive
+  /// plain append (mirrors afterId).
   static Map<String, dynamic> objectMove({
     required String objectId,
     required String? parentId,
     String? afterId,
+    String? beforeId,
   }) =>
       _validated('object.move', {
         'objectId': objectId,
         'parentId': parentId,
         'afterId': ?afterId,
+        'beforeId': ?beforeId,
       });
 
   // --- classes & properties ---------------------------------------------------
@@ -450,6 +465,8 @@ class OperationPayloads {
           'tagIds',
           'contentAst',
           'parentId',
+          'afterId',
+          'beforeId',
         });
         _uuid(payload, 'objectId');
         _enum(payload, 'nodeType', _nodeTypes, required: false);
@@ -457,6 +474,8 @@ class OperationPayloads {
         _uuidList(payload, 'tagIds', required: false);
         _list(payload, 'contentAst', required: false);
         _uuid(payload, 'parentId', required: false, nullable: true);
+        _uuid(payload, 'afterId', required: false);
+        _uuid(payload, 'beforeId', required: false);
       case 'object.update':
         _strict(payload, {
           'objectId',
@@ -486,10 +505,11 @@ class OperationPayloads {
         _uuid(payload, 'objectId');
         _bool(payload, 'permanent', required: false);
       case 'object.move':
-        _strict(payload, {'objectId', 'parentId', 'afterId'});
+        _strict(payload, {'objectId', 'parentId', 'afterId', 'beforeId'});
         _uuid(payload, 'objectId');
         _uuid(payload, 'parentId', nullable: true);
         _uuid(payload, 'afterId', required: false);
+        _uuid(payload, 'beforeId', required: false);
       case 'class.create':
         _strict(payload, {'classId', 'contentAst', 'icon', 'color', 'description'});
         _uuid(payload, 'classId');

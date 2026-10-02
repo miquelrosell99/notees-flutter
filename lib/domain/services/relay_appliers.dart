@@ -164,6 +164,8 @@ class RelayAppliers {
   ) async {
     final opType = envelope.opType;
     final parentId = payload['parentId'] as String?;
+    final afterId = payload['afterId'] as String?;
+    final beforeId = payload['beforeId'] as String?;
     final nodeType =
         payload['nodeType'] as String? ?? (parentId == null ? 'page' : 'block');
     final incoming = _incoming(envelope);
@@ -242,7 +244,13 @@ class RelayAppliers {
     final flags = _deriveFlags(classIds);
     final position = parentId == null
         ? null
-        : nextChildPosition(await _cache.lastChildPosition(parentId));
+        : await _allocateChildPosition(
+            _cache,
+            parentId: parentId,
+            childId: objectId,
+            afterId: afterId,
+            beforeId: beforeId,
+          );
 
     await _cache.upsert(
       Node(
@@ -404,6 +412,7 @@ class RelayAppliers {
     }
     final parentId = payload['parentId'] as String?;
     final afterId = payload['afterId'] as String?;
+    final beforeId = payload['beforeId'] as String?;
 
     // Placement guards fail loud, mirroring object.create.
     if (parentId != null) {
@@ -459,6 +468,7 @@ class RelayAppliers {
             parentId: parentId,
             childId: objectId,
             afterId: afterId,
+            beforeId: beforeId,
           );
 
     await _cache.upsert(
@@ -886,15 +896,26 @@ class RelayAppliers {
         midpointBetween(loRest.substring(1), hiRest.substring(1));
   }
 
-  /// Fractional position for [childId] under [parentId], placed immediately
-  /// after the sibling [afterId]: sibling midpoint, append-at-end when
-  /// [afterId] is the last sibling, and a defensive plain append when
-  /// [afterId] is not a current sibling.
+  /// Fractional position for [childId] under [parentId], by anchor (port of
+  /// `allocateChildPosition` in `appliers.ts`):
+  /// - [afterId]: sibling midpoint between afterId's position and the next
+  ///   sibling's, append-at-end when afterId is the last sibling;
+  /// - [beforeId]: sibling midpoint between the previous sibling's position
+  ///   and beforeId's — or, when beforeId is the first child, one slot below
+  ///   it (midpoint against the empty string: the only way to place BEFORE
+  ///   the current first sibling, which the afterId-only algebra cannot
+  ///   express);
+  /// - no usable anchor (absent, or not a current sibling): defensive plain
+  ///   append.
+  /// When both anchors are present [afterId] wins — but only when afterId is
+  /// a current sibling: an afterId that is not a current sibling falls
+  /// through to the beforeId branch (the TS reference never sends both).
   static Future<String> _allocateChildPosition(
     NodeCacheRepository cache, {
     required String parentId,
     required String childId,
     required String? afterId,
+    String? beforeId,
   }) async {
     if (afterId != null) {
       final after = await cache.childPosition(parentId, afterId);
@@ -912,6 +933,19 @@ class RelayAppliers {
                   excludeChildUuid: childId,
                 ),
               );
+      }
+    }
+    if (beforeId != null) {
+      final before = await cache.childPosition(parentId, beforeId);
+      if (before != null) {
+        final prev = await cache.prevSiblingPosition(
+          parentId,
+          before,
+          excludeChildUuid: childId,
+        );
+        return prev != null
+            ? midpointBetween(prev, before)
+            : midpointBetween('', before);
       }
     }
     return nextChildPosition(
