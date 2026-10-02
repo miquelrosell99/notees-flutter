@@ -12,13 +12,11 @@ import '../../../core/utils/view_mode_store.dart';
 import '../../../data/models/node.dart';
 import '../../../data/models/page_content.dart';
 import '../../../data/repositories/node_repository.dart';
-import '../../../domain/models/search_filters.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../../shared/views/inbox_card_view.dart';
 import '../../../shared/views/node_view_mode.dart';
 import '../../../shared/widgets/empty_state.dart';
-import '../../search/widgets/filter_bottom_sheet.dart';
 import '../../../shared/widgets/fleet_card.dart';
 import '../../../shared/widgets/node_picker.dart';
 import '../../../shared/widgets/skeletons.dart';
@@ -47,25 +45,12 @@ class DashboardScreenState extends State<DashboardScreen> {
   String? _error;
   NodeViewMode _viewMode = NodeViewMode.card;
   final _viewModeStore = ViewModeStore();
-  final _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _loadDashboard();
     _loadViewMode();
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  void _onSearchSubmitted(String query) {
-    final trimmed = query.trim();
-    if (trimmed.isEmpty) return;
-    context.push(Routes.search, extra: {'query': trimmed});
   }
 
   Future<void> _openCaptureSheet() async {
@@ -79,17 +64,6 @@ class DashboardScreenState extends State<DashboardScreen> {
         onSaved: _loadDashboard,
       ),
     );
-  }
-
-  Future<void> _openQueryBuilder() async {
-    HapticFeedback.lightImpact();
-    final filters = await FilterBottomSheet.show(
-      context,
-      const SearchFilters(),
-    );
-    if (filters == null) return;
-    if (!mounted) return;
-    context.push(Routes.search, extra: {'filters': filters});
   }
 
   Future<void> _loadViewMode() async {
@@ -335,27 +309,7 @@ class DashboardScreenState extends State<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: TextField(
-          controller: _searchController,
-          textAlignVertical: TextAlignVertical.center,
-          decoration: InputDecoration(
-            hintText: 'Search notes, tasks, pages...',
-            prefixIcon: Icon(MdiIcons.magnify),
-            suffixIcon: IconButton(
-              icon: Icon(MdiIcons.tune),
-              tooltip: 'Advanced search',
-              onPressed: _openQueryBuilder,
-            ),
-            filled: true,
-            fillColor: colors.surfaceContainerHighest,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(28),
-              borderSide: BorderSide.none,
-            ),
-            contentPadding: const EdgeInsets.symmetric(vertical: 10),
-          ),
-          onSubmitted: _onSearchSubmitted,
-        ),
+        title: const Text('Inbox'),
         actions: [
           IconButton(
             icon: Icon(_viewMode.icon),
