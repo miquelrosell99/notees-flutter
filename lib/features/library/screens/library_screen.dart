@@ -20,6 +20,8 @@ import '../../../shared/views/node_view_mode.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/fleet_card.dart';
 import '../../../shared/widgets/motion.dart';
+import '../../../shared/widgets/node_actions.dart';
+import '../../../shared/widgets/section_header.dart';
 import '../../../shared/widgets/skeletons.dart';
 import '../../../shared/widgets/view_mode_sheet.dart';
 
@@ -43,10 +45,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String? _error;
   NodeViewMode _viewMode = NodeViewMode.list;
   final _viewModeStore = ViewModeStore();
+  late final NodeActions _actions;
 
   @override
   void initState() {
     super.initState();
+    _actions = NodeActions(
+      isFavorite: (node) => _favoriteUuids.contains(node.uuid),
+      onFavoriteChanged: _onFavoriteChanged,
+      onReload: _loadLibrary,
+    );
     _loadLibrary();
     _loadViewMode();
   }
@@ -109,119 +117,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  Future<void> _openNode(Node node) async {
-    HapticFeedback.lightImpact();
-    await context.push('${Routes.editor}/${node.uuid}');
-    // The editor may have created/renamed/archived nodes; reload so the
-    // library reflects the cache changes after sync.
-    if (mounted) await _loadLibrary();
-  }
+  // Row actions are shared with the Home tab; the library keeps thin wrappers
+  // so the existing call sites (sections, "All pages", sheets) stay untouched.
+  Future<void> _openNode(Node node) => _actions.open(context, node);
 
-  Future<void> _toggleFavorite(Node node) async {
-    HapticFeedback.lightImpact();
-    final auth = context.read<AuthProvider>();
-    if (auth.dio == null) return;
+  Future<void> _toggleFavorite(Node node) => _actions.toggleFavorite(context, node);
 
-    final isFavorite = _favoriteUuids.contains(node.uuid);
+  Future<void> _archiveNode(Node node) => _actions.archive(context, node);
+
+  void _showNodeActions(Node node) => _actions.showActions(context, node);
+
+  void _onFavoriteChanged(Node node, bool favorite) {
     setState(() {
-      if (isFavorite) {
-        _favoriteUuids.remove(node.uuid);
-      } else {
+      if (favorite) {
         _favoriteUuids.add(node.uuid);
+      } else {
+        _favoriteUuids.remove(node.uuid);
       }
     });
-
-    try {
-      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
-      if (isFavorite) {
-        await repo.removeFavorite(node.uuid);
-      } else {
-        await repo.addFavorite(node.uuid);
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          if (isFavorite) {
-            _favoriteUuids.add(node.uuid);
-          } else {
-            _favoriteUuids.remove(node.uuid);
-          }
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not update favorite: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _archiveNode(Node node) async {
-    final auth = context.read<AuthProvider>();
-    if (auth.dio == null) return;
-
-    try {
-      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
-      await repo.archiveNode(node.uuid);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${resolveNodeDisplayName(node, dateFormat: context.read<SettingsProvider>().dateFormat)} archived',
-            ),
-          ),
-        );
-        await _loadLibrary();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not archive: $e')),
-        );
-      }
-    }
-  }
-
-  void _showNodeActions(Node node) {
-    final isFavorite = _favoriteUuids.contains(node.uuid);
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: Icon(isFavorite ? MdiIcons.star : MdiIcons.starOutline),
-              title: Text(isFavorite ? 'Unpin' : 'Pin'),
-              onTap: () {
-                Navigator.of(context).pop();
-                _toggleFavorite(node);
-              },
-            ),
-            ListTile(
-              leading: Icon(MdiIcons.archiveOutline),
-              title: const Text('Archive'),
-              onTap: () {
-                Navigator.of(context).pop();
-                _archiveNode(node);
-              },
-            ),
-            ListTile(
-              leading: Icon(
-                node.isJournal ? MdiIcons.fileDocumentEditOutline : MdiIcons.eyeOutline,
-              ),
-              title: Text(node.isJournal ? 'Open journal' : 'Open in Focus Mode'),
-              onTap: () {
-                Navigator.of(context).pop();
-                _openNode(node);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> _showClassNodes(Node cls) async {
@@ -454,7 +367,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           FleetCard(
             child: Column(
               children: [
-                _SectionHeader(icon: MdiIcons.star, label: 'Favorites'),
+                SectionHeader(icon: MdiIcons.star, label: 'Favorites'),
                 const Divider(height: 1),
                 _favorites.isEmpty
                     ? _buildEmptyTile('No favorites yet')
@@ -479,7 +392,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           FleetCard(
             child: Column(
               children: [
-                _SectionHeader(icon: MdiIcons.calendarOutline, label: 'Journals'),
+                SectionHeader(icon: MdiIcons.calendarOutline, label: 'Journals'),
                 const Divider(height: 1),
                 ListTile(
                   leading: Icon(MdiIcons.calendarMonthOutline, color: colors.onSurfaceVariant),
@@ -511,7 +424,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           FleetCard(
             child: Column(
               children: [
-                _SectionHeader(icon: MdiIcons.clockOutline, label: 'Recent'),
+                SectionHeader(icon: MdiIcons.clockOutline, label: 'Recent'),
                 const Divider(height: 1),
                 _recents.isEmpty
                     ? _buildEmptyTile('No recent pages')
@@ -538,34 +451,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Center(child: Text(message)),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: colors.primary),
-          const SizedBox(width: 10),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: colors.onSurface,
-                ),
-          ),
-        ],
-      ),
     );
   }
 }

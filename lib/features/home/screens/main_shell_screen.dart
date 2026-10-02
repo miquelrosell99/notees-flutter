@@ -7,14 +7,11 @@ import 'package:provider/provider.dart';
 import '../../../core/routing/router.dart';
 import '../../../data/repositories/node_repository.dart';
 import '../../auth/providers/auth_provider.dart';
-import '../../settings/providers/settings_provider.dart';
 import '../../search/widgets/command_palette.dart';
-import '../../../shared/widgets/skeletons.dart';
 import '../../capture/widgets/quick_capture_sheet.dart';
-import './dashboard_screen.dart';
+import './home_screen.dart';
 import '../../editor/screens/journal_continuous_screen.dart';
 import '../../library/screens/library_screen.dart';
-import '../../editor/screens/node_editor_screen.dart';
 import '../../tasks/screens/tasks_screen.dart';
 
 /// Main app shell with a bottom navigation bar.
@@ -34,14 +31,14 @@ class MainShellScreen extends StatefulWidget {
 
 class _MainShellScreenState extends State<MainShellScreen> {
   late int _currentIndex = widget.initialIndex;
-  final _dashboardKey = GlobalKey<DashboardScreenState>();
+  final _homeKey = GlobalKey<HomeScreenState>();
   final _scrollControllers = List.generate(4, (_) => ScrollController());
 
   final _destinations = <_NavDestination>[
     _NavDestination(
-      label: 'Inbox',
-      icon: MdiIcons.inboxOutline,
-      selectedIcon: MdiIcons.inbox,
+      label: 'Home',
+      icon: MdiIcons.homeOutline,
+      selectedIcon: MdiIcons.home,
     ),
     _NavDestination(
       label: 'Tasks',
@@ -212,7 +209,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
       builder: (_) => QuickCaptureSheet(
         onSaved: () {
           if (_currentIndex == 0) {
-            _dashboardKey.currentState?.reload();
+            _homeKey.currentState?.reload();
           }
         },
       ),
@@ -221,16 +218,11 @@ class _MainShellScreenState extends State<MainShellScreen> {
 
   Widget _buildBody() {
     final child = switch (_currentIndex) {
-      0 => () {
-          final settings = context.watch<SettingsProvider>();
-          return settings.homePage == HomePage.today
-              ? const _TodayJournalHome()
-              : DashboardScreen(key: _dashboardKey);
-        }(),
+      0 => HomeScreen(key: _homeKey),
       1 => const TasksScreen(),
       2 => const JournalContinuousScreen(),
       3 => const LibraryScreen(),
-      _ => const DashboardScreen(),
+      _ => const SizedBox.shrink(),
     };
     return PrimaryScrollController(
       controller: _scrollControllers[_currentIndex],
@@ -249,62 +241,4 @@ class _NavDestination {
   final String label;
   final IconData icon;
   final IconData selectedIcon;
-}
-
-/// Home tab variant that opens today's daily journal directly in the editor.
-class _TodayJournalHome extends StatefulWidget {
-  const _TodayJournalHome();
-
-  @override
-  State<_TodayJournalHome> createState() => _TodayJournalHomeState();
-}
-
-class _TodayJournalHomeState extends State<_TodayJournalHome> {
-  String? _journalUuid;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadTodayJournal();
-  }
-
-  Future<void> _loadTodayJournal() async {
-    final auth = context.read<AuthProvider>();
-    if (auth.dio == null) return;
-
-    try {
-      final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
-      final journal = await repo.getOrCreateDailyJournal(DateTime.now());
-      if (mounted) setState(() => _journalUuid = journal.uuid);
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
-        ),
-      );
-    }
-    final uuid = _journalUuid;
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 200),
-      child: uuid == null
-          ? const CardListSkeleton(
-              key: ValueKey('journal-home-loading'),
-              sectionCount: 1,
-              rowsPerSection: 4,
-            )
-          : NodeEditorScreen(nodeUuid: uuid),
-    );
-  }
 }
