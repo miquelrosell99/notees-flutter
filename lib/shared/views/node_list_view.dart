@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/utils/class_icon_resolver.dart';
 import '../../core/utils/node_display_name.dart';
 import '../../core/utils/node_icon.dart';
 import '../../data/models/node.dart';
@@ -21,6 +22,7 @@ class NodeListView extends StatelessWidget {
     this.archiveLabel = 'Archive',
     this.dateFormat,
     this.continuous = false,
+    this.classStyles,
   });
 
   final List<Node> nodes;
@@ -43,6 +45,10 @@ class NodeListView extends StatelessWidget {
   /// When true, the list has no outer padding and items are separated by
   /// hairline dividers. Useful for placing the list inside a [FleetCard].
   final bool continuous;
+
+  /// Resolved class styles; when given, rows render each node's effective
+  /// icon/color (own, else first assigned class's) via [EffectiveNodeIcon].
+  final Map<String, ResolvedClassStyle>? classStyles;
 
   @override
   Widget build(BuildContext context) {
@@ -81,12 +87,19 @@ class NodeListView extends StatelessWidget {
   Widget _buildTile(BuildContext context, Node node) {
     final colors = Theme.of(context).colorScheme;
     final isFavorite = favoriteUuids?.contains(node.uuid) ?? false;
+    final styles = classStyles;
     return ListTile(
-      leading: NodeIcon(
-        iconField: node.icon,
-        fallbackIcon: _iconForNode(node),
-        fallbackColor: colors.onSurfaceVariant,
-      ),
+      leading: styles != null
+          ? EffectiveNodeIcon(
+              node: node,
+              classStyles: styles,
+              fallbackIcon: _iconForNode(node),
+            )
+          : NodeIcon(
+              iconField: node.icon,
+              fallbackIcon: _iconForNode(node),
+              fallbackColor: colors.onSurfaceVariant,
+            ),
       title: Text(resolveNodeDisplayName(node, dateFormat: dateFormat)),
       trailing: _buildTrailing(context, node, isFavorite, colors),
       onTap: () => onNodeTap(node),

@@ -5,6 +5,7 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 
 import '../../../core/constants/system.dart';
 import '../../../core/utils/ast_builder.dart';
+import '../../../core/utils/ast_stringifier.dart';
 import '../../../core/utils/color_presets.dart';
 import '../../../data/models/node.dart';
 import './asset_block_widget.dart';
@@ -351,23 +352,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
         onTap: () => widget.onFocus(node),
         onLongPress: () => widget.onEnterSelection?.call(node),
         behavior: HitTestBehavior.translucent,
-        child: AstRichText(
-          source: node.node.name,
-          onNodeLinkTap: widget.onNodeLinkTap,
-          onNodeLinkLongPress: (linkId, label) =>
-              _showNodeLinkMenu(node, linkId, label),
-          onExternalLinkTap: widget.onExternalLinkTap,
-          linkColors: widget.linkColors,
-          style: _isCode(node)
-              ? TextStyle(
-                  fontFamily: 'monospace',
-                  fontFamilyFallback: const ['monospace'],
-                  color: colors.onSurface,
-                )
-              : null,
-          maxLines: 100,
-          overflow: TextOverflow.ellipsis,
-        ),
+        child: _buildReadOnlyContent(node, colors),
       );
     }
 
@@ -478,6 +463,10 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     }
 
     // Drop target: dropping on a row makes the dragged node a child.
+    // The builder runs after this assignment, so the pre-wrap content must be
+    // captured in a final local: reading `content` inside the closure would
+    // return the DragTarget itself and build an infinitely recursive tree.
+    final rowContent = content;
     content = DragTarget<BlockNode>(
       onWillAcceptWithDetails: (details) =>
           details.data != node && !_isDescendant(details.data, node),
@@ -496,7 +485,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
                 ? colors.primaryContainer.withAlpha((0.2 * 255).round())
                 : null,
           ),
-          child: content,
+          child: rowContent,
         );
       },
     );
@@ -590,6 +579,48 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       children: node.children,
       createDate: node.createDate,
       writeDate: node.writeDate,
+    );
+  }
+
+  /// Read-only view of a block's content. The content document is parsed up
+  /// front (outside the widget build) so a malformed or pathologically nested
+  /// AST degrades to a quiet inline placeholder — one bad block never takes
+  /// down the page body.
+  Widget _buildReadOnlyContent(BlockNode node, ColorScheme colors) {
+    List<Map<String, dynamic>> tokens;
+    try {
+      tokens = contentTokensFromSource(node.node.name);
+    } catch (_) {
+      tokens = const [];
+    }
+    if (tokens.isEmpty && node.node.name.trim().isNotEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Text(
+          'Content unavailable',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: colors.onSurfaceVariant,
+                fontStyle: FontStyle.italic,
+              ),
+        ),
+      );
+    }
+    return AstRichText(
+      source: tokens,
+      onNodeLinkTap: widget.onNodeLinkTap,
+      onNodeLinkLongPress: (linkId, label) =>
+          _showNodeLinkMenu(node, linkId, label),
+      onExternalLinkTap: widget.onExternalLinkTap,
+      linkColors: widget.linkColors,
+      style: _isCode(node)
+          ? TextStyle(
+              fontFamily: 'monospace',
+              fontFamilyFallback: const ['monospace'],
+              color: colors.onSurface,
+            )
+          : null,
+      maxLines: 100,
+      overflow: TextOverflow.ellipsis,
     );
   }
 
@@ -797,10 +828,14 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
   List<Widget> _buildFocusedChildren(
     BuildContext context,
     List<BlockNode> children,
-    int depth,
-  ) {
+    int depth, [
+    Set<BlockNode>? visited,
+  ]) {
+    visited ??= <BlockNode>{};
     final rows = <Widget>[];
     for (final child in children) {
+      // Cyclic parent links in corrupt data must not recurse forever.
+      if (!visited.add(child)) continue;
       rows.add(
         Padding(
           padding: EdgeInsets.only(left: depth * 20.0, top: 8),
@@ -818,7 +853,9 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
         ),
       );
       if (child.children.isNotEmpty) {
-        rows.addAll(_buildFocusedChildren(context, child.children, depth + 1));
+        rows.addAll(
+          _buildFocusedChildren(context, child.children, depth + 1, visited),
+        );
       }
     }
     return rows;

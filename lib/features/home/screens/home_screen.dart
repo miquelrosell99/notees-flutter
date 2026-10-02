@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/utils/node_display_name.dart';
 import '../../../data/models/node.dart';
+import '../../../data/repositories/local_recents_repository.dart';
 import '../../../data/repositories/node_repository.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../settings/providers/settings_provider.dart';
@@ -57,10 +58,14 @@ class HomeScreenState extends State<HomeScreen> {
   bool _initialized = false;
 
   late final NodeActions _actions;
+  late final LocalRecentsRepository _localRecents;
 
   @override
   void initState() {
     super.initState();
+    _localRecents = LocalRecentsRepository(
+      context.read<AuthProvider>().prefs,
+    );
     _actions = NodeActions(
       isFavorite: (node) => _favoriteUuids.contains(node.uuid),
       onFavoriteChanged: (node, favorite) {
@@ -73,6 +78,7 @@ class HomeScreenState extends State<HomeScreen> {
         });
       },
       onReload: _loadHome,
+      onOpened: (node) => _localRecents.recordOpen(node.uuid),
     );
     _loadHome();
   }
@@ -104,12 +110,40 @@ class HomeScreenState extends State<HomeScreen> {
           .catchError((_) => <String>{}),
     ]);
     if (!mounted) return;
+
+    // Local recents (device-side opens) merge ahead of the server list: the
+    // server's recents order by write_date, which an open does not change.
+    var recents = results[2] as List<Node>;
+    final localUuids = _localRecents.uuids;
+    if (localUuids.isNotEmpty) {
+      try {
+        final localNodes = await repo.fetchNodesByUuids(localUuids);
+        final byUuid = {for (final n in localNodes) n.uuid: n};
+        final local = <Node>[
+          for (final uuid in localUuids)
+            if (byUuid[uuid] != null &&
+                !byUuid[uuid]!.isArchived &&
+                !byUuid[uuid]!.isDeleted)
+              byUuid[uuid]!,
+        ];
+        if (local.isNotEmpty) {
+          final seen = local.map((n) => n.uuid).toSet();
+          recents = [
+            ...local,
+            ...recents.where((n) => !seen.contains(n.uuid)),
+          ];
+        }
+      } catch (_) {
+        // Local recents are a convenience; the server list still renders.
+      }
+    }
+
     final journal = results[0] as Node?;
     setState(() {
       _todayJournal = journal;
       _todayPeek = null;
       _favorites = results[1] as List<Node>;
-      _recents = results[2] as List<Node>;
+      _recents = recents;
       _inbox = results[3] as List<Node>;
       _favoriteUuids = results[4] as Set<String>;
       _initialized = true;

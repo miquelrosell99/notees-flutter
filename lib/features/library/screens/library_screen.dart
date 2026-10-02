@@ -7,25 +7,22 @@ import 'package:provider/provider.dart';
 
 import '../../../core/routing/router.dart';
 import '../../../core/utils/node_display_name.dart';
-import '../../../core/utils/view_mode_store.dart';
 import '../../../data/models/node.dart';
 import '../../../data/repositories/node_repository.dart';
 import '../../../domain/models/search_filters.dart';
 import '../../../domain/services/sync_v2_service.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../settings/providers/settings_provider.dart';
-import '../../../shared/views/node_collection.dart';
 import '../../../shared/views/node_list_view.dart';
-import '../../../shared/views/node_view_mode.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/fleet_card.dart';
 import '../../../shared/widgets/motion.dart';
 import '../../../shared/widgets/node_actions.dart';
-import '../../../shared/widgets/section_header.dart';
 import '../../../shared/widgets/skeletons.dart';
-import '../../../shared/widgets/view_mode_sheet.dart';
 
-/// Unified Library tab: browse pages, journals, and tags with recent pins.
+/// The Library tab: the browse-everything hub. Organization lives here
+/// (pages, classes, journals, archive, trash); personal glanceables
+/// (Today, Favorites, Recent, Inbox) live on the Home tab.
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
@@ -35,16 +32,10 @@ class LibraryScreen extends StatefulWidget {
 
 class _LibraryScreenState extends State<LibraryScreen> {
   List<Node> _rootPages = [];
-  List<Node> _recents = [];
-  List<Node> _favorites = [];
-  List<Node> _recentJournals = [];
   List<Node> _classes = [];
   Set<String> _favoriteUuids = {};
-  Map<String, Node> _classIndex = {};
   bool _loading = true;
   String? _error;
-  NodeViewMode _viewMode = NodeViewMode.list;
-  final _viewModeStore = ViewModeStore();
   late final NodeActions _actions;
 
   @override
@@ -56,17 +47,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
       onReload: _loadLibrary,
     );
     _loadLibrary();
-    _loadViewMode();
-  }
-
-  Future<void> _loadViewMode() async {
-    final mode = await _viewModeStore.getMode('library', NodeViewMode.list);
-    if (mounted) setState(() => _viewMode = mode);
-  }
-
-  Future<void> _setViewMode(NodeViewMode mode) async {
-    await _viewModeStore.setMode('library', mode);
-    if (mounted) setState(() => _viewMode = mode);
   }
 
   Future<void> _loadLibrary() async {
@@ -78,35 +58,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final results = await Future.wait([
         repo.fetchRootPages(),
-        repo.fetchRecentPages(limit: 10),
         repo.fetchFavoriteUuids(),
         repo.fetchClasses(),
-        repo.searchWithFilters(
-          const SearchFilters(
-            nodeType: NodeType.journal,
-            sortBy: SortBy.writeDate,
-            order: SortOrder.desc,
-            limit: 10,
-          ),
-        ),
       ]);
-      List<Node> favorites = const [];
-      try {
-        favorites = await repo.fetchFavorites(limit: 5);
-      } catch (_) {
-        // Best-effort: favorites are a convenience; the rest of the library
-        // still renders without them.
-      }
       if (mounted) {
         setState(() {
           _rootPages = results[0] as List<Node>;
-          _recents = results[1] as List<Node>;
-          _favoriteUuids = (results[2] as List<String>).toSet();
-          final classes = results[3] as List<Node>;
-          _classIndex = {for (final c in classes) c.uuid: c};
-          _recentJournals = results[4] as List<Node>;
-          _classes = classes;
-          _favorites = favorites;
+          _favoriteUuids = (results[1] as List<String>).toSet();
+          _classes = results[2] as List<Node>;
           _error = null;
         });
       }
@@ -211,8 +170,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  void _openAllPages(String dateFormat) {
+  void _openAllPages() {
     HapticFeedback.lightImpact();
+    final dateFormat = context.read<SettingsProvider>().dateFormat;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => _NodeListScreen(
@@ -249,32 +209,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-    final settings = context.watch<SettingsProvider>();
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Library'),
-        actions: [
-          IconButton(
-            icon: Icon(_viewMode.icon),
-            tooltip: 'Change view',
-            onPressed: () async {
-              final mode = await ViewModeSheet.show(context, _viewMode);
-              if (!mounted) return;
-              if (mode != null) await _setViewMode(mode);
-            },
+      // No AppBar; SafeArea keeps the header clear of the status-bar inset
+      // (mirrors the Home tab).
+      body: SafeArea(
+        maintainBottomViewPadding: true,
+        child: RefreshIndicator(
+          onRefresh: _loadLibrary,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: _loading
+                ? const CardListSkeleton(key: ValueKey('library-loading'))
+                : _buildContent(),
           ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _loadLibrary,
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          child: _loading
-              ? const CardListSkeleton(key: ValueKey('library-loading'))
-              : _buildContent(colors, settings.dateFormat),
         ),
       ),
       floatingActionButton: FloatingActionButton.small(
@@ -285,9 +232,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Widget _buildContent(ColorScheme colors, String dateFormat) {
+  Widget _menuTile({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    return ListTile(
+      leading: Icon(icon, color: colors.onSurfaceVariant),
+      title: Text(label),
+      trailing: Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
+    );
+  }
+
+  Widget _buildContent() {
     if (_error != null) {
       return ListView(
+        key: const ValueKey('library-error'),
         padding: const EdgeInsets.all(20),
         children: [
           EmptyState(
@@ -307,138 +272,46 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
     }
 
-    if (_viewMode != NodeViewMode.list) {
-      final allNodes = <String, Node>{
-        for (final n in _rootPages) n.uuid: n,
-        for (final n in _recents) n.uuid: n,
-      }.values.toList();
-      return NodeCollection(
-        mode: _viewMode,
-        nodes: allNodes,
-        onNodeTap: _openNode,
-        emptyMessage: 'Library is empty',
-        favoriteUuids: _favoriteUuids,
-        onFavoriteToggle: _toggleFavorite,
-        classIndex: _classIndex,
-        dateFormat: dateFormat,
-      );
-    }
-
     return ListView(
+      key: const ValueKey('library-content'),
       padding: const EdgeInsets.all(20),
       children: [
+        Text('Library', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 12),
         staggered(
           0,
           FleetCard(
             child: Column(
               children: [
-                ListTile(
-                  leading: Icon(
-                    MdiIcons.bookOpenPageVariant,
-                    color: colors.onSurfaceVariant,
-                  ),
-                  title: const Text('All pages'),
-                  trailing: Icon(
-                    MdiIcons.chevronRight,
-                    color: colors.onSurfaceVariant,
-                  ),
-                  onTap: () => _openAllPages(dateFormat),
+                _menuTile(
+                  icon: MdiIcons.bookOpenPageVariant,
+                  label: 'All pages',
+                  onTap: _openAllPages,
                 ),
                 const Divider(height: 1),
-                ListTile(
-                  leading: Icon(
-                    MdiIcons.shapeOutline,
-                    color: colors.onSurfaceVariant,
-                  ),
-                  title: const Text('All classes'),
-                  trailing: Icon(
-                    MdiIcons.chevronRight,
-                    color: colors.onSurfaceVariant,
-                  ),
+                _menuTile(
+                  icon: MdiIcons.shapeOutline,
+                  label: 'All classes',
                   onTap: _openAllClasses,
                 ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 28),
-        staggered(
-          1,
-          FleetCard(
-            child: Column(
-              children: [
-                SectionHeader(icon: MdiIcons.star, label: 'Favorites'),
                 const Divider(height: 1),
-                _favorites.isEmpty
-                    ? _buildEmptyTile('No favorites yet')
-                    : NodeListView(
-                        nodes: _favorites.take(5).toList(),
-                        onNodeTap: _openNode,
-                        onNodeLongPress: _showNodeActions,
-                        shrinkWrap: true,
-                        favoriteUuids: _favoriteUuids,
-                        onFavoriteToggle: _toggleFavorite,
-                        onArchive: _archiveNode,
-                        dateFormat: dateFormat,
-                        continuous: true,
-                      ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 28),
-        staggered(
-          2,
-          FleetCard(
-            child: Column(
-              children: [
-                SectionHeader(icon: MdiIcons.calendarOutline, label: 'Journals'),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(MdiIcons.calendarMonthOutline, color: colors.onSurfaceVariant),
-                  title: const Text('All journals'),
-                  trailing: Icon(MdiIcons.chevronRight, color: colors.onSurfaceVariant),
+                _menuTile(
+                  icon: MdiIcons.calendarOutline,
+                  label: 'All journals',
                   onTap: _openJournals,
                 ),
                 const Divider(height: 1),
-                _recentJournals.isEmpty
-                    ? _buildEmptyTile('No recent journals')
-                    : NodeListView(
-                        nodes: _recentJournals.take(5).toList(),
-                        onNodeTap: _openNode,
-                        onNodeLongPress: _showNodeActions,
-                        shrinkWrap: true,
-                        favoriteUuids: _favoriteUuids,
-                        onFavoriteToggle: _toggleFavorite,
-                        onArchive: _archiveNode,
-                        dateFormat: dateFormat,
-                        continuous: true,
-                      ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 28),
-        staggered(
-          3,
-          FleetCard(
-            child: Column(
-              children: [
-                SectionHeader(icon: MdiIcons.clockOutline, label: 'Recent'),
+                _menuTile(
+                  icon: MdiIcons.archiveOutline,
+                  label: 'Archive',
+                  onTap: () => context.push(Routes.archived),
+                ),
                 const Divider(height: 1),
-                _recents.isEmpty
-                    ? _buildEmptyTile('No recent pages')
-                    : NodeListView(
-                        nodes: _recents.take(5).toList(),
-                        onNodeTap: _openNode,
-                        onNodeLongPress: _showNodeActions,
-                        shrinkWrap: true,
-                        favoriteUuids: _favoriteUuids,
-                        onFavoriteToggle: _toggleFavorite,
-                        onArchive: _archiveNode,
-                        dateFormat: dateFormat,
-                        continuous: true,
-                      ),
+                _menuTile(
+                  icon: MdiIcons.deleteOutline,
+                  label: 'Trash',
+                  onTap: () => context.push(Routes.trash),
+                ),
               ],
             ),
           ),
@@ -446,15 +319,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ],
     );
   }
-
-  Widget _buildEmptyTile(String message) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Center(child: Text(message)),
-    );
-  }
 }
-
 class _ClassNodesSheet extends StatefulWidget {
   const _ClassNodesSheet({
     required this.cls,

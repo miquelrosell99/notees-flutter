@@ -137,8 +137,17 @@ void _convertBlock(
         'queryAst': data is Map<String, dynamic> ? data : const {},
       });
     default:
-      // Unknown legacy block: try its children so no text is lost.
-      for (final child in (block['children'] as List? ?? const [])) {
+      // Unknown legacy block: try its children so no text is lost. A childless
+      // unknown block with inline text (e.g. a future flat token seen by an
+      // old client) degrades to that text instead of vanishing.
+      final children = block['children'] as List? ?? const [];
+      if (children.isEmpty) {
+        final text = block['text'];
+        if (text is String && text.isNotEmpty) {
+          out.add(_textToken(text, inheritedMarks));
+        }
+      }
+      for (final child in children) {
         if (child is Map<String, dynamic>) {
           _convertInline(child, out, inheritedMarks);
         }

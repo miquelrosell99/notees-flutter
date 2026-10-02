@@ -72,6 +72,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   Map<dynamic, String> _propertyValueNames = {};
   String? _pageColor;
   String? _pageIcon;
+  Node? _loadedPage;
   bool _pageIsPrivate = false;
   bool _isDaily = false;
   bool _isMonthly = false;
@@ -191,11 +192,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
       // Data colors for link chips: the page's own blocks plus all classes.
       final linkColors = <String, Color>{};
-      void collectColors(List<Node> nodes) {
+      void collectColors(List<Node> nodes, [Set<String>? visited]) {
+        visited ??= <String>{};
         for (final n in nodes) {
+          // Cyclic children graphs in corrupt data must not recurse forever.
+          if (!visited.add(n.uuid)) continue;
           final color = ColorPresets.tryResolve(n.color);
           if (color != null) linkColors[n.uuid] = color;
-          collectColors(n.children);
+          collectColors(n.children, visited);
         }
       }
 
@@ -222,6 +226,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           _propertyValueNames = propertyValueNames;
           _pageColor = page.color;
           _pageIcon = page.icon;
+          _loadedPage = page;
           _pageIsPrivate = page.isPrivate;
           _isDaily = page.isDaily;
           _isMonthly = page.isMonthly;
@@ -1741,6 +1746,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     final colors = Theme.of(context).colorScheme;
     final isJournalDatePage = _isDaily || _isMonthly || _isYearly;
     final canRename = !isJournalDatePage;
+    final loadedPage = _loadedPage;
+    final pageStyle = loadedPage == null
+        ? null
+        : resolveNodeStyle(loadedPage, _classStyles);
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -1751,7 +1760,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           child: Padding(
             padding: const EdgeInsets.all(6),
             child: NodeIcon(
-              iconField: _pageIcon,
+              iconField: pageStyle?.iconField ?? _pageIcon,
               size: 32,
               fallbackColor: colors.onSurfaceVariant,
             ),
@@ -2016,6 +2025,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           onNodeTap: (node) => context.push('${Routes.editor}/${node.uuid}'),
           shrinkWrap: true,
           dateFormat: dateFormat,
+          classStyles: _classStyles,
         ),
         const SizedBox(height: 20),
       ],

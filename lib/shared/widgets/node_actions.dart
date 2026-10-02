@@ -22,6 +22,7 @@ class NodeActions {
     required this.isFavorite,
     required this.onFavoriteChanged,
     required this.onReload,
+    this.onOpened,
   });
 
   final bool Function(Node node) isFavorite;
@@ -32,6 +33,10 @@ class NodeActions {
 
   /// Reloads the owning screen's lists after a mutation.
   final Future<void> Function() onReload;
+
+  /// Called after the editor opened for [node] is popped — e.g. to record a
+  /// local recent. Runs before [onReload].
+  final Future<void> Function(Node node)? onOpened;
 
   Future<NodeRepository?> _repo(BuildContext context) async {
     final auth = context.read<AuthProvider>();
@@ -45,11 +50,15 @@ class NodeActions {
     );
   }
 
-  /// Opens the node in the editor and reloads the lists when it is popped.
+  /// Opens the node in the editor, then records the open and reloads the
+  /// lists when the editor is popped.
   Future<void> open(BuildContext context, Node node) async {
     HapticFeedback.lightImpact();
     await context.push('${Routes.editor}/${node.uuid}');
-    if (context.mounted) await onReload();
+    if (context.mounted) {
+      await onOpened?.call(node);
+      await onReload();
+    }
   }
 
   /// Toggles the pinned state with an optimistic update, rolling back on
