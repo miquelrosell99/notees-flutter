@@ -1538,11 +1538,24 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     );
   }
 
+  /// Breadcrumbs render only when they carry hierarchy. The chain is
+  /// self-inclusive (node itself + ancestors). Pages: show when there is at
+  /// least one ancestor page — the lone self crumb duplicates the title
+  /// header. Blocks: show only when the block has a BLOCK ancestor (nested
+  /// blocks); a top-level block's chain is just [page, itself] and must not
+  /// render (owner call: no breadcrumbs for top-level blocks).
+  bool get _showBreadcrumbs {
+    if (_breadcrumbs.isEmpty) return false;
+    final nonPages = _breadcrumbs.where((b) => !b.isPage).length;
+    final allPages = _breadcrumbs.every((b) => b.isPage);
+    return (allPages && _breadcrumbs.length > 1) || nonPages >= 2;
+  }
+
   /// The loaded page body: breadcrumbs, title, properties and the block tree.
   Widget _buildLoadedBody(ColorScheme colors, SettingsProvider settings) {
     return Column(
       children: [
-        if (_breadcrumbs.isNotEmpty)
+        if (_showBreadcrumbs)
           Align(
             alignment: Alignment.centerLeft,
             child: Padding(

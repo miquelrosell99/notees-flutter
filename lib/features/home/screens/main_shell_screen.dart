@@ -8,7 +8,6 @@ import '../../../core/routing/router.dart';
 import '../../../data/repositories/node_repository.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../settings/providers/settings_provider.dart';
-import '../../library/widgets/browse_panel.dart';
 import '../../search/widgets/command_palette.dart';
 import '../../../shared/widgets/skeletons.dart';
 import '../../capture/widgets/quick_capture_sheet.dart';
@@ -84,11 +83,11 @@ class _MainShellScreenState extends State<MainShellScreen> {
     final hasModifier = keyboard.isControlPressed || keyboard.isMetaPressed;
     if (!hasModifier) return false;
 
-    _openCommandPalette();
+    _openSearch();
     return true;
   }
 
-  Future<void> _openCommandPalette() async {
+  Future<void> _openSearch() async {
     HapticFeedback.lightImpact();
     final auth = context.read<AuthProvider>();
     if (auth.dio == null) return;
@@ -107,8 +106,6 @@ class _MainShellScreenState extends State<MainShellScreen> {
         setState(() => _currentIndex = 2);
       case StaticCommand(action: CommandPaletteAction.library):
         setState(() => _currentIndex = 3);
-      case StaticCommand(action: CommandPaletteAction.search):
-        context.push(Routes.search);
       case StaticCommand(action: CommandPaletteAction.journalToday):
         context.push(Routes.journal);
       case StaticCommand(action: CommandPaletteAction.settings):
@@ -143,9 +140,9 @@ class _MainShellScreenState extends State<MainShellScreen> {
                   ),
                 ),
                 NavigationRailDestination(
-                  icon: Icon(MdiIcons.compassOutline),
-                  selectedIcon: Icon(MdiIcons.compass),
-                  label: Text('Browse'),
+                  icon: Icon(MdiIcons.magnify),
+                  selectedIcon: Icon(MdiIcons.magnify),
+                  label: Text('Search'),
                 ),
               ],
             ),
@@ -177,9 +174,9 @@ class _MainShellScreenState extends State<MainShellScreen> {
                   ),
                 ),
                 NavigationDestination(
-                  icon: Icon(MdiIcons.compassOutline),
-                  selectedIcon: Icon(MdiIcons.compass),
-                  label: 'Browse',
+                  icon: Icon(MdiIcons.magnify),
+                  selectedIcon: Icon(MdiIcons.magnify),
+                  label: 'Search',
                 ),
               ],
             ),
@@ -188,7 +185,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
 
   void _onDestinationSelected(int index) {
     if (index == _destinations.length) {
-      _openBrowsePanel();
+      _openSearch();
       return;
     }
     HapticFeedback.lightImpact();
@@ -219,15 +216,6 @@ class _MainShellScreenState extends State<MainShellScreen> {
           }
         },
       ),
-    );
-  }
-
-  Future<void> _openBrowsePanel() async {
-    final auth = context.read<AuthProvider>();
-    if (auth.dio == null) return;
-    await BrowsePanel.show(
-      context,
-      NodeRepository(dio: auth.dio!, syncService: auth.syncService),
     );
   }
 
