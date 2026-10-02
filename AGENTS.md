@@ -59,7 +59,15 @@ notees-flutter/
 
 ## Build
 
-**Release APK builds must run in GitHub Actions only.** Do not build release APKs locally. The Android workflow (`.github/workflows/android.yml`) builds, signs, and uploads the APK on every push to `main` or pull request targeting `main`.
+**Release APK builds must run in GitHub Actions only.** Do not build release APKs locally.
+
+Two kinds of APK come out of CI — never confuse them:
+
+- **Release APKs** (`.github/workflows/release.yml`, runs on `v*` tags): production-signed, versioned from the tag (see below), published as a GitHub Release. **This is the only APK to install on a real device.**
+- **CI artifacts** (`.github/workflows/android.yml`, runs on every push/PR to `main`): a testing build named `notees-android-ci-<sha>.apk`, debug-signed, pubspec version `1.0.0+1` — for trying out main or a PR on an emulator or clean install. It can never update over a release (signature and versionCode differ by design).
+
+The Android CI workflow builds, signs, and uploads the APK on every push to
+`main` or pull request targeting `main`.
 
 CI uses directly-installed tooling (`actions/setup-java`, `subosito/flutter-action`, `android-actions/setup-android`) with cached `~/.pub-cache` and Gradle homes, following the same pattern as Logseq's Android workflow. It builds an unsigned release APK and then signs it with `apksigner` using the production keystore.
 

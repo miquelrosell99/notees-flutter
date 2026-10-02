@@ -1,4 +1,4 @@
-name: Android Build
+name: Android CI
 
 on:
   push:
@@ -88,10 +88,15 @@ jobs:
             fi
             version="$name+$code"
           fi
+          # Artifact slug: tag builds name the APK after the tag; CI builds
+          # (main pushes, PRs, manual) carry a ci-<sha> slug so a testing
+          # artifact can never be mistaken for a release.
+          slug="${name:-ci-${GITHUB_SHA:0:7}}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "Resolved app version: $version"
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+          echo "Resolved app version: $version (artifact slug: $slug)"
 
       - name: Set up Java
         uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
@@ -200,9 +205,7 @@ jobs:
       - name: Rename APK with version
         id: artifact
         run: |
-          version="${{ steps.version.outputs.version }}"
-          name="${{ steps.version.outputs.name }}"
-          slug="${name:-$version}"
+          slug="${{ steps.version.outputs.slug }}"
           filename="notees-android-${slug}.apk"
           cp dist/notees.apk "dist/$filename"
           echo "name=$filename" >> "$GITHUB_OUTPUT"
