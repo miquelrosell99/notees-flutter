@@ -96,7 +96,10 @@ class ServerRepository {
   /// Verifies that the server is reachable. Returns an error message or null.
   Future<String?> pingServer(String url, {bool trustSelfSigned = false}) async {
     final normalized = _normalizeUrl(url);
-    final healthUri = Uri.parse('$normalized/api/health');
+    // The sync server's health route is /healthz (root level, not under
+    // /api) — the previous /api/health path 404'd against a healthy server
+    // and blocked setup entirely.
+    final healthUri = Uri.parse('$normalized/healthz');
     log('Pinging $healthUri (trustSelfSigned=$trustSelfSigned)');
 
     final client = HttpClient()
