@@ -7,8 +7,8 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:provider/provider.dart';
 
 import '../../../core/routing/router.dart';
+import '../../../core/utils/class_icon_resolver.dart';
 import '../../../core/utils/node_display_name.dart';
-import '../../../core/utils/node_icon.dart';
 import '../../../data/models/node.dart';
 import '../../../data/repositories/node_repository.dart';
 import '../../../native/widget_service.dart';
@@ -62,6 +62,7 @@ class _BrowsePanelState extends State<BrowsePanel> {
       final nodes = await repo.fetchArchived();
       return nodes.take(5).toList();
     });
+    final classes = await _guarded(() => repo.fetchClasses());
     // Keep the favorites home-screen widget in sync with what the user sees.
     unawaited(WidgetService.saveFavorites(favorites));
     return _BrowseData(
@@ -69,6 +70,7 @@ class _BrowsePanelState extends State<BrowsePanel> {
       recent: recent,
       sharedWithMe: sharedWithMe,
       archived: archived,
+      classStyles: resolveClassStyles(classes),
     );
   }
 
@@ -105,6 +107,7 @@ class _BrowsePanelState extends State<BrowsePanel> {
                   title: 'Favorites',
                   nodes: data.favorites,
                   dateFormat: dateFormat,
+                  classStyles: data.classStyles,
                   highlightIcon: true,
                 ),
               if (data.recent.isNotEmpty)
@@ -113,6 +116,7 @@ class _BrowsePanelState extends State<BrowsePanel> {
                   title: 'Recent',
                   nodes: data.recent,
                   dateFormat: dateFormat,
+                  classStyles: data.classStyles,
                 ),
               if (data.sharedWithMe.isNotEmpty)
                 _BrowseCard(
@@ -120,6 +124,7 @@ class _BrowsePanelState extends State<BrowsePanel> {
                   title: 'Shared with me',
                   nodes: data.sharedWithMe,
                   dateFormat: dateFormat,
+                  classStyles: data.classStyles,
                 ),
               if (data.archived.isNotEmpty)
                 _BrowseCard(
@@ -127,6 +132,7 @@ class _BrowsePanelState extends State<BrowsePanel> {
                   title: 'Archive',
                   nodes: data.archived,
                   dateFormat: dateFormat,
+                  classStyles: data.classStyles,
                 ),
             ];
             if (cards.isEmpty) {
@@ -154,12 +160,16 @@ class _BrowseData {
     required this.recent,
     required this.sharedWithMe,
     required this.archived,
+    required this.classStyles,
   });
 
   final List<Node> favorites;
   final List<Node> recent;
   final List<Node> sharedWithMe;
   final List<Node> archived;
+
+  /// Resolved class styles, for effective node icons in the rows.
+  final Map<String, ResolvedClassStyle> classStyles;
 }
 
 /// One browse section: a titled card with a handful of page rows.
@@ -169,6 +179,7 @@ class _BrowseCard extends StatelessWidget {
     required this.title,
     required this.nodes,
     required this.dateFormat,
+    required this.classStyles,
     this.highlightIcon = false,
   });
 
@@ -176,6 +187,9 @@ class _BrowseCard extends StatelessWidget {
   final String title;
   final List<Node> nodes;
   final String dateFormat;
+
+  /// Resolved class styles, forwarded to the rows for effective node icons.
+  final Map<String, ResolvedClassStyle> classStyles;
 
   /// Renders the section icon in the accent color (favorites only).
   final bool highlightIcon;
@@ -210,7 +224,11 @@ class _BrowseCard extends StatelessWidget {
             ),
           ),
           for (final node in nodes)
-            _BrowseRow(node: node, dateFormat: dateFormat),
+            _BrowseRow(
+              node: node,
+              dateFormat: dateFormat,
+              classStyles: classStyles,
+            ),
         ],
       ),
     );
@@ -219,10 +237,17 @@ class _BrowseCard extends StatelessWidget {
 
 /// A single page row: node icon plus display name; tap opens the editor.
 class _BrowseRow extends StatelessWidget {
-  const _BrowseRow({required this.node, required this.dateFormat});
+  const _BrowseRow({
+    required this.node,
+    required this.dateFormat,
+    required this.classStyles,
+  });
 
   final Node node;
   final String dateFormat;
+
+  /// Resolved class styles, for the node's effective icon.
+  final Map<String, ResolvedClassStyle> classStyles;
 
   @override
   Widget build(BuildContext context) {
@@ -239,7 +264,7 @@ class _BrowseRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
-            NodeIcon(iconField: node.icon, size: 18),
+            EffectiveNodeIcon(node: node, classStyles: classStyles, size: 18),
             const SizedBox(width: 10),
             Expanded(
               child: Text(

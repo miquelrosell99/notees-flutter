@@ -5,8 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/routing/router.dart';
+import '../../../core/utils/class_icon_resolver.dart';
 import '../../../core/utils/node_display_name.dart';
-import '../../../core/utils/node_icon.dart';
 import '../../../data/models/node.dart';
 import '../../../data/repositories/node_repository.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -24,6 +24,7 @@ class TrashScreen extends StatefulWidget {
 
 class _TrashScreenState extends State<TrashScreen> {
   List<Node> _nodes = [];
+  Map<String, ResolvedClassStyle> _classStyles = {};
   bool _loading = true;
   String? _error;
 
@@ -41,9 +42,16 @@ class _TrashScreenState extends State<TrashScreen> {
     try {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final nodes = await repo.fetchTrash(pageSize: 100);
+      // Best-effort: a failed classes fetch degrades row icons to the node's
+      // own icon (or the type fallback) instead of breaking the screen.
+      List<Node> classes = const [];
+      try {
+        classes = await repo.fetchClasses();
+      } catch (_) {}
       if (mounted) {
         setState(() {
           _nodes = nodes;
+          _classStyles = resolveClassStyles(classes);
           _error = null;
         });
       }
@@ -132,10 +140,10 @@ class _TrashScreenState extends State<TrashScreen> {
               return Column(
                 children: [
                   ListTile(
-                    leading: NodeIcon(
-                      iconField: node.icon,
+                    leading: EffectiveNodeIcon(
+                      node: node,
+                      classStyles: _classStyles,
                       fallbackIcon: _iconForNode(node),
-                      fallbackColor: colors.onSurfaceVariant,
                     ),
                     title: Text(
                       resolveNodeDisplayName(
