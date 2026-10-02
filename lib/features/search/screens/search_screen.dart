@@ -8,8 +8,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/routing/router.dart';
+import '../../../core/utils/class_icon_resolver.dart';
 import '../../../core/utils/node_display_name.dart';
-import '../../../core/utils/node_icon.dart';
 import '../../../core/utils/view_mode_store.dart';
 import '../../../data/models/node.dart';
 import '../../../data/repositories/node_repository.dart';
@@ -70,6 +70,10 @@ class _SearchScreenState extends State<SearchScreen> {
   /// Class uuid → class node, used for colored class pills in card results.
   Map<String, Node> _classIndex = {};
 
+  /// Resolved styles for [_classIndex], for effective node icons in the
+  /// suggestion rows.
+  Map<String, ResolvedClassStyle> _classStyles = {};
+
   @override
   void initState() {
     super.initState();
@@ -126,6 +130,7 @@ class _SearchScreenState extends State<SearchScreen> {
         _favorites = results[1] as List<Node>;
         _favoriteUuids = (results[2] as List<String>).toSet();
         _classIndex = {for (final c in results[3] as List<Node>) c.uuid: c};
+        _classStyles = resolveClassStyles(results[3] as List<Node>);
         _loadingSuggestions = false;
       });
     } catch (_) {
@@ -483,10 +488,10 @@ class _SearchScreenState extends State<SearchScreen> {
                 return Column(
                   children: [
                     ListTile(
-                      leading: NodeIcon(
-                        iconField: node.icon,
+                      leading: EffectiveNodeIcon(
+                        node: node,
+                        classStyles: _classStyles,
                         fallbackIcon: _iconForNode(node),
-                        fallbackColor: colors.onSurfaceVariant,
                       ),
                       title: Text(resolveNodeDisplayName(node, dateFormat: _dateFormat())),
                       trailing: _favoriteTrailing(node),
