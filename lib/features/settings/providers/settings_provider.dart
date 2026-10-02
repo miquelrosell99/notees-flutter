@@ -11,12 +11,6 @@ enum QuickCaptureDestination {
   today,
 }
 
-/// Which screen the Home tab shows.
-enum HomePage {
-  inbox,
-  today,
-}
-
 /// Persists user settings that are not handled by [ThemeProvider].
 class SettingsProvider extends ChangeNotifier {
   SettingsProvider(this._prefs);
@@ -46,14 +40,6 @@ class SettingsProvider extends ChangeNotifier {
     return QuickCaptureDestination.values.firstWhere(
       (d) => d.name == raw,
       orElse: () => QuickCaptureDestination.inbox,
-    );
-  }
-
-  HomePage get homePage {
-    final raw = _prefs.getString(_homePageKey);
-    return HomePage.values.firstWhere(
-      (p) => p.name == raw,
-      orElse: () => HomePage.inbox,
     );
   }
 
@@ -98,12 +84,6 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setHomePage(HomePage value) async {
-    await _prefs.setString(_homePageKey, value.name);
-    HapticFeedback.lightImpact();
-    notifyListeners();
-  }
-
   Future<void> setFloatingCaptureBubbleEnabled(bool value) async {
     await _prefs.setBool(_floatingCaptureBubbleEnabledKey, value);
     HapticFeedback.lightImpact();
@@ -133,7 +113,6 @@ class SettingsProvider extends ChangeNotifier {
 
   static const _trashRetentionDaysKey = 'trash_retention_days';
   static const _quickCaptureDestinationKey = 'quick_capture_destination';
-  static const _homePageKey = 'home_page';
   static const _floatingCaptureBubbleEnabledKey =
       'floating_capture_bubble_enabled';
   static const _floatingCaptureBubbleDefaultTypeKey =
@@ -156,14 +135,6 @@ String quickCaptureDestinationLabel(QuickCaptureDestination destination) {
   return switch (destination) {
     QuickCaptureDestination.inbox => 'Inbox',
     QuickCaptureDestination.today => "Today's note",
-  };
-}
-
-/// Human-readable label for a [HomePage].
-String homePageLabel(HomePage page) {
-  return switch (page) {
-    HomePage.inbox => 'Inbox',
-    HomePage.today => 'Today',
   };
 }
 

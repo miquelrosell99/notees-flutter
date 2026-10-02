@@ -288,16 +288,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   value: theme.pureBlack,
                   onChanged: theme.setPureBlack,
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(MdiIcons.homeOutline),
-                  title: const Text('Home page'),
-                  trailing: Text(
-                    homePageLabel(settings.homePage),
-                    style: TextStyle(color: colors.onSurfaceVariant),
-                  ),
-                  onTap: () => _showHomePagePicker(context, settings),
-                ),
               ],
             ),
           ),
@@ -721,17 +711,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       labelBuilder: quickCaptureTypeLabel,
     );
     if (type != null) await settings.setFloatingCaptureBubbleDefaultType(type);
-  }
-
-  Future<void> _showHomePagePicker(BuildContext context, SettingsProvider settings) async {
-    final page = await _showEnumPicker<HomePage>(
-      context: context,
-      title: 'Home page',
-      values: HomePage.values,
-      selected: settings.homePage,
-      labelBuilder: homePageLabel,
-    );
-    if (page != null) await settings.setHomePage(page);
   }
 
   Future<T?> _showEnumPicker<T>({
