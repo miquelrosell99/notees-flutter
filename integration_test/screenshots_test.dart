@@ -162,11 +162,16 @@ void main() {
     });
 
     // Node editor via a favorites row on Home (plain page, no children).
+    // Node editor via the Today card (seeded single-token AST children — the
+    // owner grey-box scenario): the block body must actually render.
     await step('open editor', () async {
       await tester.tap(find.text('Home'));
       await waitUntil(tester, () => tester.any(find.text(_todayLabel())));
-      await tester.tap(find.text('Reading list').first);
-      await waitUntil(tester, () => tester.any(find.byTooltip('More options')));
+      await tester.tap(find.text(_todayLabel()));
+      await waitUntil(
+        tester,
+        () => tester.any(_richTextContaining('Morning walk: 5km along the river')),
+      );
       await capture('06-editor');
       await popRoute();
     });
@@ -194,6 +199,12 @@ Future<void> waitUntil(WidgetTester tester, bool Function() condition) async {
   }
   throw StateError('timed out waiting for condition');
 }
+
+/// Matches RichText whose accumulated plain text contains [text] (the block
+/// rows render through AstRichText spans, so find.text cannot see them).
+Finder _richTextContaining(String text) => find.byWidgetPredicate(
+      (w) => w is RichText && w.text.toPlainText().contains(text),
+    );
 
 /// The Today card title, computed exactly like the Home screen does.
 String _todayLabel() => DateFormat.yMMMMEEEEd().format(DateTime.now());
