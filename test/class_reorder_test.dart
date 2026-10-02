@@ -68,7 +68,6 @@ void main() {
         'object.create',
         OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
           classIds: const [classA, classB, classC],
         ),
         100,
@@ -216,7 +215,6 @@ void main() {
         'object.create',
         OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
           classIds: const [classB],
         ),
         400,
@@ -291,8 +289,7 @@ void main() {
           'object.create',
           OperationPayloads.objectCreate(
             objectId: pageId,
-            nodeType: 'page',
-            classIds: const [classA, classB, classC],
+              classIds: const [classA, classB, classC],
           ),
           100,
         );
@@ -361,7 +358,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
           classIds: const [classA, classB, classC],
         ),
         affectedNodeIds: [pageId],

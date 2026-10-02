@@ -334,13 +334,13 @@ class NodeCacheRepository {
   /// payload.
   ///
   /// The v2 snapshot is a serialized derived-state SQLite database (the
-  /// store schema in `v2/packages/store/src/schema.ts`). This method opens it
+  /// store schema in `packages/store/src/schema.ts`). This method opens it
   /// in a temp file and maps the v2 shape into the local cache: `node`
-  /// (node_type/is_active/name/class_ids + hlc winner) into `node_cache`,
-  /// `node_child_order.position` strings into the fractional `position`
-  /// column, `class_member_set` and `property_value` rows into the local
-  /// derived tables, `class_extends` into the edge/closure tables (closure
-  /// rebuilt deterministically), and `class` / `property_schema` /
+  /// (is_class/present_as_main/is_active/name/class_ids + hlc winner) into
+  /// `node_cache`, `node_child_order.position` strings into the fractional
+  /// `position` column, `class_member_set` and `property_value` rows into
+  /// the local derived tables, `class_extends` into the edge/closure tables
+  /// (closure rebuilt deterministically), and `class` / `property_schema` /
   /// `class_property` into their caches.
   Future<void> restoreFromSnapshot(Uint8List bytes, String workspaceId) async {
     final tempDir = await getTemporaryDirectory();
@@ -615,8 +615,8 @@ class NodeCacheRepository {
   /// Reads [Node] objects from a v2 server-derived snapshot database.
   ///
   /// Exposed for testing; most callers should use [restoreFromSnapshot].
-  /// Class rows (`node_type = 'class'`) are skipped: the local cache keeps
-  /// classes in `class_cache`, which is the structural authority here.
+  /// Class rows (`is_class = 1`) are skipped: the local cache keeps classes
+  /// in `class_cache`, which is the structural authority here.
   Future<List<Node>> readNodesFromSnapshotDatabase(
     Database db,
     String workspaceId,
@@ -673,9 +673,11 @@ class NodeCacheRepository {
       }
     }
 
-    return nodeRows.where((row) => row['node_type'] != 'class').map((row) {
+    return nodeRows.where((row) => row['is_class'] != 1).map((row) {
       final uuid = row['id'] as String;
-      final nodeType = row['node_type'] as String? ?? 'block';
+      final isClass = (row['is_class'] as int? ?? 0) == 1;
+      final presentAsMain = (row['present_as_main'] as int? ?? 0) == 1;
+      final parentId = row['parent_id'] as String?;
       final classIdsJson = row['class_ids'] as String?;
       final classIds = (jsonDecode(classIdsJson ?? '[]') as List<dynamic>)
           .cast<String>();
@@ -703,10 +705,12 @@ class NodeCacheRepository {
         displayName: deriveDisplayName(name),
         icon: row['icon'] as String?,
         color: row['color'] as String?,
-        parentUuid: row['parent_id'] as String?,
+        parentUuid: parentId,
         sequence: double.tryParse(positionByNode[uuid] ?? '') ?? 0.0,
         position: positionByNode[uuid],
-        isPage: nodeType == 'page',
+        // Document chrome ⇔ class, parentless, or main-presenting (the
+        // render cascade); the is_page query flag mirrors it.
+        isPage: isClass || parentId == null || presentAsMain,
         isTask: classIds.contains(SystemClassUuids.task),
         isDaily: classIds.contains(SystemClassUuids.day),
         isMonthly: classIds.contains(SystemClassUuids.month),
@@ -722,7 +726,8 @@ class NodeCacheRepository {
         properties: propertiesByNode[uuid] ?? const {},
         createDate: row['created_at'] as String?,
         writeDate: row['updated_at'] as String?,
-        nodeType: nodeType,
+        isClass: isClass,
+        presentAsMain: presentAsMain,
         hlcPhysical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
         hlcLogical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
         actorId: row['actor_id'] as String?,
@@ -863,13 +868,17 @@ class NodeCacheRepository {
   // === Local read queries used when the relay sync service is active ===
 
   /// Recently touched pages, newest first. Excludes journal date pages,
-  /// which live in the dedicated Journals section.
+  /// which live in the dedicated Journals section. "Page" is a render state
+  /// (Revision 11): document chrome ⇔ a parentless or main-presenting
+  /// non-class node.
   Future<List<Node>> getRecentPages({int limit = 10}) async {
     final db = await _database.database;
     final rows = await db.query(
       'node_cache',
       where:
-          'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND is_daily = 0 AND is_monthly = 0 AND is_yearly = 0',
+          'is_class = 0 AND (parent_uuid IS NULL OR present_as_main = 1) AND '
+          'is_deleted = 0 AND is_archived = 0 AND is_daily = 0 AND '
+          'is_monthly = 0 AND is_yearly = 0',
       orderBy: "COALESCE(write_date, '') DESC, synced_at DESC",
       limit: limit,
     );
@@ -882,7 +891,9 @@ class NodeCacheRepository {
     final rows = await db.query(
       'node_cache',
       where:
-          'is_page = 1 AND is_deleted = 0 AND is_archived = 0 AND parent_uuid IS NULL AND is_daily = 0 AND is_monthly = 0 AND is_yearly = 0',
+          'is_class = 0 AND parent_uuid IS NULL AND is_deleted = 0 AND '
+          'is_archived = 0 AND is_daily = 0 AND is_monthly = 0 AND '
+          'is_yearly = 0',
       orderBy: "COALESCE(write_date, '') DESC",
     );
     return rows.map(_nodeFromRow).toList();
@@ -990,7 +1001,7 @@ class NodeCacheRepository {
     final db = await _database.database;
     final rows = await db.query(
       'node_cache',
-      columns: ['node_type', 'hlc_physical', 'hlc_logical', 'actor_id'],
+      columns: ['is_class', 'hlc_physical', 'hlc_logical', 'actor_id'],
       where: 'uuid = ?',
       whereArgs: [uuid],
       limit: 1,
@@ -998,19 +1009,20 @@ class NodeCacheRepository {
     if (rows.isEmpty) return null;
     final row = rows.first;
     return NodeRowMeta(
-      nodeType: row['node_type'] as String?,
+      isClass: (row['is_class'] as int? ?? 0) == 1,
       physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
       logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
       actor: row['actor_id'] as String? ?? '',
     );
   }
 
-  /// True when [uuid] is a class (v2 classes are tree-external: they can
-  /// never be a parent). Classes live in [class_cache]; a node row with
-  /// node_type 'class' also counts.
+  /// True when [uuid] is a class. Classes live in [class_cache]; a node row
+  /// with the `is_class` flag also counts. Classes are always roots (the v20
+  /// placement CHECK enforces `is_class = 0 OR parent_uuid IS NULL`) and may
+  /// have non-class children (spec I4).
   Future<bool> isClassNode(String uuid) async {
     final meta = await getRowMeta(uuid);
-    if (meta?.nodeType == 'class') return true;
+    if (meta?.isClass == true) return true;
     return await getClassByUuid(uuid) != null;
   }
 
@@ -1201,7 +1213,8 @@ class NodeCacheRepository {
         writeDate: node.writeDate,
         extendsUuid: node.extendsUuid,
         title: node.title,
-        nodeType: node.nodeType,
+        isClass: node.isClass,
+        presentAsMain: node.presentAsMain,
         classOrder: order,
         hlcPhysical: node.hlcPhysical,
         hlcLogical: node.hlcLogical,
@@ -1329,7 +1342,8 @@ class NodeCacheRepository {
         writeDate: node.writeDate,
         extendsUuid: node.extendsUuid,
         title: node.title,
-        nodeType: node.nodeType,
+        isClass: node.isClass,
+        presentAsMain: node.presentAsMain,
         classOrder: node.classOrder,
         hlcPhysical: node.hlcPhysical,
         hlcLogical: node.hlcLogical,
@@ -1616,7 +1630,8 @@ class NodeCacheRepository {
         writeDate: node.writeDate,
         extendsUuid: node.extendsUuid,
         title: node.title,
-        nodeType: node.nodeType,
+        isClass: node.isClass,
+        presentAsMain: node.presentAsMain,
         classOrder: node.classOrder,
         hlcPhysical: node.hlcPhysical,
         hlcLogical: node.hlcLogical,
@@ -1752,6 +1767,8 @@ class NodeCacheRepository {
       children: children,
       createDate: node.createDate,
       writeDate: node.writeDate,
+      isClass: node.isClass,
+      presentAsMain: node.presentAsMain,
       classOrder: node.classOrder,
     );
     return PageContent(node: pageNode, linkedReferences: const []);
@@ -2328,11 +2345,12 @@ class NodeCacheRepository {
   /// of [restoreFromSnapshot], used by the explicit snapshot-upload trigger.
   ///
   /// The bytes are a real SQLite database file: a temp-file DB is populated
-  /// from the local tables (nodes incl. title/position/node_type/hlc winner,
-  /// fractional child order, classes + extends closure, OR-Set membership,
-  /// property rows with their LWW winners, collection membership, edges) and
-  /// read back as bytes. Search/FTS and stats tables are intentionally
-  /// skipped: the server rebuilds them on restore.
+  /// from the local tables (nodes incl. title/position/is_class/
+  /// present_as_main/hlc winner, fractional child order, classes + extends
+  /// closure, OR-Set membership, property rows with their LWW winners,
+  /// collection membership, edges) and read back as bytes. Search/FTS and
+  /// stats tables are intentionally skipped: the server rebuilds them on
+  /// restore.
   Future<Uint8List?> buildV2SnapshotBytes(String workspaceId) async {
     final tempDir = await getTemporaryDirectory();
     final tempPath = join(
@@ -2370,7 +2388,8 @@ class NodeCacheRepository {
       CREATE TABLE node (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,
-        node_type TEXT NOT NULL DEFAULT 'block',
+        is_class INTEGER NOT NULL DEFAULT 0,
+        present_as_main INTEGER NOT NULL DEFAULT 0,
         parent_id TEXT,
         class_ids TEXT NOT NULL DEFAULT '[]',
         name TEXT,
@@ -2384,7 +2403,8 @@ class NodeCacheRepository {
         updated_by TEXT,
         hlc_physical INTEGER NOT NULL DEFAULT 0,
         hlc_logical INTEGER NOT NULL DEFAULT 0,
-        actor_id TEXT
+        actor_id TEXT,
+        CHECK (is_class = 0 OR parent_id IS NULL)
       )
     ''');
     await db.execute('''
@@ -2501,17 +2521,16 @@ class NodeCacheRepository {
     final local = await _database.database;
 
     // icon/color live in the node payload JSON (node_cache has no columns
-    // for them); title/position/node_type/hlc ride in the v16 columns.
+    // for them); title/position/is_class/present_as_main/hlc ride in the
+    // v16/v20 columns.
     final nodeRows = await local.rawQuery(
-      'SELECT uuid, name, title, position, node_type, parent_uuid, classes_uuid, '
-      'is_deleted, is_archived, write_date, hlc_physical, hlc_logical, '
-      'actor_id, payload FROM node_cache',
+      'SELECT uuid, name, title, position, is_class, present_as_main, '
+      'parent_uuid, classes_uuid, is_deleted, is_archived, write_date, '
+      'hlc_physical, hlc_logical, actor_id, payload FROM node_cache',
     );
     final batch = db.batch();
     for (final row in nodeRows) {
       final payload = jsonDecode(row['payload'] as String) as Map<String, dynamic>;
-      final nodeType = row['node_type'] as String? ??
-          ((payload['is_page'] as bool? ?? false) ? 'page' : 'block');
       final isDeleted = (row['is_deleted'] as int? ?? 0) == 1;
       final isArchived = (row['is_archived'] as int? ?? 0) == 1;
       final content = row['name'] as String? ?? '[]';
@@ -2519,7 +2538,8 @@ class NodeCacheRepository {
       batch.insert('node', {
         'id': row['uuid'],
         'workspace_id': workspaceId,
-        'node_type': nodeType,
+        'is_class': row['is_class'] ?? 0,
+        'present_as_main': row['present_as_main'] ?? 0,
         'parent_id': row['parent_uuid'],
         'class_ids': row['classes_uuid'] ?? '[]',
         'name': row['title'],
@@ -3171,10 +3191,13 @@ class NodeCacheRepository {
       'write_date': node.writeDate,
       'payload': jsonEncode(node.toJson()),
       'synced_at': syncedAt,
-      // v2 derived-state columns (see AppDatabase._migrateV16 / _migrateV19).
+      // v2 derived-state columns (see AppDatabase._migrateV16 / _migrateV19 /
+      // _migrateV20 — Revision 11: is_class/present_as_main replace the
+      // retired node_type).
       'title': node.title,
       'position': node.position,
-      'node_type': node.nodeType,
+      'is_class': node.isClass ? 1 : 0,
+      'present_as_main': node.presentAsMain == true ? 1 : 0,
       'class_order': jsonEncode(node.classOrder),
       'hlc_physical': node.hlcPhysical,
       'hlc_logical': node.hlcLogical,
@@ -3220,13 +3243,15 @@ class NodeCacheRepository {
   bool _matchesFilters(Node node, SearchFilters filters) {
     final isDatePage = node.isDaily || node.isMonthly || node.isYearly;
     switch (filters.nodeType) {
-      case NodeType.page:
+      case SearchKind.page:
+        // "Page" is a render state now (Revision 11): document chrome ⇔
+        // parentless or main-presenting.
         if (!node.isPage || isDatePage) return false;
-      case NodeType.task:
+      case SearchKind.task:
         if (!node.isTask) return false;
-      case NodeType.journal:
+      case SearchKind.journal:
         if (!isDatePage) return false;
-      case NodeType.any:
+      case SearchKind.any:
         // Date pages are intentionally scoped to journal views; do not surface
         // them in generic "any" searches unless the user is explicitly looking
         // for a date by query text.
@@ -3699,13 +3724,13 @@ class NodeCacheRepository {
 /// Row-level LWW metadata read from a `node_cache` row (v2 derived columns).
 class NodeRowMeta {
   const NodeRowMeta({
-    this.nodeType,
+    required this.isClass,
     required this.physical,
     required this.logical,
     required this.actor,
   });
 
-  final String? nodeType;
+  final bool isClass;
   final int physical;
   final int logical;
   final String actor;

@@ -44,6 +44,8 @@ void main() {
         displayName: name,
         parentUuid: parentUuid,
         isPage: true,
+        // Revision 11: page-ness is the render bit, not a node kind.
+        presentAsMain: true,
         writeDate: writeDate,
       );
     }
@@ -74,7 +76,14 @@ void main() {
     test('upsert stores page flags and getRecentPages returns them', () async {
       await repo.upsert(makePage(uuid: 'p-1', name: 'A', writeDate: '2026-01-02'));
       await repo.upsert(makePage(uuid: 'p-2', name: 'B', writeDate: '2026-01-03'));
-      await repo.upsert(Node(id: 0, uuid: 'b-1', name: 'Block', displayName: 'Block'));
+      // An inline child block: parented, bit unset — not a page.
+      await repo.upsert(Node(
+        id: 0,
+        uuid: 'b-1',
+        name: 'Block',
+        displayName: 'Block',
+        parentUuid: 'p-1',
+      ));
 
       final pages = await repo.getRecentPages(limit: 10);
       expect(pages.length, 2);
@@ -117,13 +126,13 @@ void main() {
       await repo.upsert(makeTask(uuid: 't-1', name: 'Task'));
 
       final pages = await repo.searchWithFilters(
-        const SearchFilters(nodeType: NodeType.page),
+        const SearchFilters(nodeType: SearchKind.page),
       );
       expect(pages.length, 1);
       expect(pages.first.uuid, 'p-1');
 
       final tasks = await repo.searchWithFilters(
-        const SearchFilters(nodeType: NodeType.task),
+        const SearchFilters(nodeType: SearchKind.task),
       );
       expect(tasks.length, 1);
       expect(tasks.first.uuid, 't-1');
@@ -239,12 +248,13 @@ void main() {
         ':memory:',
         options: OpenDatabaseOptions(singleInstance: false),
       );
-      // v2 derived-state schema (v2/packages/store/src/schema.ts).
+      // v2 derived-state schema (packages/store/src/schema.ts, Revision 11).
       await snapshotDb.execute('''
         CREATE TABLE node (
           id TEXT PRIMARY KEY,
           workspace_id TEXT NOT NULL,
-          node_type TEXT NOT NULL DEFAULT 'block',
+          is_class INTEGER NOT NULL DEFAULT 0,
+          present_as_main INTEGER NOT NULL DEFAULT 0,
           parent_id TEXT,
           class_ids TEXT NOT NULL DEFAULT '[]',
           name TEXT,
@@ -374,7 +384,8 @@ void main() {
       await snapshotDb.insert('node', {
         'id': 'page-1',
         'workspace_id': workspaceId,
-        'node_type': 'page',
+        'is_class': 0,
+        'present_as_main': 1,
         'class_ids': '[]',
         'name': 'Hello page',
         'parent_id': null,
@@ -390,7 +401,8 @@ void main() {
       await snapshotDb.insert('node', {
         'id': 'task-1',
         'workspace_id': workspaceId,
-        'node_type': 'block',
+        'is_class': 0,
+        'present_as_main': 0,
         'class_ids': '["${SystemClassUuids.task}"]',
         'parent_id': 'page-1',
         'content': '[{"type":"paragraph","children":[{"type":"text","text":"Buy milk"}]}]',
@@ -400,7 +412,8 @@ void main() {
       await snapshotDb.insert('node', {
         'id': 'archived-1',
         'workspace_id': workspaceId,
-        'node_type': 'page',
+        'is_class': 0,
+        'present_as_main': 1,
         'class_ids': '[]',
         'is_active': 0,
         'updated_at': '2026-01-01T00:00:00Z',
@@ -439,7 +452,8 @@ void main() {
 
       final page = nodes.firstWhere((n) => n.uuid == 'page-1');
       expect(page.isPage, isTrue);
-      expect(page.nodeType, 'page');
+      expect(page.isClass, isFalse);
+      expect(page.presentAsMain, isTrue);
       // Title-is-content: the retired node `name` column is ignored; the
       // display name derives from the content excerpt (legacy paragraph AST
       // normalizes to 'Hello').
@@ -450,6 +464,8 @@ void main() {
 
       final task = nodes.firstWhere((n) => n.uuid == 'task-1');
       expect(task.isTask, isTrue);
+      expect(task.isClass, isFalse);
+      expect(task.presentAsMain, isFalse);
       expect(task.parentUuid, 'page-1');
       // v2 fractional positions stay strings.
       expect(task.position, 'a');
@@ -464,6 +480,160 @@ void main() {
 
       await appDb.close();
       AppDatabase.reset();
+    });
+  });
+
+  group('AppDatabase v19 → v20 migration (Revision 11 render-state model)',
+      () {
+    late Database ffiDb;
+
+    setUp(() async {
+      AppDatabase.reset();
+      ffiDb = await databaseFactoryFfi.openDatabase(
+        ':memory:',
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      // The v19 node_cache shape: base table + v16 columns (title, position,
+      // node_type, hlc winner) + v19 class_order.
+      await ffiDb.execute('''
+        CREATE TABLE node_cache (
+          uuid TEXT PRIMARY KEY,
+          name TEXT,
+          parent_uuid TEXT,
+          classes_uuid TEXT,
+          is_page INTEGER NOT NULL DEFAULT 0,
+          is_task INTEGER NOT NULL DEFAULT 0,
+          is_daily INTEGER NOT NULL DEFAULT 0,
+          is_monthly INTEGER NOT NULL DEFAULT 0,
+          is_yearly INTEGER NOT NULL DEFAULT 0,
+          is_deleted INTEGER NOT NULL DEFAULT 0,
+          is_archived INTEGER NOT NULL DEFAULT 0,
+          sequence REAL NOT NULL DEFAULT 0,
+          version INTEGER NOT NULL DEFAULT 0,
+          write_date TEXT,
+          payload TEXT NOT NULL,
+          synced_at INTEGER NOT NULL,
+          title TEXT,
+          position TEXT,
+          node_type TEXT,
+          hlc_physical INTEGER NOT NULL DEFAULT 0,
+          hlc_logical INTEGER NOT NULL DEFAULT 0,
+          actor_id TEXT,
+          class_order TEXT NOT NULL DEFAULT '[]'
+        )
+      ''');
+      await ffiDb.execute(
+        'CREATE INDEX idx_node_cache_parent ON node_cache(parent_uuid)',
+      );
+      await ffiDb.execute(
+        'CREATE INDEX idx_node_cache_deleted ON node_cache(is_deleted)',
+      );
+      await ffiDb.execute(
+        'CREATE INDEX idx_node_cache_page ON node_cache(is_page)',
+      );
+    });
+
+    tearDown(() async {
+      await ffiDb.close();
+      AppDatabase.reset();
+    });
+
+    test('rebuilds node_type into is_class/present_as_main and drops it',
+        () async {
+      // Payload blobs embed the toJson shape; after the wipe every blob is
+      // rewritten by the new code, so the blobs carry the new keys (the
+      // migration maps the retired node_type column, not the blobs).
+      String payload(String uuid, {bool page = false, bool cls = false}) =>
+          '{"id": 0, "uuid": "$uuid", "name": "[]", "display_name": "", '
+              '"is_page": $page, "is_class": $cls, '
+              '"present_as_main": ${page && !cls}}';
+      await ffiDb.insert('node_cache', {
+        'uuid': 'page-1',
+        'name': '[]',
+        'parent_uuid': null,
+        'classes_uuid': '[]',
+        'is_page': 1,
+        'payload': payload('page-1', page: true),
+        'synced_at': 1,
+        'node_type': 'page',
+      });
+      await ffiDb.insert('node_cache', {
+        'uuid': 'block-1',
+        'name': '[]',
+        'parent_uuid': 'page-1',
+        'classes_uuid': '[]',
+        'is_page': 0,
+        'payload': payload('block-1'),
+        'synced_at': 2,
+        'node_type': 'block',
+      });
+      await ffiDb.insert('node_cache', {
+        'uuid': 'class-1',
+        'name': '[]',
+        'parent_uuid': null,
+        'classes_uuid': '[]',
+        'is_page': 0,
+        'payload': payload('class-1', cls: true),
+        'synced_at': 3,
+        'node_type': 'class',
+      });
+
+      // initializeSchema runs the full migration chain on the pre-existing
+      // table (all CREATEs are IF NOT EXISTS; _migrateV20 rebuilds it).
+      final database = AppDatabase.fromDatabase(ffiDb);
+      await database.initializeSchema();
+
+      final columns = await ffiDb
+          .rawQuery('PRAGMA table_info(node_cache)')
+          .then((rows) => rows.map((r) => r['name'] as String).toList());
+      expect(columns, contains('is_class'));
+      expect(columns, contains('present_as_main'));
+      expect(columns, isNot(contains('node_type')));
+
+      final rows = await ffiDb.rawQuery(
+        'SELECT uuid, is_class, present_as_main FROM node_cache '
+        'ORDER BY uuid',
+      );
+      expect(
+        rows
+            .map(
+              (r) => (
+                r['uuid'],
+                r['is_class'],
+                r['present_as_main'],
+              ),
+            )
+            .toList(),
+        [
+          ('block-1', 0, 0),
+          ('class-1', 1, 0),
+          ('page-1', 0, 1),
+        ],
+      );
+
+      // The repository reads the new columns back through the Node model.
+      final repo = NodeCacheRepository(database);
+      final page = await repo.getByUuid('page-1');
+      expect(page!.presentAsMain, isTrue);
+      expect(page.isClass, isFalse);
+      final cls = await repo.getByUuid('class-1');
+      expect(cls!.isClass, isTrue);
+      expect(cls.presentAsMain, isFalse);
+
+      // The v20 placement CHECK is live: a class with a parent, and any
+      // is_class row under a parent, is rejected by SQLite.
+      expect(
+        () => ffiDb.insert('node_cache', {
+          'uuid': 'class-2',
+          'name': '[]',
+          'parent_uuid': 'page-1',
+          'classes_uuid': '[]',
+          'payload': '{}',
+          'synced_at': 4,
+          'is_class': 1,
+        }),
+        throwsA(isA<DatabaseException>()),
+      );
     });
   });
 }

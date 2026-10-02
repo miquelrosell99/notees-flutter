@@ -158,7 +158,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: nodeId,
-          nodeType: 'page',
           classIds: const [taskClass],
         ),
         physical: physical,
@@ -233,7 +232,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: nodeId,
-          nodeType: 'page',
         ),
         physical: 90,
       ));
@@ -251,7 +249,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: nodeId,
-          nodeType: 'page',
           classIds: const [taskClass],
         ),
         physical: 100, // exact tie with the remove

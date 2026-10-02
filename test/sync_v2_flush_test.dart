@@ -143,10 +143,10 @@ void main() {
       // The wire envelope is a v2 object.create.
       expect(pushed, hasLength(1));
       expect(pushed.first['opType'], 'object.create');
-      expect(pushed.first['protocolVersion'], 2);
+      expect(pushed.first['protocolVersion'], 3);
       expect(pushed.first['payload']['objectId'],
           '20000000-0000-4000-8000-000000000001');
-      expect(pushed.first['payload']['nodeType'], 'page');
+      expect(pushed.first['payload']['presentAsMain'], isTrue);
       expect(pushed.first['deviceId'], '40000000-0000-4000-8000-000000000001');
       expect(pushed.first['client'], 'flutter');
 

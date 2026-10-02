@@ -25,7 +25,7 @@ void main() {
         'affectedNodeIds': [uuidNode],
         'opType': 'object.create',
         'timestamp': ?timestamp,
-        'payload': {'objectId': uuidNode, 'nodeType': 'page'},
+        'payload': {'objectId': uuidNode, 'presentAsMain': true},
       };
 
   group('Hlc', () {
@@ -61,7 +61,7 @@ void main() {
         opType: 'object.create',
         payload: const {
           'objectId': uuidNode,
-          'nodeType': 'page',
+          'presentAsMain': true,
           'classIds': <String>[],
         },
         timestamp: '2026-09-24T12:00:00.000Z',

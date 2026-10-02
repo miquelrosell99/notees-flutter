@@ -36,7 +36,8 @@ class Node {
     this.extendsUuid = const [],
     this.title,
     this.position,
-    this.nodeType,
+    this.isClass = false,
+    this.presentAsMain,
     this.classOrder = const [],
     this.hlcPhysical = 0,
     this.hlcLogical = 0,
@@ -87,9 +88,18 @@ class Node {
   /// equivalent); null for legacy rows that only have [sequence].
   final String? position;
 
-  /// v2 structural role: 'page' | 'block' | 'class'. Null for legacy rows
-  /// (isPage carries the information).
-  final String? nodeType;
+  /// Revision-11 render-state model: [isClass] is the ONLY identity marker
+  /// — classes are always roots (`CHECK (is_class = 0 OR parent_id IS NULL)`)
+  /// and may have non-class children. A class renders from class_cache; the
+  /// editor never sees class rows in node_cache.
+  final bool isClass;
+
+  /// Render bit, read only by the third cascade branch: `is_class` → Class
+  /// view; parentless → document chrome (bit unread); else the bit → the
+  /// parent's main-children zone + document chrome when zoomed (true), or
+  /// inline body + block chrome (false). Null only for legacy rows that
+  /// predate the v20 column.
+  final bool? presentAsMain;
 
   /// User-defined class ORDER (class.reorder, LWW-by-arrival); the effective
   /// classes_uuid = ordered members first, then unlisted members sorted by
@@ -187,7 +197,8 @@ class Node {
           const [],
       title: title,
       position: json['position'] as String?,
-      nodeType: json['node_type'] as String?,
+      isClass: json['is_class'] as bool? ?? false,
+      presentAsMain: json['present_as_main'] as bool?,
       classOrder:
           (json['class_order'] as List<dynamic>?)?.cast<String>() ??
           const [],
@@ -238,7 +249,8 @@ class Node {
       extendsUuid: extendsUuid,
       title: title,
       position: position,
-      nodeType: nodeType,
+      isClass: isClass,
+      presentAsMain: presentAsMain,
       classOrder: classOrder,
       hlcPhysical: hlcPhysical,
       hlcLogical: hlcLogical,
@@ -282,7 +294,8 @@ class Node {
       extendsUuid: extendsUuid,
       title: title,
       position: position,
-      nodeType: nodeType,
+      isClass: isClass,
+      presentAsMain: presentAsMain,
       classOrder: classOrder,
       hlcPhysical: hlcPhysical,
       hlcLogical: hlcLogical,
@@ -324,7 +337,8 @@ class Node {
     'extends_uuid': extendsUuid,
     'title': title,
     'position': position,
-    'node_type': nodeType,
+    'is_class': isClass,
+    'present_as_main': presentAsMain,
     'class_order': classOrder,
     'hlc_physical': hlcPhysical,
     'hlc_logical': hlcLogical,

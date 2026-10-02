@@ -155,9 +155,21 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         block.controller.dispose();
       }
       _roots.clear();
-      _childPages = page.children.where((b) => b.isPage).toList();
+      // Revision-11 render cascade for the children of the opened node:
+      // class children never exist (classes are always roots — they render
+      // from class_cache, not here); a parented child renders in the
+      // main-children ("Child pages") zone when its present_as_main bit is
+      // set, inline in the body otherwise (the bit is the one partition bit
+      // for every parent type).
+      _childPages = page.children
+          .where((b) => !b.isClass && b.presentAsMain == true)
+          .toList();
       _roots.addAll(
-        _nodesToBlockTree(page.children.where((b) => !b.isPage).toList()),
+        _nodesToBlockTree(
+          page.children
+              .where((b) => b.isClass || b.presentAsMain != true)
+              .toList(),
+        ),
       );
 
       final properties = await repo.fetchNodeProperties(widget.nodeUuid);
@@ -607,6 +619,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       children: node.children,
       createDate: node.createDate,
       writeDate: node.writeDate,
+      isClass: node.isClass,
+      presentAsMain: node.presentAsMain,
     );
   }
 
@@ -636,6 +650,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       children: node.children,
       createDate: node.createDate,
       writeDate: node.writeDate,
+      isClass: node.isClass,
+      presentAsMain: node.presentAsMain,
     );
   }
 
@@ -665,6 +681,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       children: node.children,
       createDate: node.createDate,
       writeDate: node.writeDate,
+      isClass: node.isClass,
+      presentAsMain: node.presentAsMain,
     );
   }
 
@@ -1376,6 +1394,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       children: node.children,
       createDate: node.createDate,
       writeDate: node.writeDate,
+      isClass: node.isClass,
+      presentAsMain: node.presentAsMain,
     );
   }
 
@@ -1408,6 +1428,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       children: node.children,
       createDate: node.createDate,
       writeDate: node.writeDate,
+      isClass: node.isClass,
+      presentAsMain: node.presentAsMain,
     );
   }
 

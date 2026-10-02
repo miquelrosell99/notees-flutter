@@ -75,7 +75,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: NodeType.values
+                      children: SearchKind.values
                           .map(_buildNodeTypeChip)
                           .toList(),
                     ),
@@ -108,7 +108,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
     );
   }
 
-  Widget _buildNodeTypeChip(NodeType type) {
+  Widget _buildNodeTypeChip(SearchKind type) {
     final selected = _filters.nodeType == type;
     return ChoiceChip(
       label: Text(type.label),

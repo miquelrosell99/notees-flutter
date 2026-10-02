@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 19,
+          version: 20,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 19,
+      version: 20,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -114,6 +114,7 @@ class AppDatabase {
     await _createEdge(db);
     await _createClassProperty(db);
     await _migrateV19(db);
+    await _migrateV20(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -178,6 +179,9 @@ class AppDatabase {
     if (oldVersion < 19) {
       await _migrateV19(db);
     }
+    if (oldVersion < 20) {
+      await _migrateV20(db);
+    }
   }
 
   /// v16 — derived-state depth for the relay-v2 appliers:
@@ -185,7 +189,9 @@ class AppDatabase {
   ///    slot, split from the content `name` column; since retired — the
   ///    protocol has no node `name` field anymore (title-is-content,
   ///    2026-10-01) — the column stays for legacy rows only), lexicographic
-  ///    fractional `position`, `node_type`, and the row-LWW winner
+  ///    fractional `position`, `node_type` (retired by v20: the render-state
+  ///    migration rebuilds the table with `is_class`/`present_as_main` and
+  ///    drops it), and the row-LWW winner
   ///    (`hlc_physical`, `hlc_logical`, `actor_id`);
   ///  - new derived tables mirroring the v2 store: OR-Set class membership,
   ///    m2m class extends + transitive closure, multi-value property rows
@@ -227,6 +233,102 @@ class AppDatabase {
       'node_cache',
       'class_order',
       "TEXT NOT NULL DEFAULT '[]'",
+    );
+  }
+
+  /// v20 — Revision-11 render-state model (2026-10-02 protocol lockstep,
+  /// store schema v7→v8 parity): the retired `node_type` enumeration
+  /// (`page`/`block`/`class`) is replaced by two booleans — `is_class` (the
+  /// only identity marker; classes are always roots) and `present_as_main`
+  /// (the render bit read by the third cascade branch). Table rebuild (safe
+  /// on stock SQLite builds — no DROP COLUMN): the rows map
+  /// page → (0, 1), block → (0, 0), class → (1, 0), and the single
+  /// placement CHECK (`is_class = 0 OR parent_uuid IS NULL`) replaces the
+  /// retired block-needs-a-parent / class-is-tree-external rules.
+  /// Parentless non-class nodes are legal from here on: they render with
+  /// document chrome by the second cascade branch regardless of the bit.
+  Future<void> _migrateV20(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(node_cache)');
+    if (columns.any((c) => c['name'] == 'node_type')) {
+      await db.execute('''
+        CREATE TABLE node_cache_v20 (
+          uuid TEXT PRIMARY KEY,
+          name TEXT,
+          parent_uuid TEXT,
+          classes_uuid TEXT,
+          is_class INTEGER NOT NULL DEFAULT 0,
+          present_as_main INTEGER NOT NULL DEFAULT 0,
+          is_page INTEGER NOT NULL DEFAULT 0,
+          is_task INTEGER NOT NULL DEFAULT 0,
+          is_daily INTEGER NOT NULL DEFAULT 0,
+          is_monthly INTEGER NOT NULL DEFAULT 0,
+          is_yearly INTEGER NOT NULL DEFAULT 0,
+          is_deleted INTEGER NOT NULL DEFAULT 0,
+          is_archived INTEGER NOT NULL DEFAULT 0,
+          sequence REAL NOT NULL DEFAULT 0,
+          version INTEGER NOT NULL DEFAULT 0,
+          write_date TEXT,
+          payload TEXT NOT NULL,
+          synced_at INTEGER NOT NULL,
+          title TEXT,
+          position TEXT,
+          class_order TEXT NOT NULL DEFAULT '[]',
+          hlc_physical INTEGER NOT NULL DEFAULT 0,
+          hlc_logical INTEGER NOT NULL DEFAULT 0,
+          actor_id TEXT,
+          CHECK (is_class = 0 OR parent_uuid IS NULL)
+        )
+      ''');
+      await db.execute('''
+        INSERT INTO node_cache_v20 (
+          uuid, name, parent_uuid, classes_uuid, is_class, present_as_main,
+          is_page, is_task, is_daily, is_monthly, is_yearly, is_deleted,
+          is_archived, sequence, version, write_date, payload, synced_at,
+          title, position, class_order,
+          hlc_physical, hlc_logical, actor_id
+        )
+        SELECT
+          uuid, name, parent_uuid, classes_uuid,
+          CASE WHEN node_type = 'class' THEN 1 ELSE 0 END,
+          CASE WHEN node_type = 'page' THEN 1 ELSE 0 END,
+          is_page, is_task, is_daily, is_monthly, is_yearly, is_deleted,
+          is_archived, sequence, version, write_date, payload, synced_at,
+          title, position, class_order,
+          hlc_physical, hlc_logical, actor_id
+        FROM node_cache
+      ''');
+      await db.execute('DROP TABLE node_cache');
+      await db.execute('ALTER TABLE node_cache_v20 RENAME TO node_cache');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_node_cache_parent ON node_cache(parent_uuid)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_node_cache_deleted ON node_cache(is_deleted)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_node_cache_page ON node_cache(is_page)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_node_cache_task ON node_cache(is_task)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_node_cache_daily ON node_cache(is_daily)',
+      );
+      return;
+    }
+    // No node_type column: the table is already at the v20 shape (fresh
+    // create); keep the guarded adds for defense in depth.
+    await _addColumnIfMissing(
+      db,
+      'node_cache',
+      'is_class',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await _addColumnIfMissing(
+      db,
+      'node_cache',
+      'present_as_main',
+      'INTEGER NOT NULL DEFAULT 0',
     );
   }
 
@@ -447,11 +549,13 @@ class AppDatabase {
 
   Future<void> _createNodeCache(Database db) async {
     await db.execute('''
-      CREATE TABLE node_cache (
+      CREATE TABLE IF NOT EXISTS node_cache (
         uuid TEXT PRIMARY KEY,
         name TEXT,
         parent_uuid TEXT,
         classes_uuid TEXT,
+        is_class INTEGER NOT NULL DEFAULT 0,
+        present_as_main INTEGER NOT NULL DEFAULT 0,
         is_page INTEGER NOT NULL DEFAULT 0,
         is_task INTEGER NOT NULL DEFAULT 0,
         is_daily INTEGER NOT NULL DEFAULT 0,
@@ -463,19 +567,20 @@ class AppDatabase {
         version INTEGER NOT NULL DEFAULT 0,
         write_date TEXT,
         payload TEXT NOT NULL,
-        synced_at INTEGER NOT NULL
+        synced_at INTEGER NOT NULL,
+        CHECK (is_class = 0 OR parent_uuid IS NULL)
       )
     ''');
     await db.execute(
-      'CREATE INDEX idx_node_cache_parent ON node_cache(parent_uuid)',
+      'CREATE INDEX IF NOT EXISTS idx_node_cache_parent ON node_cache(parent_uuid)',
     );
     await db.execute(
-      'CREATE INDEX idx_node_cache_deleted ON node_cache(is_deleted)',
+      'CREATE INDEX IF NOT EXISTS idx_node_cache_deleted ON node_cache(is_deleted)',
     );
-    await db.execute('CREATE INDEX idx_node_cache_page ON node_cache(is_page)');
-    await db.execute('CREATE INDEX idx_node_cache_task ON node_cache(is_task)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_node_cache_page ON node_cache(is_page)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_node_cache_task ON node_cache(is_task)');
     await db.execute(
-      'CREATE INDEX idx_node_cache_daily ON node_cache(is_daily)',
+      'CREATE INDEX IF NOT EXISTS idx_node_cache_daily ON node_cache(is_daily)',
     );
   }
 
@@ -891,6 +996,7 @@ class AppDatabase {
     await _createEdge(db);
     await _createClassProperty(db);
     await _migrateV19(db);
+    await _migrateV20(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

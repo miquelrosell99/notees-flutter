@@ -34,10 +34,10 @@ class FilterChipBar extends StatelessWidget {
   List<Widget> _buildChips() {
     final chips = <Widget>[];
 
-    if (filters.nodeType != NodeType.any) {
+    if (filters.nodeType != SearchKind.any) {
       chips.add(_FilterChip(
         label: filters.nodeType.label,
-        onDeleted: () => onChanged(filters.copyWith(nodeType: NodeType.any)),
+        onDeleted: () => onChanged(filters.copyWith(nodeType: SearchKind.any)),
       ));
     }
 

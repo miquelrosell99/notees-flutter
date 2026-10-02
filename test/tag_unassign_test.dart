@@ -53,8 +53,7 @@ void main() {
           opType: 'object.create',
           payload: OperationPayloads.objectCreate(
             objectId: objectId,
-            nodeType: 'page',
-          ),
+            ),
           physical: physical,
         ));
 
@@ -94,7 +93,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
           tagIds: const [tagA, tagB],
         ),
         physical: 200,
@@ -109,7 +107,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
           tagIds: const [tagA, tagB],
         ),
         physical: 200,
@@ -130,7 +127,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
           tagIds: const [tagA, tagB],
         ),
         physical: 200,
@@ -147,7 +143,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
           tagIds: const [tagA],
         ),
         physical: 250,
@@ -162,7 +157,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
           tagIds: const [tagA, tagB],
         ),
         physical: 200,
@@ -179,7 +173,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
           tagIds: const [tagA],
         ),
         physical: 400,
@@ -194,7 +187,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
           tagIds: const [tagA],
         ),
         physical: 500,
@@ -217,7 +209,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
           tagIds: const [tagA],
         ),
         physical: 300,
@@ -244,7 +235,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
           tagIds: const [tagB],
         ),
         physical: 300,

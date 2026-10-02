@@ -111,7 +111,7 @@ class WidgetService {
     final today = DateTime(now.year, now.month, now.day);
     return repo.searchWithFilters(
       const SearchFilters(
-        nodeType: NodeType.task,
+        nodeType: SearchKind.task,
         taskState: TaskState.open,
         sortBy: SortBy.dueDate,
         limit: 50,

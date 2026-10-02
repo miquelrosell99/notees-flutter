@@ -31,7 +31,7 @@ void main() {
     }) =>
         {
           'id': id,
-          'protocolVersion': 2,
+          'protocolVersion': 3,
           'workspaceId': workspaceId,
           'actorId': actorId,
           'deviceId': 'test-device',
@@ -158,7 +158,7 @@ void main() {
               opType: 'object.create',
               payload: {
                 'objectId': node1,
-                'nodeType': 'page',
+                'presentAsMain': true,
                 'classIds': const <String>[],
               },
             ),
@@ -198,7 +198,7 @@ void main() {
               opType: 'object.create',
               payload: {
                 'objectId': node1,
-                'nodeType': 'page',
+                'presentAsMain': true,
                 'classIds': const <String>[],
               },
             ),
@@ -207,7 +207,7 @@ void main() {
               opType: 'object.create',
               payload: {
                 'objectId': node2,
-                'nodeType': 'page',
+                'presentAsMain': true,
                 'classIds': const <String>[],
               },
               physical: 2,
@@ -310,7 +310,7 @@ void main() {
               opType: 'object.create',
               payload: {
                 'objectId': node1,
-                'nodeType': 'page',
+                'presentAsMain': true,
                 'classIds': const <String>[],
               },
             ),
@@ -430,7 +430,7 @@ void main() {
       expect(rows, hasLength(1));
       final envelope = jsonDecode(rows.first['envelope_json'] as String)
           as Map<String, dynamic>;
-      expect(envelope['protocolVersion'], 2);
+      expect(envelope['protocolVersion'], 3);
       expect(envelope['deviceId'], '40000000-0000-4000-8000-000000000001');
       expect(envelope['client'], 'flutter');
       expect(envelope['timestamp'], isNotNull);

@@ -2,7 +2,7 @@
 class SearchFilters {
   const SearchFilters({
     this.query = '',
-    this.nodeType = NodeType.any,
+    this.nodeType = SearchKind.any,
     this.classUuids = const [],
     this.taskState = TaskState.any,
     this.dateFrom,
@@ -14,7 +14,7 @@ class SearchFilters {
   });
 
   final String query;
-  final NodeType nodeType;
+  final SearchKind nodeType;
   final List<String> classUuids;
   final TaskState taskState;
   final DateTime? dateFrom;
@@ -26,7 +26,7 @@ class SearchFilters {
 
   bool get isEmpty =>
       query.isEmpty &&
-      nodeType == NodeType.any &&
+      nodeType == SearchKind.any &&
       classUuids.isEmpty &&
       taskState == TaskState.any &&
       dateFrom == null &&
@@ -34,7 +34,7 @@ class SearchFilters {
 
   SearchFilters copyWith({
     String? query,
-    NodeType? nodeType,
+    SearchKind? nodeType,
     List<String>? classUuids,
     TaskState? taskState,
     DateTime? dateFrom,
@@ -62,9 +62,9 @@ class SearchFilters {
   Map<String, dynamic> toJson() {
     return {
       'query': query,
-      'is_page': nodeType == NodeType.page ? true : null,
-      'is_task': nodeType == NodeType.task ? true : null,
-      'is_daily': nodeType == NodeType.journal ? true : null,
+      'is_page': nodeType == SearchKind.page ? true : null,
+      'is_task': nodeType == SearchKind.task ? true : null,
+      'is_daily': nodeType == SearchKind.journal ? true : null,
       'class_uuids': classUuids,
       'task_state': taskState.value,
       'date_from': dateFrom?.toIso8601String().split('T').first,
@@ -77,13 +77,16 @@ class SearchFilters {
   }
 }
 
-enum NodeType {
+/// UI-only search segment (renamed from `NodeType` in the Revision-11
+/// lockstep: `node type` is no longer a model concept — the render state
+/// is `is_class` + `present_as_main`; this enum only scopes the search UI).
+enum SearchKind {
   any('All'),
   page('Pages'),
   task('Tasks'),
   journal('Journals');
 
-  const NodeType(this.label);
+  const SearchKind(this.label);
   final String label;
 }
 

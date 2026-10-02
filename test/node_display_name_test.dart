@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/core/utils/date_uuid.dart';
 import 'package:notees/core/utils/node_display_name.dart';
 import 'package:notees/data/models/node.dart';
+import 'package:notees/shared/views/_view_helpers.dart';
 
 void main() {
   Node journalNode({
@@ -109,4 +110,61 @@ void main() {
       expect(resolveNodeDisplayName(unnamed), 'Untitled');
     });
   });
+
+  /// Revision-11 render cascade as a user-facing label (typeLabel in
+  /// lib/shared/views/_view_helpers.dart): is_class → Class; parentless →
+  /// Page (document chrome, bit unread); a parented non-class node → Page
+  /// when its present_as_main bit is set, Block when inline.
+  group('typeLabel render-state cascade', () {
+  Node node({
+    bool isClass = false,
+    bool? presentAsMain,
+    String? parentUuid,
+    bool isTask = false,
+    bool isDaily = false,
+  }) {
+    return Node(
+      id: 0,
+      uuid: '00000000-0000-0000-0000-000000000001',
+      name: '',
+      displayName: '',
+      isClass: isClass,
+      presentAsMain: presentAsMain,
+      parentUuid: parentUuid,
+      isTask: isTask,
+      isDaily: isDaily,
+    );
+  }
+
+  test('is_class wins over everything (identity marker)', () {
+    expect(
+      typeLabel(node(isClass: true, presentAsMain: false, parentUuid: null)),
+      'Class',
+    );
+  });
+
+  test('parentless non-class nodes are Pages (bit unread)', () {
+    expect(typeLabel(node(presentAsMain: false)), 'Page');
+    expect(typeLabel(node(presentAsMain: null)), 'Page');
+  });
+
+  test('parented nodes follow the render bit', () {
+    const parent = '00000000-0000-0000-0000-0000000000aa';
+    expect(
+      typeLabel(node(presentAsMain: true, parentUuid: parent)),
+      'Page',
+    );
+    expect(typeLabel(node(presentAsMain: false, parentUuid: parent)), 'Block');
+    // A parented node without the bit set is an inline block.
+    expect(typeLabel(node(parentUuid: parent)), 'Block');
+  });
+
+  test('journal and task keep their dedicated labels', () {
+    expect(typeLabel(node(isDaily: true)), 'Journal');
+    expect(
+      typeLabel(node(isTask: true, parentUuid: 'p')),
+      'Task',
+    );
+  });
+});
 }

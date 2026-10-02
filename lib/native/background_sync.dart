@@ -120,7 +120,7 @@ Future<void> _rescheduleTaskReminders({
     final repo = NodeRepository(dio: dio, syncService: syncService);
     final now = DateTime.now();
     final filters = SearchFilters(
-      nodeType: NodeType.task,
+      nodeType: SearchKind.task,
       taskState: TaskState.open,
       dateFrom: now,
       sortBy: SortBy.dueDate,
