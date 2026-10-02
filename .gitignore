@@ -49,3 +49,6 @@ app.*.map.json
 
 # Release artifacts
 /dist/
+
+# Screenshot artifacts (scripts/screenshots; review flow: run -> eyeball)
+docs/img/screenshots/
