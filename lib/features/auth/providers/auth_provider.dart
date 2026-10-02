@@ -273,7 +273,8 @@ class AuthProvider extends ChangeNotifier {
     try {
       if (_dio == null) throw const AuthException('No server configured');
       final repo = AuthRepository(dio: _dio!, secureStorage: secureStorage);
-      final result = await repo.login(email: email, password: password, rememberMe: rememberMe);
+      // rememberMe was a v1 login field; the v2 server rejects unknown keys.
+      final result = await repo.login(email: email, password: password);
       switch (result) {
         case LoginSuccess(:final user):
           _user = user;
