@@ -875,6 +875,213 @@ void main() {
       expect(RelayAppliers.midpointBetween('a', 'aa'), 'a`');
       expect(RelayAppliers.midpointBetween('aa', 'aaa'), 'aa`');
       expect(RelayAppliers.midpointBetween('a', 'aaa'), 'a`');
+      // The beforeId core: one slot below the first child ('`' < 'a') — the
+      // midpoint-against-empty branch the afterId-only algebra cannot
+      // express.
+      expect(RelayAppliers.midpointBetween('', 'a'), '`');
+      expect('`'.compareTo('a'), lessThan(0));
+    });
+
+    /// Seeds a page with three blocks at fractional positions 'a', 'aa',
+    /// 'aaa' — the allocator matrix's base state (midpoints between them:
+    /// 'a`' between x and y, 'aa`' between y and z).
+    Future<void> seedPageWithBlocks(
+      String pageUuid,
+      String blockX,
+      String blockY,
+      String blockZ,
+    ) async {
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000181',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: pageUuid,
+          nodeType: 'page',
+        ),
+      ));
+      for (final (uuid, suffix)
+          in [(blockX, '182'), (blockY, '183'), (blockZ, '184')]) {
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000$suffix',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: uuid,
+            parentId: pageUuid,
+          ),
+        ));
+      }
+    }
+
+    test('beforeId places the node immediately before the anchor (midpoint)',
+        () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000811';
+      const blockX = '00000000-0000-0000-0000-000000000812';
+      const blockY = '00000000-0000-0000-0000-000000000813';
+      const blockZ = '00000000-0000-0000-0000-000000000814';
+      await seedPageWithBlocks(pageUuid, blockX, blockY, blockZ);
+
+      // z jumps the queue to sit right before y: midpoint between x ('a')
+      // and y ('aa').
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000185',
+        opType: 'object.move',
+        payload: OperationPayloads.objectMove(
+          objectId: blockZ,
+          parentId: pageUuid,
+          beforeId: blockY,
+        ),
+        physical: 5,
+      ));
+      final z = await cache.getByUuid(blockZ);
+      expect(z!.position, 'a`');
+      final order = (await cache.getChildren(pageUuid)).map((n) => n.uuid);
+      expect(order, [blockX, blockZ, blockY]);
+    });
+
+    test('beforeId against the first child yields a position below it',
+        () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000821';
+      const blockX = '00000000-0000-0000-0000-000000000822';
+      const blockY = '00000000-0000-0000-0000-000000000823';
+      const blockZ = '00000000-0000-0000-0000-000000000824';
+      await seedPageWithBlocks(pageUuid, blockX, blockY, blockZ);
+
+      // No previous sibling: midpoint against the empty string — the only
+      // slot before the first child.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000185',
+        opType: 'object.move',
+        payload: OperationPayloads.objectMove(
+          objectId: blockZ,
+          parentId: pageUuid,
+          beforeId: blockX,
+        ),
+        physical: 5,
+      ));
+      final z = await cache.getByUuid(blockZ);
+      expect(z!.position, '`');
+      expect(z.position!.compareTo('a'), lessThan(0));
+      final order = (await cache.getChildren(pageUuid)).map((n) => n.uuid);
+      expect(order, [blockZ, blockX, blockY]);
+    });
+
+    test('unknown beforeId falls back to a plain append (defensive)',
+        () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000831';
+      const otherPage = '00000000-0000-0000-0000-000000000832';
+      const blockX = '00000000-0000-0000-0000-000000000833';
+      const blockY = '00000000-0000-0000-0000-000000000834';
+      const blockZ = '00000000-0000-0000-0000-000000000835';
+      await seedPageWithBlocks(pageUuid, blockX, blockY, blockZ);
+      // otherPage is a root page, never a child of pageUuid.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000185',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: otherPage,
+          nodeType: 'page',
+        ),
+      ));
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000186',
+        opType: 'object.move',
+        payload: OperationPayloads.objectMove(
+          objectId: blockY,
+          parentId: pageUuid,
+          beforeId: otherPage,
+        ),
+        physical: 5,
+      ));
+      final y = await cache.getByUuid(blockY);
+      expect(y!.position, 'aaaa');
+      final order = (await cache.getChildren(pageUuid)).map((n) => n.uuid);
+      expect(order, [blockX, blockZ, blockY]);
+    });
+
+    test('afterId wins when both anchors are present', () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000841';
+      const blockX = '00000000-0000-0000-0000-000000000842';
+      const blockY = '00000000-0000-0000-0000-000000000843';
+      const blockZ = '00000000-0000-0000-0000-000000000844';
+      await seedPageWithBlocks(pageUuid, blockX, blockY, blockZ);
+
+      // afterId is looked up first: append-after-z wins over before-y.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000185',
+        opType: 'object.move',
+        payload: OperationPayloads.objectMove(
+          objectId: blockX,
+          parentId: pageUuid,
+          afterId: blockZ,
+          beforeId: blockY,
+        ),
+        physical: 5,
+      ));
+      final x = await cache.getByUuid(blockX);
+      expect(x!.position, 'aaaa');
+      final order = (await cache.getChildren(pageUuid)).map((n) => n.uuid);
+      expect(order, [blockY, blockZ, blockX]);
+    });
+
+    test('an unknown afterId falls through to a valid beforeId', () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000851';
+      const otherPage = '00000000-0000-0000-0000-000000000852';
+      const blockX = '00000000-0000-0000-0000-000000000853';
+      const blockY = '00000000-0000-0000-0000-000000000854';
+      const blockZ = '00000000-0000-0000-0000-000000000855';
+      await seedPageWithBlocks(pageUuid, blockX, blockY, blockZ);
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000185',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: otherPage,
+          nodeType: 'page',
+        ),
+      ));
+
+      // afterId is not a current sibling, so the afterId branch yields
+      // nothing and the beforeId branch places y before x.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000186',
+        opType: 'object.move',
+        payload: OperationPayloads.objectMove(
+          objectId: blockY,
+          parentId: pageUuid,
+          afterId: otherPage,
+          beforeId: blockX,
+        ),
+        physical: 5,
+      ));
+      final y = await cache.getByUuid(blockY);
+      expect(y!.position, '`');
+      final order = (await cache.getChildren(pageUuid)).map((n) => n.uuid);
+      expect(order, [blockY, blockX, blockZ]);
+    });
+
+    test('object.create honors beforeId for its initial placement', () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000861';
+      const blockX = '00000000-0000-0000-0000-000000000862';
+      const blockY = '00000000-0000-0000-0000-000000000863';
+      const blockZ = '00000000-0000-0000-0000-000000000864';
+      const blockW = '00000000-0000-0000-0000-000000000865';
+      await seedPageWithBlocks(pageUuid, blockX, blockY, blockZ);
+
+      // Create placement anchors next to a current sibling: w lands
+      // immediately before x — one slot below the first child.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000185',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: blockW,
+          parentId: pageUuid,
+          beforeId: blockX,
+        ),
+      ));
+      final w = await cache.getByUuid(blockW);
+      expect(w!.position, '`');
+      final order = (await cache.getChildren(pageUuid)).map((n) => n.uuid);
+      expect(order, [blockW, blockX, blockY, blockZ]);
     });
   });
 }

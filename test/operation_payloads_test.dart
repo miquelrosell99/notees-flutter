@@ -142,11 +142,44 @@ void main() {
       expect(payload['permanent'], isFalse);
     });
 
-    test('object.move keeps a null parentId (workspace root, pages only)', () {
+    test('object.move keeps a null parentId (workspace root, pages only)',
+        () {
       final payload =
           OperationPayloads.objectMove(objectId: objectId, parentId: null);
       expect(payload['parentId'], isNull);
       expect(payload.containsKey('afterId'), isFalse);
+      expect(payload.containsKey('beforeId'), isFalse);
+    });
+
+    test('object.move carries the sibling placement anchors', () {
+      final payload = OperationPayloads.objectMove(
+        objectId: objectId,
+        parentId: classId,
+        afterId: '0192a000-0000-7000-8000-0000000000b1',
+        beforeId: '0192a000-0000-7000-8000-0000000000b2',
+      );
+      expect(payload['afterId'], '0192a000-0000-7000-8000-0000000000b1');
+      expect(payload['beforeId'], '0192a000-0000-7000-8000-0000000000b2');
+      expect(() => OperationPayloads.validatePayload('object.move', payload),
+          returnsNormally);
+    });
+
+    test('object.create carries the sibling placement anchors', () {
+      final payload = OperationPayloads.objectCreate(
+        objectId: objectId,
+        parentId: classId,
+        afterId: '0192a000-0000-7000-8000-0000000000b1',
+        beforeId: '0192a000-0000-7000-8000-0000000000b2',
+      );
+      expect(payload['afterId'], '0192a000-0000-7000-8000-0000000000b1');
+      expect(payload['beforeId'], '0192a000-0000-7000-8000-0000000000b2');
+      expect(() => OperationPayloads.validatePayload('object.create', payload),
+          returnsNormally);
+
+      final plain =
+          OperationPayloads.objectCreate(objectId: objectId, parentId: classId);
+      expect(plain.containsKey('afterId'), isFalse);
+      expect(plain.containsKey('beforeId'), isFalse);
     });
 
     test('class.setExtends carries parentClassIds (replace semantics)', () {
@@ -283,6 +316,37 @@ void main() {
         }),
         throwsFormatException,
       );
+    });
+
+    test('sibling anchor fields are accepted on both payloads (uuid-checked)',
+        () {
+      for (final opType in ['object.create', 'object.move']) {
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'objectId': objectId,
+            'parentId': classId,
+            'afterId': '0192a000-0000-7000-8000-0000000000b1',
+            'beforeId': '0192a000-0000-7000-8000-0000000000b2',
+          }),
+          returnsNormally,
+        );
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'objectId': objectId,
+            'parentId': classId,
+            'beforeId': 'not-a-uuid',
+          }),
+          throwsFormatException,
+        );
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'objectId': objectId,
+            'parentId': classId,
+            'afterId': 'not-a-uuid',
+          }),
+          throwsFormatException,
+        );
+      }
     });
 
     test('snake_case payload keys are rejected', () {
