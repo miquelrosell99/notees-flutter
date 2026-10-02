@@ -181,7 +181,9 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
                     textInputAction: TextInputAction.next,
                     decoration: InputDecoration(
                       labelText: 'Server URL',
-                      hintText: 'https://notees.example.com',
+                      // The sync service port (8377), not the web UI port —
+                      // the web port serves the browser app only and has no API.
+                      hintText: 'http://192.168.1.10:8377',
                       prefixIcon: Icon(MdiIcons.link),
                     ),
                     validator: (value) {
