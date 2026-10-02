@@ -54,7 +54,7 @@ class _JournalContinuousScreenState extends State<JournalContinuousScreen> {
       final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
       final journals = await repo.searchWithFilters(
         const SearchFilters(
-          nodeType: NodeType.journal,
+          nodeType: SearchKind.journal,
           sortBy: SortBy.writeDate,
           order: SortOrder.desc,
           limit: 60,
@@ -314,7 +314,11 @@ class _JournalDayCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final date = resolveNodeDisplayName(content.node, dateFormat: dateFormat);
-    final children = content.node.children.where((b) => !b.isPage).toList();
+    // Revision-11 render cascade: the journal card body shows the inline
+    // (present_as_main = 0) children; main children render as child pages
+    // when the day page is zoomed, not in the card.
+    final children =
+        content.node.children.where((b) => b.presentAsMain != true).toList();
 
     return InkWell(
       onTap: () => onHeaderTap(content.node),

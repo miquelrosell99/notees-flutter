@@ -894,11 +894,16 @@ class SyncV2Service {
         if (op.isYearly && !classIds.contains(SystemClassUuids.year)) {
           classIds.add(SystemClassUuids.year);
         }
-        // v2 context default: workspace root → page, child → block.
-        final nodeType =
-            (op.isPage || op.isDaily || op.isMonthly || op.isYearly)
-            ? 'page'
-            : (op.parentUuid == null ? 'page' : 'block');
+        // Render bit (Revision 11): root and journal creates present as
+        // main (document chrome); a parented non-journal node stays inline
+        // (the applier would default the same from placement, but the
+        // intent states it explicitly so the payload is self-describing).
+        final presentAsMain =
+            op.isPage ||
+            op.isDaily ||
+            op.isMonthly ||
+            op.isYearly ||
+            op.parentUuid == null;
         // Title-is-content: `name` is only the initial text content when no
         // explicit contentAst is given (the builder wraps it in a single
         // text token; the editor path pre-parses markdown-ish markers here).
@@ -911,7 +916,7 @@ class SyncV2Service {
         opType = 'object.create';
         payload = OperationPayloads.objectCreate(
           objectId: op.nodeUuid,
-          nodeType: nodeType,
+          presentAsMain: presentAsMain,
           classIds: classIds,
           tagIds: op.tagUuids,
           contentAst: contentAst,

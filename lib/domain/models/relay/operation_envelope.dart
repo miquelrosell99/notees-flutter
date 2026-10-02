@@ -1,10 +1,12 @@
 import './hlc.dart';
 
 /// Envelope schema version this client speaks (`PROTOCOL_VERSION` in
-/// `v2/packages/protocol/src/envelope.ts`). v2 made the version mandatory:
+/// `packages/protocol/src/envelope.ts`). v2 made the version mandatory:
 /// envelopes without `protocolVersion` are rejected and receivers fail loud
-/// on a newer version (WIRE.md §3).
-const kRelayProtocolVersion = 2;
+/// on a newer version (WIRE.md §3). v3 (Revision 11, 2026-10-02) carries the
+/// render-state model (`is_class` + `present_as_main` replace `node_type`);
+/// only version 3 is accepted — no backward compatibility (owner directive).
+const kRelayProtocolVersion = 3;
 
 /// Provenance-claim shape from `envelope.ts` `clientClaimSchema`
 /// (`'web'`, `'cli'`, `'flutter'`, `'agent:<id>'`, …).

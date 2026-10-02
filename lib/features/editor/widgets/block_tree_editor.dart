@@ -579,6 +579,8 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       children: node.children,
       createDate: node.createDate,
       writeDate: node.writeDate,
+      isClass: node.isClass,
+      presentAsMain: node.presentAsMain,
     );
   }
 

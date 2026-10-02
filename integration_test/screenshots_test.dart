@@ -259,7 +259,8 @@ Future<void> _seedScreenshotData(AuthProvider auth) async {
       opType: 'object.create',
       payload: OperationPayloads.objectCreate(
         objectId: uuid,
-        nodeType: parentId == null ? 'page' : 'block',
+        // Root pages present as main; parented children stay inline.
+        presentAsMain: parentId == null ? true : null,
         name: title,
         classIds: classIds.isEmpty ? null : classIds,
         parentId: parentId,

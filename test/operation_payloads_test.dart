@@ -11,7 +11,7 @@ void main() {
     test('object.create carries v2 field names', () {
       final payload = OperationPayloads.objectCreate(
         objectId: objectId,
-        nodeType: 'page',
+        presentAsMain: true,
         classIds: const [classId],
         tagIds: const ['0192a000-0000-7000-8000-0000000000aa'],
         contentAst: const [
@@ -21,7 +21,7 @@ void main() {
       );
 
       expect(payload['objectId'], objectId);
-      expect(payload['nodeType'], 'page');
+      expect(payload['presentAsMain'], isTrue);
       expect(payload['classIds'], [classId]);
       expect(payload['tagIds'], ['0192a000-0000-7000-8000-0000000000aa']);
       expect(payload['contentAst'], hasLength(1));
@@ -35,7 +35,18 @@ void main() {
       final payload = OperationPayloads.objectCreate(objectId: objectId);
       expect(payload['classIds'], isEmpty);
       expect(payload['tagIds'], isEmpty);
-      expect(payload.containsKey('nodeType'), isFalse);
+      expect(payload.containsKey('presentAsMain'), isFalse);
+    });
+
+    test('object.create emits the render bit when given', () {
+      final payload = OperationPayloads.objectCreate(
+        objectId: objectId,
+        presentAsMain: false,
+        parentId: classId,
+      );
+      expect(payload['presentAsMain'], isFalse);
+      expect(() => OperationPayloads.validatePayload('object.create', payload),
+          returnsNormally);
     });
 
     test('object.create name convenience converts to a single text token', () {
@@ -142,8 +153,8 @@ void main() {
       expect(payload['permanent'], isFalse);
     });
 
-    test('object.move keeps a null parentId (workspace root, pages only)',
-        () {
+    test('object.move keeps a null parentId (workspace root; parentless '
+        'non-class nodes render with document chrome)', () {
       final payload =
           OperationPayloads.objectMove(objectId: objectId, parentId: null);
       expect(payload['parentId'], isNull);
@@ -280,6 +291,44 @@ void main() {
         }),
         throwsFormatException,
       );
+    });
+
+    test('object payloads reject the retired nodeType key outright '
+        '(Revision 11, no legacy replay)', () {
+      // The page/block/class enumeration is gone: the render state is
+      // is_class + present_as_main, and the old key fails strict validation
+      // on BOTH object ops.
+      expect(
+        () => OperationPayloads.validatePayload('object.create', {
+          'objectId': objectId,
+          'nodeType': 'page',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('object.update', {
+          'objectId': objectId,
+          'nodeType': 'block',
+        }),
+        throwsFormatException,
+      );
+      // presentAsMain validates as a plain bool on both ops.
+      for (final opType in ['object.create', 'object.update']) {
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'objectId': objectId,
+            'presentAsMain': true,
+          }),
+          returnsNormally,
+        );
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'objectId': objectId,
+            'presentAsMain': 'yes',
+          }),
+          throwsFormatException,
+        );
+      }
     });
 
     test('class payloads reject name and accept contentAst', () {

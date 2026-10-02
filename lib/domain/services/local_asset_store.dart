@@ -193,7 +193,8 @@ class LocalAssetService {
           opType: 'object.create',
           payload: OperationPayloads.objectCreate(
             objectId: nodeId,
-            nodeType: 'block',
+            // Parented asset block: the applier defaults the render bit to
+            // inline (presentAsMain omitted).
             parentId: parentUuid,
             classIds: [SystemClassUuids.asset],
             contentAst: AstBuilder.parseInline(

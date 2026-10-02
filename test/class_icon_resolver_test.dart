@@ -21,7 +21,7 @@ void main() {
       uuid: uuid,
       name: '',
       displayName: '',
-      nodeType: 'class',
+      isClass: true,
       extendsUuid: extendsUuid,
       icon: icon,
       color: color,

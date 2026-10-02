@@ -70,7 +70,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: nodeUuid,
-          nodeType: 'page',
           classIds: [SystemClassUuids.day],
           contentAst: content,
         ),
@@ -88,7 +87,7 @@ void main() {
       expect(node.isPage, isTrue);
     });
 
-    test('object.create without nodeType defaults by placement context', () async {
+    test('object.create defaults the render bit by placement context', () async {
       const rootUuid = '00000000-0000-0000-0000-000000000110';
       const childUuid = '00000000-0000-0000-0000-000000000111';
 
@@ -106,9 +105,12 @@ void main() {
         ),
       ));
 
-      expect((await cache.getByUuid(rootUuid))!.isPage, isTrue);
+      final root = await cache.getByUuid(rootUuid);
+      expect(root!.isPage, isTrue);
+      expect(root.presentAsMain, isTrue);
       final child = await cache.getByUuid(childUuid);
       expect(child!.isPage, isFalse);
+      expect(child.presentAsMain, isFalse);
       expect(child.parentUuid, rootUuid);
     });
 
@@ -144,7 +146,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: nodeUuid,
-          nodeType: 'page',
           contentAst: AstBuilder.parseInline('Original'),
         ),
       ));
@@ -180,8 +181,8 @@ void main() {
       expect(node.color, '#5B7D5B');
     });
 
-    test('promoting a block to a page flattens its rich content (title-is-'
-        'content)', () async {
+    test('promoting an inline block to main flattens its rich content '
+        '(presentAsMain toggle)', () async {
       const pageUuid = '00000000-0000-0000-0000-000000000105';
       const blockUuid = '00000000-0000-0000-0000-000000000106';
 
@@ -190,7 +191,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageUuid,
-          nodeType: 'page',
         ),
       ));
       await appliers.apply(envelope(
@@ -198,7 +198,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: blockUuid,
-          nodeType: 'block',
           parentId: pageUuid,
           contentAst: const [
             {'type': 'text', 'text': 'Todo: '},
@@ -217,16 +216,17 @@ void main() {
         opType: 'object.update',
         payload: OperationPayloads.objectUpdate(
           objectId: blockUuid,
-          nodeType: 'page',
+          presentAsMain: true,
         ),
         physical: 3,
       ));
 
       final node = await cache.getByUuid(blockUuid);
-      expect(node!.nodeType, 'page');
+      expect(node!.presentAsMain, isTrue);
       expect(node.isPage, isTrue);
-      // The rich stream flattened to a single text-only token (pages carry
-      // text-only content) and the display name re-derived from it.
+      // The rich stream flattened to a single text-only token (main-
+      // presenting nodes carry text-only content) and the display name
+      // re-derived from it.
       expect(jsonDecode(node.name), [
         {'type': 'text', 'text': 'Todo: shopping'},
       ]);
@@ -243,7 +243,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageUuid,
-          nodeType: 'page',
         ),
       ));
       await appliers.apply(envelope(
@@ -251,7 +250,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: nodeUuid,
-          nodeType: 'block',
           parentId: pageUuid,
           classIds: [SystemClassUuids.task],
         ),
@@ -395,7 +393,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageUuid,
-          nodeType: 'page',
         ),
       ));
       for (final (uuid, idSuffix) in [
@@ -407,8 +404,7 @@ void main() {
           opType: 'object.create',
           payload: OperationPayloads.objectCreate(
             objectId: uuid,
-            nodeType: 'page',
-            parentId: pageUuid,
+              parentId: pageUuid,
           ),
         ));
       }
@@ -497,7 +493,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageUuid,
-          nodeType: 'page',
         ),
       ));
       await appliers.apply(envelope(
@@ -505,7 +500,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: nodeUuid,
-          nodeType: 'block',
           parentId: pageUuid,
           classIds: [SystemClassUuids.task],
           contentAst: AstBuilder.parseInline('Doomed'),
@@ -572,7 +566,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageUuid,
-          nodeType: 'page',
         ),
       ));
       for (final (uuid, suffix) in [(blockA, '102'), (blockB, '103'), (blockC, '104')]) {
@@ -581,6 +574,8 @@ void main() {
           opType: 'object.create',
           payload: OperationPayloads.objectCreate(
             objectId: uuid,
+            // Parented child that renders in the main-children zone.
+            presentAsMain: true,
             parentId: pageUuid,
           ),
         ));
@@ -630,7 +625,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: nodeUuid,
-          nodeType: 'page',
         ),
       ));
       await appliers.apply(envelope(
@@ -677,8 +671,7 @@ void main() {
             opType: 'object.create',
             payload: OperationPayloads.objectCreate(
               objectId: nodeUuid,
-              nodeType: 'page',
-              contentAst: AstBuilder.parseInline('Original'),
+                  contentAst: AstBuilder.parseInline('Original'),
             ),
           );
 
@@ -753,7 +746,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: nodeUuid,
-          nodeType: 'page',
         ),
       ));
       expect(
@@ -896,7 +888,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageUuid,
-          nodeType: 'page',
         ),
       ));
       for (final (uuid, suffix)
@@ -906,6 +897,8 @@ void main() {
           opType: 'object.create',
           payload: OperationPayloads.objectCreate(
             objectId: uuid,
+            // Parented child that renders in the main-children zone.
+            presentAsMain: true,
             parentId: pageUuid,
           ),
         ));
@@ -979,7 +972,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: otherPage,
-          nodeType: 'page',
         ),
       ));
 
@@ -1036,7 +1028,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: otherPage,
-          nodeType: 'page',
         ),
       ));
 
@@ -1082,6 +1073,261 @@ void main() {
       expect(w!.position, '`');
       final order = (await cache.getChildren(pageUuid)).map((n) => n.uuid);
       expect(order, [blockW, blockX, blockY, blockZ]);
+    });
+
+    test('demoting a main child to inline never un-flattens its content',
+        () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000871';
+      const childUuid = '00000000-0000-0000-0000-000000000872';
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000191',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(objectId: pageUuid),
+      ));
+      // A parented create with the bit set: a main child (document chrome
+      // when zoomed), content flattened at create.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000192',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: childUuid,
+          presentAsMain: true,
+          parentId: pageUuid,
+          contentAst: const [
+            {'type': 'text', 'text': 'Notes: '},
+            {
+              'type': 'mention',
+              'targetNodeId': '00000000-0000-0000-0000-000000000199',
+              'text': 'ref',
+            },
+          ],
+        ),
+        physical: 2,
+      ));
+      expect((await cache.getByUuid(childUuid))!.isPage, isTrue);
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000193',
+        opType: 'object.update',
+        payload: OperationPayloads.objectUpdate(
+          objectId: childUuid,
+          presentAsMain: false,
+        ),
+        physical: 3,
+      ));
+
+      final node = await cache.getByUuid(childUuid);
+      expect(node!.presentAsMain, isFalse);
+      expect(node.isPage, isFalse);
+      // Demotion does NOT un-flatten: the stored text-only content survives.
+      expect(jsonDecode(node.name), [
+        {'type': 'text', 'text': 'Notes: ref'},
+      ]);
+    });
+
+    test('class parents are legal: a non-class child of a class (spec I4)',
+        () async {
+      const classUuid = '00000000-0000-0000-0000-000000000881';
+      const childUuid = '00000000-0000-0000-0000-000000000882';
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000194',
+        opType: 'class.create',
+        payload: OperationPayloads.classCreate(
+          classId: classUuid,
+          name: 'Projects',
+        ),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000195',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: childUuid,
+          parentId: classUuid,
+          contentAst: AstBuilder.parseInline('Child of a class'),
+        ),
+        physical: 2,
+      ));
+
+      final child = await cache.getByUuid(childUuid);
+      expect(child, isNotNull);
+      expect(child!.parentUuid, classUuid);
+      expect(child.isClass, isFalse);
+      // Parented ⇒ inline by default (class children are ordinary body
+      // blocks unless the bit says main).
+      expect(child.presentAsMain, isFalse);
+    });
+
+    test('moving a class under any parent fails loud (classes are always '
+        'roots)', () async {
+      const classUuid = '00000000-0000-0000-0000-000000000883';
+      const pageUuid = '00000000-0000-0000-0000-000000000884';
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000196',
+        opType: 'class.create',
+        payload: OperationPayloads.classCreate(
+          classId: classUuid,
+          name: 'Pinned',
+        ),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000197',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(objectId: pageUuid),
+        physical: 2,
+      ));
+
+      // Classes have no local node row (class_cache is their home) — the
+      // guard must still surface as a typed MoveGuardError, not a
+      // missing-node error.
+      expect(
+        () async => appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000198',
+          opType: 'object.move',
+          payload: OperationPayloads.objectMove(
+            objectId: classUuid,
+            parentId: pageUuid,
+          ),
+          physical: 3,
+        )),
+        throwsA(isA<MoveGuardError>()),
+      );
+    });
+
+    test('moving an inline block to the workspace root is legal (parentless '
+        '⇒ document chrome)', () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000885';
+      const blockUuid = '00000000-0000-0000-0000-000000000886';
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000199',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(objectId: pageUuid),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-00000000019a',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: blockUuid,
+          parentId: pageUuid,
+          contentAst: AstBuilder.parseInline('Floating'),
+        ),
+        physical: 2,
+      ));
+      expect((await cache.getByUuid(blockUuid))!.isPage, isFalse);
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-00000000019b',
+        opType: 'object.move',
+        payload: OperationPayloads.objectMove(
+          objectId: blockUuid,
+          parentId: null,
+        ),
+        physical: 3,
+      ));
+
+      final node = await cache.getByUuid(blockUuid);
+      expect(node!.parentUuid, isNull);
+      // The move never writes the render bit; the parentless landing
+      // renders with document chrome by the second cascade branch.
+      expect(node.isPage, isTrue);
+      expect(node.presentAsMain, isFalse);
+      // Moving under a parent again keeps the stored bit (inline).
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-00000000019c',
+        opType: 'object.move',
+        payload: OperationPayloads.objectMove(
+          objectId: blockUuid,
+          parentId: pageUuid,
+        ),
+        physical: 4,
+      ));
+      final back = await cache.getByUuid(blockUuid);
+      expect(back!.parentUuid, pageUuid);
+      expect(back.presentAsMain, isFalse);
+      expect(back.isPage, isFalse);
+    });
+
+    test('a main child and an inline child partition a parent by the one '
+        'render bit', () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000887';
+      const mainChild = '00000000-0000-0000-0000-000000000888';
+      const inlineChild = '00000000-0000-0000-0000-000000000889';
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-00000000019d',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(objectId: pageUuid),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-00000000019e',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: mainChild,
+          presentAsMain: true,
+          parentId: pageUuid,
+          contentAst: AstBuilder.parseInline('Main zone'),
+        ),
+        physical: 2,
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-00000000019f',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: inlineChild,
+          parentId: pageUuid,
+          contentAst: AstBuilder.parseInline('Body'),
+        ),
+        physical: 3,
+      ));
+
+      final children = await cache.getChildren(pageUuid);
+      expect(children.map((n) => n.uuid).toList(), [mainChild, inlineChild]);
+      final main = children.firstWhere((n) => n.uuid == mainChild);
+      final inline = children.firstWhere((n) => n.uuid == inlineChild);
+      expect(main.presentAsMain, isTrue);
+      expect(main.isPage, isTrue);
+      expect(inline.presentAsMain, isFalse);
+      expect(inline.isPage, isFalse);
+    });
+
+    test('the retired nodeType payload key is rejected outright (strict '
+        'validator, no legacy replay)', () async {
+      const nodeUuid = '00000000-0000-0000-0000-00000000088a';
+
+      // Direct validator surface.
+      expect(
+        () => OperationPayloads.validatePayload('object.create', {
+          'objectId': nodeUuid,
+          'nodeType': 'page',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('object.update', {
+          'objectId': nodeUuid,
+          'nodeType': 'block',
+        }),
+        throwsFormatException,
+      );
+
+      // Applier surface: an envelope carrying the retired key fails loud
+      // before touching state.
+      expect(
+        () async => appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-0000000001a1',
+          opType: 'object.create',
+          payload: {
+            'objectId': nodeUuid,
+            'nodeType': 'page',
+            'classIds': <String>[],
+          },
+        )),
+        throwsA(isA<EnvelopeValidationError>()),
+      );
+      expect(await cache.getByUuid(nodeUuid), isNull);
     });
   });
 }

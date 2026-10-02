@@ -126,9 +126,14 @@ IconData iconForNode(Node node) {
   return node.icon?.isNotEmpty == true ? MdiIcons.fileDocumentOutline : MdiIcons.fileDocumentOutline;
 }
 
+/// Revision-11 render cascade as a user-facing label: `is_class` → Class;
+/// parentless → Page (document chrome, bit unread); a parented non-class
+/// node → Page when its present_as_main bit is set (main-children zone +
+/// document chrome when zoomed), Block when inline.
 String typeLabel(Node node) {
   if (node.isJournal) return 'Journal';
   if (node.isTask) return 'Task';
-  if (node.isPage) return 'Page';
+  if (node.isClass) return 'Class';
+  if (node.parentUuid == null || node.presentAsMain == true) return 'Page';
   return 'Block';
 }

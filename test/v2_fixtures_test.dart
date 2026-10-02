@@ -95,7 +95,7 @@ void main() {
           reason: 'gate mappings without a fixture file');
     });
 
-    test('all fixtures declare protocolVersion 2', () {
+    test('all fixtures declare protocolVersion 3 (Revision 11 envelope)', () {
       for (final name in singleEnvelopeFixtures) {
         expect(loadFixture(name)['protocolVersion'], kRelayProtocolVersion,
             reason: name);

@@ -59,9 +59,16 @@ class OperationPayloads {
   /// [afterId]/[beforeId] anchor the node next to that current sibling in
   /// the parent's fractional child order (see [objectMove]); omit both to
   /// append at the end.
+  ///
+  /// Render bit (Revision 11): [presentAsMain] is read only when the node
+  /// has a parent — true renders it in the parent's main-children zone with
+  /// document chrome, false inline with block chrome. Omit it and the
+  /// applier defaults by placement: parentless ⇒ main (document chrome by
+  /// the second cascade branch), parented ⇒ inline. Class declaration is
+  /// the class.create op — object.create always makes a non-class node.
   static Map<String, dynamic> objectCreate({
     required String objectId,
-    String? nodeType,
+    bool? presentAsMain,
     List<String>? classIds,
     List<String>? tagIds,
     String? name,
@@ -79,7 +86,7 @@ class OperationPayloads {
             : null);
     return _validated('object.create', {
       'objectId': objectId,
-      'nodeType': ?nodeType,
+      'presentAsMain': ?presentAsMain,
       'classIds': classIds ?? <String>[],
       'tagIds': tagIds ?? <String>[],
       'contentAst': ?effectiveContent,
@@ -93,15 +100,19 @@ class OperationPayloads {
   /// content carrier (`contentAst` or `contentDeltaB64`) may be set
   /// (`objectUpdatePayload.refine` in `op-types.ts`). There is no `name`
   /// field (title-is-content): a rename is a `contentAst` replacement.
+  ///
+  /// Render-bit toggle (Revision 11): promotion/demotion flips are
+  /// [presentAsMain] true/false — identity is preserved, and promotion
+  /// (false → true) stringifies the content in the same op.
   static Map<String, dynamic> objectUpdate({
     required String objectId,
-    String? nodeType,
+    bool? presentAsMain,
     String? icon,
     String? color,
     String? contentDeltaB64,
     List<Map<String, dynamic>>? contentAst,
   }) {
-    if (nodeType == null &&
+    if (presentAsMain == null &&
         icon == null &&
         color == null &&
         contentDeltaB64 == null &&
@@ -116,7 +127,7 @@ class OperationPayloads {
     }
     return _validated('object.update', {
       'objectId': objectId,
-      'nodeType': ?nodeType,
+      'presentAsMain': ?presentAsMain,
       'icon': ?icon,
       'color': ?color,
       'contentDeltaB64': ?contentDeltaB64,
@@ -133,9 +144,11 @@ class OperationPayloads {
         'permanent': permanent,
       });
 
-  /// [parentId] null means workspace root and is legal only for pages; the
-  /// store's placement CHECKs reject a parentless block. [afterId] places the
-  /// node immediately after that sibling, [beforeId] immediately before it
+  /// [parentId] null means workspace root and is legal for any non-class
+  /// node (a parentless node renders with document chrome by the second
+  /// cascade branch; classes are always roots and cannot be moved under a
+  /// parent). [afterId] places the node immediately after that sibling,
+  /// [beforeId] immediately before it
   /// (the first-child placement fractional midpoints cannot otherwise
   /// express); omit both to append at the end. At most one anchor is
   /// meaningful: when both are present [afterId] wins — but an [afterId]
@@ -422,7 +435,6 @@ class OperationPayloads {
 
   // --- validation (port of op-types.ts zod schemas) ----------------------------
 
-  static const _nodeTypes = {'page', 'block', 'class'};
   static const _propertySchemaTypes = {
     'text',
     'number',
@@ -460,7 +472,7 @@ class OperationPayloads {
       case 'object.create':
         _strict(payload, {
           'objectId',
-          'nodeType',
+          'presentAsMain',
           'classIds',
           'tagIds',
           'contentAst',
@@ -469,7 +481,7 @@ class OperationPayloads {
           'beforeId',
         });
         _uuid(payload, 'objectId');
-        _enum(payload, 'nodeType', _nodeTypes, required: false);
+        _bool(payload, 'presentAsMain', required: false);
         _uuidList(payload, 'classIds', required: false);
         _uuidList(payload, 'tagIds', required: false);
         _list(payload, 'contentAst', required: false);
@@ -479,14 +491,14 @@ class OperationPayloads {
       case 'object.update':
         _strict(payload, {
           'objectId',
-          'nodeType',
+          'presentAsMain',
           'icon',
           'color',
           'contentDeltaB64',
           'contentAst',
         });
         _uuid(payload, 'objectId');
-        _enum(payload, 'nodeType', _nodeTypes, required: false);
+        _bool(payload, 'presentAsMain', required: false);
         _string(payload, 'icon', max: 64, required: false);
         _string(payload, 'color', max: 32, required: false);
         _string(payload, 'contentDeltaB64', required: false);

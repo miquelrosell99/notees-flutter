@@ -163,7 +163,9 @@ void main() {
       final create =
           jsonDecode(ops[1]['payload'] as String) as Map<String, dynamic>;
       expect(create['objectId'], info.nodeId);
-      expect(create['nodeType'], 'block');
+      // Parented asset block: the render bit is omitted (the applier
+      // defaults a parented create to inline).
+      expect(create.containsKey('presentAsMain'), isFalse);
       expect(create['parentId'], '60000000-0000-4000-8000-000000000001');
       expect(create['classIds'], [SystemClassUuids.asset]);
       final contentAst = create['contentAst'] as List<dynamic>;

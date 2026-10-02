@@ -21,8 +21,14 @@ import '../models/relay/store_errors.dart';
 ///  - title-is-content (2026-10-01 lockstep): the protocol has no node
 ///    `name` field — a node's title IS its content; the display name is the
 ///    content excerpt (date labels formatted), derived at apply time;
-///    pages/classes carry text-only content (a block promoted to page/class
-///    gets its rich stream flattened);
+///  - render-state model (Revision 11, 2026-10-02): `is_class` (identity;
+///    classes are always roots, containers of non-class children) +
+///    `present_as_main` (render bit for parented non-class nodes) replace
+///    the retired page/block/class enumeration — document-chrome nodes
+///    (main-presenting, or any parentless non-class node) carry text-only
+///    content, inline blocks keep the rich stream; promotion stringifies,
+///    demotion never un-flattens; the retired `nodeType` payload key is
+///    rejected outright by the strict validators (no replay-compat code);
 ///  - sibling order uses the lexicographic fractional allocator
 ///    (midpointBetween/nextChildPosition), stored in node_cache.position;
 ///  - class membership, tag membership and collection membership are
@@ -166,37 +172,25 @@ class RelayAppliers {
     final parentId = payload['parentId'] as String?;
     final afterId = payload['afterId'] as String?;
     final beforeId = payload['beforeId'] as String?;
-    final nodeType =
-        payload['nodeType'] as String? ?? (parentId == null ? 'page' : 'block');
+    // Render bit (Revision 11): the payload may carry presentAsMain; the
+    // applier defaults it by placement — a parentless node presents as main
+    // (document chrome by the second cascade branch), a parented one starts
+    // inline (block chrome; the "hide from body" gloss is the 0→1 toggle).
+    final presentAsMain = payload.containsKey('presentAsMain')
+        ? payload['presentAsMain'] == true
+        : parentId == null;
     final incoming = _incoming(envelope);
 
-    // Placement CHECKs (bullet-proof schema): a block can never be
-    // parentless; a class is always tree-external.
-    if (nodeType == 'block' && parentId == null) {
-      throw CheckConstraintError(
-        '$opType: a block cannot be parentless (placement CHECK)',
-        'node_parent',
-        opType,
-      );
-    }
-    if (nodeType == 'class' && parentId != null) {
-      throw CheckConstraintError(
-        '$opType: a class is tree-external and cannot have a parent',
-        'node_parent',
-        opType,
-      );
-    }
+    // Placement guard: the parent must exist — either as a node row or as a
+    // class (classes are containers since spec I4: a class parent is legal
+    // for non-class children, which is all object.create can make — class
+    // declaration remains the class.create op, so the class-under-class
+    // shape is unreachable here).
     if (parentId != null) {
-      if (await _cache.getByUuid(parentId) == null) {
+      if (await _cache.getByUuid(parentId) == null &&
+          !await _cache.isClassNode(parentId)) {
         throw NodeNotFoundError(
           '$opType: parent $parentId does not exist',
-          opType,
-        );
-      }
-      if (await _cache.isClassNode(parentId)) {
-        throw MoveGuardError(
-          '$opType: node $parentId is a class; classes are tree-external '
-          'and cannot have children',
           opType,
         );
       }
@@ -231,13 +225,14 @@ class RelayAppliers {
       return false;
     }
 
-    // Title-is-content: pages and classes carry text-only content; a block
-    // keeps the full token stream.
+    // Content flatten invariant (Revision 11): a main-presenting node
+    // carries text-only content; an inline block keeps the full rich token
+    // stream (class rows never reach this op).
     final contentAst = payload['contentAst'];
     final flatAst = switch (contentAst) {
-      List<dynamic> list => nodeType == 'block'
-          ? normalizeContentAst(list)
-          : stringifyContentAst(normalizeContentAst(list)),
+      List<dynamic> list => presentAsMain
+          ? stringifyContentAst(normalizeContentAst(list))
+          : normalizeContentAst(list),
       _ => const <Map<String, dynamic>>[],
     };
     final name = AstBuilder.serialize(flatAst);
@@ -263,7 +258,7 @@ class RelayAppliers {
         sequence: double.tryParse(position ?? '') ?? 0.0,
         classesUuid: classIds,
         tagsUuid: tagIds,
-        isPage: nodeType == 'page',
+        isPage: presentAsMain,
         isTask: flags.isTask,
         isDaily: flags.isDaily,
         isMonthly: flags.isMonthly,
@@ -273,21 +268,13 @@ class RelayAppliers {
         isComment: flags.isComment,
         properties: const {},
         writeDate: envelope.timestamp,
-        nodeType: nodeType,
+        isClass: false,
+        presentAsMain: presentAsMain,
         hlcPhysical: incoming.physical,
         hlcLogical: incoming.logical,
         actorId: incoming.actor,
       ),
     );
-    if (nodeType == 'class') {
-      // Declaration-first class creation: the class node doubles as the
-      // registry row locally (classes render from class_cache).
-      await _cache.upsertClass(
-        uuid: objectId,
-        name: deriveDisplayName(name),
-        active: true,
-      );
-    }
     if (classIds.isNotEmpty) await _cache.recomputeClassIds(objectId);
     if (tagIds.isNotEmpty) await _cache.recomputeTagIds(objectId);
     return true;
@@ -322,45 +309,54 @@ class RelayAppliers {
     // Row-level last-write-wins: lower or equal (hlc, actor) writes drop.
     if (compareLww(incoming, rowWinner) <= 0) return false;
 
-    final contentAst = payload['contentAst'];
-    final newNodeType = payload['nodeType'] as String? ?? node.nodeType;
-    // Title-is-content: contentAst replaces the node's content (the title
-    // lives in it); a block keeps the full token stream, other node types
-    // carry text-only content (promotion flattens rich streams).
+    // Promotion/demotion (Revision 11) is the presentAsMain toggle: the bit
+    // joins the row-level LWW set; a false → true flip (promotion)
+    // stringifies the stored rich stream to text-only in the same op
+    // (content flatten invariant), while a true → false demotion leaves the
+    // (already flattened) content untouched — demotion never un-flattens.
+    // On a class row the bit is inert (classes render ClassView regardless);
+    // applying it harmlessly keeps the op uniform.
+    var resultingPresentAsMain = node.presentAsMain ?? false;
     String? newName = node.name;
     var newDisplay = node.displayName;
+    if (payload.containsKey('presentAsMain')) {
+      final bit = payload['presentAsMain'] == true;
+      resultingPresentAsMain = bit;
+      if (bit && node.presentAsMain != true && node.name.isNotEmpty) {
+        try {
+          final stored = jsonDecode(node.name);
+          if (stored is List<dynamic>) {
+            newName = AstBuilder.serialize(stringifyContentAst(
+              normalizeContentAst(stored),
+            ));
+            newDisplay = deriveDisplayName(newName);
+          }
+        } on FormatException {
+          // Not a JSON document (legacy plain text): already text-only.
+        }
+      }
+    }
+    final contentAst = payload['contentAst'];
     if (contentAst is List<dynamic>) {
-      final flatAst = newNodeType == 'block'
-          ? normalizeContentAst(contentAst)
-          : stringifyContentAst(normalizeContentAst(contentAst));
+      // Document-chrome content (class nodes and main-presenting nodes) is
+      // text-only; inline blocks keep the rich tokens they were sent.
+      final flatten = node.isClass || resultingPresentAsMain;
+      final flatAst = flatten
+          ? stringifyContentAst(normalizeContentAst(contentAst))
+          : normalizeContentAst(contentAst);
       newName = AstBuilder.serialize(flatAst);
       newDisplay = deriveDisplayName(newName);
-    } else if (node.nodeType == 'block' &&
-        newNodeType != 'block' &&
-        node.name.isNotEmpty) {
-      // Promotion without new content flattens the stored rich stream to
-      // text-only in the same op (pages/classes carry text-only content).
-      try {
-        final stored = jsonDecode(node.name);
-        if (stored is List<dynamic>) {
-          newName = AstBuilder.serialize(stringifyContentAst(
-            normalizeContentAst(stored),
-          ));
-          newDisplay = deriveDisplayName(newName);
-        }
-      } on FormatException {
-        // Not a JSON document (legacy plain text): already text-only.
-      }
     }
     await _cache.upsert(
       _copyWith(
         node,
         name: newName,
         displayName: newDisplay,
-        nodeType: newNodeType,
-        // A nodeType flip is promotion/demotion: the is_page query flag
-        // follows it.
-        isPage: newNodeType == 'page',
+        presentAsMain: resultingPresentAsMain,
+        // The is_page query flag follows the bit (document chrome ⇔
+        // parentless or main-presenting); class rows are tree-external and
+        // keep whatever they carried (they live in class_cache locally).
+        isPage: node.isClass ? node.isPage : resultingPresentAsMain,
         icon: payload['icon'] as String? ?? node.icon,
         color: payload['color'] as String? ?? node.color,
         writeDate: envelope.timestamp,
@@ -407,25 +403,36 @@ class RelayAppliers {
   ) async {
     final opType = envelope.opType;
     final node = await _cache.getByUuid(objectId);
-    if (node == null) {
-      throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
-    }
     final parentId = payload['parentId'] as String?;
     final afterId = payload['afterId'] as String?;
     final beforeId = payload['beforeId'] as String?;
 
-    // Placement guards fail loud, mirroring object.create.
-    if (parentId != null) {
-      if (await _cache.getByUuid(parentId) == null) {
-        throw NodeNotFoundError(
-          '$opType: parent $parentId does not exist',
+    if (node == null) {
+      // Classes have no local node row (class_cache is their home). A class
+      // can never gain a parent: classes are always roots — the guard
+      // surfaces that friendly rather than as a missing-node error. Moving
+      // a class to the root is a no-op (it has no row to update).
+      if (parentId != null && await _cache.isClassNode(objectId)) {
+        throw MoveGuardError(
+          '$opType: node $objectId is a class; classes are always roots '
+          'and cannot have a parent',
           opType,
         );
       }
-      if (await _cache.isClassNode(parentId)) {
-        throw MoveGuardError(
-          '$opType: node $parentId is a class; classes are tree-external '
-          'and cannot have children',
+      throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
+    }
+
+    // Placement guards fail loud, mirroring object.create: the parent must
+    // exist (a class parent is legal — classes are containers of non-class
+    // children, spec I4), and a node may never move under itself or its own
+    // descendant (parent_id cycle). A parentless non-class node is legal
+    // too: it renders with document chrome by the second cascade branch
+    // regardless of present_as_main.
+    if (parentId != null) {
+      if (await _cache.getByUuid(parentId) == null &&
+          !await _cache.isClassNode(parentId)) {
+        throw NodeNotFoundError(
+          '$opType: parent $parentId does not exist',
           opType,
         );
       }
@@ -436,16 +443,10 @@ class RelayAppliers {
           opType,
         );
       }
-    } else {
-      // A block to workspace root is rejected by the placement CHECK (null
-      // parent is legal only for pages). Legacy rows without node_type keep
-      // their isPage-derived role.
-      final isBlock =
-          node.nodeType == 'block' || (node.nodeType == null && !node.isPage);
-      if (isBlock) {
-        throw CheckConstraintError(
-          '$opType: a block cannot be parentless (placement CHECK)',
-          'node_parent',
+      if (node.isClass) {
+        throw MoveGuardError(
+          '$opType: node $objectId is a class; classes are always roots '
+          'and cannot have a parent',
           opType,
         );
       }
@@ -458,7 +459,10 @@ class RelayAppliers {
       actor: node.actorId ?? '',
     );
     // Parent/position are row-level LWW: re-applying an older move after a
-    // newer one drops whole.
+    // newer one drops whole. Moves never write the render bit: the bit is
+    // read only for parented non-class nodes, so a parentless landing
+    // renders with document chrome by the second cascade branch regardless
+    // of the stored bit.
     if (compareLww(incoming, rowWinner) <= 0) return false;
 
     final position = parentId == null
@@ -477,6 +481,9 @@ class RelayAppliers {
         parentUuid: parentId,
         position: position,
         sequence: double.tryParse(position ?? '') ?? node.sequence,
+        // Document chrome ⇔ the landing is parentless or the stored bit is
+        // set; moves never write the bit, so a parented landing follows it.
+        isPage: parentId == null || node.presentAsMain == true,
         writeDate: envelope.timestamp,
         hlcPhysical: incoming.physical,
         hlcLogical: incoming.logical,
@@ -961,17 +968,21 @@ class RelayAppliers {
   }
 }
 
+/// Sentinel distinguishing "argument not given" from an explicit null
+/// (clearing `parentUuid`/`position` on a move to the workspace root).
+const _undefined = Object();
+
 /// Field-wise copy used by the v2 appliers (the local [Node] model predates
 /// copyWith for these fields).
 Node _copyWith(
   Node node, {
   String? name,
   String? displayName,
-  String? nodeType,
+  bool? presentAsMain,
   String? icon,
   String? color,
-  String? parentUuid,
-  String? position,
+  Object? parentUuid = _undefined,
+  Object? position = _undefined,
   double? sequence,
   String? writeDate,
   int? hlcPhysical,
@@ -986,11 +997,13 @@ Node _copyWith(
   icon: icon ?? node.icon,
   color: color ?? node.color,
   parentId: node.parentId,
-  parentUuid: parentUuid ?? node.parentUuid,
+  parentUuid: identical(parentUuid, _undefined)
+      ? node.parentUuid
+      : parentUuid as String?,
   pageId: node.pageId,
   pageUuid: node.pageUuid,
   sequence: sequence ?? node.sequence,
-  position: position ?? node.position,
+  position: identical(position, _undefined) ? node.position : position as String?,
   isPage: isPage ?? node.isPage,
   isTask: node.isTask,
   isDaily: node.isDaily,
@@ -1012,7 +1025,9 @@ Node _copyWith(
   writeDate: writeDate ?? node.writeDate,
   extendsUuid: node.extendsUuid,
   title: node.title,
-  nodeType: nodeType ?? node.nodeType,
+  // Identity never changes on the update/move paths.
+  isClass: node.isClass,
+  presentAsMain: presentAsMain ?? node.presentAsMain,
   classOrder: node.classOrder,
   hlcPhysical: hlcPhysical ?? node.hlcPhysical,
   hlcLogical: hlcLogical ?? node.hlcLogical,

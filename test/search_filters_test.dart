@@ -7,7 +7,7 @@ void main() {
 
     test('serializes task segment filters', () {
       final today = SearchFilters(
-        nodeType: NodeType.task,
+        nodeType: SearchKind.task,
         taskState: TaskState.open,
         dateFrom: todayDate,
         dateTo: todayDate,
@@ -23,7 +23,7 @@ void main() {
 
     test('serializes completed segment filters', () {
       const completed = SearchFilters(
-        nodeType: NodeType.task,
+        nodeType: SearchKind.task,
         taskState: TaskState.completed,
         sortBy: SortBy.priority,
       );

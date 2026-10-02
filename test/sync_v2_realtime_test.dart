@@ -65,7 +65,7 @@ void main() {
 
     Map<String, dynamic> createEnvelopeJson(String id, String objectId) => {
           'id': id,
-          'protocolVersion': 2,
+          'protocolVersion': 3,
           'workspaceId': workspaceId,
           'actorId': user1,
           'deviceId': device,
@@ -74,7 +74,7 @@ void main() {
           'opType': 'object.create',
           'payload': {
             'objectId': objectId,
-            'nodeType': 'page',
+            'presentAsMain': true,
             'classIds': <String>[],
           },
           'timestamp': '2026-09-24T12:00:00.000Z',
@@ -338,10 +338,12 @@ void main() {
         ..writeAsBytesSync(body.toList(), flush: true);
       final snapDb = await databaseFactoryFfi.openDatabase(snapPath);
       try {
-        final nodes = await snapDb
-            .rawQuery('SELECT id, node_type, name FROM node WHERE id = ?', [node1]);
+        final nodes = await snapDb.rawQuery(
+            'SELECT id, is_class, present_as_main, name FROM node WHERE id = ?',
+            [node1]);
         expect(nodes, hasLength(1));
-        expect(nodes.single['node_type'], 'page');
+        expect(nodes.single['is_class'], 0);
+        expect(nodes.single['present_as_main'], 1);
         final order = await snapDb.rawQuery(
           'SELECT COUNT(*) AS c FROM node_child_order',
         );

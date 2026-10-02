@@ -139,7 +139,7 @@ class _TasksScreenState extends State<TasksScreen> {
     switch (segment) {
       case TaskSegment.today:
         return SearchFilters(
-          nodeType: NodeType.task,
+          nodeType: SearchKind.task,
           taskState: TaskState.open,
           dateFrom: today,
           dateTo: today,
@@ -154,14 +154,14 @@ class _TasksScreenState extends State<TasksScreen> {
         // client-side; someday/undated drop dated tasks client-side because
         // SearchFilters only expresses date ranges.
         return SearchFilters(
-          nodeType: NodeType.task,
+          nodeType: SearchKind.task,
           taskState: TaskState.open,
           sortBy: _sortBy,
           limit: limit,
         );
       case TaskSegment.completed:
         return SearchFilters(
-          nodeType: NodeType.task,
+          nodeType: SearchKind.task,
           taskState: TaskState.completed,
           sortBy: _sortBy,
           limit: limit,

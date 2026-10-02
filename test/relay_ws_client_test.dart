@@ -54,7 +54,7 @@ OperationEnvelope sampleEnvelope({String? id}) => OperationEnvelope(
       opType: 'object.create',
       payload: const {
         'objectId': '0192a000-0000-7000-8000-000000000010',
-        'nodeType': 'page',
+        'presentAsMain': true,
         'classIds': <String>[],
       },
       timestamp: '2026-09-24T12:00:00.000Z',

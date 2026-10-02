@@ -445,7 +445,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
         ),
       ));
       // Blocks keep the full (rich) token stream — pages/classes carry
@@ -456,7 +455,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: blockId,
-          nodeType: 'block',
           parentId: pageId,
         ),
       ));
@@ -526,7 +524,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          nodeType: 'page',
         ),
       ));
       await appliers.apply(envelope(
@@ -534,7 +531,6 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: blockId,
-          nodeType: 'block',
           parentId: pageId,
         ),
       ));

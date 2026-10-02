@@ -178,7 +178,13 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
               ),
               title: Text(resolveNodeDisplayName(node, dateFormat: context.read<SettingsProvider>().dateFormat)),
               subtitle: Text(
-                node.isPage ? 'Page' : 'Block',
+                // Revision-11 render cascade (see typeLabel in
+                // _view_helpers.dart).
+                node.isClass
+                    ? 'Class'
+                    : (node.parentUuid == null || node.presentAsMain == true)
+                    ? 'Page'
+                    : 'Block',
                 style: TextStyle(color: colors.onSurfaceVariant),
               ),
               trailing: IconButton(

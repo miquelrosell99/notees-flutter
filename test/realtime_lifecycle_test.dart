@@ -136,7 +136,7 @@ void main() {
         'envelopes': [
           {
             'id': '0192a000-0000-7000-8000-000000000001',
-            'protocolVersion': 2,
+            'protocolVersion': 3,
             'workspaceId': workspaceId,
             'actorId': '30000000-0000-4000-8000-000000000001',
             'deviceId': device,
@@ -145,7 +145,7 @@ void main() {
             'opType': 'object.create',
             'payload': {
               'objectId': node1,
-              'nodeType': 'page',
+              'presentAsMain': true,
               'classIds': <String>[],
             },
             'timestamp': '2026-09-24T12:00:00.000Z',

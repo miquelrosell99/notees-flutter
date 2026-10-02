@@ -82,7 +82,11 @@ void main() {
         hlc: Hlc(physical: physical, logical: 0),
         affectedNodeIds: [nodeId],
         opType: 'object.create',
-        payload: {'objectId': nodeId, 'nodeType': 'page', 'classIds': <String>[]},
+        payload: {
+          'objectId': nodeId,
+          'presentAsMain': true,
+          'classIds': <String>[],
+        },
         timestamp: '2026-09-24T12:00:00.000Z',
       );
 
@@ -99,7 +103,6 @@ void main() {
         opType: 'object.create',
         payload: {
           'objectId': nodeId,
-          'nodeType': 'block',
           'classIds': <String>[],
           'parentId': parentId,
         },
@@ -155,9 +158,11 @@ void main() {
       final page = await cache.getByUuid(nodePage);
       final book = await cache.getByUuid(nodeBook);
       expect(page, isNotNull);
-      expect(page!.nodeType, 'page');
+      expect(page!.presentAsMain, isTrue);
+      expect(page.isPage, isTrue);
       expect(book, isNotNull);
-      expect(book!.nodeType, 'page');
+      expect(book!.presentAsMain, isTrue);
+      expect(book.isPage, isTrue);
       // Title-is-content: the fixture's contentAst IS the title; there is
       // no scalar name slot on the wire.
       expect(book.title, isNull);
