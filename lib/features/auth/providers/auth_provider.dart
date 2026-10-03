@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MissingPluginException;
@@ -39,6 +41,9 @@ class AuthProvider extends ChangeNotifier {
   bool _busy = false;
   String? _error;
   bool _onboardingCompleted = false;
+  String? _activeWorkspaceId;
+  List<Workspace>? _workspaces;
+  String? _workspaceListError;
 
   ServerProfile? get activeServer => _activeServer;
   User? get user => _user;
@@ -49,6 +54,35 @@ class AuthProvider extends ChangeNotifier {
   Dio? get dio => _dio;
   SyncV2Service? get syncService => _syncService;
   bool get onboardingCompleted => _onboardingCompleted;
+
+  /// The active workspace id for the current server+account session, or null
+  /// when none is selected (the management view picks up from there). This
+  /// field is the single source of truth for the selection; it is persisted
+  /// per server+account in [prefs] and mirrored into the sync service (which
+  /// stamps it onto envelopes).
+  String? get activeWorkspaceId => _activeWorkspaceId;
+
+  /// The account's workspace list as last fetched from the server; null when
+  /// the fetch has not succeeded yet (offline start) or failed.
+  List<Workspace>? get workspaces => _workspaces;
+
+  /// Last workspace-list fetch error, kept for the management view's retry
+  /// state; any previously fetched list stays usable alongside it.
+  String? get workspaceListError => _workspaceListError;
+
+  /// Whether the session may enter the main shell. A local (offline) session
+  /// always may — it is its own workspace. A server session needs an active
+  /// workspace; when the list was never fetched (offline start) a remembered
+  /// selection stays trusted, mirroring the web client, which validates
+  /// membership on boot and only otherwise trusts its stored id.
+  bool get hasValidWorkspace {
+    if (!isAuthenticated) return false;
+    if (isLocalMode) return true;
+    final id = _activeWorkspaceId;
+    if (id == null) return false;
+    final list = _workspaces;
+    return list == null || list.any((w) => w.uuid == id);
+  }
 
   /// Offline (serverless) mode: the current session is the synthetic local
   /// profile, with no server configured and no auth.
@@ -72,6 +106,12 @@ class AuthProvider extends ChangeNotifier {
   static const _localWorkspaceUuidKey = 'local_workspace_uuid';
   static const _localDisplayName = 'Local user';
 
+  // Remembered active workspace, keyed per server+account: selecting a
+  // workspace switches the active one for this server and account only
+  // (the web client's WorkspaceSwitcher mental model).
+  static String _activeWorkspaceKey(String serverId, String userId) =>
+      'active_workspace_${serverId}_$userId';
+
   OnboardingService get onboardingService => OnboardingService(prefs: prefs);
 
   /// Pending 2FA challenge after a successful password step, if any.
@@ -91,7 +131,7 @@ class AuthProvider extends ChangeNotifier {
           serverId: _activeServer!.id,
         );
         _syncService = await _buildSyncService(_dio!);
-        _user = await AuthRepository(dio: _dio!, secureStorage: secureStorage).checkSession();
+        _user = await fetchSession();
         if (_user == null) {
           // Server configured but not signed in. If the user originally chose
           // local mode and a login is still pending (e.g. they added a server
@@ -100,6 +140,7 @@ class AuthProvider extends ChangeNotifier {
           await _restoreLocalSessionIfPresent();
         }
         _applyActorId();
+        await _resolveActiveWorkspace();
         await _applyRealtimeSession();
       } else {
         await _restoreLocalSessionIfPresent();
@@ -118,6 +159,115 @@ class AuthProvider extends ChangeNotifier {
     final localUuid = prefs.getString(_localProfileUuidKey);
     if (localUuid == null) return;
     await _startLocalSession(localUuid);
+  }
+
+  /// The server's session check — extracted so tests can script the session
+  /// without HTTP fakes.
+  @visibleForTesting
+  Future<User?> fetchSession() =>
+      AuthRepository(dio: _dio!, secureStorage: secureStorage).checkSession();
+
+  /// The account's workspace list — extracted so tests can script server
+  /// replies without HTTP fakes.
+  @visibleForTesting
+  Future<List<Workspace>> fetchWorkspaces() =>
+      WorkspaceRepository(dio: _dio!).listWorkspaces();
+
+  /// Picks the active workspace for a server session: the remembered one when
+  /// it is still among the account's workspaces, otherwise none (the router
+  /// guard then lands on the workspace management view instead of the shell).
+  /// Runs after session restore and after every login.
+  Future<void> _resolveActiveWorkspace() async {
+    final server = _activeServer;
+    final user = _user;
+    final dio = _dio;
+    if (server == null || user == null || dio == null || isLocalMode) return;
+    final key = _activeWorkspaceKey(server.id, user.uuid);
+    // Installs that predate per-account persistence only have the sync
+    // service's pointer; adopt it once so they keep their workspace.
+    final remembered =
+        prefs.getString(key) ?? await _syncService?.getWorkspaceId();
+    try {
+      final list = await fetchWorkspaces();
+      _workspaces = list;
+      _workspaceListError = null;
+      if (remembered != null && list.any((w) => w.uuid == remembered)) {
+        await _setActiveWorkspace(remembered);
+        _kickWorkspacePull();
+      } else {
+        // None remembered, or it vanished (deleted / membership revoked):
+        // clear the selection; the sync pointer stays harmless because the
+        // guard keeps the session out of the shell.
+        _activeWorkspaceId = null;
+        await prefs.remove(key);
+        await _syncService?.stopRealtime();
+      }
+    } catch (_) {
+      // The relay is unreachable: keep the remembered selection so an
+      // offline start still lands in the shell, and let the sync layer
+      // surface the error (the web client validates membership the same
+      // best-effort way on boot).
+      _activeWorkspaceId = remembered;
+      if (remembered != null) {
+        await _syncService?.setWorkspaceId(remembered);
+      }
+    }
+  }
+
+  /// Re-fetches the account's workspace list — the management view calls this
+  /// on entry and after create/rename. A fetch that proves the active
+  /// workspace gone (deleted / membership revoked) drops the selection so the
+  /// router guard falls back to the management view.
+  Future<void> refreshWorkspaces() async {
+    final server = _activeServer;
+    final user = _user;
+    final dio = _dio;
+    if (server == null || user == null || dio == null || isLocalMode) return;
+    try {
+      final list = await fetchWorkspaces();
+      _workspaces = list;
+      _workspaceListError = null;
+      final id = _activeWorkspaceId;
+      if (id != null && !list.any((w) => w.uuid == id)) {
+        _activeWorkspaceId = null;
+        await prefs.remove(_activeWorkspaceKey(server.id, user.uuid));
+        await _syncService?.stopRealtime();
+      }
+    } catch (e) {
+      // Keep any previously fetched list usable; the view shows this error
+      // with a retry affordance.
+      _workspaceListError = e.toString();
+    }
+    notifyListeners();
+  }
+
+  /// The single write path for the active-workspace selection: sets the
+  /// in-memory source of truth, persists it per server+account, and points
+  /// the sync service at it.
+  Future<void> _setActiveWorkspace(String workspaceId) async {
+    _activeWorkspaceId = workspaceId;
+    final server = _activeServer;
+    final user = _user;
+    if (server == null || user == null) return;
+    await prefs.setString(
+        _activeWorkspaceKey(server.id, user.uuid), workspaceId);
+    await _syncService?.setWorkspaceId(workspaceId);
+  }
+
+  /// Fire-and-forget convergence pull after entering a workspace (the web
+  /// client's connect() syncs on entry); errors stay with the sync layer's
+  /// normal surfacing.
+  void _kickWorkspacePull() {
+    final sync = _syncService;
+    if (sync == null) return;
+    unawaited(sync.pull().catchError(
+        (Object e) => debugPrint('AuthProvider: workspace pull failed: $e')));
+  }
+
+  void _clearWorkspaceState() {
+    _activeWorkspaceId = null;
+    _workspaces = null;
+    _workspaceListError = null;
   }
 
   /// Creates the local profile: a synthetic user with no server and no auth,
@@ -173,6 +323,7 @@ class AuthProvider extends ChangeNotifier {
       workspaceId = Uuid7.generate();
       await prefs.setString(_localWorkspaceUuidKey, workspaceId);
     }
+    _activeWorkspaceId = workspaceId;
     try {
       await sync.setWorkspaceId(workspaceId);
       await LocalWorkspaceSeed(sync).ensureLocalWorkspace(
@@ -232,6 +383,7 @@ class AuthProvider extends ChangeNotifier {
     );
     _syncService = await _buildSyncService(_dio!);
     _user = null;
+    _clearWorkspaceState();
     _applyActorId();
     _twoFactorChallenge = null;
     notifyListeners();
@@ -253,16 +405,19 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  /// Switches the active workspace: points the sync service (and the
-  /// realtime subscription) at [workspaceId]. Call after the server accepted
-  /// the workspace switch.
+  /// Switches the active workspace: persists the selection per
+  /// server+account, points the sync service (and the realtime subscription)
+  /// at [workspaceId], and kicks a pull so the workspace converges. Adopts a
+  /// pending local-workspace backlog onto the new workspace, mirroring the
+  /// post-login adoption (a no-op once the local profile has been adopted).
   Future<void> switchWorkspace(String workspaceId) async {
     final sync = _syncService;
-    if (sync != null) {
-      await sync.stopRealtime();
-      await sync.setWorkspaceId(workspaceId);
-    }
+    await sync?.stopRealtime();
+    await _setActiveWorkspace(workspaceId);
     await _applyRealtimeSession();
+    await _adoptLocalWorkspaceIfPending();
+    _kickWorkspacePull();
+    notifyListeners();
   }
 
   Future<void> login(String email, String password, {bool rememberMe = false}) async {
@@ -279,7 +434,7 @@ class AuthProvider extends ChangeNotifier {
         case LoginSuccess(:final user):
           _user = user;
           _applyActorId();
-          await _switchToDefaultWorkspace();
+          await _resolveActiveWorkspace();
           await _adoptLocalWorkspaceIfPending();
           await _applyRealtimeSession();
         case TwoFactorChallenge():
@@ -309,7 +464,7 @@ class AuthProvider extends ChangeNotifier {
       );
       _twoFactorChallenge = null;
       _applyActorId();
-      await _switchToDefaultWorkspace();
+      await _resolveActiveWorkspace();
       await _adoptLocalWorkspaceIfPending();
       await _applyRealtimeSession();
     } catch (e) {
@@ -336,7 +491,7 @@ class AuthProvider extends ChangeNotifier {
       final repo = AuthRepository(dio: _dio!, secureStorage: secureStorage);
       _user = await repo.register(email: email, password: password, name: name, surnames: surnames);
       _applyActorId();
-      await _switchToDefaultWorkspace();
+      await _resolveActiveWorkspace();
       await _adoptLocalWorkspaceIfPending();
       await _applyRealtimeSession();
     } catch (e) {
@@ -357,6 +512,7 @@ class AuthProvider extends ChangeNotifier {
     } finally {
       _busy = false;
       _user = null;
+      _clearWorkspaceState();
       _applyActorId();
       _twoFactorChallenge = null;
       await _applyRealtimeSession();
@@ -377,17 +533,6 @@ class AuthProvider extends ChangeNotifier {
     _user = await repo.updateProfile(name: name, surnames: surnames);
     _applyActorId();
     notifyListeners();
-  }
-
-  Future<void> _switchToDefaultWorkspace() async {
-    if (_dio == null) return;
-    final workspaceRepo = WorkspaceRepository(dio: _dio!);
-    final workspaces = await workspaceRepo.listWorkspaces();
-    if (workspaces.isNotEmpty) {
-      final workspaceId = workspaces.first.uuid;
-      await workspaceRepo.switchWorkspace(workspaceId);
-      await _syncService?.setWorkspaceId(workspaceId);
-    }
   }
 
   /// Connect-later adoption (v1): after the first successful server login
