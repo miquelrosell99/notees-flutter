@@ -182,6 +182,37 @@ void main() {
       expect(member.single['present'], 1);
     });
 
+    test('object-color lands token → hex → null-clear; class token → null',
+        () async {
+      const objectProbe = '0192a000-0000-7000-8000-000000000510';
+      const classProbe = '0192a000-0000-7000-8000-000000000511';
+      final envelopes = fixtureEnvelopes('object-color.json');
+
+      // object.create carries no color slot (§34.43: color rides
+      // object.update), so the probe page starts uncolored.
+      expect(await appliers.apply(envelopes[0]), isTrue);
+      expect((await cache.getByUuid(objectProbe))!.color, isNull);
+
+      // object.update with a preset token lands it verbatim.
+      expect(await appliers.apply(envelopes[1]), isTrue);
+      expect((await cache.getByUuid(objectProbe))!.color, 'sky');
+
+      // object.update with a custom hex lands it verbatim.
+      expect(await appliers.apply(envelopes[2]), isTrue);
+      expect((await cache.getByUuid(objectProbe))!.color, '#123abc');
+
+      // object.update with a present null CLEARS (§34.43 null-clear) — a
+      // `!= null` drop here would leave '#123abc' behind.
+      expect(await appliers.apply(envelopes[3]), isTrue);
+      expect((await cache.getByUuid(objectProbe))!.color, isNull);
+
+      // class.create carries the token; class.update null clears.
+      expect(await appliers.apply(envelopes[4]), isTrue);
+      expect((await cache.getClassByUuid(classProbe))!.color, 'pink');
+      expect(await appliers.apply(envelopes[5]), isTrue);
+      expect((await cache.getClassByUuid(classProbe))!.color, isNull);
+    });
+
     test('property-set-lww converges to the higher-HLC phone value both orders',
         () async {
       final laptop = fixtureEnvelopes('property-set-lww.json')[0];

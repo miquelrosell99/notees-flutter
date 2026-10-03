@@ -189,11 +189,11 @@ class _NodeEditModalState extends State<NodeEditModal> {
                     onTap: () => setState(() => _selectedColor = null),
                   ),
                   ...ColorPresets.entries.map((entry) {
-                    final (hex, _) = entry;
+                    final (token, hex, _) = entry;
                     return _ColorOption(
                       color: ColorPresets.fromHex(hex),
-                      isSelected: _selectedColor == hex,
-                      onTap: () => setState(() => _selectedColor = hex),
+                      isSelected: ColorPresets.tokenFor(_selectedColor) == token,
+                      onTap: () => setState(() => _selectedColor = token),
                     );
                   }),
                 ],

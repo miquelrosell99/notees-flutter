@@ -1,31 +1,64 @@
 import 'package:flutter/material.dart';
 
-/// Notees data-level color presets, matching the web app.
+import '../../domain/models/relay/colors.dart';
+
+/// Notees data-level color presets, matching the web app
+/// (`apps/web/src/ui/variables.css` `--color-preset-*` values, 2026-10-03
+/// refresh — brighter, perceptually even hues + light blue and gray).
 ///
-/// The web app stores these as CSS variable references (e.g.
-/// `var(--color-preset-red)`); mobile stores the resolved hex values directly.
+/// §34.43: the wire carries the preset TOKEN (`sky`) or a custom `#RRGGBB`
+/// hex — never a resolved hex and never the retired
+/// `var(--color-preset-*)` encoding (strict payload validators reject it).
+/// Mobile previously stored resolved hexes for preset picks; the pickers
+/// now write the token and keep the concrete hex here for rendering only.
+/// The token set is imported from the protocol grammar ([colorPresetTokens])
+/// so validation and rendering can never drift.
 class ColorPresets {
   ColorPresets._();
 
-  static const List<(String hex, String label)> entries = [
-    ('#c55a55', 'Red'),
-    ('#c98557', 'Orange'),
-    ('#b8a23a', 'Yellow'),
-    ('#4f8f6a', 'Green'),
-    ('#4a8a83', 'Teal'),
-    ('#5a79c9', 'Blue'),
-    ('#8a6cc9', 'Purple'),
-    ('#c06a9a', 'Pink'),
+  /// (token, hex, label) per preset, hue order then gray. The concrete hexes
+  /// match the web's `--color-preset-*` values.
+  static const List<(String token, String hex, String label)> entries = [
+    ('red', '#e34d45', 'Red'),
+    ('orange', '#ed822b', 'Orange'),
+    ('yellow', '#f3b816', 'Yellow'),
+    ('green', '#30a66f', 'Green'),
+    ('teal', '#27a59c', 'Teal'),
+    ('sky', '#20a9e9', 'Sky'),
+    ('blue', '#4072e7', 'Blue'),
+    ('purple', '#9662da', 'Purple'),
+    ('pink', '#de4996', 'Pink'),
+    ('gray', '#8c857d', 'Gray'),
   ];
 
   static const String defaultHex = '#f9f5e8';
 
   static final RegExp _cssVarPattern = RegExp(r'^var\(--color-preset-([a-z]+)\)$');
 
+  /// Maps any stored color shape to its preset token: a token as-is, a
+  /// preset hex (mobile's pre-§34.43 resolved storage), or the retired
+  /// `var(--color-preset-*)` encoding (pre-migration stored data). Returns
+  /// null for custom hexes, unknown values, and unset.
+  static String? tokenFor(String? stored) {
+    if (stored == null) return null;
+    final value = stored.trim();
+    if (colorPresetTokens.contains(value)) return value;
+    final varMatch = _cssVarPattern.firstMatch(value);
+    final name = varMatch?.group(1);
+    for (final (token, hex, label) in entries) {
+      if (name != null && label.toLowerCase() == name) return token;
+      if (hex == value) return token;
+    }
+    return null;
+  }
+
   /// Resolves a stored color value to a [Color], or null when unset/unknown.
   ///
-  /// Accepts both storage formats: the web app's CSS variable references
-  /// (`var(--color-preset-green)`) and freeform hex strings (`#RRGGBB`).
+  /// Accepts every storage shape existing data may carry: the §34.43 preset
+  /// token (`sky`), a stored `#RRGGBB` hex (custom colors and mobile's
+  /// pre-§34.43 resolved preset hexes), and the retired web CSS variable
+  /// references (`var(--color-preset-green)`), which the monorepo migration
+  /// rewrites out of stored logs.
   static Color? tryResolve(String? stored) {
     if (stored == null || stored.trim().isEmpty) return null;
     final value = stored.trim();
@@ -33,8 +66,15 @@ class ColorPresets {
     final varMatch = _cssVarPattern.firstMatch(value);
     if (varMatch != null) {
       final name = varMatch.group(1);
-      for (final (hex, label) in entries) {
-        if (label.toLowerCase() == name) return fromHex(hex);
+      for (final entry in entries) {
+        if (entry.$3.toLowerCase() == name) return fromHex(entry.$2);
+      }
+      return null;
+    }
+
+    if (colorPresetTokens.contains(value)) {
+      for (final entry in entries) {
+        if (entry.$1 == value) return fromHex(entry.$2);
       }
       return null;
     }

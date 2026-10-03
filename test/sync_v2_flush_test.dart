@@ -1,8 +1,11 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/core/utils/ast_builder.dart';
 import 'package:notees/data/local/app_database.dart';
 import 'package:notees/data/repositories/node_cache_repository.dart';
+import 'package:notees/data/repositories/node_repository.dart';
 import 'package:notees/domain/services/sync_v2_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -181,6 +184,70 @@ void main() {
       expect(node!.displayName, 'Groceries');
       expect(pushed.last['opType'], 'object.update');
       expect(pushed.last['payload']['contentAst'], isNotNull);
+    });
+
+    test('update_color explicit null survives the offline queue as a wire '
+        'clear (§34.43)', () async {
+      final service = await buildService(buildDio());
+      await service.enqueue(
+        type: 'create',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
+        contentAst: AstBuilder.parseInline('Shopping'),
+        isPage: true,
+      );
+      await service.flush();
+
+      await service.enqueue(
+        type: 'update_color',
+        nodeUuid: '20000000-0000-4000-8000-000000000001',
+        propertyValue: null,
+      );
+
+      // Offline proof: the queued envelope itself carries "color": null —
+      // the outbox JSON keeps the key, so the clear is not lost while
+      // waiting for connectivity.
+      final db = await database.database;
+      final queued = await db.query('relay_outbox', where: "state = 'pending'");
+      expect(queued, hasLength(1));
+      final queuedEnvelope = jsonDecode(queued.single['envelope_json'] as String)
+          as Map<String, dynamic>;
+      final queuedPayload = queuedEnvelope['payload'] as Map<String, dynamic>;
+      expect(queuedPayload.containsKey('color'), isTrue);
+      expect(queuedPayload['color'], isNull);
+
+      await service.flush();
+      expect(pushed.last['opType'], 'object.update');
+      final payload = pushed.last['payload'] as Map<String, dynamic>;
+      expect(payload.containsKey('color'), isTrue);
+      expect(payload['color'], isNull);
+    });
+
+    test('NodeRepository.updateNode: omitted color never touches the wire; '
+        'token and explicit null pass through', () async {
+      final service = await buildService(buildDio());
+      final repo = NodeRepository(dio: buildDio(), syncService: service);
+      const nodeUuid = '20000000-0000-4000-8000-000000000001';
+
+      // Omitted color: only the rename lands, with no color key at all.
+      await repo.updateNode(nodeUuid, name: 'Shopping');
+      expect(pushed, hasLength(1));
+      expect(pushed.single['opType'], 'object.update');
+      expect(
+        (pushed.single['payload'] as Map<String, dynamic>).containsKey('color'),
+        isFalse,
+      );
+
+      // Preset token: written verbatim.
+      pushed.clear();
+      await repo.updateNode(nodeUuid, color: 'sky');
+      expect(pushed.single['payload']['color'], 'sky');
+
+      // Explicit null: the wire carries "color": null (a clear), not absence.
+      pushed.clear();
+      await repo.updateNode(nodeUuid, color: null);
+      final payload = pushed.single['payload'] as Map<String, dynamic>;
+      expect(payload.containsKey('color'), isTrue);
+      expect(payload['color'], isNull);
     });
 
     test('pull echo of own ops does not clobber or duplicate', () async {

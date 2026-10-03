@@ -943,6 +943,11 @@ class SyncV2Service {
           icon: op.propertyValue as String?,
         );
       case 'update_color':
+        // §34.43 tri-state: "absent" never reaches this case (the caller
+        // omits the color argument and no op is enqueued); a queued op with
+        // a null propertyValue is an EXPLICIT CLEAR — the payload builder
+        // turns it into `"color": null`, and the outbox envelope JSON keeps
+        // the key through an offline round-trip.
         opType = 'object.update';
         payload = OperationPayloads.objectUpdate(
           objectId: op.nodeUuid,
