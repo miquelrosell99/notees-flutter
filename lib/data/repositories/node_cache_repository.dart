@@ -224,6 +224,10 @@ class NodeCacheRepository {
         ids,
       );
       await txn.rawDelete(
+        'DELETE FROM trash_root WHERE node_id IN ($placeholders)',
+        ids,
+      );
+      await txn.rawDelete(
         'DELETE FROM task_completion WHERE node_uuid IN ($placeholders)',
         ids,
       );
@@ -328,6 +332,44 @@ class NodeCacheRepository {
       [uuid],
     );
     return rows.map((r) => r['uuid'] as String).toList();
+  }
+
+  /// Trash retention metadata (lockstep with the TS reference's `trash`
+  /// table): one row per soft-deleted ROOT. `object.restore` reads this to
+  /// reactivate exactly the subtree that rode one trash event — a
+  /// descendant with its own row was trashed independently and stays
+  /// trashed.
+  Future<void> recordTrashRoot(
+    String nodeId, {
+    required String deletedAt,
+    bool isPermanent = false,
+  }) async {
+    final db = await _database.database;
+    await db.insert(
+      'trash_root',
+      {
+        'node_id': nodeId,
+        'deleted_at': deletedAt,
+        'is_permanent': isPermanent ? 1 : 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Set<String>> trashRootIds(List<String> ids) async {
+    if (ids.isEmpty) return {};
+    final db = await _database.database;
+    final placeholders = ids.map((_) => '?').join(',');
+    final rows = await db.rawQuery(
+      'SELECT node_id FROM trash_root WHERE node_id IN ($placeholders)',
+      ids,
+    );
+    return rows.map((r) => r['node_id'] as String).toSet();
+  }
+
+  Future<void> consumeTrashRoot(String nodeId) async {
+    final db = await _database.database;
+    await db.delete('trash_root', where: 'node_id = ?', whereArgs: [nodeId]);
   }
 
   /// Restores the local node cache from a server-derived snapshot byte
