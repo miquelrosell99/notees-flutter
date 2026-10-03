@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 20,
+          version: 21,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 20,
+      version: 21,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -115,6 +115,7 @@ class AppDatabase {
     await _createClassProperty(db);
     await _migrateV19(db);
     await _migrateV20(db);
+    await _createTrashRoot(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -182,6 +183,23 @@ class AppDatabase {
     if (oldVersion < 20) {
       await _migrateV20(db);
     }
+    if (oldVersion < 21) {
+      await _createTrashRoot(db);
+    }
+  }
+
+  /// v21 — trash retention metadata for the relay-v2 restore applier
+  /// (lockstep with the TS reference's `trash` table, implementation-plan
+  /// §34.38): one row per soft-deleted ROOT, so `object.restore` can tell
+  /// "trashed with the parent" apart from "trashed independently".
+  Future<void> _createTrashRoot(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS trash_root (
+        node_id TEXT PRIMARY KEY,
+        deleted_at TEXT NOT NULL,
+        is_permanent INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
   }
 
   /// v16 — derived-state depth for the relay-v2 appliers:
@@ -997,6 +1015,7 @@ class AppDatabase {
     await _createClassProperty(db);
     await _migrateV19(db);
     await _migrateV20(db);
+    await _createTrashRoot(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

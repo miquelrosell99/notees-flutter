@@ -435,6 +435,182 @@ void main() {
       expect(node, isNull);
     });
 
+    test('object.restore reactivates the subtree and consumes the trash row',
+        () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000210';
+      const childUuid = '00000000-0000-0000-0000-000000000211';
+      const grandchildUuid = '00000000-0000-0000-0000-000000000212';
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000210',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(objectId: pageUuid),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000211',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: childUuid,
+          parentId: pageUuid,
+        ),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000212',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: grandchildUuid,
+          parentId: childUuid,
+        ),
+      ));
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000213',
+        opType: 'object.delete',
+        payload: OperationPayloads.objectDelete(objectId: pageUuid),
+        physical: 2,
+      ));
+      expect((await cache.getByUuid(grandchildUuid))!.isArchived, isTrue);
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000214',
+        opType: 'object.restore',
+        payload: OperationPayloads.objectRestore(objectId: pageUuid),
+        physical: 3,
+      ));
+      expect((await cache.getByUuid(pageUuid))!.isArchived, isFalse);
+      expect((await cache.getByUuid(childUuid))!.isArchived, isFalse);
+      expect((await cache.getByUuid(grandchildUuid))!.isArchived, isFalse);
+      expect(await cache.trashRootIds([pageUuid]), isEmpty);
+    });
+
+    test('object.restore keeps an independently trashed descendant trashed',
+        () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000220';
+      const childUuid = '00000000-0000-0000-0000-000000000221';
+      const siblingUuid = '00000000-0000-0000-0000-000000000222';
+      for (final (uuid, idSuffix, parent) in [
+        (pageUuid, '20', null),
+        (childUuid, '21', pageUuid),
+        (siblingUuid, '22', pageUuid),
+      ]) {
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-0000000002$idSuffix',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: uuid,
+            parentId: parent,
+          ),
+        ));
+      }
+      // The child is trashed on its own first; the parent follows.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000230',
+        opType: 'object.delete',
+        payload: OperationPayloads.objectDelete(objectId: childUuid),
+        physical: 2,
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000231',
+        opType: 'object.delete',
+        payload: OperationPayloads.objectDelete(objectId: pageUuid),
+        physical: 3,
+      ));
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000232',
+        opType: 'object.restore',
+        payload: OperationPayloads.objectRestore(objectId: pageUuid),
+        physical: 4,
+      ));
+      expect((await cache.getByUuid(pageUuid))!.isArchived, isFalse);
+      expect((await cache.getByUuid(siblingUuid))!.isArchived, isFalse);
+      expect((await cache.getByUuid(childUuid))!.isArchived, isTrue);
+      // Its own trash row survives — a later child restore still works.
+      expect(await cache.trashRootIds([childUuid]), isNotEmpty);
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000233',
+        opType: 'object.restore',
+        payload: OperationPayloads.objectRestore(objectId: childUuid),
+        physical: 5,
+      ));
+      expect((await cache.getByUuid(childUuid))!.isArchived, isFalse);
+    });
+
+    test('object.restore reparents to the root when the parent row is gone',
+        () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000240';
+      const childUuid = '00000000-0000-0000-0000-000000000241';
+      const grandchildUuid = '00000000-0000-0000-0000-000000000242';
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000240',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(objectId: pageUuid),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000241',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: childUuid,
+          parentId: pageUuid,
+        ),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000242',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: grandchildUuid,
+          parentId: childUuid,
+        ),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000243',
+        opType: 'object.delete',
+        payload: OperationPayloads.objectDelete(objectId: grandchildUuid),
+        physical: 2,
+      ));
+      // Legacy corner: the parent's row disappears after the trash while the
+      // trashed node survives with a dangling parent_uuid.
+      await cache.deleteByUuid(childUuid);
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000244',
+        opType: 'object.restore',
+        payload: OperationPayloads.objectRestore(objectId: grandchildUuid),
+        physical: 3,
+      ));
+      final restored = await cache.getByUuid(grandchildUuid);
+      expect(restored, isNotNull);
+      expect(restored!.isArchived, isFalse);
+      expect(restored.parentUuid, isNull);
+    });
+
+    test('object.restore on a permanently deleted node throws NodeNotFoundError',
+        () async {
+      const doomedUuid = '00000000-0000-0000-0000-000000000250';
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000250',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(objectId: doomedUuid),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000251',
+        opType: 'object.delete',
+        payload: OperationPayloads.objectDelete(
+          objectId: doomedUuid,
+          permanent: true,
+        ),
+        physical: 2,
+      ));
+      expect(
+        () => appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000252',
+          opType: 'object.restore',
+          payload: OperationPayloads.objectRestore(objectId: doomedUuid),
+          physical: 3,
+        )),
+        throwsA(isA<NodeNotFoundError>()),
+      );
+    });
+
     test('applies propertySchema.create/update/delete', () async {
       const schemaUuid = '00000000-0000-0000-0000-000000000401';
 

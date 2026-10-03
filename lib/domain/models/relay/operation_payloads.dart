@@ -27,6 +27,7 @@ class OperationPayloads {
     'object.create',
     'object.update',
     'object.delete',
+    'object.restore',
     'object.move',
     'class.create',
     'class.update',
@@ -142,6 +143,13 @@ class OperationPayloads {
       _validated('object.delete', {
         'objectId': objectId,
         'permanent': permanent,
+      });
+
+  static Map<String, dynamic> objectRestore({
+    required String objectId,
+  }) =>
+      _validated('object.restore', {
+        'objectId': objectId,
       });
 
   /// [parentId] null means workspace root and is legal for any non-class
@@ -516,6 +524,9 @@ class OperationPayloads {
         _strict(payload, {'objectId', 'permanent'});
         _uuid(payload, 'objectId');
         _bool(payload, 'permanent', required: false);
+      case 'object.restore':
+        _strict(payload, {'objectId'});
+        _uuid(payload, 'objectId');
       case 'object.move':
         _strict(payload, {'objectId', 'parentId', 'afterId', 'beforeId'});
         _uuid(payload, 'objectId');

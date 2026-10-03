@@ -89,6 +89,8 @@ class RelayAppliers {
         return _applyUpdate(envelope, objectId, payload);
       case 'object.delete':
         return _applyDelete(envelope, objectId, payload);
+      case 'object.restore':
+        return _applyRestore(envelope, objectId, payload);
       case 'object.move':
         return _applyMove(envelope, objectId, payload);
       case 'property.set':
@@ -383,16 +385,72 @@ class RelayAppliers {
     final permanent = payload['permanent'] == true;
     if (!permanent) {
       // Soft delete: trash the whole subtree (v2 semantics — restore is
-      // whole-tree). The trash/archive view reads is_archived.
+      // whole-tree). The trash/archive view reads is_archived; the
+      // trash_root row (one per root, lockstep with the TS `trash` table)
+      // is what lets object.restore tell "rode with the parent" apart from
+      // "trashed independently".
       final ids = await _cache.subtreeUuids(objectId);
       for (final id in ids) {
         final node = await _cache.getByUuid(id);
         if (node != null) await _cache.upsert(node.copyWithIsArchived(true));
       }
+      await _cache.recordTrashRoot(
+        objectId,
+        deletedAt: DateTime.now().toUtc().toIso8601String(),
+      );
       return true;
     }
     // Permanent delete: hard-delete the subtree and its derived rows.
     await _cache.hardDelete(objectId);
+    return true;
+  }
+
+  Future<bool> _applyRestore(
+    OperationEnvelope envelope,
+    String objectId,
+    Map<String, dynamic> payload,
+  ) async {
+    final opType = envelope.opType;
+    final root = await _cache.getByUuid(objectId);
+    if (root == null) {
+      throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
+    }
+    // Corner: dangling parent (parent permanently deleted / legacy data) —
+    // reparent to the workspace root; a present-but-inactive parent is left
+    // alone (restoring the parent later heals the tree).
+    final parentUuid = root.parentUuid;
+    if (parentUuid != null && await _cache.getByUuid(parentUuid) == null) {
+      await _cache.upsert(
+        _copyWith(root, parentUuid: null, isPage: true),
+      );
+    }
+    // Whole-tree: reactivate exactly the nodes that rode THIS trash event.
+    // A descendant with its OWN trash_root row was trashed independently
+    // (its subtree rode with it) and stays trashed.
+    final ids = await _cache.subtreeUuids(objectId);
+    final ownTrash = await _cache.trashRootIds(ids);
+    final toReactivate = <String>[];
+    for (final id in ids) {
+      if (id != objectId && ownTrash.contains(id)) continue;
+      var cursor = (await _cache.getByUuid(id))?.parentUuid;
+      var ridesThisDelete = true;
+      while (cursor != null) {
+        if (cursor == objectId) break;
+        if (ownTrash.contains(cursor)) {
+          ridesThisDelete = false;
+          break;
+        }
+        cursor = (await _cache.getByUuid(cursor))?.parentUuid;
+      }
+      if (ridesThisDelete) toReactivate.add(id);
+    }
+    for (final id in toReactivate) {
+      final node = await _cache.getByUuid(id);
+      if (node != null && node.isArchived) {
+        await _cache.upsert(node.copyWithIsArchived(false));
+      }
+    }
+    await _cache.consumeTrashRoot(objectId);
     return true;
   }
 
