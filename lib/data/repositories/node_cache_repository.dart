@@ -1010,6 +1010,22 @@ class NodeCacheRepository {
     return _classFromRow(rows.first);
   }
 
+  /// The stored description of a cached class. Read separately because the
+  /// [Node] projection does not carry the field; class.update is
+  /// presence-based on description (a patch without the key must keep it).
+  Future<String?> classDescription(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'class_cache',
+      columns: ['description'],
+      where: 'uuid = ? AND active = 1',
+      whereArgs: [uuid],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['description'] as String?;
+  }
+
   /// Creates or updates a class row in the local cache.
   Future<void> upsertClass({
     required String uuid,

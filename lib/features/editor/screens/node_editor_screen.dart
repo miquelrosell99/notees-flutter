@@ -1952,6 +1952,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         dio: auth.dio!,
         syncService: auth.syncService,
       );
+      // The modal seeds the selection from the stored color, so a null
+      // result.color unambiguously means the user picked "no color" —
+      // §34.43: pass the explicit null through and the wire carries
+      // `"color": null` (a clear), not "leave the color untouched".
       await repo.updateNode(
         classUuid,
         name: result.name,

@@ -17,6 +17,11 @@ import '../models/node.dart';
 import '../models/page_content.dart';
 import '../models/property.dart';
 
+/// Sentinel distinguishing an omitted [NodeRepository.updateNode] `color`
+/// argument from an explicit `null` — §34.43: a color clear rides the wire
+/// as `"color": null`, while an omitted argument writes nothing at all.
+const Object _undefinedColor = Object();
+
 class NodeRepository {
   NodeRepository({
     required this.dio,
@@ -352,11 +357,16 @@ class NodeRepository {
     return _cache!.searchWithFilters(filters);
   }
 
+  /// Color ([color]) is tri-state (§34.43): omit it to leave the node's
+  /// color untouched, pass a preset token or `#RRGGBB` hex to set it, or
+  /// pass an explicit `null` to CLEAR it — the queued `update_color` op
+  /// serializes the clear as `"color": null` on the wire, and the outbox
+  /// JSON preserves the key through an offline round-trip.
   Future<Node> updateNode(
     String uuid, {
     String? name,
     String? icon,
-    String? color,
+    Object? color = _undefinedColor,
     List<String>? classes,
     List<String>? tags,
   }) async {
@@ -387,11 +397,16 @@ class NodeRepository {
         propertyValue: icon,
       );
     }
-    if (color != null) {
+    // "Absent" is represented by the caller omitting [color] (the sentinel):
+    // no op is enqueued and the wire sees no color write. Anything else —
+    // token, hex, or an explicit null clear — rides a queued update_color
+    // op; the payload builder turns a null propertyValue into an explicit
+    // `"color": null`.
+    if (!identical(color, _undefinedColor)) {
       await service.enqueue(
         type: 'update_color',
         nodeUuid: uuid,
-        propertyValue: color,
+        propertyValue: color as String?,
       );
     }
 
@@ -445,7 +460,7 @@ class NodeRepository {
       name: name ?? '',
       displayName: name ?? '',
       icon: icon,
-      color: color,
+      color: identical(color, _undefinedColor) ? null : color as String?,
     );
   }
 

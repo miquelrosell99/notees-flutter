@@ -34,6 +34,7 @@ void main() {
     'class-extends-m2m.json',
     'class-property-defaults.json',
     'class-unassign.json',
+    'object-color.json',
     'object-move-before.json',
     'object-move.json',
     'property-set-lww.json',

@@ -16,8 +16,22 @@
 /// (web parity, `WorkspaceClient.createObject`); when both are given,
 /// `contentAst` wins and `name` is dropped. The validators reject a `name`
 /// key in object/class payloads like the relay does.
+///
+/// Color grammar (§34.43, 2026-10-03): `color` on object.update /
+/// class.create / class.update is a preset token (`sky`) or `#RRGGBB` hex —
+/// see [isColorValue]. `null` CLEARS (object.update gained null-clear here;
+/// class.update documented it). The builders take [color] as an `Object?`
+/// [_undefined]-defaulted sentinel so an explicit `null` reaches the wire as
+/// `"color": null` while an omitted argument stays absent.
+library;
+
+import 'colors.dart';
+
 class OperationPayloads {
   OperationPayloads._();
+
+  /// Sentinel marking an omitted optional argument (vs an explicit `null`).
+  static const Object _undefined = Object();
 
   // --- registry ---------------------------------------------------------------
 
@@ -105,17 +119,20 @@ class OperationPayloads {
   /// Render-bit toggle (Revision 11): promotion/demotion flips are
   /// [presentAsMain] true/false — identity is preserved, and promotion
   /// (false → true) stringifies the content in the same op.
+  ///
+  /// Color (§34.43): [color] is a preset token or `#RRGGBB` hex; pass `null`
+  /// explicitly to CLEAR the node's color (the wire carries `"color": null`).
   static Map<String, dynamic> objectUpdate({
     required String objectId,
     bool? presentAsMain,
     String? icon,
-    String? color,
+    Object? color = _undefined,
     String? contentDeltaB64,
     List<Map<String, dynamic>>? contentAst,
   }) {
     if (presentAsMain == null &&
         icon == null &&
-        color == null &&
+        identical(color, _undefined) &&
         contentDeltaB64 == null &&
         contentAst == null) {
       throw ArgumentError('object.update requires at least one field');
@@ -130,7 +147,7 @@ class OperationPayloads {
       'objectId': objectId,
       'presentAsMain': ?presentAsMain,
       'icon': ?icon,
-      'color': ?color,
+      if (!identical(color, _undefined)) 'color': color,
       'contentDeltaB64': ?contentDeltaB64,
       'contentAst': ?contentAst,
     });
@@ -180,7 +197,8 @@ class OperationPayloads {
 
   /// Title-is-content: the class's title text rides `contentAst` (text-only
   /// content, like pages). [name] is a convenience wrapped into a single
-  /// text token (`WorkspaceClient.createClass` parity).
+  /// text token (`WorkspaceClient.createClass` parity). Color (§34.43):
+  /// [color] is a preset token or `#RRGGBB` hex (omit for no color).
   static Map<String, dynamic> classCreate({
     required String classId,
     String? name,
@@ -206,19 +224,22 @@ class OperationPayloads {
   }
 
   /// Title-text replacement (text-only content), same contract as
-  /// [classCreate].
+  /// [classCreate]. Color (§34.43): [color] is a preset token or `#RRGGBB`
+  /// hex; pass `null` explicitly to CLEAR the class's color (the wire
+  /// carries `"color": null` — the schema now accepts what the catalog
+  /// always documented).
   static Map<String, dynamic> classUpdate({
     required String classId,
     String? name,
     List<Map<String, dynamic>>? contentAst,
     String? icon,
-    String? color,
+    Object? color = _undefined,
     String? description,
   }) {
     if (name == null &&
         contentAst == null &&
         icon == null &&
-        color == null &&
+        identical(color, _undefined) &&
         description == null) {
       throw ArgumentError('class.update requires at least one field');
     }
@@ -233,7 +254,7 @@ class OperationPayloads {
       'classId': classId,
       'contentAst': ?effectiveContent,
       'icon': ?icon,
-      'color': ?color,
+      if (!identical(color, _undefined)) 'color': color,
       'description': ?description,
     });
   }
@@ -508,7 +529,7 @@ class OperationPayloads {
         _uuid(payload, 'objectId');
         _bool(payload, 'presentAsMain', required: false);
         _string(payload, 'icon', max: 64, required: false);
-        _string(payload, 'color', max: 32, required: false);
+        _color(payload, 'color');
         _string(payload, 'contentDeltaB64', required: false);
         _list(payload, 'contentAst', required: false);
         if (payload.length == 1) {
@@ -538,14 +559,14 @@ class OperationPayloads {
         _uuid(payload, 'classId');
         _list(payload, 'contentAst', required: false);
         _string(payload, 'icon', max: 64, required: false);
-        _string(payload, 'color', max: 32, required: false);
+        _color(payload, 'color');
         _string(payload, 'description', max: 4096, required: false);
       case 'class.update':
         _strict(payload, {'classId', 'contentAst', 'icon', 'color', 'description'});
         _uuid(payload, 'classId');
         _list(payload, 'contentAst', required: false);
         _string(payload, 'icon', max: 64, required: false);
-        _string(payload, 'color', max: 32, required: false);
+        _color(payload, 'color');
         _string(payload, 'description', max: 4096, required: false);
       case 'class.delete':
         _strict(payload, {'classId'});
@@ -723,6 +744,18 @@ class OperationPayloads {
       throw FormatException(
         'Field $key must be a string of length $min..$max',
       );
+    }
+  }
+
+  /// Color grammar (§34.43): a preset token or `#RRGGBB` hex ([isColorValue]);
+  /// a present `null` CLEARS (object.update / class.update). The retired
+  /// `var(--color-preset-*)` encoding and any other garbage fail loud here.
+  static void _color(Map<String, dynamic> payload, String key) {
+    if (!payload.containsKey(key)) return;
+    final value = payload[key];
+    if (value == null) return;
+    if (!isColorValue(value)) {
+      throw FormatException('Field $key must be a preset token or #RRGGBB hex');
     }
   }
 

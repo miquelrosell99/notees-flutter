@@ -382,6 +382,55 @@ void main() {
       expect(cls, isNull);
     });
 
+    test('class.update without description keeps the stored one (TS '
+        '`p.description !== undefined` parity)', () async {
+      const classUuid = '00000000-0000-0000-0000-000000000303';
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f1',
+        opType: 'class.create',
+        payload: OperationPayloads.classCreate(
+          classId: classUuid,
+          name: 'Genre',
+          color: 'pink',
+          description: 'A way to shelve books',
+        ),
+      ));
+      Future<String?> storedDescription() async {
+        final db = await database.database;
+        final rows = await db.rawQuery(
+          'SELECT description FROM class_cache WHERE uuid = ?',
+          [classUuid],
+        );
+        return rows.single['description'] as String?;
+      }
+
+      expect(await storedDescription(), 'A way to shelve books');
+
+      // A color-only patch (here: an explicit null clear) must not clobber
+      // the description — the old unconditional write reset it to NULL.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f2',
+        opType: 'class.update',
+        payload: OperationPayloads.classUpdate(classId: classUuid, color: null),
+        physical: 2,
+      ));
+      expect((await cache.getClassByUuid(classUuid))!.color, isNull);
+      expect(await storedDescription(), 'A way to shelve books');
+
+      // A present description still replaces the stored one.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f3',
+        opType: 'class.update',
+        payload: OperationPayloads.classUpdate(
+          classId: classUuid,
+          description: 'Renamed shelf',
+        ),
+        physical: 3,
+      ));
+      expect(await storedDescription(), 'Renamed shelf');
+    });
+
     test('object.delete permanent:false archives, permanent:true hard-deletes',
         () async {
       const archivedUuid = '00000000-0000-0000-0000-000000000105';
