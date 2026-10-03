@@ -360,7 +360,11 @@ class RelayAppliers {
         // keep whatever they carried (they live in class_cache locally).
         isPage: node.isClass ? node.isPage : resultingPresentAsMain,
         icon: payload['icon'] as String? ?? node.icon,
-        color: payload['color'] as String? ?? node.color,
+        // Color is presence-based (TS `if (p.color !== undefined)`): a
+        // present null CLEARS the stored color instead of keeping it.
+        color: payload.containsKey('color')
+            ? payload['color'] as String?
+            : node.color,
         writeDate: envelope.timestamp,
         hlcPhysical: incoming.physical,
         hlcLogical: incoming.logical,
@@ -661,7 +665,13 @@ class RelayAppliers {
       color: payload.containsKey('color')
           ? payload['color'] as String?
           : existing.color,
-      description: payload['description'] as String?,
+      // Presence-based like the TS applier (`if (p.description !==
+      // undefined)`): a class.update without description must not clobber
+      // the stored one (upsertClass is replace-semantics, so an absent key
+      // has to fall back to the existing row explicitly).
+      description: payload.containsKey('description')
+          ? payload['description'] as String?
+          : await _cache.classDescription(classId),
       updatedAt: envelope.timestamp,
     );
     return true;
@@ -1027,7 +1037,8 @@ class RelayAppliers {
 }
 
 /// Sentinel distinguishing "argument not given" from an explicit null
-/// (clearing `parentUuid`/`position` on a move to the workspace root).
+/// (clearing `parentUuid`/`position` on a move to the workspace root, and
+/// clearing `color` on object.update — §34.43 present-null semantics).
 const _undefined = Object();
 
 /// Field-wise copy used by the v2 appliers (the local [Node] model predates
@@ -1038,7 +1049,7 @@ Node _copyWith(
   String? displayName,
   bool? presentAsMain,
   String? icon,
-  String? color,
+  Object? color = _undefined,
   Object? parentUuid = _undefined,
   Object? position = _undefined,
   double? sequence,
@@ -1053,7 +1064,7 @@ Node _copyWith(
   name: name ?? node.name,
   displayName: displayName ?? node.displayName,
   icon: icon ?? node.icon,
-  color: color ?? node.color,
+  color: identical(color, _undefined) ? node.color : color as String?,
   parentId: node.parentId,
   parentUuid: identical(parentUuid, _undefined)
       ? node.parentUuid
