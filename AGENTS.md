@@ -37,7 +37,7 @@ notees-flutter/
 │   │   ├── widgets/          # Cross-feature widgets (FleetCard, EmptyState, SectionTitle, NodePicker, ViewModeSheet, etc.)
 │   │   └── views/            # Cross-feature node collection views (list/card/table/kanban/calendar, inbox)
 │   ├── features/
-│   │   ├── auth/             # screens/ (Splash, ServerSetup, Login, Onboarding, ServerManagement, Lock, ApiKeys, UserProfile), providers/ (Auth, Biometric)
+│   │   ├── auth/             # screens/ (Splash, ServerSetup, Login, Onboarding, ServerManagement, WorkspaceManagement, Lock, ApiKeys, UserProfile), providers/ (Auth, Biometric)
 │   │   ├── home/             # screens/ (Home, MainShell, Notifications), providers/ (Connectivity)
 │   │   ├── editor/           # screens/ (NodeEditor, JournalContinuous), widgets/ (BlockTreeEditor, AstRichText, SlashCommandPalette, etc.)
 │   │   ├── tasks/            # screens/ (Tasks), widgets/ (TaskRow, TaskCreationSheet)

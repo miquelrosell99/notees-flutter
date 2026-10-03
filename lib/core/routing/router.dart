@@ -24,6 +24,7 @@ import '../../features/settings/screens/settings_screen.dart';
 import '../../features/auth/screens/splash_screen.dart';
 import '../../features/library/screens/trash_screen.dart';
 import '../../features/auth/screens/user_profile_screen.dart';
+import '../../features/auth/screens/workspace_management_screen.dart';
 
 /// Route names.
 abstract class Routes {
@@ -43,6 +44,7 @@ abstract class Routes {
   static const onboarding = '/onboarding';
   static const search = '/search';
   static const tasks = '/tasks';
+  static const workspaces = '/workspaces';
 }
 
 /// Shared-axis-style push transition for detail routes: fade plus a slight
@@ -107,6 +109,17 @@ GoRouter createRouter({required AuthProvider authProvider}) {
           !onboardingCompleted &&
           path != Routes.onboarding) {
         return Routes.onboarding;
+      }
+
+      // Authenticated without a valid active workspace: land on the
+      // fullscreen workspace management view instead of the main shell. It
+      // stays reachable while a valid workspace exists (Settings →
+      // Workspaces), so no redirect-away happens in that case.
+      if (authenticated &&
+          !isLocal &&
+          !authProvider.hasValidWorkspace &&
+          path != Routes.workspaces) {
+        return Routes.workspaces;
       }
 
       if (authenticated && (path == Routes.login || path == Routes.splash)) {
@@ -244,6 +257,10 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       GoRoute(
         path: Routes.onboarding,
         builder: (context, state) => const OnboardingScreen(),
+      ),
+      GoRoute(
+        path: Routes.workspaces,
+        builder: (context, state) => const WorkspaceManagementScreen(),
       ),
     ],
   );

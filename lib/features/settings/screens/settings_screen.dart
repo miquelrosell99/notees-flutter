@@ -10,7 +10,6 @@ import '../../../core/routing/router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/theme_builder.dart';
 import '../../../core/theme/theme_provider.dart';
-import '../../../data/repositories/workspace_repository.dart';
 import '../../../core/secure/encryption_provider.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../auth/providers/biometric_provider.dart';
@@ -28,14 +27,11 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String _version = '';
-  List<Workspace> _workspaces = [];
-  bool _loadingWorkspaces = true;
 
   @override
   void initState() {
     super.initState();
     _loadVersion();
-    _loadWorkspaces();
   }
 
   Future<void> _loadVersion() async {
@@ -44,30 +40,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _version = '${info.version}+${info.buildNumber}');
   }
 
-  Future<void> _loadWorkspaces() async {
-    final auth = context.read<AuthProvider>();
-    // Workspace management is server-only; hidden in local (offline) mode.
-    if (auth.dio == null || auth.isLocalMode) {
-      setState(() => _loadingWorkspaces = false);
-      return;
+  /// Settings row subtitle: the active workspace's name when the list has
+  /// been fetched, otherwise a neutral prompt.
+  String _activeWorkspaceLabel(AuthProvider auth) {
+    final id = auth.activeWorkspaceId;
+    final list = auth.workspaces;
+    if (id != null && list != null) {
+      for (final workspace in list) {
+        if (workspace.uuid == id) return workspace.displayName;
+      }
     }
-
-    setState(() => _loadingWorkspaces = true);
-    try {
-      final repo = WorkspaceRepository(dio: auth.dio!);
-      final workspaces = await repo.listWorkspaces();
-      if (!mounted) return;
-      setState(() {
-        _workspaces = workspaces;
-        _loadingWorkspaces = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _workspaces = [];
-        _loadingWorkspaces = false;
-      });
-    }
+    return 'Select or create a workspace';
   }
 
   /// Manual snapshot-upload trigger (explicit only — the client never
@@ -89,26 +72,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SnackBar(content: Text('Snapshot upload failed: $e')),
         );
       }
-    }
-  }
-
-  Future<void> _switchWorkspace(Workspace workspace) async {
-    HapticFeedback.lightImpact();
-    final auth = context.read<AuthProvider>();
-    if (auth.dio == null) return;
-
-    try {
-      final repo = WorkspaceRepository(dio: auth.dio!);
-      await repo.switchWorkspace(workspace.uuid);
-      // Point the sync service + realtime subscription at the new workspace.
-      await auth.switchWorkspace(workspace.uuid);
-      if (!mounted) return;
-      context.go('/dashboard');
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not switch workspace: $e')),
-      );
     }
   }
 
@@ -415,36 +378,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SectionTitle(icon: MdiIcons.layersTripleOutline, label: 'Workspace'),
           const SizedBox(height: 8),
           FleetCard(
-            child: _loadingWorkspaces
-                ? const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                : Column(
-                    children: _workspaces.asMap().entries.map((entry) {
-                      final workspace = entry.value;
-                      final isLast = entry.key == _workspaces.length - 1;
-                      return Column(
-                        children: [
-                          ListTile(
-                            leading: Icon(
-                              workspace.isActive ? MdiIcons.checkCircle : MdiIcons.circleOutline,
-                              color: workspace.isActive ? colors.primary : colors.onSurfaceVariant,
-                            ),
-                            title: Text(workspace.name),
-                            subtitle: workspace.isActive ? const Text('Active') : null,
-                            trailing: workspace.isActive
-                                ? Icon(MdiIcons.check, color: colors.primary)
-                                : Icon(MdiIcons.chevronRight),
-                            onTap: workspace.isActive
-                                ? null
-                                : () => _switchWorkspace(workspace),
-                          ),
-                          if (!isLast) const Divider(height: 1),
-                        ],
-                      );
-                    }).toList(),
-                  ),
+            child: ListTile(
+              leading: Icon(MdiIcons.layersTripleOutline),
+              title: const Text('Workspaces'),
+              subtitle: Text(_activeWorkspaceLabel(auth)),
+              trailing: Icon(MdiIcons.chevronRight),
+              // The fullscreen manager is the single workspace-management
+              // surface (select, create, rename); settings only links to it.
+              onTap: () => context.push(Routes.workspaces),
+            ),
           ),
           const SizedBox(height: 28),
           ],
