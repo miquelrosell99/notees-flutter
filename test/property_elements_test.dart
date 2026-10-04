@@ -506,6 +506,17 @@ void main() {
       const qualifiedSchema = '0192a000-0000-7000-8000-000000000883';
       for (final envelope in [
         OperationEnvelope(
+          id: '0192a000-0000-7000-8000-000000000870',
+          workspaceId: ws,
+          actorId: actor,
+          deviceId: 't',
+          hlc: Hlc(physical: 99, logical: 0),
+          affectedNodeIds: [carol],
+          opType: 'object.create',
+          payload: {'objectId': carol, 'contentAst': const []},
+          timestamp: '2026-09-24T12:00:00.000Z',
+        ),
+        OperationEnvelope(
           id: '0192a000-0000-7000-8000-000000000871',
           workspaceId: ws,
           actorId: actor,

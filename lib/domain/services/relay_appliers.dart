@@ -12,6 +12,7 @@ import '../../data/repositories/node_cache_repository.dart';
 import '../models/relay/lww.dart';
 import '../models/relay/operation_envelope.dart';
 import '../models/relay/operation_payloads.dart';
+import '../models/relay/property_value_shapes.dart';
 import '../models/relay/store_errors.dart';
 import '../models/relay/workspace_features.dart';
 
@@ -46,6 +47,18 @@ import '../models/relay/workspace_features.dart';
 ///    dateQualified schemas normalize the reserved metadata qualifier keys
 ///    to date-node refs on write (PC6); unsetting a node-backed text value
 ///    trashes the unreferenced carrier block (§34.45);
+///  - PG6 apply-time value validation (§34.51): a property.set against a
+///    known schema row validates one-shape-per-type (legacy bare-uuid refs
+///    and numeric strings normalize to the canonical encoding), the
+///    datePrecision ceiling, the targetClassFilter via the extends-aware
+///    walk, and node-target existence — failing loud (image values stay
+///    deliberately unchecked); a single-value schema takes idx 0 only; a
+///    class.property.set defaultValue must be typed per the schema (PC2);
+///    the effective read model resolves bindings extends-aware (PG4: BFS
+///    over class_extends, own binding at distance 0, shortest path then
+///    earliest assignment HLC then class id — boundBy names the supplying
+///    ancestor) and drops a stored default that no longer matches the
+///    schema type;
 ///  - per-workspace feature toggles (workspace.feature.set) LWW by HLC on
 ///    (workspace, feature) derive the membership-preserving archival of the
 ///    five managed class families (F2 absent-row=ON, F3 keep-data, F4
@@ -591,20 +604,45 @@ class RelayAppliers {
     String objectId,
     Map<String, dynamic> payload,
   ) async {
+    final opType = envelope.opType;
     final schemaId = payload['propertySchemaId'] as String;
     final idx = (payload['idx'] as num?)?.toInt() ?? 0;
     final elementId = payload['elementId'] as String?;
 
+    // PB2/PG6 (§34.32/§34.51): one-shape-per-type + schema-linked integrity
+    // at the write path. The schema row (when known — property.set has no
+    // schema FK) types the slot: shape/scalar mismatch, a date ref finer
+    // than the schema's precision, a target outside the class filter, and a
+    // ref to a nonexistent node all fail loud; a legacy bare-uuid reference
+    // or a numeric string normalizes to the canonical encoding. The
+    // NORMALIZED value is what gets stored.
+    final schema = await _cache.propertySchemaValidationRow(schemaId);
+    final payloadValue = payload.containsKey('value') ? payload['value'] : null;
+    final value = schema != null
+        ? await _cache.assertPropertyValueForSchema(
+            schema,
+            payloadValue,
+            opType,
+          )
+        : payloadValue;
     // PC6 normalize-on-write: a well-formed YYYY-MM-DD string in the
     // reserved qualifier keys rewrites to the deterministic day-node ref —
     // ONLY on dateQualified schemas, only those two keys, pure value
     // rewriting (no graph side effects, no existence assertion).
-    final metadata = await _normalizeQualifierMetadata(schemaId, payload);
+    final metadata = _normalizeQualifierMetadata(schema, payload);
+    // PG6 cardinality: a single-value schema takes idx 0 only. Higher
+    // slots would write rows no reader derives (the read model reads slot
+    // 0 for a single-value schema's editor), so the write is rejected, not
+    // parked.
+    if (schema != null && !schema.multi && idx > 0) {
+      throw PropertyValueShapeError(
+        '$opType: schema $schemaId is single-value — idx must be 0, got $idx',
+        opType,
+      );
+    }
 
     var dropped = false;
-    final encoded = jsonEncode(
-      payload.containsKey('value') ? payload['value'] : null,
-    );
+    final encoded = jsonEncode(value);
     if (elementId != null) {
       dropped = await _applyElementAdd(
         envelope,
@@ -930,14 +968,13 @@ class RelayAppliers {
   /// other metadata keys, non-qualified schemas, and unknown schemas all
   /// ride through untouched. Returns the metadata to store (null when the
   /// payload carried none).
-  Future<Map<String, dynamic>?> _normalizeQualifierMetadata(
-    String schemaId,
+  Map<String, dynamic>? _normalizeQualifierMetadata(
+    PropertySchemaValidationRow? schema,
     Map<String, dynamic> payload,
-  ) async {
+  ) {
     final metadata = payload['metadata'];
     if (metadata is! Map<String, dynamic>) return null;
-    final qualified = await _cache.propertySchemaDateQualified(schemaId);
-    if (qualified != true) return metadata;
+    if (schema?.dateQualified != true) return metadata;
     var changed = false;
     final normalized = Map<String, dynamic>.from(metadata);
     for (final key in const ['startDate', 'endDate']) {
@@ -1103,6 +1140,30 @@ class RelayAppliers {
     final existing = await _cache.classPropertyBindingWinner(classId, schemaId);
     if (existing != null && compareLww(incoming, existing) <= 0) {
       return false;
+    }
+
+    // PC2 (§34.32): defaultValue is typed per the schema type — a
+    // wrong-typed default fails loud here instead of deriving silently on
+    // every read. Omitted defaultValue (patch keeps the stored one) skips
+    // the check; a stored default that drifts out of match (schema
+    // delete+recreate with a different type) is dropped defensively at the
+    // effective read instead.
+    if (payload.containsKey('defaultValue')) {
+      final opType = envelope.opType;
+      final schemaType = await _cache.propertySchemaTypeOf(schemaId);
+      final defaultValue = payload['defaultValue'];
+      if (schemaType != null && !isValidDefaultForType(schemaType, defaultValue)) {
+        final expectation = switch (schemaType) {
+          'date' || 'date_range' || 'object' =>
+            'must be null — node-typed defaults are not supported',
+          _ => 'must be typed $schemaType',
+        };
+        throw PropertyValueShapeError(
+          '$opType: defaultValue for $schemaType schema $expectation '
+          '— got ${jsonEncodeForMessage(defaultValue)}',
+          opType,
+        );
+      }
     }
 
     final hasDefault = payload.containsKey('defaultValue');

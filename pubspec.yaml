@@ -2,7 +2,7 @@ name: notees
 description: First-class mobile app for Notees — your self-hosted notes, journals, and tasks.
 publish_to: 'none'
 
-version: 3.0.0+3000000
+version: 3.0.1+3000001
 
 environment:
   sdk: ^3.12.0

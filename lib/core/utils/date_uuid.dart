@@ -94,3 +94,104 @@ String? dayUuidFromIsoDate(String isoDate) {
   final parsed = parseIsoDateStrict(isoDate);
   return parsed == null ? null : dateToDayUuid(parsed);
 }
+
+/// Date-node precision, finest-claimed-first ordered: year < month < day
+/// (SCHEMA.md "Dates"; the PG6 datePrecision ceiling ranks on this order).
+enum DateNodePrecision { year, month, day }
+
+/// A parsed date-node id: the precision plus the calendar components.
+class ParsedDateNodeId {
+  const ParsedDateNodeId({
+    required this.precision,
+    required this.year,
+    required this.month,
+    required this.day,
+  });
+
+  final DateNodePrecision precision;
+  final int year;
+  final int month;
+  final int day;
+}
+
+const _dateUuidMinYear = 1900;
+const _dateUuidMaxYear = 2200;
+
+/// v1 `parse_date_uuid` port (monorepo `packages/domain/src/dates.ts`
+/// `parseDateNodeId`): extract precision + date components from a date-node
+/// id, or null when the id is not a date UUID (or falls outside the v1
+/// 1900..2200 window). Round-trips with the deterministic encoders above.
+ParsedDateNodeId? parseDateNodeId(String id) {
+  if (id.length != 36) return null;
+  const dayPrefix = '00000000-0000-0000-00dd-';
+  const monthPrefix = '00000000-0000-0000-00aa-';
+  const yearPrefix = '00000000-0000-0000-00bb-';
+  int? read(String data, int start, int end) {
+    final slice = data.substring(start, end);
+    final value = int.tryParse(slice);
+    // int.tryParse accepts a leading +/-; the digit-only shape check matters
+    // (the TS port tests /^\d+$/ before Number()).
+    if (value == null) return null;
+    for (var i = 0; i < slice.length; i++) {
+      final code = slice.codeUnitAt(i);
+      if (code < 0x30 || code > 0x39) return null;
+    }
+    return value;
+  }
+
+  final data = id.substring(24); // trailing 12-digit payload
+  if (id.startsWith(dayPrefix)) {
+    final year = read(data, 0, 4);
+    final month = read(data, 4, 6);
+    final day = read(data, 6, 8);
+    if (year != null &&
+        month != null &&
+        day != null &&
+        year >= _dateUuidMinYear &&
+        year <= _dateUuidMaxYear &&
+        month >= 1 &&
+        month <= 12 &&
+        day >= 1 &&
+        day <= 31) {
+      return ParsedDateNodeId(
+        precision: DateNodePrecision.day,
+        year: year,
+        month: month,
+        day: day,
+      );
+    }
+    return null;
+  }
+  if (id.startsWith(monthPrefix)) {
+    final year = read(data, 0, 4);
+    final month = read(data, 4, 6);
+    if (year != null &&
+        month != null &&
+        year >= _dateUuidMinYear &&
+        year <= _dateUuidMaxYear &&
+        month >= 1 &&
+        month <= 12) {
+      return ParsedDateNodeId(
+        precision: DateNodePrecision.month,
+        year: year,
+        month: month,
+        day: 1,
+      );
+    }
+    return null;
+  }
+  if (id.startsWith(yearPrefix)) {
+    final year = read(data, 0, 4);
+    if (year != null &&
+        year >= _dateUuidMinYear &&
+        year <= _dateUuidMaxYear) {
+      return ParsedDateNodeId(
+        precision: DateNodePrecision.year,
+        year: year,
+        month: 1,
+        day: 1,
+      );
+    }
+  }
+  return null;
+}

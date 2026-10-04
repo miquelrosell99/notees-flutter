@@ -52,3 +52,12 @@ class UnsupportedCarrierError extends StoreError {
 class NodeNotFoundError extends StoreError {
   const NodeNotFoundError(super.message, [super.opType]);
 }
+
+/// property.set / class.property.set carried a value whose shape does not
+/// match the property schema's type (SCHEMA.md "Node-backed text
+/// properties": one-shape-per-type, fail-loud at the apply-time write path;
+/// PG6, §34.51). Node-typed refs failing the schema's graph constraints
+/// (existence, targetClassFilter, datePrecision ceiling) throw this too.
+class PropertyValueShapeError extends StoreError {
+  const PropertyValueShapeError(super.message, [super.opType]);
+}

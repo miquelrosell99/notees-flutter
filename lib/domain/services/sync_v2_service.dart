@@ -18,6 +18,7 @@ import '../../data/repositories/sync_watermark_repository.dart';
 import '../models/relay/hlc.dart';
 import '../models/relay/operation_envelope.dart';
 import '../models/relay/operation_payloads.dart';
+import '../models/relay/property_value_shapes.dart';
 import '../models/relay/store_errors.dart';
 import '../models/sync_v2.dart';
 import './hlc_clock.dart';
@@ -235,9 +236,62 @@ class SyncV2Service {
       isYearly: isYearly,
       favoriteNodeUuids: favoriteNodeUuids,
     );
+    // §34.65 (owner rule, web `unassignClass` parity): authored values that
+    // merely MIRROR the departing class's binding defaults carry no user
+    // data — the user never put anything in that property. Sweep them with
+    // explicit property.unset envelopes (enqueued BEFORE the membership
+    // remove so they apply first — every client converges); values that
+    // differ from the default survive, marked unbound. Edge recorded in the
+    // web port: a value explicitly set TO the default is indistinguishable
+    // without a provenance flag.
+    if (type == 'remove_class') {
+      await _sweepDefaultMirrors(nodeUuid: nodeUuid, classId: classUuid!);
+    }
     final envelope = await _intentToEnvelope(op, workspaceId);
     await _outbox.enqueue(envelope);
     return op;
+  }
+
+  /// The §34.65 default-mirror sweep: for every binding of [classId] with a
+  /// stored default, unset the node's authored rows whose value JSON-text
+  /// equals the default's JSON-text (the web's decodeDefault string quirk —
+  /// see [NodeCacheRepository.classPropertyDefaultsOf]). PG5 rows unset by
+  /// element id (writer-minted uuid), positional rows by idx.
+  Future<void> _sweepDefaultMirrors({
+    required String nodeUuid,
+    required String classId,
+  }) async {
+    // Web `unassignClass` parity: nothing to sweep (or unassign) when the
+    // node does not carry the class.
+    final carried = await _cache.nodeClassIdsOf(nodeUuid);
+    if (carried == null || !carried.contains(classId)) return;
+    final bindings = await _cache.classPropertyDefaultsOf(classId);
+    if (bindings.isEmpty) return;
+    final authored = (await _cache.getEffectiveProperties(nodeUuid))
+        .where((row) => row.source == 'authored');
+    for (final binding in bindings) {
+      final defaultJson = jsonEncode(binding.defaultValue);
+      for (final row in authored) {
+        if (row.propertySchemaId != binding.propertySchemaId) continue;
+        if (jsonEncode(row.value) != defaultJson) continue;
+        final payload = <String, dynamic>{
+          'objectId': nodeUuid,
+          'propertySchemaId': binding.propertySchemaId,
+        };
+        if (isUuidLike(row.elementId)) {
+          payload['elementId'] = row.elementId;
+        } else {
+          payload['idx'] = row.idx;
+        }
+        OperationPayloads.validatePayload('property.unset', payload);
+        final envelope = await _buildEnvelope(
+          opType: 'property.unset',
+          payload: payload,
+          affectedNodeIds: [nodeUuid],
+        );
+        await _outbox.enqueue(envelope);
+      }
+    }
   }
 
   /// Sends pending relay envelopes to the server and updates local state.
@@ -759,6 +813,32 @@ class SyncV2Service {
     return rows.map((r) => r['id'] as String).toSet();
   }
 
+  /// Builds a relay envelope for a raw [opType]/[payload]: fresh id, the
+  /// advanced local HLC, the current workspace. Shared by [emitLocal] and
+  /// the §34.65 default-mirror sweep.
+  Future<OperationEnvelope> _buildEnvelope({
+    required String opType,
+    required Map<String, dynamic> payload,
+    required List<String> affectedNodeIds,
+  }) async {
+    final workspaceId = await getWorkspaceId();
+    if (workspaceId == null) {
+      throw const SyncV2Exception('No workspace configured');
+    }
+    return OperationEnvelope(
+      id: Uuid7.generate(),
+      workspaceId: workspaceId,
+      actorId: actorId,
+      deviceId: _clientId,
+      client: 'flutter',
+      hlc: _clock.advance(),
+      affectedNodeIds: affectedNodeIds,
+      opType: opType,
+      payload: payload,
+      timestamp: DateTime.now().toUtc().toIso8601String(),
+    );
+  }
+
   /// Builds a relay envelope for a raw [opType]/[payload], enqueues it in the
   /// outbox, applies it to the local cache and records it as locally applied.
   ///
@@ -771,21 +851,10 @@ class SyncV2Service {
     required Map<String, dynamic> payload,
     required List<String> affectedNodeIds,
   }) async {
-    final workspaceId = await getWorkspaceId();
-    if (workspaceId == null) {
-      throw const SyncV2Exception('No workspace configured');
-    }
-    final envelope = OperationEnvelope(
-      id: Uuid7.generate(),
-      workspaceId: workspaceId,
-      actorId: actorId,
-      deviceId: _clientId,
-      client: 'flutter',
-      hlc: _clock.advance(),
-      affectedNodeIds: affectedNodeIds,
+    final envelope = await _buildEnvelope(
       opType: opType,
       payload: payload,
-      timestamp: DateTime.now().toUtc().toIso8601String(),
+      affectedNodeIds: affectedNodeIds,
     );
     await _outbox.enqueue(envelope);
     await RelayAppliers(_cache).apply(envelope);
