@@ -36,6 +36,20 @@ class SystemClassUuids {
   /// Referenced by `linkedAuthors`' targetClassFilter; the agent class
   /// itself is not part of the mobile seed delta (TS manifest …029).
   static const String agent = '00000000-0000-0000-0001-000000000029';
+
+  // §34.36/§34.55 feature-family classes (2026-10-04 lockstep, TS manifest
+  // `SYSTEM_CLASS_UUIDS` — the five family bases and their
+  // extends-children; fixed ids, never reuse).
+  static const String book = '00000000-0000-0000-0001-000000000024';
+  static const String paper = '00000000-0000-0000-0001-000000000025';
+  static const String article = '00000000-0000-0000-0001-000000000026';
+  static const String thesis = '00000000-0000-0000-0001-000000000027';
+  static const String document = '00000000-0000-0000-0001-000000000028';
+  static const String person = '00000000-0000-0000-0001-000000000030';
+  static const String movie = '00000000-0000-0000-0001-000000000035';
+  static const String meeting = '00000000-0000-0000-0001-000000000039';
+  static const String event = '00000000-0000-0000-0001-000000000040';
+  static const String birthday = '00000000-0000-0000-0001-000000000041';
 }
 
 class SystemPropertyUuids {
@@ -64,6 +78,29 @@ class SystemPropertyUuids {
   static const String taskPriority = '00000000-0000-0000-0003-000000000004';
   static const String taskClosedDate = '00000000-0000-0000-0003-000000000005';
   static const String taskRecurrence = '00000000-0000-0000-0003-000000000006';
+}
+
+/// Deterministic select-option ids for the applier-side task-family
+/// seed-ensure (§34.35 constraint 5 — the `workspace.feature.set
+/// {feature:"tasks", enabled:true}` path authors the six schemas at apply
+/// time, so its option ids must be fixed, not client-random). The
+/// select-option namespace (`…0004-…`) continues after the role options
+/// (`…0001–…0007`); appended, never reused (TS manifest
+/// `TASK_STATUS_OPTION_UUIDS` / `TASK_PRIORITY_OPTION_UUIDS`).
+class TaskFamilyOptionUuids {
+  TaskFamilyOptionUuids._();
+
+  static const String backlog = '00000000-0000-0000-0004-000000000008';
+  static const String pending = '00000000-0000-0000-0004-000000000009';
+  static const String doing = '00000000-0000-0000-0004-00000000000a';
+  static const String reviewing = '00000000-0000-0000-0004-00000000000b';
+  static const String done = '00000000-0000-0000-0004-00000000000c';
+  static const String cancelled = '00000000-0000-0000-0004-00000000000d';
+
+  static const String low = '00000000-0000-0000-0004-00000000000e';
+  static const String medium = '00000000-0000-0000-0004-00000000000f';
+  static const String high = '00000000-0000-0000-0004-000000000010';
+  static const String urgent = '00000000-0000-0000-0004-000000000011';
 }
 
 /// Task status names, ordered to match the backend TASK_STATUS_OPTIONS.

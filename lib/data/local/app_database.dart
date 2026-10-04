@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 21,
+          version: 23,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 21,
+      version: 23,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -116,6 +116,8 @@ class AppDatabase {
     await _migrateV19(db);
     await _migrateV20(db);
     await _createTrashRoot(db);
+    await _migrateV22(db);
+    await _migrateV23(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -186,6 +188,12 @@ class AppDatabase {
     if (oldVersion < 21) {
       await _createTrashRoot(db);
     }
+    if (oldVersion < 22) {
+      await _migrateV22(db);
+    }
+    if (oldVersion < 23) {
+      await _migrateV23(db);
+    }
   }
 
   /// v21 — trash retention metadata for the relay-v2 restore applier
@@ -200,6 +208,106 @@ class AppDatabase {
         is_permanent INTEGER NOT NULL DEFAULT 0
       )
     ''');
+  }
+
+  /// v22 — §34.54/§34.57 property-wire batch, part 1 (lockstep with the TS
+  /// store schema v9→v10 + the PC4/PC6 columns):
+  ///  - `workspace_feature`: the winning LWW row per (workspace_id, feature)
+  ///    for `workspace.feature.set`; an ABSENT row means enabled (all
+  ///    features default ON — the empty table is the pre-toggle state, so
+  ///    existing workspaces need no migration);
+  ///  - `class_property.active`: the PC4 soft-unbind flag — absent column
+  ///    means the pre-PC4 state, which IS active, so the backfill default
+  ///    is 1;
+  ///  - `property_schema.date_precision`/`date_qualified`: the SCHEMA.md
+  ///    "Dates" columns (PC6: dateQualified schemas canonicalize the
+  ///    reserved metadata qualifier keys to date-node refs).
+  Future<void> _migrateV22(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS workspace_feature (
+        workspace_id TEXT NOT NULL,
+        feature TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        PRIMARY KEY (workspace_id, feature)
+      )
+    ''');
+    await _addColumnIfMissing(
+      db,
+      'class_property',
+      'active',
+      'INTEGER NOT NULL DEFAULT 1',
+    );
+    await _addColumnIfMissing(db, 'property_schema', 'date_precision', 'TEXT');
+    await _addColumnIfMissing(
+      db,
+      'property_schema',
+      'date_qualified',
+      'INTEGER',
+    );
+  }
+
+  /// v23 — §34.57 property-wire batch, part 2 (PG5 element identity,
+  /// lockstep with the TS store schema v10→v11):
+  ///  - `property_value` is REBUILT without the retired
+  ///    UNIQUE(node_uuid, property_schema_id, idx): per-element identity
+  ///    means concurrent adds at the same idx are DISTINCT elements and
+  ///    both stay visible — `idx` is only a per-element order hint
+  ///    (readers order by (idx, element id); gaps never heal). The row id
+  ///    IS the element id: writer-minted UUIDv7 for element adds, the
+  ///    deterministic composite `node:schema:idx` for single-value slots
+  ///    and legacy positional writes;
+  ///  - `property_value_element_tombstone`: one row per removed element,
+  ///    carrying the winning remove's causality (strictly-greater full
+  ///    (hlc, actor) upsert — on an exact tie the earlier add sticks,
+  ///    add-wins).
+  Future<void> _migrateV23(Database db) async {
+    final indexes = await db.rawQuery('PRAGMA index_list(property_value)');
+    final hasUnique = indexes.any((i) => i['unique'] == 1);
+    if (hasUnique) {
+      await db.execute('''
+        CREATE TABLE property_value_v23 (
+          id TEXT PRIMARY KEY,
+          node_uuid TEXT NOT NULL,
+          property_schema_id TEXT NOT NULL,
+          value TEXT NOT NULL,
+          idx INTEGER NOT NULL DEFAULT 0,
+          metadata TEXT,
+          hlc_physical INTEGER NOT NULL DEFAULT 0,
+          hlc_logical INTEGER NOT NULL DEFAULT 0,
+          actor_id TEXT
+        )
+      ''');
+      await db.execute('''
+        INSERT INTO property_value_v23 (
+          id, node_uuid, property_schema_id, value, idx, metadata,
+          hlc_physical, hlc_logical, actor_id
+        )
+        SELECT id, node_uuid, property_schema_id, value, idx, metadata,
+               hlc_physical, hlc_logical, actor_id
+        FROM property_value
+      ''');
+      await db.execute('DROP TABLE property_value');
+      await db.execute('ALTER TABLE property_value_v23 RENAME TO property_value');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_property_value_node ON property_value(node_uuid)',
+      );
+    }
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS property_value_element_tombstone (
+        element_id TEXT PRIMARY KEY,
+        node_uuid TEXT NOT NULL,
+        property_schema_id TEXT NOT NULL,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_property_value_element_tomb_node ON property_value_element_tombstone(node_uuid)',
+    );
   }
 
   /// v16 — derived-state depth for the relay-v2 appliers:
@@ -418,10 +526,15 @@ class AppDatabase {
   }
 
   Future<void> _createPropertyValue(Database db) async {
-    // Multi-value property rows keyed by (node, schema, idx) with row-level
-    // LWW winner and a tombstone table (tombstone wins over a live write with
-    // equal (hlc, actor)). Mirrors v2 store property_value /
-    // property_value_tombstone.
+    // Authored property rows — the LIVE visible rows only (the applier
+    // deletes a row when its element's OR-Set remove wins). The row id IS
+    // the element id (PG5, §34.57): writer-minted UUIDv7 for element adds,
+    // the deterministic composite 'node:schema:idx' for single-value slots
+    // and legacy positional writes. The pre-PG5 UNIQUE(node, schema, idx)
+    // is GONE (v23): per-element identity means concurrent adds at the same
+    // idx are DISTINCT elements and both stay visible — 'idx' is only a
+    // per-element order hint (readers order by (idx, element id); gaps
+    // never heal). Mirrors v2 store schema v11 property_value.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS property_value (
         id TEXT PRIMARY KEY,
@@ -432,8 +545,7 @@ class AppDatabase {
         metadata TEXT,
         hlc_physical INTEGER NOT NULL DEFAULT 0,
         hlc_logical INTEGER NOT NULL DEFAULT 0,
-        actor_id TEXT,
-        UNIQUE (node_uuid, property_schema_id, idx)
+        actor_id TEXT
       )
     ''');
     await db.execute(
@@ -450,6 +562,19 @@ class AppDatabase {
         PRIMARY KEY (node_uuid, property_schema_id, idx)
       )
     ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS property_value_element_tombstone (
+        element_id TEXT PRIMARY KEY,
+        node_uuid TEXT NOT NULL,
+        property_schema_id TEXT NOT NULL,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_property_value_element_tomb_node ON property_value_element_tombstone(node_uuid)',
+    );
   }
 
   /// Class → property-schema bindings (SCHEMA.md "Class properties"):
@@ -1016,6 +1141,8 @@ class AppDatabase {
     await _migrateV19(db);
     await _migrateV20(db);
     await _createTrashRoot(db);
+    await _migrateV22(db);
+    await _migrateV23(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

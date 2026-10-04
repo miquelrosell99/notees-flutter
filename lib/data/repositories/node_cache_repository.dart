@@ -68,6 +68,8 @@ class PropertySchemaRow {
     this.classFilterUuids = const [],
     this.options = const [],
     this.computed,
+    this.datePrecision,
+    this.dateQualified,
     this.active = true,
     this.createdAt,
     this.updatedAt,
@@ -91,6 +93,12 @@ class PropertySchemaRow {
   final List<String> classFilterUuids;
   final List<Map<String, dynamic>> options;
   final String? computed;
+  /// SCHEMA.md "Dates" (PC6, §34.57): finest granularity a date value may
+  /// claim ("year"|"month"|"day"; null = day at the read model) and, for
+  /// node-typed schemas, whether values may carry date qualifiers
+  /// (metadata startDate/endDate as date-node refs).
+  final String? datePrecision;
+  final bool? dateQualified;
   final bool active;
   final String? createdAt;
   final String? updatedAt;
@@ -259,6 +267,13 @@ class NodeCacheRepository {
         'DELETE FROM property_value_tombstone WHERE node_uuid IN ($placeholders)',
         ids,
       );
+      // PG5: the subtree's element tombstones die with it (owned rows only —
+      // tombstones of elements on SURVIVING nodes are keyed by
+      // globally-unique element ids and never reference these rows).
+      await txn.rawDelete(
+        'DELETE FROM property_value_element_tombstone WHERE node_uuid IN ($placeholders)',
+        ids,
+      );
       await txn.rawDelete(
         'DELETE FROM collection_member WHERE object_id IN ($placeholders)',
         ids,
@@ -414,6 +429,7 @@ class NodeCacheRepository {
         await txn.delete('class_hierarchy');
         await txn.delete('property_value');
         await txn.delete('property_value_tombstone');
+        await txn.delete('property_value_element_tombstone');
         await txn.delete('collection_member');
         final now = DateTime.now().millisecondsSinceEpoch;
         final nodeBatch = txn.batch();
@@ -449,6 +465,11 @@ class NodeCacheRepository {
           tombstoneBatch.insert('property_value_tombstone', row);
         }
         await tombstoneBatch.commit(noResult: true);
+        final elementTombstoneBatch = txn.batch();
+        for (final row in snapshot.propertyElementTombstoneRows) {
+          elementTombstoneBatch.insert('property_value_element_tombstone', row);
+        }
+        await elementTombstoneBatch.commit(noResult: true);
         final collectionBatch = txn.batch();
         for (final row in snapshot.collectionMemberRows) {
           collectionBatch.insert('collection_member', row);
@@ -555,19 +576,23 @@ class NodeCacheRepository {
       }
     }
 
-    // Property rows with their LWW winners.
+    // Property rows with their LWW winners. PG5: the row id IS the element
+    // id — snapshots carry it verbatim (pre-PG5 snapshots carry the
+    // composite, which is also correct to restore as-is).
     final propertyValueRows = <Map<String, dynamic>>[];
     final propertyTombstoneRows = <Map<String, dynamic>>[];
+    final propertyElementTombstoneRows = <Map<String, dynamic>>[];
     if (nodeIds.isNotEmpty) {
       final rows = await db.rawQuery(
-        'SELECT node_id, property_schema_id, value, idx, metadata, hlc_physical, '
+        'SELECT id, node_id, property_schema_id, value, idx, metadata, hlc_physical, '
         'hlc_logical, actor_id FROM property_value '
         'WHERE node_id IN ($placeholders) ORDER BY node_id, property_schema_id, idx',
         nodeIds,
       );
       for (final row in rows) {
         propertyValueRows.add({
-          'id': '${row['node_id']}:${row['property_schema_id']}:${row['idx']}',
+          'id': row['id'] ??
+              '${row['node_id']}:${row['property_schema_id']}:${row['idx']}',
           'node_uuid': row['node_id'],
           'property_schema_id': row['property_schema_id'],
           'value': row['value'],
@@ -592,6 +617,26 @@ class NodeCacheRepository {
           'hlc_logical': row['hlc_logical'] ?? 0,
           'actor_id': row['actor_id'],
         });
+      }
+      // PG5 element tombstones (v11+ snapshots; older snapshots predate the
+      // table — _snapshotHasTable tolerates the absence).
+      if (await _snapshotHasTable(db, 'property_value_element_tombstone')) {
+        final elementTombRows = await db.rawQuery(
+          'SELECT element_id, node_id, property_schema_id, hlc_physical, '
+          'hlc_logical, actor_id FROM property_value_element_tombstone '
+          'WHERE node_id IN ($placeholders)',
+          nodeIds,
+        );
+        for (final row in elementTombRows) {
+          propertyElementTombstoneRows.add({
+            'element_id': row['element_id'],
+            'node_uuid': row['node_id'],
+            'property_schema_id': row['property_schema_id'],
+            'hlc_physical': row['hlc_physical'] ?? 0,
+            'hlc_logical': row['hlc_logical'] ?? 0,
+            'actor_id': row['actor_id'],
+          });
+        }
       }
     }
 
@@ -638,6 +683,7 @@ class NodeCacheRepository {
       tagMemberRows: tagMemberRows,
       propertyValueRows: propertyValueRows,
       propertyTombstoneRows: propertyTombstoneRows,
+      propertyElementTombstoneRows: propertyElementTombstoneRows,
       collectionMemberRows: collectionMemberRows,
       classExtendsEdges: classExtendsEdges,
     );
@@ -1506,18 +1552,37 @@ class NodeCacheRepository {
 
   // --- multi-value properties (LWW + tombstones) -------------------------
 
-  /// Winner of the live property slot, if any.
+  // --- property values (PG5 element identity + OR-Set tombstones) --------
+
+  /// Deterministic positional-element id (PG5): the property_value row id
+  /// for single-value slots and legacy positional writes. Element adds
+  /// instead use the writer-minted elementId AS the row id — the row id IS
+  /// the element id.
+  static String positionalPropertyValueId(
+    String nodeUuid,
+    String schemaId,
+    int idx,
+  ) =>
+      '$nodeUuid:$schemaId:$idx';
+
+  /// Winner of the deterministic positional element's live row, if any.
+  /// The positional path addresses ONLY its own composite row — concurrent
+  /// element adds may share the idx, but they are distinct elements.
   Future<LwwWinner?> propertyValueWinner(
     String nodeUuid,
     String schemaId,
     int idx,
-  ) async {
+  ) =>
+      propertyValueWinnerById(positionalPropertyValueId(nodeUuid, schemaId, idx));
+
+  /// Winner of a live row addressed by its element id, if any.
+  Future<LwwWinner?> propertyValueWinnerById(String elementId) async {
     final db = await _database.database;
     final rows = await db.query(
       'property_value',
       columns: ['hlc_physical', 'hlc_logical', 'actor_id'],
-      where: 'node_uuid = ? AND property_schema_id = ? AND idx = ?',
-      whereArgs: [nodeUuid, schemaId, idx],
+      where: 'id = ?',
+      whereArgs: [elementId],
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -1529,7 +1594,19 @@ class NodeCacheRepository {
     );
   }
 
-  /// Winner of the slot's tombstone, if any.
+  /// The full live row for [elementId] (PG5 element remove path), if any.
+  Future<Map<String, dynamic>?> propertyValueRowById(String elementId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'property_value',
+      where: 'id = ?',
+      whereArgs: [elementId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// Winner of the slot's tombstone, if any (the legacy positional path).
   Future<LwwWinner?> propertyTombstoneWinner(
     String nodeUuid,
     String schemaId,
@@ -1552,42 +1629,27 @@ class NodeCacheRepository {
     );
   }
 
-  Future<void> upsertPropertyValue(
-    String nodeUuid,
-    String schemaId,
-    int idx,
-    String valueJson,
-    String? metadataJson,
-    LwwWinner incoming,
-  ) async {
+  /// Winner of an element tombstone, if any (PG5 element remove path).
+  Future<LwwWinner?> propertyElementTombstoneWinner(String elementId) async {
     final db = await _database.database;
-    await db.insert('property_value', {
-      'id': '$nodeUuid:$schemaId:$idx',
-      'node_uuid': nodeUuid,
-      'property_schema_id': schemaId,
-      'value': valueJson,
-      'idx': idx,
-      'metadata': metadataJson,
-      'hlc_physical': incoming.physical,
-      'hlc_logical': incoming.logical,
-      'actor_id': incoming.actor,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  Future<void> deletePropertyValue(
-    String nodeUuid,
-    String schemaId,
-    int idx,
-  ) async {
-    final db = await _database.database;
-    await db.delete(
-      'property_value',
-      where: 'node_uuid = ? AND property_schema_id = ? AND idx = ?',
-      whereArgs: [nodeUuid, schemaId, idx],
+    final rows = await db.query(
+      'property_value_element_tombstone',
+      columns: ['hlc_physical', 'hlc_logical', 'actor_id'],
+      where: 'element_id = ?',
+      whereArgs: [elementId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return (
+      physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+      logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+      actor: row['actor_id'] as String? ?? '',
     );
   }
 
-  /// Upserts the slot tombstone when [incoming] beats the stored winner.
+  /// Upserts the legacy positional slot tombstone (callers gate on
+  /// [propertyTombstoneWinner]).
   Future<void> upsertPropertyTombstone(
     String nodeUuid,
     String schemaId,
@@ -1605,15 +1667,168 @@ class NodeCacheRepository {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  /// All live property rows for [nodeUuid], ordered by schema then idx.
-  Future<List<PropertyValueRow>> propertyValuesFor(String nodeUuid) async {
+  /// Upserts an element tombstone (PG5 OR-Set remove; callers gate on
+  /// [propertyElementTombstoneWinner] — the stored tuple upserts with the
+  /// strictly-greater full (hlc, actor), so on an exact tie the earlier add
+  /// sticks: add-wins).
+  Future<void> upsertPropertyElementTombstone({
+    required String elementId,
+    required String nodeUuid,
+    required String schemaId,
+    required LwwWinner incoming,
+  }) async {
     final db = await _database.database;
-    final rows = await db.query(
+    await db.insert('property_value_element_tombstone', {
+      'element_id': elementId,
+      'node_uuid': nodeUuid,
+      'property_schema_id': schemaId,
+      'hlc_physical': incoming.physical,
+      'hlc_logical': incoming.logical,
+      'actor_id': incoming.actor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// The legacy positional write: upserts the deterministic composite row.
+  Future<void> upsertPropertyValue(
+    String nodeUuid,
+    String schemaId,
+    int idx,
+    String valueJson,
+    String? metadataJson,
+    LwwWinner incoming,
+  ) =>
+      upsertPropertyValueById(
+        id: positionalPropertyValueId(nodeUuid, schemaId, idx),
+        nodeUuid: nodeUuid,
+        schemaId: schemaId,
+        idx: idx,
+        valueJson: valueJson,
+        metadataJson: metadataJson,
+        incoming: incoming,
+      );
+
+  /// The PG5 write: upserts a row addressed by its element id (writer-minted
+  /// UUIDv7 for element adds, the deterministic composite for positional
+  /// writes — the row id IS the element id).
+  Future<void> upsertPropertyValueById({
+    required String id,
+    required String nodeUuid,
+    required String schemaId,
+    required int idx,
+    required String valueJson,
+    required String? metadataJson,
+    required LwwWinner incoming,
+  }) async {
+    final db = await _database.database;
+    await db.insert('property_value', {
+      'id': id,
+      'node_uuid': nodeUuid,
+      'property_schema_id': schemaId,
+      'value': valueJson,
+      'idx': idx,
+      'metadata': metadataJson,
+      'hlc_physical': incoming.physical,
+      'hlc_logical': incoming.logical,
+      'actor_id': incoming.actor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// The legacy positional remove: deletes ONLY the deterministic composite
+  /// row at the slot (newer element adds at that idx survive).
+  Future<void> deletePropertyValue(
+    String nodeUuid,
+    String schemaId,
+    int idx,
+  ) =>
+      deletePropertyValueById(positionalPropertyValueId(nodeUuid, schemaId, idx));
+
+  /// Deletes a live row addressed by its element id.
+  Future<void> deletePropertyValueById(String elementId) async {
+    final db = await _database.database;
+    await db.delete(
+      'property_value',
+      where: 'id = ?',
+      whereArgs: [elementId],
+    );
+  }
+
+  /// The PG5 visible set for a node (port of property-values.ts
+  /// visiblePropertyValueRows): live property_value rows minus
+  ///  - SLOT-tombstoned rows — a property_value_tombstone (node, schema,
+  ///    idx) with >= (hlc, actor) suppresses any row at that idx (the
+  ///    pre-PG5 full-tuple rule); and
+  ///  - ELEMENT-tombstoned rows — a property_value_element_tombstone whose
+  ///    HLC is strictly newer than the row's (add-wins: equal HLC keeps the
+  ///    row, regardless of actor).
+  /// Every read surface consults this derivation so a removed element is
+  /// invisible everywhere at once (payload projection, effective model,
+  /// edge index).
+  Future<List<Map<String, dynamic>>> visiblePropertyValueRows(
+    String nodeUuid,
+  ) async {
+    final db = await _database.database;
+    final rows = (await db.query(
       'property_value',
       where: 'node_uuid = ?',
       whereArgs: [nodeUuid],
-      orderBy: 'property_schema_id ASC, idx ASC',
+    ))
+        .toList();
+    final slotTombstones = await db.query(
+      'property_value_tombstone',
+      where: 'node_uuid = ?',
+      whereArgs: [nodeUuid],
     );
+    final elementTombstones = await db.query(
+      'property_value_element_tombstone',
+      where: 'node_uuid = ?',
+      whereArgs: [nodeUuid],
+    );
+
+    LwwWinner winnerOf(Map<String, dynamic> row) => (
+          physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+          logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+          actor: row['actor_id'] as String? ?? '',
+        );
+
+    return rows.where((row) {
+      for (final tomb in elementTombstones) {
+        if (tomb['element_id'] != row['id']) continue;
+        final tombPhysical = (tomb['hlc_physical'] as num?)?.toInt() ?? 0;
+        final tombLogical = (tomb['hlc_logical'] as num?)?.toInt() ?? 0;
+        final rowWinner = winnerOf(row);
+        // HLC-only strictly-greater: on equal HLC the ADD wins regardless
+        // of actor (the classIds >= convention generalized).
+        if (tombPhysical > rowWinner.physical ||
+            (tombPhysical == rowWinner.physical &&
+                tombLogical > rowWinner.logical)) {
+          return false;
+        }
+      }
+      for (final tomb in slotTombstones) {
+        if (tomb['property_schema_id'] != row['property_schema_id'] ||
+            tomb['idx'] != row['idx']) {
+          continue;
+        }
+        if (compareLww(winnerOf(tomb), winnerOf(row)) >= 0) return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  /// The visible property values for [nodeUuid], ordered by (schema, idx,
+  /// element id) — concurrent element adds may share an idx; the element id
+  /// orders them identically on every replica.
+  Future<List<PropertyValueRow>> propertyValuesFor(String nodeUuid) async {
+    final rows = await visiblePropertyValueRows(nodeUuid);
+    rows.sort((a, b) {
+      final schemaDelta = (a['property_schema_id'] as String)
+          .compareTo(b['property_schema_id'] as String);
+      if (schemaDelta != 0) return schemaDelta;
+      final idxDelta =
+          ((a['idx'] as num?)?.toInt() ?? 0) - ((b['idx'] as num?)?.toInt() ?? 0);
+      if (idxDelta != 0) return idxDelta;
+      return (a['id'] as String).compareTo(b['id'] as String);
+    });
     return rows.map((row) {
       dynamic decoded;
       try {
@@ -1631,6 +1846,7 @@ class NodeCacheRepository {
         }
       }
       return PropertyValueRow(
+        elementId: row['id'] as String,
         schemaId: row['property_schema_id'] as String,
         idx: (row['idx'] as num?)?.toInt() ?? 0,
         value: decoded,
@@ -1639,8 +1855,57 @@ class NodeCacheRepository {
     }).toList();
   }
 
+  /// The property schema's type, null when the schema row is unknown or
+  /// inactive (property values have no schema FK — arbitrary ids store
+  /// unchecked). The §34.45 carrier-trash guard keys off "text".
+  Future<String?> propertySchemaTypeOf(String schemaId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'property_schema',
+      columns: ['type'],
+      where: 'uuid = ?',
+      whereArgs: [schemaId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['type'] as String?;
+  }
+
+  /// PC6: the schema's dateQualified flag, null when the schema row is
+  /// unknown. Only dateQualified schemas normalize the reserved qualifier
+  /// keys on write.
+  Future<bool?> propertySchemaDateQualified(String schemaId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'property_schema',
+      columns: ['date_qualified'],
+      where: 'uuid = ?',
+      whereArgs: [schemaId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final raw = rows.first['date_qualified'];
+    return raw == null ? false : (raw as num?)?.toInt() == 1;
+  }
+
+  /// True when any live property_value row still references [target] in
+  /// either stored shape — the canonical `{"nodeId": target}` or the legacy
+  /// bare-uuid encoding (§34.45: the unset-carrier exclusivity guard scans
+  /// any owner/slot).
+  Future<bool> propertyValueReferencesTarget(String target) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'property_value',
+      columns: ['id'],
+      where: 'value = ? OR value = ?',
+      whereArgs: [jsonEncode({'nodeId': target}), jsonEncode(target)],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
   /// Rebuilds the node's payload `properties` projection from the
   /// property_value table (single row -> scalar, multiple rows -> list).
+  /// Reads through the PG5 visible set: a tombstoned element never projects.
   Future<void> projectNodeProperties(String nodeUuid) async {
     final node = await getByUuid(nodeUuid);
     if (node == null) return;
@@ -1758,6 +2023,125 @@ class NodeCacheRepository {
       where: 'uuid = ?',
       whereArgs: [uuid],
     );
+  }
+
+  // === Workspace features (§34.35, §34.54/§34.55 lockstep) ================
+
+  /// Winner of a (workspace, feature) toggle row, if any.
+  Future<LwwWinner?> workspaceFeatureWinner(
+    String workspaceId,
+    String feature,
+  ) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'workspace_feature',
+      columns: ['hlc_physical', 'hlc_logical', 'actor_id'],
+      where: 'workspace_id = ? AND feature = ?',
+      whereArgs: [workspaceId, feature],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return (
+      physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+      logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+      actor: row['actor_id'] as String? ?? '',
+    );
+  }
+
+  /// LWW-write one feature row (callers gate on [workspaceFeatureWinner]).
+  Future<void> upsertWorkspaceFeature(
+    String workspaceId,
+    String feature,
+    bool enabled,
+    LwwWinner incoming,
+  ) async {
+    final db = await _database.database;
+    await db.insert('workspace_feature', {
+      'workspace_id': workspaceId,
+      'feature': feature,
+      'enabled': enabled ? 1 : 0,
+      'hlc_physical': incoming.physical,
+      'hlc_logical': incoming.logical,
+      'actor_id': incoming.actor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// The current (winning) toggle state — an ABSENT row means ENABLED (F2:
+  /// all families default ON; the empty table is the pre-toggle state).
+  Future<bool> featureEnabledNow(String workspaceId, String feature) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'workspace_feature',
+      columns: ['enabled'],
+      where: 'workspace_id = ? AND feature = ?',
+      whereArgs: [workspaceId, feature],
+      limit: 1,
+    );
+    return rows.isEmpty || (rows.first['enabled'] as num? ?? 1) == 1;
+  }
+
+  /// Flips a class registry row's archival bit — the membership-preserving
+  /// family projection (F3): `class_member_set` rows are NEVER touched, so
+  /// instances keep their class ids and stay in the graph. No updated_at
+  /// bump: the toggles' HLCs live on the workspace_feature rows, and a
+  /// wall-of-envelope timestamp here would diverge under reversed delivery
+  /// of racing toggles (the TS reference's deriveFamilyClassBits contract).
+  Future<void> setClassActive(String uuid, bool active) async {
+    final db = await _database.database;
+    await db.update(
+      'class_cache',
+      {'active': active ? 1 : 0},
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+    );
+  }
+
+  /// INSERT-or-ignore a class registry row (the task-family seed-ensure):
+  /// a client-authored or server-seeded family is never clobbered — first
+  /// writer wins, convergent on the single global log.
+  Future<void> insertClassIfAbsent({
+    required String uuid,
+    required String name,
+    String? icon,
+  }) async {
+    final db = await _database.database;
+    await db.insert('class_cache', {
+      'uuid': uuid,
+      'name': name,
+      'icon': icon,
+      'active': 1,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  /// INSERT-or-ignore a property-schema row (the task-family seed-ensure).
+  Future<void> insertPropertySchemaIfAbsent(PropertySchemaRow schema) async {
+    final db = await _database.database;
+    await db.insert(
+      'property_schema',
+      _propertySchemaToRow(schema),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  /// INSERT-or-ignore a class→schema binding row (the task-family
+  /// seed-ensure). Authored with zero HLC columns — the row is a
+  /// deterministic seed artifact, not a content write; a user flip on the
+  /// same row later wins by HLC without clobbering (the "(Own row wins over
+  /// seeds)" contract).
+  Future<void> insertClassPropertyBindingIfAbsent({
+    required String classId,
+    required String schemaId,
+    required int sequence,
+  }) async {
+    final db = await _database.database;
+    await db.insert('class_property', {
+      'class_id': classId,
+      'property_schema_id': schemaId,
+      'sequence': sequence,
+      'hlc_physical': 0,
+      'hlc_logical': 0,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   /// Direct children of [parentUuid] in v2 fractional position order.
@@ -2693,6 +3077,19 @@ class NodeCacheRepository {
         'actor_id': row['actor_id'],
       });
     }
+    final elementTombRows = await local.rawQuery(
+      'SELECT * FROM property_value_element_tombstone',
+    );
+    for (final row in elementTombRows) {
+      batch.insert('property_value_element_tombstone', {
+        'element_id': row['element_id'],
+        'node_id': row['node_uuid'],
+        'property_schema_id': row['property_schema_id'],
+        'hlc_physical': row['hlc_physical'] ?? 0,
+        'hlc_logical': row['hlc_logical'] ?? 0,
+        'actor_id': row['actor_id'],
+      });
+    }
 
     final edgeRows = await local.rawQuery('SELECT * FROM edge');
     for (final row in edgeRows) {
@@ -2730,6 +3127,8 @@ class NodeCacheRepository {
   /// Upserts a binding row. Omitted fields KEEP their stored values (partial
   /// patch, port of the SQL COALESCE); [defaultValueJson] is the JSON-encoded
   /// default (null = leave untouched — JSON-null defaults ride raw maps).
+  /// [active] (PC4) is the soft-unbind flag: omitted keeps the stored flag;
+  /// a NEW row defaults to active.
   Future<void> upsertClassPropertyBinding({
     required String classId,
     required String schemaId,
@@ -2738,6 +3137,7 @@ class NodeCacheRepository {
     bool? required,
     bool? readonly,
     bool? hideWhenEmpty,
+    bool? active,
     String? defaultValueJson,
   }) async {
     final db = await _database.database;
@@ -2762,6 +3162,9 @@ class NodeCacheRepository {
             ? stored['hide_when_empty']
             : (hideWhenEmpty ? 1 : 0),
         'default_value': defaultValueJson ?? stored['default_value'],
+        'active': active == null
+            ? (stored['active'] as num?) ?? 1
+            : (active ? 1 : 0),
         'hlc_physical': incoming.physical,
         'hlc_logical': incoming.logical,
         'actor_id': incoming.actor,
@@ -2788,56 +3191,11 @@ class NodeCacheRepository {
   Future<List<EffectiveProperty>> getEffectiveProperties(String nodeId) async {
     final db = await _database.database;
 
-    // 1. Authored rows, tombstone-suppressed with the same rule the applier
-    //    enforces on write: a tombstone with >= (hlc, actor) blocks the value.
-    final authoredRows = await db.query(
-      'property_value',
-      columns: [
-        'property_schema_id',
-        'value',
-        'idx',
-        'metadata',
-        'hlc_physical',
-        'hlc_logical',
-        'actor_id',
-      ],
-      where: 'node_uuid = ?',
-      whereArgs: [nodeId],
-    );
-    final tombstoneRows = await db.query(
-      'property_value_tombstone',
-      columns: [
-        'property_schema_id',
-        'idx',
-        'hlc_physical',
-        'hlc_logical',
-        'actor_id',
-      ],
-      where: 'node_uuid = ?',
-      whereArgs: [nodeId],
-    );
-    bool suppressed(Map<String, dynamic> row) {
-      for (final tomb in tombstoneRows) {
-        if (tomb['property_schema_id'] == row['property_schema_id'] &&
-            tomb['idx'] == row['idx'] &&
-            compareLww(
-                  (
-                    physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
-                    logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
-                    actor: row['actor_id'] as String? ?? '',
-                  ),
-                  (
-                    physical: (tomb['hlc_physical'] as num?)?.toInt() ?? 0,
-                    logical: (tomb['hlc_logical'] as num?)?.toInt() ?? 0,
-                    actor: tomb['actor_id'] as String? ?? '',
-                  ),
-                ) <=
-                0) {
-          return true;
-        }
-      }
-      return false;
-    }
+    // 1. Authored rows through the PG5 visible-set derivation
+    //    (property-values.ts visiblePropertyValueRows): live rows minus
+    //    slot tombstones minus element tombstones — the same rule the
+    //    applier enforces on write.
+    final authoredRows = await visiblePropertyValueRows(nodeId);
 
     // 2. The node's classes in assignment order: OR-Set add HLC ascending,
     //    ties by class id.
@@ -2860,14 +3218,17 @@ class NodeCacheRepository {
     });
 
     // 3. Winning binding per schema: the first class (in assignment order)
-    //    that binds the schema supplies the default AND the metadata.
+    //    that binds the schema supplies the default AND the metadata. PC4:
+    //    only ACTIVE rows are candidates — an inactive binding stops
+    //    contributing defaults + metadata while the row survives; authored
+    //    values read as unbound (boundBy null).
     final winnerBySchema =
         <String, ({String classId, Map<String, dynamic> binding})>{};
     for (final cls in memberRows) {
       final classId = cls['class_id'] as String;
       final bindings = await db.query(
         'class_property',
-        where: 'class_id = ?',
+        where: 'class_id = ? AND active = 1',
         whereArgs: [classId],
       );
       for (final binding in bindings) {
@@ -2904,18 +3265,21 @@ class NodeCacheRepository {
 
     bool? flag(dynamic value) => value == null ? null : value == 1;
 
-    // 5. Merge: authored wins per (schema, idx); a winning binding with a
-    //    default and no authored value at idx 0 derives a default row.
+    // 5. Merge: authored wins per (schema, idx, ELEMENT — PG5: rows at the
+    //    same idx are distinct elements and all surface); a winning ACTIVE
+    //    binding with a default and no authored value at idx 0 derives a
+    //    default row.
     final rows = <String, EffectiveProperty>{};
     for (final authored in authoredRows) {
-      if (suppressed(authored)) continue;
       final schemaId = authored['property_schema_id'] as String;
       final idx = (authored['idx'] as num?)?.toInt() ?? 0;
+      final elementId = authored['id'] as String;
       final winner = winnerBySchema[schemaId];
       final metadata = authored['metadata'] as String?;
-      rows['$schemaId:$idx'] = EffectiveProperty(
+      rows['$schemaId:$idx:$elementId'] = EffectiveProperty(
         propertySchemaId: schemaId,
         idx: idx,
+        elementId: elementId,
         schema: schemas[schemaId],
         value: _decodeJsonOrRaw(authored['value'] as String),
         metadata: metadata == null ? null : _decodeJsonOrRaw(metadata),
@@ -2936,10 +3300,13 @@ class NodeCacheRepository {
       final defaultRaw = winner.binding['default_value'];
       if (defaultRaw == null) continue; // bound without a default
       final key = '$schemaId:0';
-      if (rows.containsKey(key)) continue; // authored idx 0 shadows default
+      if (rows.keys.any((k) => k.startsWith('$schemaId:0:'))) {
+        continue; // authored idx 0 shadows the default
+      }
       rows[key] = EffectiveProperty(
         propertySchemaId: schemaId,
         idx: 0,
+        elementId: 'default:$schemaId:0',
         schema: schemas[schemaId],
         value: _decodeJsonOrRaw(defaultRaw as String),
         metadata: null,
@@ -2953,7 +3320,9 @@ class NodeCacheRepository {
     }
 
     // 6. Deterministic presentation order: bound rows by binding sequence,
-    //    unbound authored rows last; schema name then idx as tiebreak.
+    //    unbound authored rows last; schema name then (idx, element id) as
+    //    the tiebreak (PG5: concurrent adds may share an idx — the element
+    //    id orders them identically on every replica).
     final result = rows.values.toList();
     String nameOf(EffectiveProperty row) =>
         row.schema?.name ?? row.propertySchemaId;
@@ -2966,7 +3335,9 @@ class NodeCacheRepository {
       if (seqA != seqB) return seqA - seqB;
       final nameDelta = nameOf(a).compareTo(nameOf(b));
       if (nameDelta != 0) return nameDelta;
-      return a.idx - b.idx;
+      final idxDelta = a.idx - b.idx;
+      if (idxDelta != 0) return idxDelta;
+      return a.elementId.compareTo(b.elementId);
     });
     return result;
   }
@@ -3591,6 +3962,10 @@ class NodeCacheRepository {
       classFilterUuids: classFilterUuids,
       options: options,
       computed: row['computed'] as String?,
+      datePrecision: row['date_precision'] as String?,
+      dateQualified: row['date_qualified'] == null
+          ? null
+          : (row['date_qualified'] as int? ?? 0) == 1,
       active: (row['active'] as int? ?? 1) == 1,
       createdAt: row['created_at'] as String?,
       updatedAt: row['updated_at'] as String?,
@@ -3621,6 +3996,10 @@ class NodeCacheRepository {
       'class_filter_uuids': jsonEncode(schema.classFilterUuids),
       'options': jsonEncode(schema.options),
       'computed': schema.computed,
+      'date_precision': schema.datePrecision,
+      'date_qualified': schema.dateQualified == null
+          ? null
+          : (schema.dateQualified! ? 1 : 0),
       'active': schema.active ? 1 : 0,
       'created_at': schema.createdAt,
       'updated_at': schema.updatedAt,
@@ -3796,15 +4175,18 @@ class NodeRowMeta {
   LwwWinner get winner => (physical: physical, logical: logical, actor: actor);
 }
 
-/// One live row of the derived `property_value` table.
+/// One visible row of the derived `property_value` table. [elementId] IS
+/// the row id (PG5): the address multi-value removes target.
 class PropertyValueRow {
   const PropertyValueRow({
+    required this.elementId,
     required this.schemaId,
     required this.idx,
     required this.value,
     this.metadata,
   });
 
+  final String elementId;
   final String schemaId;
   final int idx;
   final dynamic value;
@@ -3846,6 +4228,7 @@ class SnapshotRestoreData {
     required this.tagMemberRows,
     required this.propertyValueRows,
     required this.propertyTombstoneRows,
+    required this.propertyElementTombstoneRows,
     required this.collectionMemberRows,
     required this.classExtendsEdges,
   });
@@ -3860,6 +4243,7 @@ class SnapshotRestoreData {
   final List<Map<String, dynamic>> tagMemberRows;
   final List<Map<String, dynamic>> propertyValueRows;
   final List<Map<String, dynamic>> propertyTombstoneRows;
+  final List<Map<String, dynamic>> propertyElementTombstoneRows;
   final List<Map<String, dynamic>> collectionMemberRows;
   final List<(String, String)> classExtendsEdges;
 }
@@ -3904,6 +4288,7 @@ class EffectiveProperty {
   const EffectiveProperty({
     required this.propertySchemaId,
     required this.idx,
+    required this.elementId,
     required this.schema,
     required this.value,
     required this.metadata,
@@ -3917,6 +4302,11 @@ class EffectiveProperty {
 
   final String propertySchemaId;
   final int idx;
+
+  /// PG5: the value's stable element id (the property_value row id) — the
+  /// address multi-value removes target. Derived defaults carry the
+  /// deterministic `default:<schema>:0` id.
+  final String elementId;
   final EffectivePropertySchema? schema;
   final dynamic value;
   final dynamic metadata;

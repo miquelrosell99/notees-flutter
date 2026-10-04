@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/constants/system.dart';
 import '../../core/utils/ast_builder.dart';
 import '../../core/utils/ast_stringifier.dart';
+import '../../core/utils/date_uuid.dart';
 import '../../core/utils/node_display_name.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_cache_repository.dart';
@@ -12,6 +13,7 @@ import '../models/relay/lww.dart';
 import '../models/relay/operation_envelope.dart';
 import '../models/relay/operation_payloads.dart';
 import '../models/relay/store_errors.dart';
+import '../models/relay/workspace_features.dart';
 
 /// Applies v2 relay operation envelopes to the local derived state, porting
 /// `packages/store/src/appliers.ts` semantics:
@@ -37,7 +39,18 @@ import '../models/relay/store_errors.dart';
 ///    (LWW-by-arrival) and the class list projects ordered members first;
 ///  - class extends is m2m replace semantics with an applier-maintained
 ///    transitive closure; cycles fail loud with [CycleError];
-///  - property values are LWW per (node, schema, idx) with tombstones;
+///  - property values: single-value slots stay LWW at the deterministic
+///    positional element; multi-value slots are an OR-Set of PG5 elements
+///    (per-element row id, add-wins tombstones; the membership comparator
+///    is HLC-only so on equal HLC the add wins regardless of actor);
+///    dateQualified schemas normalize the reserved metadata qualifier keys
+///    to date-node refs on write (PC6); unsetting a node-backed text value
+///    trashes the unreferenced carrier block (§34.45);
+///  - per-workspace feature toggles (workspace.feature.set) LWW by HLC on
+///    (workspace, feature) derive the membership-preserving archival of the
+///    five managed class families (F2 absent-row=ON, F3 keep-data, F4
+///    class.delete-on-a-base routes to the toggle; the tasks enable authors
+///    the task family at the fixed seed ids on every enable payload);
 ///  - appliers fail loud with typed [StoreError]s and never swallow a write
 ///    silently. Envelope-id idempotency lives in the sync service
 ///    (relay_operations dedupe), mirroring applied_envelope in the v2 store.
@@ -65,8 +78,12 @@ class RelayAppliers {
         payload['collectionId'] as String? ??
         '';
     // Ops without a target (e.g. `plugin.op`) have no local derived
-    // representation and are intentionally ignored.
-    if (objectId.isEmpty) return false;
+    // representation and are intentionally ignored. `workspace.feature.set`
+    // is the one target-less op WITH a derived representation (the
+    // workspace_feature row): it routes by op type below.
+    if (objectId.isEmpty && envelope.opType != 'workspace.feature.set') {
+      return false;
+    }
 
     // Known v2 ops validate their payload before touching state (the relay
     // would 422 them otherwise); unknown/legacy types fall to the ignore
@@ -103,8 +120,7 @@ class RelayAppliers {
       case 'class.update':
         return _applyClassUpdate(envelope, payload);
       case 'class.delete':
-        await _applyClassDelete(payload);
-        return true;
+        return _applyClassDelete(envelope, payload);
       case 'class.setExtends':
         await _applyClassSetExtends(envelope, payload);
         return true;
@@ -138,6 +154,8 @@ class RelayAppliers {
         return _applyCollectionMember(envelope, payload, present: true);
       case 'collection.member.remove':
         return _applyCollectionMember(envelope, payload, present: false);
+      case 'workspace.feature.set':
+        return _applyWorkspaceFeatureSet(envelope, payload);
       case 'activity.record':
       case 'activity.delete':
       case 'link.click':
@@ -556,6 +574,17 @@ class RelayAppliers {
   }
 
   // --- properties ---------------------------------------------------------------
+  //
+  // PG5 (§34.57 lockstep): multi-value slots are an OR-Set of elements. A
+  // payload `elementId` is an element ADD (the property_value row id IS the
+  // element id); a payload WITHOUT it is the legacy positional carrier at
+  // the deterministic `node:schema:idx` element — replayed stored logs and
+  // old clients keep applying unchanged. PC6 (§34.57): dateQualified schemas
+  // normalize the reserved metadata qualifier keys (startDate/endDate) to
+  // date-node refs on write. §34.45 (PB2): unsetting a node-backed TEXT
+  // value trashes the now-unreferenced carrier block under three guards
+  // (child-of-owner, active non-class, unreferenced) — derived-state parity
+  // with the TS reference on wipe+replay.
 
   Future<bool> _applyPropertySet(
     OperationEnvelope envelope,
@@ -564,6 +593,113 @@ class RelayAppliers {
   ) async {
     final schemaId = payload['propertySchemaId'] as String;
     final idx = (payload['idx'] as num?)?.toInt() ?? 0;
+    final elementId = payload['elementId'] as String?;
+
+    // PC6 normalize-on-write: a well-formed YYYY-MM-DD string in the
+    // reserved qualifier keys rewrites to the deterministic day-node ref —
+    // ONLY on dateQualified schemas, only those two keys, pure value
+    // rewriting (no graph side effects, no existence assertion).
+    final metadata = await _normalizeQualifierMetadata(schemaId, payload);
+
+    var dropped = false;
+    final encoded = jsonEncode(
+      payload.containsKey('value') ? payload['value'] : null,
+    );
+    if (elementId != null) {
+      dropped = await _applyElementAdd(
+        envelope,
+        objectId: objectId,
+        schemaId: schemaId,
+        elementId: elementId,
+        idx: idx,
+        encoded: encoded,
+        encodedMetadata: metadata != null ? jsonEncode(metadata) : null,
+      );
+    } else {
+      dropped = await _applyPositionalSet(
+        envelope,
+        objectId: objectId,
+        schemaId: schemaId,
+        idx: idx,
+        encoded: encoded,
+        encodedMetadata: metadata != null ? jsonEncode(metadata) : null,
+      );
+    }
+
+    await _cache.projectNodeProperties(objectId);
+    return !dropped;
+  }
+
+  /// PG5 OR-Set element ADD: the row id IS the element id, so adds of
+  /// distinct elements never conflict and a re-issued add revives the
+  /// element unless a strictly-newer (HLC) tombstone stands — add-wins: on
+  /// equal HLC the add proceeds regardless of actor. The value/metadata/idx
+  /// overwrite per element uses the full (hlc, actor) tuple, exactly like
+  /// the pre-PG5 slot LWW.
+  Future<bool> _applyElementAdd(
+    OperationEnvelope envelope, {
+    required String objectId,
+    required String schemaId,
+    required String elementId,
+    required int idx,
+    required String encoded,
+    required String? encodedMetadata,
+  }) async {
+    final incoming = _incoming(envelope);
+    final tombstone = await _cache.propertyElementTombstoneWinner(elementId);
+    if (tombstone != null &&
+        (tombstone.physical > incoming.physical ||
+            (tombstone.physical == incoming.physical &&
+                tombstone.logical > incoming.logical))) {
+      return true; // a strictly-newer remove wins — the add is dropped.
+    }
+
+    final existing = await _cache.propertyValueRowById(elementId);
+    if (existing == null) {
+      await _cache.upsertPropertyValueById(
+        id: elementId,
+        nodeUuid: objectId,
+        schemaId: schemaId,
+        idx: idx,
+        valueJson: encoded,
+        metadataJson: encodedMetadata,
+        incoming: incoming,
+      );
+      return false;
+    }
+    final rowWinner = (
+      physical: (existing['hlc_physical'] as num?)?.toInt() ?? 0,
+      logical: (existing['hlc_logical'] as num?)?.toInt() ?? 0,
+      actor: existing['actor_id'] as String? ?? '',
+    );
+    if (compareLww(incoming, rowWinner) > 0) {
+      await _cache.upsertPropertyValueById(
+        id: elementId,
+        nodeUuid: objectId,
+        schemaId: schemaId,
+        idx: idx,
+        valueJson: encoded,
+        metadataJson: encodedMetadata,
+        incoming: incoming,
+      );
+      return false;
+    }
+    // A stale re-add (full tuple <= the live row) leaves the row untouched.
+    return true;
+  }
+
+  /// The pre-PG5 positional path (payload WITHOUT elementId): unchanged
+  /// slot LWW, keyed by the deterministic positional row id — concurrent
+  /// element adds may share the idx, but a positional write addresses ONLY
+  /// its own deterministic element.
+  Future<bool> _applyPositionalSet(
+    OperationEnvelope envelope, {
+    required String objectId,
+    required String schemaId,
+    required int idx,
+    required String encoded,
+    required String? encodedMetadata,
+  }) async {
     final incoming = _incoming(envelope);
 
     // A tombstone with a winning (>=) (hlc, actor) blocks the write.
@@ -573,25 +709,33 @@ class RelayAppliers {
       idx,
     );
     if (tombstone != null && compareLww(incoming, tombstone) <= 0) {
-      return false;
+      return true;
     }
 
-    final existing = await _cache.propertyValueWinner(objectId, schemaId, idx);
-    if (existing != null && compareLww(incoming, existing) <= 0) {
-      return false;
+    final rowId = NodeCacheRepository.positionalPropertyValueId(
+      objectId,
+      schemaId,
+      idx,
+    );
+    final existing = await _cache.propertyValueRowById(rowId);
+    if (existing != null) {
+      final rowWinner = (
+        physical: (existing['hlc_physical'] as num?)?.toInt() ?? 0,
+        logical: (existing['hlc_logical'] as num?)?.toInt() ?? 0,
+        actor: existing['actor_id'] as String? ?? '',
+      );
+      if (compareLww(incoming, rowWinner) <= 0) return true;
     }
 
-    final metadata = payload['metadata'];
     await _cache.upsertPropertyValue(
       objectId,
       schemaId,
       idx,
-      jsonEncode(payload.containsKey('value') ? payload['value'] : null),
-      metadata == null ? null : jsonEncode(metadata),
+      encoded,
+      encodedMetadata,
       incoming,
     );
-    await _cache.projectNodeProperties(objectId);
-    return true;
+    return false;
   }
 
   Future<bool> _applyPropertyUnset(
@@ -601,9 +745,90 @@ class RelayAppliers {
   ) async {
     final schemaId = payload['propertySchemaId'] as String;
     final idx = (payload['idx'] as num?)?.toInt() ?? 0;
+    final elementId = payload['elementId'] as String?;
+
+    if (elementId != null) {
+      await _applyElementRemove(
+        envelope,
+        objectId: objectId,
+        schemaId: schemaId,
+        elementId: elementId,
+      );
+    } else {
+      await _applyPositionalUnset(
+        envelope,
+        objectId: objectId,
+        schemaId: schemaId,
+        idx: idx,
+      );
+    }
+    await _cache.projectNodeProperties(objectId);
+    return true;
+  }
+
+  /// PG5 OR-Set element REMOVE: records the remove's causality on the
+  /// element tombstone (callers gate the strictly-greater upsert — on an
+  /// exact tie the earlier add sticks, add-wins) and deletes the live row
+  /// when the remove's HLC is strictly newer than the row's (equal HLC
+  /// keeps the row — the add wins ties). An unset addressed at an element
+  /// that exists under a DIFFERENT (node, schema) is malformed: ignored,
+  /// like a stale write (deterministic on every replica).
+  Future<void> _applyElementRemove(
+    OperationEnvelope envelope, {
+    required String objectId,
+    required String schemaId,
+    required String elementId,
+  }) async {
+    final incoming = _incoming(envelope);
+    final existing = await _cache.propertyValueRowById(elementId);
+    if (existing != null &&
+        (existing['node_uuid'] != objectId ||
+            existing['property_schema_id'] != schemaId)) {
+      return; // malformed addressing — deterministic no-op.
+    }
+
+    final tombstone = await _cache.propertyElementTombstoneWinner(elementId);
+    if (tombstone == null || compareLww(incoming, tombstone) > 0) {
+      await _cache.upsertPropertyElementTombstone(
+        elementId: elementId,
+        nodeUuid: objectId,
+        schemaId: schemaId,
+        incoming: incoming,
+      );
+    }
+
+    if (existing == null) return;
+    final removeWinsByHlc =
+        incoming.physical >
+            ((existing['hlc_physical'] as num?)?.toInt() ?? 0) ||
+        (incoming.physical ==
+                ((existing['hlc_physical'] as num?)?.toInt() ?? 0) &&
+            incoming.logical >
+                ((existing['hlc_logical'] as num?)?.toInt() ?? 0));
+    if (!removeWinsByHlc) return; // add-wins ties: the live row stays.
+    await _cache.deletePropertyValueById(elementId);
+    // §34.45: unsetting a node-backed text value deletes the carrier block
+    // under the same guards as the positional path.
+    await _trashTextCarrierIfOrphaned(
+      objectId,
+      schemaId,
+      existing['value'] as String,
+      envelope.timestamp,
+    );
+  }
+
+  /// The pre-PG5 positional remove (payload WITHOUT elementId): the slot
+  /// tombstone upserts when the incoming write wins, and the deterministic
+  /// composite row dies only when the remove outranks it — newer element
+  /// adds at that idx are different elements and survive.
+  Future<void> _applyPositionalUnset(
+    OperationEnvelope envelope, {
+    required String objectId,
+    required String schemaId,
+    required int idx,
+  }) async {
     final incoming = _incoming(envelope);
 
-    // Upsert the tombstone only when the incoming write wins the slot.
     final tombstone = await _cache.propertyTombstoneWinner(
       objectId,
       schemaId,
@@ -613,12 +838,117 @@ class RelayAppliers {
       await _cache.upsertPropertyTombstone(objectId, schemaId, idx, incoming);
     }
 
-    final existing = await _cache.propertyValueWinner(objectId, schemaId, idx);
-    if (existing != null && compareLww(incoming, existing) > 0) {
-      await _cache.deletePropertyValue(objectId, schemaId, idx);
+    final rowId = NodeCacheRepository.positionalPropertyValueId(
+      objectId,
+      schemaId,
+      idx,
+    );
+    final existing = await _cache.propertyValueRowById(rowId);
+    if (existing == null) return;
+    final rowWinner = (
+      physical: (existing['hlc_physical'] as num?)?.toInt() ?? 0,
+      logical: (existing['hlc_logical'] as num?)?.toInt() ?? 0,
+      actor: existing['actor_id'] as String? ?? '',
+    );
+    if (compareLww(incoming, rowWinner) <= 0) return;
+    await _cache.deletePropertyValueById(rowId);
+    // §34.45 (SCHEMA.md "Node-backed text properties"): unsetting a
+    // node-backed text value deletes the carrier block — trash + retention,
+    // consistent with node deletion (three guards below).
+    await _trashTextCarrierIfOrphaned(
+      objectId,
+      schemaId,
+      existing['value'] as String,
+      envelope.timestamp,
+    );
+  }
+
+  /// The carrier-deletion half of property.unset (§34.45 PB2). The value
+  /// row is already deleted; [removedValueRaw] is its stored JSON. Trashes
+  /// the now-unreferenced carrier inside the same apply. Guards: the removed
+  /// value references a node (canonical {nodeId} or legacy bare uuid), no
+  /// other live property_value row still references it, and the carrier is
+  /// an active non-class CHILD of the owner. Scalar text values (citekey
+  /// style) carry no carrier.
+  Future<void> _trashTextCarrierIfOrphaned(
+    String objectId,
+    String schemaId,
+    String removedValueRaw,
+    String timestamp,
+  ) async {
+    if (await _cache.propertySchemaTypeOf(schemaId) != 'text') return;
+    String? target;
+    try {
+      final decoded = jsonDecode(removedValueRaw);
+      target = _nodeRefOfValue(decoded);
+    } on FormatException {
+      return;
     }
-    await _cache.projectNodeProperties(objectId);
-    return true;
+    if (target == null) return;
+    // Exclusive reference: no other live row (any owner or slot) points at
+    // the carrier — both the {nodeId} and the legacy bare-uuid shapes.
+    if (await _cache.propertyValueReferencesTarget(target)) return;
+    final carrier = await _cache.getByUuid(target);
+    if (carrier == null ||
+        carrier.parentUuid != objectId ||
+        carrier.isClass ||
+        carrier.isArchived) {
+      return;
+    }
+    final ids = await _cache.subtreeUuids(target);
+    for (final id in ids) {
+      final node = await _cache.getByUuid(id);
+      if (node != null && !node.isArchived) {
+        await _cache.upsert(node.copyWithIsArchived(true));
+      }
+    }
+    await _cache.recordTrashRoot(target, deletedAt: timestamp);
+  }
+
+  /// The node id a stored value references, when it is reference-shaped:
+  /// either the canonical `{ "nodeId": … }` or a legacy bare uuid. Scalar
+  /// strings that are not uuid-shaped return null (they are text).
+  static String? _nodeRefOfValue(dynamic value) {
+    if (value is Map<String, dynamic> && value['nodeId'] is String) {
+      final id = value['nodeId'] as String;
+      return id.isEmpty ? null : id;
+    }
+    if (value is String && _uuidLike.hasMatch(value)) return value;
+    return null;
+  }
+
+  static final _uuidLike = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  );
+
+  /// PC6 normalize-on-write (SCHEMA.md "Dates"): for a dateQualified
+  /// schema, a well-formed `YYYY-MM-DD` string in the reserved qualifier
+  /// keys (startDate/endDate) rewrites to the deterministic day-node ref
+  /// `{"nodeId": <day chain node>}` — pure value rewriting, no graph side
+  /// effects; the ref joins the year/month/day chain whenever the chain
+  /// exists and stays existence-lenient until then. Non-date strings, refs,
+  /// other metadata keys, non-qualified schemas, and unknown schemas all
+  /// ride through untouched. Returns the metadata to store (null when the
+  /// payload carried none).
+  Future<Map<String, dynamic>?> _normalizeQualifierMetadata(
+    String schemaId,
+    Map<String, dynamic> payload,
+  ) async {
+    final metadata = payload['metadata'];
+    if (metadata is! Map<String, dynamic>) return null;
+    final qualified = await _cache.propertySchemaDateQualified(schemaId);
+    if (qualified != true) return metadata;
+    var changed = false;
+    final normalized = Map<String, dynamic>.from(metadata);
+    for (final key in const ['startDate', 'endDate']) {
+      final value = normalized[key];
+      if (value is! String) continue;
+      final day = dayUuidFromIsoDate(value);
+      if (day == null) continue; // not a well-formed ISO date — as authored.
+      normalized[key] = {'nodeId': day};
+      changed = true;
+    }
+    return changed ? normalized : metadata;
   }
 
   // --- classes ------------------------------------------------------------------
@@ -685,9 +1015,35 @@ class RelayAppliers {
     return contentSourceToExcerpt(contentAst);
   }
 
-  Future<void> _applyClassDelete(Map<String, dynamic> payload) async {
+  /// F4 (§34.35/§34.55): a delete addressed at a family BASE class is
+  /// routed to the toggle — applied as a feature-disable so the Features
+  /// setting is the single archive path for the families and the lossy
+  /// plain delete (membership tombstoning) never runs on them. The five
+  /// bases route (task, event, meeting, source, person — the TS domain test
+  /// pins the meeting mapping); non-base family children (book, birthday, …)
+  /// keep plain delete semantics. The route decision is a pure function of
+  /// the class id (fixed vocabulary), so every replica takes the same
+  /// branch; the LWW row gate keeps the derived state convergent under
+  /// either delivery order.
+  Future<bool> _applyClassDelete(
+    OperationEnvelope envelope,
+    Map<String, dynamic> payload,
+  ) async {
     final classId = payload['classId'] as String;
+    final managedFeature = featureForManagedClass(classId);
+    if (managedFeature != null) {
+      final wrote = await _lwwWriteFeatureRow(
+        envelope,
+        managedFeature,
+        false,
+      );
+      if (wrote) {
+        await _deriveFamilyClassBits(envelope.workspaceId, managedFeature);
+      }
+      return wrote;
+    }
     await _cache.deleteClass(classId);
+    return true;
   }
 
   Future<void> _applyClassSetExtends(
@@ -758,6 +1114,8 @@ class RelayAppliers {
       required: payload['required'] as bool?,
       readonly: payload['readonly'] as bool?,
       hideWhenEmpty: payload['hideWhenEmpty'] as bool?,
+      // PC4: the soft-unbind flag rides the row LWW (absent = keep).
+      active: payload['active'] as bool?,
       defaultValueJson: hasDefault
           ? jsonEncode(payload.containsKey('defaultValue')
               ? payload['defaultValue']
@@ -855,6 +1213,10 @@ class RelayAppliers {
                 ?.cast<Map<String, dynamic>>() ??
             const [],
         classFilterUuids: _readStringList(payload['targetClassFilter']),
+        // SCHEMA.md "Dates" (PC6): the applier stores the columns raw; the
+        // PC6 normalize-on-write consults dateQualified on property.set.
+        datePrecision: payload['datePrecision'] as String?,
+        dateQualified: payload['dateQualified'] as bool?,
       ),
     );
   }
@@ -880,8 +1242,8 @@ class RelayAppliers {
                       ?.cast<Map<String, dynamic>>() ??
                   const []
             : existing.options,
-        // v2 propertySchema.update only carries name/options; everything
-        // else is preserved from the stored row.
+        // v2 propertySchema.update carries name/options/datePrecision/
+        // dateQualified; everything else is preserved from the stored row.
         type: existing.type,
         multi: existing.multi,
         isSystem: existing.isSystem,
@@ -895,6 +1257,12 @@ class RelayAppliers {
         defaultValue: existing.defaultValue,
         classFilterUuids: existing.classFilterUuids,
         computed: existing.computed,
+        datePrecision: payload.containsKey('datePrecision')
+            ? payload['datePrecision'] as String?
+            : existing.datePrecision,
+        dateQualified: payload.containsKey('dateQualified')
+            ? payload['dateQualified'] as bool?
+            : existing.dateQualified,
       ),
     );
     return true;
@@ -931,6 +1299,126 @@ class RelayAppliers {
       incoming,
     );
     return true;
+  }
+
+  // --- workspace.feature.* (§34.35, §34.54/§34.55 lockstep) ---------------------
+  //
+  // Per-workspace feature toggles: LWW by (workspaceId, feature) on the
+  // envelope (hlc, actor) — the winning row lands in `workspace_feature`
+  // and the applier derives the membership-preserving archival of the
+  // feature's managed system classes from it. Toggle-off is
+  // hide-surfaces-keep-data (F3): the class registry `active` bit flips,
+  // class membership rows are NEVER touched. An absent row means ENABLED
+  // (F2). A class.delete on a managed base routes here (F4 — see
+  // [_applyClassDelete]).
+
+  /// LWW-write one feature row. Returns true when the incoming envelope won
+  /// (the row was written); false when a newer (hlc, actor) row already
+  /// stood (the toggle is dropped, exactly like a stale property.set).
+  Future<bool> _lwwWriteFeatureRow(
+    OperationEnvelope envelope,
+    WorkspaceFeature feature,
+    bool enabled,
+  ) async {
+    final existing = await _cache.workspaceFeatureWinner(
+      envelope.workspaceId,
+      feature,
+    );
+    final incoming = _incoming(envelope);
+    if (existing != null && compareLww(incoming, existing) <= 0) {
+      return false;
+    }
+    await _cache.upsertWorkspaceFeature(
+      envelope.workspaceId,
+      feature,
+      enabled,
+      incoming,
+    );
+    return true;
+  }
+
+  /// Re-derive the archival bits for one family's full class set (base +
+  /// extends-children) from the CURRENT feature rows. Each class's bit is
+  /// the AND of its gating features (own feature when it is a family base,
+  /// plus every managed ancestor's — gatingFeaturesForClass): re-enabling
+  /// EVENTS must not un-archive a MEETINGS-off meeting, so a blind
+  /// family-wide flip is wrong under the cascade; per-class re-derivation
+  /// is idempotent, membership-preserving, and convergent (pure active-bit
+  /// projection — no causality/timestamp writes).
+  Future<void> _deriveFamilyClassBits(
+    String workspaceId,
+    WorkspaceFeature feature,
+  ) async {
+    for (final name in familyClassNames(feature)) {
+      var enabled = true;
+      for (final gating in gatingFeaturesForClass(name)) {
+        if (!await _cache.featureEnabledNow(workspaceId, gating)) {
+          enabled = false;
+          break;
+        }
+      }
+      await _cache.setClassActive(systemClassUuids[name]!, enabled);
+    }
+  }
+
+  /// The `tasks` enable path (§34.35 constraint 5): author the task class +
+  /// the six property schemas + their bindings at the fixed seed ids.
+  /// Purely additive (INSERT-or-ignore everywhere) so a client-authored
+  /// family (random option ids) or a server-seeded one is never clobbered —
+  /// first writer wins, convergent on the single global log. The rows are
+  /// inserted ACTIVE; the caller normalizes the archival bit afterwards.
+  Future<void> _ensureTaskFamilyRows(OperationEnvelope envelope) async {
+    const classId = SystemClassUuids.task;
+    await _cache.insertClassIfAbsent(
+      uuid: classId,
+      name: 'Task',
+      icon: systemClassIcons['task'],
+    );
+    for (final entry in taskFamilySeed) {
+      await _cache.insertPropertySchemaIfAbsent(
+        PropertySchemaRow(
+          uuid: entry.schemaId,
+          workspaceId: '', // Workspace is implicit to the local cache.
+          name: entry.name,
+          type: entry.type,
+          multi: false,
+          isSystem: true,
+          scope: 'class',
+          options: [
+            for (final option in entry.options)
+              {'id': option['id'], 'label': option['label']},
+          ],
+          createdAt: envelope.timestamp,
+          updatedAt: envelope.timestamp,
+        ),
+      );
+      await _cache.insertClassPropertyBindingIfAbsent(
+        classId: classId,
+        schemaId: entry.schemaId,
+        sequence: entry.sequence,
+      );
+    }
+  }
+
+  Future<bool> _applyWorkspaceFeatureSet(
+    OperationEnvelope envelope,
+    Map<String, dynamic> payload,
+  ) async {
+    final feature = payload['feature'] as String;
+    final enabled = payload['enabled'] == true;
+    final wrote = await _lwwWriteFeatureRow(envelope, feature, enabled);
+    if (wrote) {
+      await _deriveFamilyClassBits(envelope.workspaceId, feature);
+    }
+    // The ensure rides every enable PAYLOAD (not only the LWW winner):
+    // both delivery orders of a racing toggle pair must author the
+    // identical row set — the family re-derivation below normalizes the
+    // archival bits to the CURRENT row state on every path.
+    if (enabled && feature == 'tasks') {
+      await _ensureTaskFamilyRows(envelope);
+      await _deriveFamilyClassBits(envelope.workspaceId, feature);
+    }
+    return wrote;
   }
 
   // --- fractional position allocator (port of appliers.ts) ---------------------------

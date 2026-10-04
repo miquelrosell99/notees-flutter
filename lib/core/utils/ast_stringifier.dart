@@ -62,6 +62,8 @@ bool isFlatTokenStream(List<dynamic> ast) {
     'query',
     'whiteboard',
     'quote',
+    'code_block',
+    'hr',
   };
   for (final entry in ast) {
     if (entry is! Map<String, dynamic>) return false;
@@ -286,16 +288,21 @@ String contentSourceToExcerpt(dynamic source) =>
 /// Flattens any token stream to text-only content (pages and classes carry
 /// text-only content — SCHEMA.md "title-is-content"). Port of
 /// `stringifyContentAst` in `packages/domain/src/node.ts`: block-scale
-/// structural widgets (whiteboard, query) survive as tokens — they are
-/// displays, not prose — and everything else folds into a single leading
-/// text run of the plain-text excerpt. Used by the appliers when a block's
-/// (possibly rich) content lands on a page/class node.
+/// structural widgets (whiteboard, query, code_block — §34.34 B3) survive
+/// as tokens — they are displays/source, not prose — and everything else
+/// folds into a single leading text run of the plain-text excerpt.
+/// `hr` (§34.34 B5) is deliberately NOT a survivor: it carries no prose.
+/// Used by the appliers when a block's (possibly rich) content lands on a
+/// page/class node.
 List<Map<String, dynamic>> stringifyContentAst(
   List<Map<String, dynamic>> ast,
 ) {
   final out = <Map<String, dynamic>>[
     for (final token in ast)
-      if (token['type'] == 'whiteboard' || token['type'] == 'query') token,
+      if (token['type'] == 'whiteboard' ||
+          token['type'] == 'query' ||
+          token['type'] == 'code_block')
+        token,
   ];
   final text = plainTextExcerpt(parseContentAst(ast)).trim();
   if (text.isNotEmpty) out.insert(0, {'type': 'text', 'text': text});

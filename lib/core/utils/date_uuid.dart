@@ -64,3 +64,33 @@ DateTime? journalDateFromUuid(String uuid) {
   } catch (_) {}
   return null;
 }
+
+final RegExp _isoDatePattern = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$');
+
+/// Strict `YYYY-MM-DD` parse with real-calendar validation (leap years
+/// included) — the port of `parseIsoDate` in the monorepo's
+/// `packages/domain/src/dates.ts` (PC6 normalize-on-write, §34.57).
+/// Datetimes are rejected: date-node ids address whole days; time-of-day
+/// has nowhere to go. Returns null on any deviation (callers ride the value
+/// through untouched).
+DateTime? parseIsoDateStrict(String isoDate) {
+  final match = _isoDatePattern.firstMatch(isoDate.trim());
+  if (match == null) return null;
+  final year = int.tryParse(match.group(1)!);
+  final month = int.tryParse(match.group(2)!);
+  final day = int.tryParse(match.group(3)!);
+  if (year == null || month == null || day == null) return null;
+  // Days in month via the day-before-first-of-next-month trick (UTC, pure).
+  final daysInMonth = DateTime.utc(year, month + 1, 0).day;
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth) return null;
+  return DateTime.utc(year, month, day);
+}
+
+/// The deterministic day-node id for a well-formed `YYYY-MM-DD` string, or
+/// null when [isoDate] is not a real calendar day (PC6 normalize-on-write:
+/// a well-formed string rewrites to `{"nodeId": <day chain node>}`; anything
+/// else rides through as authored).
+String? dayUuidFromIsoDate(String isoDate) {
+  final parsed = parseIsoDateStrict(isoDate);
+  return parsed == null ? null : dateToDayUuid(parsed);
+}

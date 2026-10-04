@@ -30,16 +30,24 @@ void main() {
 
   // Fixtures holding {"comment": ..., "envelopes": [...]}.
   const envelopeListFixtures = [
+    'class-delete-managed.json',
     'class-extends-cycle.json',
     'class-extends-m2m.json',
+    'class-property-active.json',
     'class-property-defaults.json',
     'class-unassign.json',
+    'code-block.json',
+    'embed-ref-view.json',
+    'hr.json',
     'object-color.json',
     'object-move-before.json',
     'object-move.json',
+    'property-date-qualifier.json',
     'property-set-lww.json',
+    'property-value-elements.json',
     'typed-link-mark.json',
     'typed-link-mark-deleted.json',
+    'workspace-feature-set.json',
   ];
 
   List<Map<String, dynamic>> envelopesOf(Map<String, dynamic> fixture) =>
