@@ -30,7 +30,10 @@ sealed class ContentToken {
 
   /// Parses one token map, dispatching on `type`. Unknown shapes become
   /// [UnsupportedToken] so a newer stream degrades to placeholders instead
-  /// of crashing the renderer.
+  /// of crashing the renderer. Known types with MALFORMED shapes fail loud
+  /// (FormatException) per the strict content grammar — §34.54 made
+  /// `code_block`/`hr`/`embed_ref.view` strict entries (a malformed known
+  /// token is a wire violation, not a forward-compat case).
   factory ContentToken.fromJson(Map<String, dynamic> json) {
     return switch (json['type']) {
       'text' => TextToken.fromJson(json),
@@ -45,6 +48,8 @@ sealed class ContentToken {
       'query' => QueryToken.fromJson(json),
       'whiteboard' => WhiteboardToken.fromJson(json),
       'quote' => QuoteToken.fromJson(json),
+      'code_block' => CodeBlockToken.fromJson(json),
+      'hr' => HrToken.fromJson(json),
       _ => UnsupportedToken(json),
     };
   }
@@ -297,19 +302,117 @@ class AssetRefToken extends ContentToken {
 
 /// Embed — RENDER THE LIVE SUBTREE, NEVER A CLONE (cycle guard is a
 /// renderer obligation). Rendered as a labeled placeholder here.
+///
+/// [view] (§34.34 B8, additive 2026-10-04 lockstep) selects the
+/// presentation on the mention↔embed spectrum: absent (or the explicit
+/// "embed") = the full live transclusion; "small_card" / "wide_card" = the
+/// intermediate bounded identity cards (cards never transclude). Unknown
+/// values are rejected outright by the strict grammar.
 class EmbedRefToken extends ContentToken {
-  const EmbedRefToken({required this.nodeId});
+  const EmbedRefToken({required this.nodeId, this.view});
 
   final String nodeId;
+  final String? view;
 
   @override
   String get type => 'embed_ref';
 
-  @override
-  Map<String, dynamic> toJson() => {'type': 'embed_ref', 'nodeId': nodeId};
+  /// The strict view vocabulary (content-mark.ts EMBED_VIEW_MODES).
+  static const viewModes = {'embed', 'small_card', 'wide_card'};
 
-  factory EmbedRefToken.fromJson(Map<String, dynamic> json) =>
-      EmbedRefToken(nodeId: json['nodeId'] as String? ?? '');
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': 'embed_ref',
+    'nodeId': nodeId,
+    if (view != null) 'view': view,
+  };
+
+  factory EmbedRefToken.fromJson(Map<String, dynamic> json) {
+    final view = json['view'];
+    if (view != null &&
+        (view is! String || !viewModes.contains(view))) {
+      throw FormatException(
+        'embed_ref.view must be one of embed|small_card|wide_card',
+      );
+    }
+    return EmbedRefToken(
+      nodeId: json['nodeId'] as String? ?? '',
+      view: view as String?,
+    );
+  }
+}
+
+/// Block-scale: a code block (§34.34 B3, §34.54 lockstep). [text] is the
+/// verbatim source (the grammar stores it plain — no nested tokens);
+/// [language] is an OPTIONAL hint tag (free lowercase string — "python",
+/// "typescript", "mermaid", …) for renderers; absent = plain text. A
+/// PROMOTION SURVIVOR alongside whiteboard/query: block→page/class
+/// promotion stringifies rich tokens to text-only content but keeps
+/// code_block tokens (a code page is a real surface — flattening would
+/// destroy the source).
+class CodeBlockToken extends ContentToken {
+  const CodeBlockToken({required this.text, this.language});
+
+  final String text;
+  final String? language;
+
+  @override
+  String get type => 'code_block';
+
+  /// Strict language-hint tag: lowercase letters, digits, +, #, -.
+  static final _languagePattern = RegExp(r'^[a-z0-9+#-]{1,64}$');
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': 'code_block',
+    if (language != null) 'language': language,
+    'text': text,
+  };
+
+  factory CodeBlockToken.fromJson(Map<String, dynamic> json) {
+    for (final key in json.keys) {
+      if (key != 'type' && key != 'language' && key != 'text') {
+        throw FormatException('code_block: unknown key $key');
+      }
+    }
+    final text = json['text'];
+    if (text is! String || text.length > 65536) {
+      throw FormatException(
+        'code_block.text must be a string of at most 65536 chars',
+      );
+    }
+    final language = json['language'];
+    if (language != null &&
+        (language is! String || !_languagePattern.hasMatch(language))) {
+      throw FormatException(
+        'code_block.language must be a lowercase hint tag (a-z 0-9 + # -)',
+      );
+    }
+    return CodeBlockToken(text: text, language: language);
+  }
+}
+
+/// Block-scale: a horizontal rule (§34.34 B5, §34.54 lockstep) — the layout
+/// divider token. Carries no payload. Deliberately NOT a promotion survivor:
+/// an hr holds no prose, so block→page promotion stringifies it away (a
+/// rule in a page title is meaningless).
+class HrToken extends ContentToken {
+  const HrToken();
+
+  @override
+  String get type => 'hr';
+
+  @override
+  Map<String, dynamic> toJson() => {'type': 'hr'};
+
+  factory HrToken.fromJson(Map<String, dynamic> json) {
+    for (final key in json.keys) {
+      if (key != 'type') {
+        throw FormatException('hr: unknown key $key');
+      }
+    }
+    return const HrToken();
+  }
 }
 
 /// Block-scale: live query view (queryAst is the versioned QueryAST model).

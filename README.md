@@ -45,6 +45,20 @@ versions, so they no longer need patching. Remove the KGP workaround once
 `cryptography_flutter`, `dynamic_color`, and `workmanager_android` also ship
 built-in Kotlin releases.
 
+## Protocol lockstep
+
+This app parses the Notees envelope-v3 operation log at the **3.0.0** protocol
+level: the Revision-11 render-state model (`is_class` + `present_as_main`), the
+§34.54 batch (`workspace.feature.set` for the five class-family toggles, the
+`code_block` and `hr` content tokens, `embed_ref.view`), and the §34.57
+property-wire batch (per-element property value ids, `class_property.active`,
+date-node-backed qualifiers). Per the three-client lockstep law these surfaces
+parse and replay but nothing in the app authors them yet — the Features
+settings UI, `/code` + `/hr` authoring, and the property-panel writes for the
+new shapes ride a later wave, after every client ships parsers. Releases use
+plain `vX.Y.Z` tags; the pubspec version tracks the same X.Y.Z (build number
+`X·1000000 + Y·10000 + Z·100`).
+
 ## Advanced search & node picker
 
 The Search tab supports plain text search and advanced filters via a slide-up bottom sheet. Filters include node type, task state, date range, and sort order. The Flutter client calls the structured endpoint `POST /nodes/search`, which returns the same `SearchResponse` shape as the plain GET search.
