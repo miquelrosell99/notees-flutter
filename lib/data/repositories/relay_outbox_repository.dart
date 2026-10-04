@@ -69,7 +69,11 @@ class RelayOutboxRepository {
       where: "state IN ('pending', 'failed') AND "
           '(next_retry_at IS NULL OR next_retry_at <= ?)',
       whereArgs: [now.millisecondsSinceEpoch],
-      orderBy: 'created_at ASC',
+      // The rowid tiebreak keeps insertion order for envelopes enqueued
+      // within the same created_at millisecond — load-bearing for the
+      // §34.65 default-mirror sweep, whose property.unset envelopes must
+      // apply before the class.unassign they ride ahead of.
+      orderBy: 'created_at ASC, id ASC',
     );
     final pending = <PendingRelayEnvelope>[];
     for (final row in rows) {
