@@ -23,6 +23,22 @@
 /// class.update documented it). The builders take [color] as an `Object?`
 /// [_undefined]-defaulted sentinel so an explicit `null` reaches the wire as
 /// `"color": null` while an omitted argument stays absent.
+///
+/// §34.54/§34.57 property-wire batch (2026-10-04 lockstep, TS reference
+/// shipped inert — the parsers land here; authoring stays disabled until
+/// every client parses the new shapes):
+///  - `workspace.feature.set {feature, enabled}` — the per-workspace
+///    feature toggles; [feature] is the strict five-family enum
+///    (tasks|events|meetings|sources|persons, the §34.55 reshape) and the
+///    retired pre-reshape ids (journals|readItLater|library|people|
+///    collections) are rejected outright;
+///  - `property.set`/`property.unset` gain the optional PG5 `elementId`
+///    (UUID) — the OR-Set add/remove carrier for multi-value slots;
+///  - `class.property.set` gains the optional PC4 `active` soft-unbind flag
+///    (omitted = keep the stored flag);
+///  - `propertySchema.create`/`update` gain the SCHEMA.md "Dates" fields
+///    `datePrecision` (year|month|day) and `dateQualified` (PC6: values may
+///    carry date-node qualifier refs in metadata startDate/endDate).
 library;
 
 import 'colors.dart';
@@ -61,9 +77,24 @@ class OperationPayloads {
     'asset.detach',
     'collection.member.add',
     'collection.member.remove',
+    'workspace.feature.set',
   ];
 
   static bool isKnownOpType(String opType) => knownOpTypes.contains(opType);
+
+  /// The per-workspace feature toggle ids (§34.35, RESHAPED per owner
+  /// directive 2026-10-04, §34.55): the toggles ARE the five core class
+  /// families — tasks=task, events=event, meetings=meeting, sources=source,
+  /// persons=person. Feature ids are protocol vocabulary (not UUIDs); the
+  /// retired pre-reshape ids (journals/readItLater/library/people/
+  /// collections) are rejected outright by [validatePayload].
+  static const workspaceFeatures = {
+    'tasks',
+    'events',
+    'meetings',
+    'sources',
+    'persons',
+  };
 
   // --- objects ----------------------------------------------------------------
 
@@ -282,6 +313,9 @@ class OperationPayloads {
   /// params, so clearing a flag means passing `false` (the v2 applier maps
   /// explicit null to false as well); send a raw map for JSON-null
   /// defaultValue.
+  /// [active] (PC4, §34.57) is the soft-unbind flag: an inactive binding row
+  /// stops contributing defaults + metadata to the effective read while the
+  /// row and authored values survive; omitted = keep the stored flag.
   static Map<String, dynamic> classPropertySet({
     required String classId,
     required String propertySchemaId,
@@ -289,6 +323,7 @@ class OperationPayloads {
     bool? required,
     bool? readonly,
     bool? hideWhenEmpty,
+    bool? active,
     dynamic defaultValue,
   }) =>
       _validated('class.property.set', {
@@ -298,6 +333,7 @@ class OperationPayloads {
         'required': ?required,
         'readonly': ?readonly,
         'hideWhenEmpty': ?hideWhenEmpty,
+        'active': ?active,
         'defaultValue': ?defaultValue,
       });
 
@@ -349,6 +385,12 @@ class OperationPayloads {
         'tagId': tagId,
       });
 
+  /// [type] is the v2 property-schema enum (op-types.ts); [targetClassFilter]
+  /// constrains node-typed (m2o/m2m) schemas to those classes.
+  /// [datePrecision] (year|month|day) caps the granularity a date value may
+  /// claim (SCHEMA.md "Dates"; NULL = day at the read model) and
+  /// [dateQualified] (PC6) allows node-typed values to carry date qualifiers
+  /// (metadata startDate/endDate as date-node refs).
   static Map<String, dynamic> propertySchemaCreate({
     required String propertySchemaId,
     required String name,
@@ -357,6 +399,8 @@ class OperationPayloads {
     String? scope,
     List<Map<String, dynamic>>? options,
     List<String>? targetClassFilter,
+    String? datePrecision,
+    bool? dateQualified,
   }) =>
       _validated('propertySchema.create', {
         'propertySchemaId': propertySchemaId,
@@ -366,20 +410,29 @@ class OperationPayloads {
         'scope': ?scope,
         'options': ?options,
         'targetClassFilter': ?targetClassFilter,
+        'datePrecision': ?datePrecision,
+        'dateQualified': ?dateQualified,
       });
 
   static Map<String, dynamic> propertySchemaUpdate({
     required String propertySchemaId,
     String? name,
     List<Map<String, dynamic>>? options,
+    String? datePrecision,
+    bool? dateQualified,
   }) {
-    if (name == null && options == null) {
+    if (name == null &&
+        options == null &&
+        datePrecision == null &&
+        dateQualified == null) {
       throw ArgumentError('propertySchema.update requires at least one field');
     }
     return _validated('propertySchema.update', {
       'propertySchemaId': propertySchemaId,
       'name': ?name,
       'options': ?options,
+      'datePrecision': ?datePrecision,
+      'dateQualified': ?dateQualified,
     });
   }
 
@@ -389,11 +442,21 @@ class OperationPayloads {
       _validated('propertySchema.delete', {'propertySchemaId': propertySchemaId});
 
   /// [value] is schema-typed by the property schema; node-typed values carry
-  /// `{"nodeId": ...}`. [metadata] holds per-value qualifiers (`since`, …).
+  /// `{"nodeId": ...}`. [metadata] holds per-value qualifiers (`since`, …;
+  /// on dateQualified schemas the reserved startDate/endDate canonicalize to
+  /// date-node refs — PC6 normalizes legacy ISO strings on write).
+  ///
+  /// PG5 element identity: a [elementId] (writer-minted UUIDv7) makes the
+  /// write an OR-Set element ADD — the property_value row id IS the element
+  /// id, adds of distinct elements never conflict, and removal addresses the
+  /// element (`propertyUnset` with the same [elementId]). Absent = the
+  /// legacy positional carrier at [idx] (the deterministic
+  /// `node:schema:idx` element).
   static Map<String, dynamic> propertySet({
     required String objectId,
     required String propertySchemaId,
     required dynamic value,
+    String? elementId,
     int idx = 0,
     Map<String, dynamic>? metadata,
   }) =>
@@ -401,19 +464,45 @@ class OperationPayloads {
         'objectId': objectId,
         'propertySchemaId': propertySchemaId,
         'value': value,
+        'elementId': ?elementId,
         'idx': idx,
         'metadata': ?metadata,
       });
 
+  /// Removes a property value: by [elementId] (PG5 OR-Set remove of that
+  /// element — add-wins tombstone) or, absent it, the legacy positional
+  /// remove of the slot's deterministic element at [idx].
   static Map<String, dynamic> propertyUnset({
     required String objectId,
     required String propertySchemaId,
+    String? elementId,
     int idx = 0,
   }) =>
       _validated('property.unset', {
         'objectId': objectId,
         'propertySchemaId': propertySchemaId,
+        'elementId': ?elementId,
         'idx': idx,
+      });
+
+  // --- workspace features (§34.35, RESHAPED §34.55) ----------------------------
+
+  /// Per-workspace feature toggle (§34.54 lockstep): LWW by HLC on
+  /// (workspace, feature); an absent derived row reads ENABLED. [feature] is
+  /// the strict five-family enum ([workspaceFeatures]); the retired
+  /// pre-reshape ids fail loud. Applying the toggle derives the
+  /// membership-preserving archival of the family's managed system classes
+  /// (hide surfaces, keep data); a class.delete on a family base routes here
+  /// (F4). LOCKSTEP-PENDING authoring: the builder exists for tests and the
+  /// future Features settings surface, but no app surface emits the op until
+  /// every client parses it.
+  static Map<String, dynamic> workspaceFeatureSet({
+    required String feature,
+    required bool enabled,
+  }) =>
+      _validated('workspace.feature.set', {
+        'feature': feature,
+        'enabled': enabled,
       });
 
   // --- assets & collections ---------------------------------------------------
@@ -478,6 +567,10 @@ class OperationPayloads {
     'image',
   };
   static const _propertySchemaScopes = {'global', 'class', 'object'};
+
+  /// SCHEMA.md "Dates" precision enum (the finest granularity a date value
+  /// may claim; NULL/absent = day at the read model).
+  static const _datePrecisions = {'year', 'month', 'day'};
 
   static final _uuidPattern = RegExp(
     r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
@@ -583,6 +676,7 @@ class OperationPayloads {
           'required',
           'readonly',
           'hideWhenEmpty',
+          'active',
           'defaultValue',
         });
         _uuid(payload, 'classId');
@@ -591,6 +685,7 @@ class OperationPayloads {
         _boolNullable(payload, 'required', required: false);
         _boolNullable(payload, 'readonly', required: false);
         _boolNullable(payload, 'hideWhenEmpty', required: false);
+        _bool(payload, 'active', required: false);
       case 'class.property.unset':
         _strict(payload, {'classId', 'propertySchemaId'});
         _uuid(payload, 'classId');
@@ -616,6 +711,8 @@ class OperationPayloads {
           'scope',
           'options',
           'targetClassFilter',
+          'datePrecision',
+          'dateQualified',
         });
         _uuid(payload, 'propertySchemaId');
         _string(payload, 'name', min: 1, max: 256);
@@ -624,11 +721,21 @@ class OperationPayloads {
         _enum(payload, 'scope', _propertySchemaScopes, required: false);
         _options(payload, required: false);
         _uuidList(payload, 'targetClassFilter', required: false);
+        _enum(payload, 'datePrecision', _datePrecisions, required: false);
+        _bool(payload, 'dateQualified', required: false);
       case 'propertySchema.update':
-        _strict(payload, {'propertySchemaId', 'name', 'options'});
+        _strict(payload, {
+          'propertySchemaId',
+          'name',
+          'options',
+          'datePrecision',
+          'dateQualified',
+        });
         _uuid(payload, 'propertySchemaId');
         _string(payload, 'name', min: 1, max: 256, required: false);
         _options(payload, required: false);
+        _enum(payload, 'datePrecision', _datePrecisions, required: false);
+        _bool(payload, 'dateQualified', required: false);
       case 'propertySchema.delete':
         _strict(payload, {'propertySchemaId'});
         _uuid(payload, 'propertySchemaId');
@@ -637,6 +744,7 @@ class OperationPayloads {
           'objectId',
           'propertySchemaId',
           'value',
+          'elementId',
           'idx',
           'metadata',
         });
@@ -645,13 +753,27 @@ class OperationPayloads {
         if (!payload.containsKey('value')) {
           throw FormatException('property.set is missing value');
         }
+        _uuid(payload, 'elementId', required: false);
         _int(payload, 'idx', min: 0, required: false);
         _record(payload, 'metadata', required: false);
       case 'property.unset':
-        _strict(payload, {'objectId', 'propertySchemaId', 'idx'});
+        _strict(payload, {
+          'objectId',
+          'propertySchemaId',
+          'elementId',
+          'idx',
+        });
         _uuid(payload, 'objectId');
         _uuid(payload, 'propertySchemaId');
+        _uuid(payload, 'elementId', required: false);
         _int(payload, 'idx', min: 0, required: false);
+      case 'workspace.feature.set':
+        // §34.35/§34.55: the strict five-family enum; the retired
+        // pre-reshape ids (journals/readItLater/library/people/collections)
+        // are rejected outright like any unknown value.
+        _strict(payload, {'feature', 'enabled'});
+        _enum(payload, 'feature', workspaceFeatures);
+        _bool(payload, 'enabled');
       case 'asset.attach':
         _strict(payload, {
           'objectId',
