@@ -19,7 +19,10 @@ import '../models/page_content.dart';
 import '../models/property.dart';
 import '../../domain/models/relay/hlc.dart';
 import '../../domain/models/relay/lww.dart';
+import '../../domain/models/relay/property_value_shapes.dart';
+import '../../domain/models/relay/store_errors.dart';
 import '../../domain/models/search_filters.dart';
+import '../../core/utils/date_uuid.dart';
 
 /// Lightweight in-memory representation of a row from the server's `class` table.
 class _ClassRow {
@@ -102,6 +105,32 @@ class PropertySchemaRow {
   final bool active;
   final String? createdAt;
   final String? updatedAt;
+}
+
+/// The schema row the PG6 value validators consult (port of the monorepo
+/// store's PropertySchemaValidationRow). Loaded WITHOUT the active filter —
+/// property.set against a soft-deleted schema row still validates against
+/// the stored type, exactly like the reference store.
+class PropertySchemaValidationRow {
+  PropertySchemaValidationRow({
+    required this.id,
+    required this.type,
+    required this.multi,
+    this.targetClassFilterRaw,
+    this.datePrecision,
+    this.dateQualified,
+  });
+
+  final String id;
+  final String type;
+  final bool multi;
+
+  /// The raw parsed `class_filter_uuids` column: a JSON list as decoded
+  /// (entries may be non-strings; the membership test skips them, the
+  /// emptiness gate does not — TS parity).
+  final List<dynamic>? targetClassFilterRaw;
+  final String? datePrecision;
+  final bool? dateQualified;
 }
 
 /// Lightweight in-memory representation of a row from the server's
@@ -1870,21 +1899,188 @@ class NodeCacheRepository {
     return rows.isEmpty ? null : rows.first['type'] as String?;
   }
 
-  /// PC6: the schema's dateQualified flag, null when the schema row is
-  /// unknown. Only dateQualified schemas normalize the reserved qualifier
-  /// keys on write.
-  Future<bool?> propertySchemaDateQualified(String schemaId) async {
+  // --- PG6 apply-time value validation (property-values.ts port) -----------
+
+  /// The full schema row for PG6 value validation, null when the schema id
+  /// is unknown (property.set has no schema FK — unknown ids store
+  /// unchecked). No active filter (TS `propertySchemaRowOf` parity).
+  Future<PropertySchemaValidationRow?> propertySchemaValidationRow(
+    String schemaId,
+  ) async {
     final db = await _database.database;
     final rows = await db.query(
       'property_schema',
-      columns: ['date_qualified'],
+      columns: [
+        'uuid',
+        'type',
+        'multi',
+        'class_filter_uuids',
+        'date_precision',
+        'date_qualified',
+      ],
       where: 'uuid = ?',
       whereArgs: [schemaId],
       limit: 1,
     );
     if (rows.isEmpty) return null;
-    final raw = rows.first['date_qualified'];
-    return raw == null ? false : (raw as num?)?.toInt() == 1;
+    final row = rows.first;
+    List<dynamic>? filterRaw;
+    try {
+      final parsed = jsonDecode(row['class_filter_uuids'] as String? ?? 'null');
+      if (parsed is List) filterRaw = parsed;
+    } catch (_) {
+      filterRaw = null;
+    }
+    final dq = row['date_qualified'];
+    return PropertySchemaValidationRow(
+      id: row['uuid'] as String,
+      type: row['type'] as String? ?? 'text',
+      multi: (row['multi'] as num?)?.toInt() == 1,
+      targetClassFilterRaw: filterRaw,
+      datePrecision: row['date_precision'] as String?,
+      dateQualified: dq == null ? null : (dq as num?)?.toInt() == 1,
+    );
+  }
+
+  /// The node row's carried class ids (the classes_uuid projection), null
+  /// when the node row does not exist.
+  Future<List<String>?> nodeClassIdsOf(String nodeId) async {
+    final node = await getByUuid(nodeId);
+    if (node == null) return null;
+    return node.classesUuid;
+  }
+
+  /// Distinct ancestor ids of [classIds] through the class_hierarchy
+  /// closure (the extends-aware membership test: a carried class satisfies
+  /// a filter when it equals an entry or descends from one).
+  Future<List<String>> classHierarchyAncestorsOf(
+    Iterable<String> classIds,
+  ) async {
+    final ids = classIds.toSet().toList()..sort();
+    if (ids.isEmpty) return const [];
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT ancestor_id FROM class_hierarchy '
+      'WHERE class_id IN (${ids.map((_) => '?').join(',')})',
+      ids,
+    );
+    return rows.map((r) => r['ancestor_id'] as String).toList();
+  }
+
+  /// Assert a node-typed ref's target honors the schema's graph constraints:
+  /// row existence (any liveness — trash is a state, not an absence, so a
+  /// trashed node still satisfies existence), the targetClassFilter via the
+  /// extends-aware walk, and the date precision ceiling for date refs.
+  /// Throws [PropertyValueShapeError] on breach.
+  Future<void> assertPropertyValueRefTarget(
+    PropertySchemaValidationRow schema,
+    String ref,
+    String opType,
+  ) async {
+    final target = await getByUuid(ref);
+    if (target == null) {
+      throw PropertyValueShapeError(
+        '$opType: value references node $ref, which does not exist',
+        opType,
+      );
+    }
+    final filter = schema.targetClassFilterRaw;
+    if (filter != null && filter.isNotEmpty) {
+      final carried = await nodeClassIdsOf(ref) ?? const <String>[];
+      final allowed = {...carried};
+      if (carried.isNotEmpty) {
+        allowed.addAll(await classHierarchyAncestorsOf(carried));
+      }
+      final satisfies = filter.any(
+        (classId) => classId is String && allowed.contains(classId),
+      );
+      if (!satisfies) {
+        throw PropertyValueShapeError(
+          '$opType: value target $ref does not carry any of the schema\'s '
+          'allowed classes',
+          opType,
+        );
+      }
+    }
+    if (schema.type == 'date' || schema.type == 'date_range') {
+      final parsed = parseDateNodeId(ref);
+      if (parsed != null) {
+        final ceiling = datePrecisionRank(schema.datePrecision);
+        if (datePrecisionRank(parsed.precision.name) > ceiling) {
+          throw PropertyValueShapeError(
+            '$opType: ${parsed.precision.name} date ref claims finer '
+            'granularity than the schema\'s '
+            '"${schema.datePrecision ?? 'day'}" precision',
+            opType,
+          );
+        }
+      }
+    }
+  }
+
+  /// PG6: the full apply-time validation for a property.set against a KNOWN
+  /// schema row — shape/scalar typing, then the graph checks (existence /
+  /// class filter / date precision) for the node-typed link family. `null`
+  /// means "no value" and bypasses everything. Returns the normalized value
+  /// to store.
+  Future<dynamic> assertPropertyValueForSchema(
+    PropertySchemaValidationRow schema,
+    dynamic value,
+    String opType,
+  ) async {
+    final shaped = assertValueShapeForType(schema.type, value, opType);
+    final typed = assertScalarShapeForType(schema.type, shaped, opType);
+    if (typed == null) return typed;
+    if (schema.type == 'date' || schema.type == 'object') {
+      final ref = nodeRefOfValue(typed);
+      if (ref != null) await assertPropertyValueRefTarget(schema, ref, opType);
+    } else if (schema.type == 'date_range') {
+      final range = typed as Map<String, dynamic>;
+      for (final side in [range['start'], range['end']]) {
+        final ref = nodeRefOfValue(side);
+        if (ref != null) await assertPropertyValueRefTarget(schema, ref, opType);
+      }
+    }
+    return typed;
+  }
+
+  /// Direct extends parents of [classId] (the class_extends edge table —
+  /// the closure table carries no distance, so shortest-path walks this).
+  Future<List<String>> classExtendsParentsOf(String classId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'class_extends',
+      columns: ['parent_class_id'],
+      where: 'class_id = ?',
+      whereArgs: [classId],
+    );
+    return rows.map((r) => r['parent_class_id'] as String).toList();
+  }
+
+  /// BFS reach over class_extends (the PG4 binding walk): the class itself
+  /// at distance 0 = own binding, then each direct parent at distance 1, and
+  /// so on breadth-first. Results are memoized in [cache] (keyed by class
+  /// id) so each member class's subgraph is walked once per read.
+  Future<List<({String ancestorId, int distance})>> _extendsReachOf(
+    String classId,
+    Map<String, List<({String ancestorId, int distance})>> cache,
+  ) async {
+    final cached = cache[classId];
+    if (cached != null) return cached;
+    final visited = {classId};
+    final queue = <({String id, int distance})>[(id: classId, distance: 0)];
+    final reach = <({String ancestorId, int distance})>[];
+    while (queue.isNotEmpty) {
+      final current = queue.removeAt(0);
+      reach.add((ancestorId: current.id, distance: current.distance));
+      for (final parent in await classExtendsParentsOf(current.id)) {
+        if (visited.add(parent)) {
+          queue.add((id: parent, distance: current.distance + 1));
+        }
+      }
+    }
+    cache[classId] = reach;
+    return reach;
   }
 
   /// True when any live property_value row still references [target] in
@@ -3186,6 +3382,38 @@ class NodeCacheRepository {
     );
   }
 
+  /// All binding rows of [classId] that carry a stored default, with the
+  /// default decoded per the web client's `getClassBindings` decodeDefault:
+  /// a JSON string rides as the string itself; any other JSON value
+  /// RE-ENCODES to its JSON text (the §34.65 sweep compares JSON texts, so
+  /// a non-string default only sweeps an authored value whose own JSON text
+  /// equals the quoted string — web parity, quirk included). Rows ride
+  /// regardless of the PC4 active flag, matching the web sweep.
+  Future<List<({String propertySchemaId, String defaultValue})>>
+  classPropertyDefaultsOf(String classId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'class_property',
+      columns: ['property_schema_id', 'default_value'],
+      where: 'class_id = ? AND default_value IS NOT NULL',
+      whereArgs: [classId],
+    );
+    return rows.map((row) {
+      final raw = row['default_value'] as String;
+      String decoded;
+      try {
+        final parsed = jsonDecode(raw);
+        decoded = parsed is String ? parsed : jsonEncode(parsed);
+      } catch (_) {
+        decoded = raw;
+      }
+      return (
+        propertySchemaId: row['property_schema_id'] as String,
+        defaultValue: decoded,
+      );
+    }).toList();
+  }
+
   /// Effective (schema, idx) rows for [nodeId]
   /// (`effective(node, schema, idx) = authored ?? winning binding's default`).
   Future<List<EffectiveProperty>> getEffectiveProperties(String nodeId) async {
@@ -3217,27 +3445,68 @@ class NodeCacheRepository {
       return (a['class_id'] as String).compareTo(b['class_id'] as String);
     });
 
-    // 3. Winning binding per schema: the first class (in assignment order)
-    //    that binds the schema supplies the default AND the metadata. PC4:
-    //    only ACTIVE rows are candidates — an inactive binding stops
-    //    contributing defaults + metadata while the row survives; authored
-    //    values read as unbound (boundBy null).
-    final winnerBySchema =
-        <String, ({String classId, Map<String, dynamic> binding})>{};
+    // 3. Winning binding per schema, extends-aware (SCHEMA.md diamond rule,
+    //    §34.32 PG4): candidates are (class, ancestor) pairs where the
+    //    ancestor's class_property row binds the schema, discovered by BFS
+    //    over class_extends (the class itself is distance 0 = own binding —
+    //    the class_hierarchy closure carries no distance, so shortest-path
+    //    walks the edge table). The winner minimizes (distance, assignment
+    //    HLC, class id); boundBy names the ANCESTOR whose row supplies the
+    //    binding + default. With no extends edges this reduces exactly to
+    //    first-class-applied-wins over own bindings. PC4: only ACTIVE rows
+    //    are candidates — an inactive binding stops contributing defaults +
+    //    metadata while the row survives; authored values read as unbound.
+    final candidatesBySchema = <String, List<_BindingCandidate>>{};
+    final reachCache = <String, List<({String ancestorId, int distance})>>{};
+
     for (final cls in memberRows) {
       final classId = cls['class_id'] as String;
-      final bindings = await db.query(
-        'class_property',
-        where: 'class_id = ? AND active = 1',
-        whereArgs: [classId],
-      );
-      for (final binding in bindings) {
-        final schemaId = binding['property_schema_id'] as String;
-        winnerBySchema.putIfAbsent(
-          schemaId,
-          () => (classId: classId, binding: binding),
+      final physical = (cls['hlc_physical'] as num?)?.toInt() ?? 0;
+      final logical = (cls['hlc_logical'] as num?)?.toInt() ?? 0;
+      for (final reach in await _extendsReachOf(classId, reachCache)) {
+        final bindings = await db.query(
+          'class_property',
+          where: 'class_id = ? AND active = 1',
+          whereArgs: [reach.ancestorId],
         );
+        for (final binding in bindings) {
+          candidatesBySchema
+              .putIfAbsent(
+                binding['property_schema_id'] as String,
+                () => <_BindingCandidate>[],
+              )
+              .add((
+                distance: reach.distance,
+                physical: physical,
+                logical: logical,
+                classId: classId,
+                ancestorId: reach.ancestorId,
+                binding: binding,
+              ));
+        }
       }
+    }
+    final winnerBySchema =
+        <String, ({String classId, Map<String, dynamic> binding})>{};
+    for (final entry in candidatesBySchema.entries) {
+      final candidates = entry.value;
+      candidates.sort((a, b) {
+        final distanceDelta = a.distance - b.distance;
+        if (distanceDelta != 0) return distanceDelta;
+        final physicalDelta = a.physical - b.physical;
+        if (physicalDelta != 0) return physicalDelta;
+        final logicalDelta = a.logical - b.logical;
+        if (logicalDelta != 0) return logicalDelta;
+        return a.classId.compareTo(b.classId);
+      });
+      final winner = candidates.first;
+      // boundBy names the ANCESTOR supplying the row, not the member class
+      // that reached it (TS: winnerBySchema.set(schemaId, { classId:
+      // winner.ancestorId, ... })).
+      winnerBySchema[entry.key] = (
+        classId: winner.ancestorId,
+        binding: winner.binding,
+      );
     }
 
     // 4. Schema rows for everything referenced (authored rows survive schema
@@ -3299,6 +3568,17 @@ class NodeCacheRepository {
       final winner = entry.value;
       final defaultRaw = winner.binding['default_value'];
       if (defaultRaw == null) continue; // bound without a default
+      // PC2 read-side: a stored default that no longer matches the schema
+      // type (written before validation, or after a delete+recreate changed
+      // the type) yields no default rather than a wrong-typed value.
+      final schema = schemas[schemaId];
+      if (schema != null &&
+          !isValidDefaultForType(
+            schema.type,
+            _decodeJsonOrRaw(defaultRaw as String),
+          )) {
+        continue;
+      }
       final key = '$schemaId:0';
       if (rows.keys.any((k) => k.startsWith('$schemaId:0:'))) {
         continue; // authored idx 0 shadows the default
@@ -4266,6 +4546,19 @@ class _DesiredEdge {
 
 
 /// The property-schema slice the effective read model exposes.
+/// One candidate in the PG4 extends-aware binding walk: the member class
+/// that reached the binding ([classId], with its membership-assignment HLC —
+/// the tiebreak), the [ancestorId] whose class_property row supplies the
+/// binding, and the BFS [distance] from member to ancestor (0 = own).
+typedef _BindingCandidate = ({
+  int distance,
+  int physical,
+  int logical,
+  String classId,
+  String ancestorId,
+  Map<String, dynamic> binding,
+});
+
 class EffectivePropertySchema {
   const EffectivePropertySchema({
     required this.id,
