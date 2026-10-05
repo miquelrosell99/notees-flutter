@@ -223,9 +223,10 @@ void main() {
       // from the citations revision; v2 class.create carries the name) +
       // 3 class.setExtends (the new classes extend source) +
       // 1 propertySchema.create + 1 class.property.set (authors, node-typed
-      // per the FINAL owner reversion) + 2 pages (Inbox + scratchpad).
-      final emitted = await seed.ensureLocalWorkspace(displayName: 'Local user');
-      expect(emitted, 32);
+      // per the FINAL owner reversion) + 1 page (Inbox; the scratchpad seed
+      // was withdrawn 2026-10-05, §34.81).
+      final emitted = await seed.ensureLocalWorkspace();
+      expect(emitted, 31);
 
       final taskClass =
           await syncService.cache.getClassByUuid(SystemClassUuids.task);
@@ -236,17 +237,13 @@ void main() {
       expect(inbox!.displayName, 'Inbox');
       expect(inbox.isPage, isTrue);
 
-      final scratchpad =
-          await syncService.cache.getByUuid(SystemPageUuids.scratchpad);
-      expect(scratchpad?.displayName, 'Local user');
-
       final db = await database.database;
       // Seed ops stay in the outbox for a later server attach.
-      expect(await db.query('relay_outbox'), hasLength(32));
+      expect(await db.query('relay_outbox'), hasLength(31));
 
       // Re-running emits nothing.
-      expect(await seed.ensureLocalWorkspace(displayName: 'Local user'), 0);
-      expect(await db.query('relay_outbox'), hasLength(32));
+      expect(await seed.ensureLocalWorkspace(), 0);
+      expect(await db.query('relay_outbox'), hasLength(31));
     });
   });
 }
