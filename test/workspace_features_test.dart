@@ -218,9 +218,10 @@ void main() {
       final schema = await cache.getPropertySchemaRow(SystemPropertyUuids.taskStatus);
       expect(schema!.options.first['label'], 'Backlog');
 
-      // §34.89: the designed status glyphs (owner-mandated icon + color set)
-      // seed with the schema; the Status binding defaults to the bullet
-      // position, the rest stay in the properties panel (NULL display).
+      // §34.90: the designed status glyphs (owner-mandated icon + color set)
+      // AND the display position are PROPERTY-level — they seed with the
+      // SCHEMA (Status defaults to 'bullet'), not the binding; the binding
+      // rows carry only the per-class mechanics.
       expect(schema.options.map((o) => o['label']), [
         'Backlog',
         'Pending',
@@ -237,8 +238,21 @@ void main() {
         ['mdiCheckCircle', 'green'],
         ['mdiCloseCircle', 'red'],
       ]);
+      expect(schema.display, 'bullet');
+      final seeded = await raw(
+        'SELECT uuid, display FROM property_schema WHERE uuid LIKE ? ORDER BY uuid',
+        ['00000000-0000-0000-0003-%'],
+      );
+      expect(seeded.map((s) => s['display']), [
+        'bullet', // Status
+        null, // Scheduled
+        null, // Deadline
+        null, // Priority
+        null, // Closed
+        null, // Recurrence
+      ]);
       final bindings = await raw(
-        'SELECT property_schema_id, display FROM class_property '
+        'SELECT property_schema_id FROM class_property '
         'WHERE class_id = ? ORDER BY sequence',
         [SystemClassUuids.task],
       );
@@ -250,14 +264,12 @@ void main() {
         SystemPropertyUuids.taskClosedDate,
         SystemPropertyUuids.taskRecurrence,
       ]);
-      expect(bindings.map((b) => b['display']), [
-        'bullet',
-        null,
-        null,
-        null,
-        null,
-        null,
-      ]);
+      // The binding table no longer carries a display column at all.
+      final columns = await raw('PRAGMA table_info(class_property)');
+      expect(
+        columns.map((c) => c['name']),
+        isNot(contains('display')),
+      );
     });
 
     test('the ensure rides every enable payload, win or lose', () async {

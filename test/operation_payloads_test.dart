@@ -310,52 +310,117 @@ void main() {
       );
     });
 
-    test('§34.89: class.property.set display position + option icon', () {
-      // The builder carries the display position; the three designed values
-      // validate (omitted keeps the stored row value — row-LWW patch).
-      final payload = OperationPayloads.classPropertySet(
-        classId: classId,
-        propertySchemaId: objectId,
-        display: 'bullet',
-      );
-      expect(payload['display'], 'bullet');
+    test('§34.90: render contracts are PROPERTY-level (schema), not binding '
+        '— option icon unchanged', () {
+      // class.property.set carries ONLY the per-class mechanics: the §34.89
+      // binding-level display experiment is gone, and readonly/hideWhenEmpty
+      // reject here like any retired key (the strict 5-key payload keeps
+      // `required` — the owner's per-class exception).
       expect(
-        () => OperationPayloads.validatePayload('class.property.set', payload),
+        () => OperationPayloads.validatePayload('class.property.set', {
+          'classId': classId,
+          'propertySchemaId': objectId,
+          'required': true,
+          'active': false,
+        }),
         returnsNormally,
       );
-      for (final display in ['panel', 'bullet', 'inline']) {
+      for (final retired in ['display', 'readonly', 'hideWhenEmpty']) {
         expect(
           () => OperationPayloads.validatePayload('class.property.set', {
             'classId': classId,
             'propertySchemaId': objectId,
+            retired: retired == 'display' ? 'bullet' : true,
+          }),
+          throwsFormatException,
+          reason: retired,
+        );
+      }
+
+      // propertySchema.create/update carry the three render contracts —
+      // nullable+optional (absent keeps, null clears; the builders omit
+      // nulls, so explicit clears ride raw maps).
+      final created = OperationPayloads.propertySchemaCreate(
+        propertySchemaId: classId,
+        name: 'Status',
+        type: 'select',
+        display: 'bullet',
+        readonly: true,
+        hideWhenEmpty: false,
+      );
+      expect(created['display'], 'bullet');
+      expect(created['readonly'], isTrue);
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', created),
+        returnsNormally,
+      );
+      for (final display in ['panel', 'bullet', 'inline']) {
+        expect(
+          () => OperationPayloads.validatePayload('propertySchema.create', {
+            'propertySchemaId': classId,
+            'name': 'Status',
+            'type': 'select',
             'display': display,
           }),
           returnsNormally,
           reason: display,
         );
       }
-      // An unknown display position is rejected outright (strict enum).
-      expect(
-        () => OperationPayloads.validatePayload('class.property.set', {
-          'classId': classId,
-          'propertySchemaId': objectId,
-          'display': 'hover',
-        }),
-        throwsFormatException,
-      );
-      expect(
-        () => OperationPayloads.validatePayload('class.property.set', {
-          'classId': classId,
-          'propertySchemaId': objectId,
-          'display': 42,
-        }),
-        throwsFormatException,
-      );
+      // An unknown display position is rejected outright (strict enum) on
+      // both schema ops; the flags are bool-or-null.
+      for (final opType in ['propertySchema.create', 'propertySchema.update']) {
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'propertySchemaId': classId,
+            if (opType == 'propertySchema.create') ...{
+              'name': 'Status',
+              'type': 'select',
+            },
+            'display': 'hover',
+          }),
+          throwsFormatException,
+          reason: opType,
+        );
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'propertySchemaId': classId,
+            if (opType == 'propertySchema.create') ...{'name': 'Status', 'type': 'select'},
+            'readonly': 'yes',
+          }),
+          throwsFormatException,
+          reason: opType,
+        );
+        // Explicit null clears validate (raw maps — the builders omit nulls).
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'propertySchemaId': classId,
+            if (opType == 'propertySchema.create') ...{'name': 'Status', 'type': 'select'},
+            'display': null,
+            'readonly': null,
+            'hideWhenEmpty': null,
+          }),
+          returnsNormally,
+          reason: opType,
+        );
+      }
+      // `required` is NOT a schema-side render contract — it stays on the
+      // class binding and rejects on the schema ops.
+      for (final opType in ['propertySchema.create', 'propertySchema.update']) {
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'propertySchemaId': classId,
+            if (opType == 'propertySchema.create') ...{'name': 'Status', 'type': 'select'},
+            'required': true,
+          }),
+          throwsFormatException,
+          reason: opType,
+        );
+      }
 
       // Option records accept the §34.89 icon (max 64 chars, absent/null =
       // no icon) and stay NON-strict: unknown keys pass through so
       // icon-carrying options sync through pre-§34.89 parsers.
-      final created = OperationPayloads.propertySchemaCreate(
+      final createdWithIcon = OperationPayloads.propertySchemaCreate(
         propertySchemaId: classId,
         name: 'Status',
         type: 'select',
@@ -365,7 +430,7 @@ void main() {
         ],
       );
       expect(
-        () => OperationPayloads.validatePayload('propertySchema.create', created),
+        () => OperationPayloads.validatePayload('propertySchema.create', createdWithIcon),
         returnsNormally,
       );
       expect(

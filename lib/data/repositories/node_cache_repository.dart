@@ -76,6 +76,7 @@ class PropertySchemaRow {
     this.numberPad,
     this.numberDecimals,
     this.numberRounding,
+    this.display,
     this.active = true,
     this.createdAt,
     this.updatedAt,
@@ -110,6 +111,13 @@ class PropertySchemaRow {
   final int? numberPad;
   final int? numberDecimals;
   final String? numberRounding;
+  /// §34.90 (owner review 2026-10-05): the render contracts are
+  /// PROPERTY-level — the value-display position ('panel' | 'bullet' |
+  /// 'inline'; NULL = the 'panel' default; sanitized at the effective read).
+  /// `readonly`/`hideWhenEmpty` ride the legacy v1 NOT NULL columns above
+  /// (0 = unset). `required` is deliberately NOT here — it stays on the
+  /// class binding (per-class mechanics).
+  final String? display;
   final bool active;
   final String? createdAt;
   final String? updatedAt;
@@ -950,6 +958,9 @@ class NodeCacheRepository {
 
   /// Reads class-property binding rows from a v2 server-derived snapshot
   /// database (the v2 `class_property` table; empty by default in M1).
+  /// §34.90: the v2 table carries ONLY the per-class mechanics — the
+  /// retired readonly/hide_when_empty columns are gone from the source, so
+  /// the legacy row model reads them as unset.
   Future<List<ClassPropertyEdgeRow>>
   _readClassPropertyEdgesFromSnapshotDatabase(
     Database db,
@@ -957,7 +968,7 @@ class NodeCacheRepository {
   ) async {
     final rows = await db.rawQuery(
       'SELECT cp.class_id, cp.property_schema_id, cp.sequence, cp.default_value, '
-      'cp.required, cp.readonly, cp.hide_when_empty '
+      'cp.required '
       'FROM class_property cp '
       'JOIN class c ON c.id = cp.class_id '
       'WHERE c.workspace_id = ? AND c.active = 1',
@@ -980,12 +991,8 @@ class NodeCacheRepository {
         required: row['required'] == null
             ? null
             : (row['required'] as int) == 1,
-        readonly: row['readonly'] == null
-            ? null
-            : (row['readonly'] as int) == 1,
-        hideWhenEmpty: row['hide_when_empty'] == null
-            ? null
-            : (row['hide_when_empty'] as int) == 1,
+        readonly: null,
+        hideWhenEmpty: null,
       );
     }).toList();
   }
@@ -2332,20 +2339,18 @@ class NodeCacheRepository {
   /// seed-ensure). Authored with zero HLC columns — the row is a
   /// deterministic seed artifact, not a content write; a user flip on the
   /// same row later wins by HLC without clobbering (the "(Own row wins over
-  /// seeds)" contract). [display] (§34.89) seeds the value-display position
-  /// ('bullet' for the task Status binding; null elsewhere).
+  /// seeds)" contract). §34.90: the row carries ONLY the per-class mechanics
+  /// (sequence) — the render contracts live on the property schema.
   Future<void> insertClassPropertyBindingIfAbsent({
     required String classId,
     required String schemaId,
     required int sequence,
-    String? display,
   }) async {
     final db = await _database.database;
     await db.insert('class_property', {
       'class_id': classId,
       'property_schema_id': schemaId,
       'sequence': sequence,
-      'display': display,
       'hlc_physical': 0,
       'hlc_logical': 0,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
@@ -3335,19 +3340,17 @@ class NodeCacheRepository {
   /// patch, port of the SQL COALESCE); [defaultValueJson] is the JSON-encoded
   /// default (null = leave untouched — JSON-null defaults ride raw maps).
   /// [active] (PC4) is the soft-unbind flag: omitted keeps the stored flag;
-  /// a NEW row defaults to active. [display] (§34.89) is the value-display
-  /// position ('panel' | 'bullet' | 'inline'): omitted keeps the stored
-  /// position; a NEW row stores NULL = 'panel'.
+  /// a NEW row defaults to active. §34.90: the row carries ONLY the
+  /// per-class mechanics (sequence, required, defaultValue, active) — the
+  /// render contracts (readonly/hideWhenEmpty/display) are PROPERTY-level
+  /// and live on the property schema.
   Future<void> upsertClassPropertyBinding({
     required String classId,
     required String schemaId,
     required LwwWinner incoming,
     int? sequence,
     bool? required,
-    bool? readonly,
-    bool? hideWhenEmpty,
     bool? active,
-    String? display,
     String? defaultValueJson,
   }) async {
     final db = await _database.database;
@@ -3366,16 +3369,10 @@ class NodeCacheRepository {
         'sequence': sequence ?? (stored['sequence'] as num?)?.toInt() ?? 0,
         'required':
             required == null ? stored['required'] : (required ? 1 : 0),
-        'readonly':
-            readonly == null ? stored['readonly'] : (readonly ? 1 : 0),
-        'hide_when_empty': hideWhenEmpty == null
-            ? stored['hide_when_empty']
-            : (hideWhenEmpty ? 1 : 0),
         'default_value': defaultValueJson ?? stored['default_value'],
         'active': active == null
             ? (stored['active'] as num?) ?? 1
             : (active ? 1 : 0),
-        'display': display ?? stored['display'],
         'hlc_physical': incoming.physical,
         'hlc_logical': incoming.logical,
         'actor_id': incoming.actor,
@@ -3524,6 +3521,13 @@ class NodeCacheRepository {
       );
     }
 
+    bool? flag(dynamic value) => value == null ? null : value == 1;
+
+    // §34.90: sanitize the stored display position — only 'bullet'/'inline'
+    // surface (NULL/'panel'/unknown = null, the 'panel' default read).
+    String? displayOf(dynamic value) =>
+        value == 'bullet' || value == 'inline' ? value as String : null;
+
     // 4. Schema rows for everything referenced (authored rows survive schema
     //    deletion: the row renders with schema = null).
     final schemaIds = <String>{
@@ -3534,7 +3538,8 @@ class NodeCacheRepository {
     if (schemaIds.isNotEmpty) {
       final placeholders = schemaIds.map((_) => '?').join(',');
       final rows = await db.rawQuery(
-        'SELECT uuid, name, type, multi FROM property_schema WHERE uuid IN ($placeholders)',
+        'SELECT uuid, name, type, multi, display, readonly, hide_when_empty '
+        'FROM property_schema WHERE uuid IN ($placeholders)',
         schemaIds.toList(),
       );
       for (final row in rows) {
@@ -3543,21 +3548,22 @@ class NodeCacheRepository {
           name: row['name'] as String,
           type: row['type'] as String? ?? 'text',
           multi: (row['multi'] as num?)?.toInt() == 1,
+          // §34.90: the PROPERTY-level render contracts — schema-sourced,
+          // the same for every carrier, class-bound or not.
+          display: displayOf(row['display']),
+          readonly: flag(row['readonly']),
+          hideWhenEmpty: flag(row['hide_when_empty']),
         );
       }
     }
 
-    bool? flag(dynamic value) => value == null ? null : value == 1;
-
-    // §34.89: sanitize the stored position — only 'bullet'/'inline' surface
-    // (NULL/'panel'/unknown = null, the 'panel' default read).
-    String? displayOf(dynamic value) =>
-        value == 'bullet' || value == 'inline' ? value as String : null;
-
     // 5. Merge: authored wins per (schema, idx, ELEMENT — PG5: rows at the
     //    same idx are distinct elements and all surface); a winning ACTIVE
     //    binding with a default and no authored value at idx 0 derives a
-    //    default row.
+    //    default row. §34.90 sourcing: `required` is per-CLASS (the winning
+    //    binding — null when no current class binds the schema); readonly /
+    //    hideWhenEmpty / display are per-PROPERTY (the schema row) and ride
+    //    authored AND derived rows, INCLUDING unbound authored values.
     final rows = <String, EffectiveProperty>{};
     for (final authored in authoredRows) {
       final schemaId = authored['property_schema_id'] as String;
@@ -3565,25 +3571,23 @@ class NodeCacheRepository {
       final elementId = authored['id'] as String;
       final winner = winnerBySchema[schemaId];
       final metadata = authored['metadata'] as String?;
+      final schema = schemas[schemaId];
       rows['$schemaId:$idx:$elementId'] = EffectiveProperty(
         propertySchemaId: schemaId,
         idx: idx,
         elementId: elementId,
-        schema: schemas[schemaId],
+        schema: schema,
         value: _decodeJsonOrRaw(authored['value'] as String),
         metadata: metadata == null ? null : _decodeJsonOrRaw(metadata),
         source: 'authored',
         boundBy: winner?.classId,
         required: winner == null ? null : flag(winner.binding['required']),
-        readonly: winner == null ? null : flag(winner.binding['readonly']),
-        hideWhenEmpty:
-            winner == null ? null : flag(winner.binding['hide_when_empty']),
+        readonly: schema?.readonly,
+        hideWhenEmpty: schema?.hideWhenEmpty,
         sequence: winner == null
             ? null
             : (winner.binding['sequence'] as num?)?.toInt(),
-        // §34.89: the winning binding's display rides authored AND derived
-        // rows; unbound rows read null.
-        display: winner == null ? null : displayOf(winner.binding['display']),
+        display: schema?.display,
       );
     }
     for (final entry in winnerBySchema.entries) {
@@ -3616,10 +3620,10 @@ class NodeCacheRepository {
         source: 'default',
         boundBy: winner.classId,
         required: flag(winner.binding['required']),
-        readonly: flag(winner.binding['readonly']),
-        hideWhenEmpty: flag(winner.binding['hide_when_empty']),
+        readonly: schema?.readonly,
+        hideWhenEmpty: schema?.hideWhenEmpty,
         sequence: (winner.binding['sequence'] as num?)?.toInt(),
-        display: displayOf(winner.binding['display']),
+        display: schema?.display,
       );
     }
 
@@ -4273,6 +4277,7 @@ class NodeCacheRepository {
       numberPad: row['number_pad'] as int?,
       numberDecimals: row['number_decimals'] as int?,
       numberRounding: row['number_rounding'] as String?,
+      display: row['display'] as String?,
       active: (row['active'] as int? ?? 1) == 1,
       createdAt: row['created_at'] as String?,
       updatedAt: row['updated_at'] as String?,
@@ -4310,6 +4315,7 @@ class NodeCacheRepository {
       'number_pad': schema.numberPad,
       'number_decimals': schema.numberDecimals,
       'number_rounding': schema.numberRounding,
+      'display': schema.display,
       'active': schema.active ? 1 : 0,
       'created_at': schema.createdAt,
       'updated_at': schema.updatedAt,
@@ -4595,12 +4601,22 @@ class EffectivePropertySchema {
     required this.name,
     required this.type,
     required this.multi,
+    this.display,
+    this.readonly,
+    this.hideWhenEmpty,
   });
 
   final String id;
   final String name;
   final String type;
   final bool multi;
+
+  /// §34.90: the PROPERTY-level render contracts — schema-sourced, the same
+  /// for every carrier, class-bound or not. [display] is sanitized (only
+  /// 'bullet'/'inline' surface; NULL = the 'panel' default).
+  final String? display;
+  final bool? readonly;
+  final bool? hideWhenEmpty;
 }
 
 /// One effective (schema, idx) row for a node (port of the v2 store's
@@ -4641,10 +4657,11 @@ class EffectiveProperty {
   final bool? hideWhenEmpty;
   final int? sequence;
 
-  /// §34.89: the winning binding's value-display position — 'bullet' rides
-  /// the block bullet as an icon button, 'inline' renders before the block
-  /// content, null = 'panel' (the properties section only). Sanitized at the
-  /// read: only 'bullet'/'inline' surface.
+  /// §34.90: the PROPERTY-level render contracts — 'bullet' rides the block
+  /// bullet as an icon button, 'inline' renders before the block content,
+  /// null = 'panel' (the properties section only). Schema-sourced: they ride
+  /// authored AND derived rows, INCLUDING unbound authored values. Sanitized
+  /// at the read: only 'bullet'/'inline' surface.
   final String? display;
 }
 

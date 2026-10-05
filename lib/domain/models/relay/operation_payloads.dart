@@ -307,29 +307,25 @@ class OperationPayloads {
   /// [type] is the v2 property-schema enum (op-types.ts); [targetClassFilter]
   /// constrains node-typed (m2o/m2m) schemas to those classes.
   /// Binding upsert: a configuration row on `class_property` (sequence,
-  /// flags, defaultValue). Row-level LWW by envelope HLC; omitted fields
-  /// KEEP their existing values (partial patch, not a replace). A null
+  /// required, defaultValue, active). Row-level LWW by envelope HLC; omitted
+  /// fields KEEP their existing values (partial patch, not a replace). A null
   /// parameter is indistinguishable from "leave unset" through typed Dart
   /// params, so clearing a flag means passing `false` (the v2 applier maps
   /// explicit null to false as well); send a raw map for JSON-null
   /// defaultValue.
-  /// [active] (PC4, §34.57) is the soft-unbind flag: an inactive binding row
-  /// stops contributing defaults + metadata to the effective read while the
-  /// row and authored values survive; omitted = keep the stored flag.
-  /// [display] (§34.89) is the value-display position ('panel' | 'bullet' |
-  /// 'inline'): where a select/multi_select (or boolean) value renders on a
-  /// block row — next to the bullet, before the content, or the properties
-  /// panel only (the stored NULL/'panel' default). Omitted = keep the stored
-  /// value; there is no null-clear (not nullable, matching the TS zod).
+  ///
+  /// §34.90 (owner review 2026-10-05): the row carries ONLY the genuinely
+  /// per-class mechanics — the render contracts (readonly/hideWhenEmpty/
+  /// display) are PROPERTY-level and live on the property schema
+  /// (`propertySchema.create/update`); this strict payload rejects them like
+  /// any retired key. `required` is the owner's deliberate exception: a
+  /// property may be mandatory for one class, optional for another.
   static Map<String, dynamic> classPropertySet({
     required String classId,
     required String propertySchemaId,
     int? sequence,
     bool? required,
-    bool? readonly,
-    bool? hideWhenEmpty,
     bool? active,
-    String? display,
     dynamic defaultValue,
   }) =>
       _validated('class.property.set', {
@@ -337,10 +333,7 @@ class OperationPayloads {
         'propertySchemaId': propertySchemaId,
         'sequence': ?sequence,
         'required': ?required,
-        'readonly': ?readonly,
-        'hideWhenEmpty': ?hideWhenEmpty,
         'active': ?active,
-        'display': ?display,
         'defaultValue': ?defaultValue,
       });
 
@@ -398,6 +391,14 @@ class OperationPayloads {
   /// claim (SCHEMA.md "Dates"; NULL = day at the read model) and
   /// [dateQualified] (PC6) allows node-typed values to carry date qualifiers
   /// (metadata startDate/endDate as date-node refs).
+  ///
+  /// §34.90 (owner review 2026-10-05): the render contracts are
+  /// PROPERTY-level — [display] ('panel' | 'bullet' | 'inline'; where a
+  /// select/multi_select/boolean value renders on a block row; NULL/'panel'
+  /// = the properties section only) and [readonly] / [hideWhenEmpty] (a
+  /// property is readonly / hidden-when-empty everywhere it appears, whatever
+  /// class binds it — or none). Nullable+optional like the number formats:
+  /// the builders omit nulls, so an explicit null clear rides a raw map.
   static Map<String, dynamic> propertySchemaCreate({
     required String propertySchemaId,
     required String name,
@@ -411,6 +412,9 @@ class OperationPayloads {
     int? numberPad,
     int? numberDecimals,
     String? numberRounding,
+    String? display,
+    bool? readonly,
+    bool? hideWhenEmpty,
   }) =>
       _validated('propertySchema.create', {
         'propertySchemaId': propertySchemaId,
@@ -425,6 +429,9 @@ class OperationPayloads {
         'numberPad': ?numberPad,
         'numberDecimals': ?numberDecimals,
         'numberRounding': ?numberRounding,
+        'display': ?display,
+        'readonly': ?readonly,
+        'hideWhenEmpty': ?hideWhenEmpty,
       });
 
   static Map<String, dynamic> propertySchemaUpdate({
@@ -436,6 +443,9 @@ class OperationPayloads {
     int? numberPad,
     int? numberDecimals,
     String? numberRounding,
+    String? display,
+    bool? readonly,
+    bool? hideWhenEmpty,
   }) {
     if (name == null &&
         options == null &&
@@ -443,7 +453,10 @@ class OperationPayloads {
         dateQualified == null &&
         numberPad == null &&
         numberDecimals == null &&
-        numberRounding == null) {
+        numberRounding == null &&
+        display == null &&
+        readonly == null &&
+        hideWhenEmpty == null) {
       throw ArgumentError('propertySchema.update requires at least one field');
     }
     return _validated('propertySchema.update', {
@@ -455,6 +468,9 @@ class OperationPayloads {
       'numberPad': ?numberPad,
       'numberDecimals': ?numberDecimals,
       'numberRounding': ?numberRounding,
+      'display': ?display,
+      'readonly': ?readonly,
+      'hideWhenEmpty': ?hideWhenEmpty,
     });
   }
 
@@ -692,27 +708,23 @@ class OperationPayloads {
         _uuid(payload, 'classId');
         _uuidList(payload, 'parentClassIds');
       case 'class.property.set':
+        // §34.90: the binding carries ONLY the per-class mechanics
+        // (sequence, required, defaultValue, active) — the render contracts
+        // (readonly/hideWhenEmpty/display) are PROPERTY-level
+        // (propertySchema.create/update) and reject here like retired keys.
         _strict(payload, {
           'classId',
           'propertySchemaId',
           'sequence',
           'required',
-          'readonly',
-          'hideWhenEmpty',
-          'active',
-          'display',
           'defaultValue',
+          'active',
         });
         _uuid(payload, 'classId');
         _uuid(payload, 'propertySchemaId');
         _int(payload, 'sequence', required: false);
         _boolNullable(payload, 'required', required: false);
-        _boolNullable(payload, 'readonly', required: false);
-        _boolNullable(payload, 'hideWhenEmpty', required: false);
         _bool(payload, 'active', required: false);
-        // §34.89: the binding's value-display position — optional, not
-        // nullable (a stored NULL means 'panel'; no clear carrier).
-        _enum(payload, 'display', {'panel', 'bullet', 'inline'}, required: false);
       case 'class.property.unset':
         _strict(payload, {'classId', 'propertySchemaId'});
         _uuid(payload, 'classId');
@@ -743,6 +755,9 @@ class OperationPayloads {
           'numberPad',
           'numberDecimals',
           'numberRounding',
+          'display',
+          'readonly',
+          'hideWhenEmpty',
         });
         _uuid(payload, 'propertySchemaId');
         _string(payload, 'name', min: 1, max: 256);
@@ -758,6 +773,12 @@ class OperationPayloads {
         _int(payload, 'numberPad', min: 1, max: 20, required: false);
         _int(payload, 'numberDecimals', min: 0, max: 10, required: false);
         _enum(payload, 'numberRounding', _numberRoundings, required: false);
+        // §34.90: the PROPERTY-level render contracts — nullable+optional
+        // (absent keeps, null clears; stored NULL = 'panel' / unset).
+        // `required` is deliberately NOT here: it stays on the class binding.
+        _enum(payload, 'display', {'panel', 'bullet', 'inline'}, required: false);
+        _boolNullable(payload, 'readonly', required: false);
+        _boolNullable(payload, 'hideWhenEmpty', required: false);
       case 'propertySchema.update':
         _strict(payload, {
           'propertySchemaId',
@@ -768,6 +789,9 @@ class OperationPayloads {
           'numberPad',
           'numberDecimals',
           'numberRounding',
+          'display',
+          'readonly',
+          'hideWhenEmpty',
         });
         _uuid(payload, 'propertySchemaId');
         _string(payload, 'name', min: 1, max: 256, required: false);
@@ -777,6 +801,11 @@ class OperationPayloads {
         _int(payload, 'numberPad', min: 1, max: 20, required: false);
         _int(payload, 'numberDecimals', min: 0, max: 10, required: false);
         _enum(payload, 'numberRounding', _numberRoundings, required: false);
+        // §34.90 render contracts — the same keep/clear contract as the
+        // number formats (absent keeps, present null clears).
+        _enum(payload, 'display', {'panel', 'bullet', 'inline'}, required: false);
+        _boolNullable(payload, 'readonly', required: false);
+        _boolNullable(payload, 'hideWhenEmpty', required: false);
       case 'propertySchema.delete':
         _strict(payload, {'propertySchemaId'});
         _uuid(payload, 'propertySchemaId');

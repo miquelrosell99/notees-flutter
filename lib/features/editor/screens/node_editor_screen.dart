@@ -72,7 +72,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   Map<String, ResolvedClassStyle> _classStyles = {};
   Map<dynamic, String> _propertyValueNames = {};
 
-  /// §34.89: display-positioned property values per block uuid — the source
+  /// §34.90: display-positioned property values per block uuid — the source
   /// of the block-bullet value buttons.
   Map<String, List<BulletPropertyValue>> _bulletProperties = {};
   String? _pageColor;
@@ -202,7 +202,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
       final propertyValueNames = await _buildPropertyValueNameMap(repo, properties, dateFormat);
 
-      // §34.89 bullet buttons: best-effort — a failure here must not take
+      // §34.90 bullet buttons: best-effort — a failure here must not take
       // down the page load (the properties panel still works).
       Map<String, List<BulletPropertyValue>> bulletProperties = const {};
       try {
@@ -1555,10 +1555,12 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     return const [];
   }
 
-  /// §34.89: resolves the block-bullet value buttons for every visible
-  /// block — the effective rows whose winning binding positions a
-  /// select/multi_select/boolean value at 'bullet'/'inline', with the
-  /// schema options (the §34.89 icon + §34.43 color) attached.
+  /// §34.90: resolves the block-bullet value buttons for every visible
+  /// block — the effective rows whose SCHEMA positions a
+  /// select/multi_select/boolean value at 'bullet'/'inline' (the display
+  /// contract is PROPERTY-level; the effective read sources it from the
+  /// schema row), with the schema options (the §34.89 icon + §34.43 color)
+  /// attached.
   Future<Map<String, List<BulletPropertyValue>>> _loadBulletProperties(
     NodeRepository repo,
   ) async {
@@ -1642,7 +1644,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     return map;
   }
 
-  /// §34.89 write path for the block-bullet value buttons: performs the
+  /// §34.90 write path for the block-bullet value buttons: performs the
   /// resolved write through the sync service, then refreshes the buttons.
   Future<void> _onBulletPropertyWrite(
     BlockNode node,
@@ -2574,7 +2576,7 @@ class _EditorSkeletonState extends State<_EditorSkeleton>
   }
 }
 
-/// §34.89: mutable accumulator for one display-positioned property while the
+/// §34.90: mutable accumulator for one display-positioned property while the
 /// per-block effective rows are grouped into [BulletPropertyValue]s.
 class _BulletPropertyAccumulator {
   _BulletPropertyAccumulator({

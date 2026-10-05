@@ -12,7 +12,7 @@ import '../../../data/models/node.dart';
 import './asset_block_widget.dart';
 import './ast_rich_text.dart';
 
-/// §34.89: one select option of a display-positioned property. [icon] is a
+/// §34.90: one select option of a display-positioned property. [icon] is a
 /// camelCase MDI name (absent = the tinted dot fallback); [color] is a
 /// §34.43 preset token or `#RRGGBB` hex.
 class BulletPropertyOption {
@@ -39,9 +39,9 @@ class BulletPropertyElement {
   final List<String> ids;
 }
 
-/// §34.89: one effective property value riding a block row. The host screen
-/// builds these from `getEffectiveProperties` for rows whose winning binding
-/// positions the value at 'bullet' (next to the bullet) or 'inline' (before
+/// §34.90: one effective property value riding a block row. The host screen
+/// builds these from `getEffectiveProperties` for rows whose schema (the
+/// display contract is PROPERTY-level) positions the value at 'bullet' (next to the bullet) or 'inline' (before
 /// the content) and whose schema type is select/multi_select/boolean.
 class BulletPropertyValue {
   const BulletPropertyValue({
@@ -236,12 +236,12 @@ class BlockTreeEditor extends StatefulWidget {
   /// Data colors for link targets (node/class uuid → color).
   final Map<String, Color>? linkColors;
 
-  /// §34.89: the display-positioned property values per block node uuid
+  /// §34.90: the display-positioned property values per block node uuid
   /// ('bullet' rides next to the bullet, 'inline' before the content). The
   /// host screen resolves these through `getEffectiveProperties`.
   final Map<String, List<BulletPropertyValue>> bulletProperties;
 
-  /// §34.89 write path: invoked with the resolved write when the user picks
+  /// §34.90 write path: invoked with the resolved write when the user picks
   /// an option (or the None row) on a value button. Null = read-only
   /// projection — the current icon renders but never opens the sheet.
   final Future<void> Function(BlockNode node, BulletPropertyWrite write)?
@@ -464,7 +464,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     final isTask = node.node.isTask;
     final isTaskDone = _isTaskDone(node);
 
-    // §34.89 value-display buttons: the bullet group hugs the bullet, the
+    // §34.90 value-display buttons: the bullet group hugs the bullet, the
     // inline group hugs the content (mirrors the web BlockRow). In read-only
     // projections (no write handler) the icons render but open nothing.
     final displayProps = widget.bulletProperties[node.node.uuid] ??
@@ -1334,7 +1334,7 @@ const BulletPropertyOption _booleanFalseOption = BulletPropertyOption(
   color: 'gray',
 );
 
-/// §34.89: the block-row value button (the Logseq-DB "beginning of the
+/// §34.90: the block-row value button (the Logseq-DB "beginning of the
 /// block" port). Shows the FIRST selected option's MDI icon tinted with its
 /// color — the at-a-glance state read; an unset value renders a dimmed
 /// hollow circle so a fresh value can be given in place. Tapping opens the

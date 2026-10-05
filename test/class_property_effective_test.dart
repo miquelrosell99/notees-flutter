@@ -232,62 +232,30 @@ void main() {
           classId: taskClass,
           propertySchemaId: schema,
           required: true,
-          hideWhenEmpty: true,
         ),
         timestamp: '2026-09-24T12:00:13.000Z',
       ));
 
       final db = await database.database;
-      var rows = await db.rawQuery(
-        'SELECT sequence, required, readonly, hide_when_empty, default_value, display '
+      final rows = await db.rawQuery(
+        'SELECT sequence, required, default_value, active '
         'FROM class_property WHERE class_id = ? AND property_schema_id = ?',
         [taskClass, schema],
       );
       expect(rows.single['sequence'], 0); // kept
       expect(rows.single['required'], 1); // patched
-      expect(rows.single['readonly'], isNull); // still unset
-      expect(rows.single['hide_when_empty'], 1); // patched
       expect(jsonDecode(rows.single['default_value'] as String), 'medium');
-      expect(rows.single['display'], isNull); // §34.89: pre-position default
+      expect(rows.single['active'], 1);
 
-      // §34.89: a display write lands; a display-absent patch keeps it.
-      await appliers.apply(OperationEnvelope(
-        id: '0192a000-0000-7000-8000-000000000502',
-        workspaceId: '0192a000-0000-7000-8000-000000000001',
-        actorId: '0192a000-0000-7000-8000-000000000002',
-        deviceId: 'test-device',
-        hlc: const Hlc(physical: 1727200013100, logical: 0),
-        affectedNodeIds: const [taskClass],
-        opType: 'class.property.set',
-        payload: OperationPayloads.classPropertySet(
-          classId: taskClass,
-          propertySchemaId: schema,
-          display: 'bullet',
-        ),
-        timestamp: '2026-09-24T12:00:13.100Z',
-      ));
-      await appliers.apply(OperationEnvelope(
-        id: '0192a000-0000-7000-8000-000000000503',
-        workspaceId: '0192a000-0000-7000-8000-000000000001',
-        actorId: '0192a000-0000-7000-8000-000000000002',
-        deviceId: 'test-device',
-        hlc: const Hlc(physical: 1727200013200, logical: 0),
-        affectedNodeIds: const [taskClass],
-        opType: 'class.property.set',
-        payload: OperationPayloads.classPropertySet(
-          classId: taskClass,
-          propertySchemaId: schema,
-          readonly: true,
-        ),
-        timestamp: '2026-09-24T12:00:13.200Z',
-      ));
-      rows = await db.rawQuery(
-        'SELECT readonly, display FROM class_property '
-        'WHERE class_id = ? AND property_schema_id = ?',
-        [taskClass, schema],
-      );
-      expect(rows.single['readonly'], 1); // patched
-      expect(rows.single['display'], 'bullet'); // kept by the omitted patch
+      // §34.90: the binding row carries ONLY the per-class mechanics — the
+      // retired readonly/hideWhenEmpty/display columns are gone from the
+      // table outright.
+      final columns = await db.rawQuery('PRAGMA table_info(class_property)');
+      final names = columns.map((c) => c['name'] as String).toList();
+      expect(names, contains('required'));
+      expect(names, isNot(contains('readonly')));
+      expect(names, isNot(contains('hide_when_empty')));
+      expect(names, isNot(contains('display')));
     });
 
     test('binding row LWW: a stale set is dropped', () async {
@@ -313,7 +281,7 @@ void main() {
     });
   });
 
-  group('§34.89 binding display position + option icon', () {
+  group('§34.90 property-level render contracts (schema-sourced display)', () {
     late AppDatabase database;
     late NodeCacheRepository cache;
     late RelayAppliers appliers;
@@ -334,7 +302,7 @@ void main() {
       AppDatabase.reset();
     });
 
-    OperationEnvelope setBinding(
+    OperationEnvelope updateSchema(
       int physical,
       String idSuffix,
       Map<String, dynamic> payload,
@@ -346,7 +314,7 @@ void main() {
           deviceId: 'test-device',
           hlc: Hlc(physical: physical, logical: 0),
           affectedNodeIds: const [taskClass],
-          opType: 'class.property.set',
+          opType: 'propertySchema.update',
           payload: payload,
           timestamp: '2026-09-24T12:00:00.000Z',
         );
@@ -354,14 +322,14 @@ void main() {
     Future<String?> storedDisplay() async {
       final db = await database.database;
       final rows = await db.rawQuery(
-        'SELECT display FROM class_property WHERE class_id = ? AND property_schema_id = ?',
-        [taskClass, schema],
+        'SELECT display FROM property_schema WHERE uuid = ?',
+        [schema],
       );
       return rows.single['display'] as String?;
     }
 
-    test('display persists on the row and rides the effective read '
-        '(panel default → bullet → patch-keep → inline; stale loses)', () async {
+    test('display persists on the SCHEMA row and rides the effective read '
+        '(panel default → bullet → patch-keep → inline → null clear)', () async {
       await replayFixturePrefix(appliers, 5);
       // Absent display = the NULL 'panel' default.
       expect(await storedDisplay(), isNull);
@@ -370,13 +338,11 @@ void main() {
       expect(row.display, isNull);
       expect(row.source, 'default');
 
-      // A display write lands on the row and surfaces on authored + default rows.
-      await appliers.apply(setBinding(1727200014000, '810a',
-          OperationPayloads.classPropertySet(
-            classId: taskClass,
-            propertySchemaId: schema,
-            display: 'bullet',
-          )));
+      // A schema-side display write surfaces on authored + default rows.
+      await appliers.apply(updateSchema(1727200014000, '810a', {
+        'propertySchemaId': schema,
+        'display': 'bullet',
+      }));
       expect(await storedDisplay(), 'bullet');
       row = (await cache.getEffectiveProperties(nodeId))
           .singleWhere((r) => r.propertySchemaId == schema);
@@ -384,7 +350,7 @@ void main() {
       expect(row.source, 'default');
 
       // An authored value at idx 0 shadows the default but inherits the
-      // winning binding's display.
+      // SCHEMA's display.
       await appliers.apply(OperationEnvelope(
         id: '0192a000-0000-7000-8000-00000000810b',
         workspaceId: '0192a000-0000-7000-8000-000000000001',
@@ -406,27 +372,17 @@ void main() {
       expect(row.source, 'authored');
 
       // Patch semantics: an omitted display keeps the stored position.
-      await appliers.apply(setBinding(1727200014200, '810c',
-          OperationPayloads.classPropertySet(
-            classId: taskClass,
-            propertySchemaId: schema,
-            sequence: 3,
-          )));
-      final db = await database.database;
-      final rowAfterPatch = await db.rawQuery(
-        'SELECT display, sequence FROM class_property WHERE class_id = ? AND property_schema_id = ?',
-        [taskClass, schema],
-      );
-      expect(rowAfterPatch.single['display'], 'bullet'); // kept
-      expect(rowAfterPatch.single['sequence'], 3); // patched
+      await appliers.apply(updateSchema(1727200014200, '810c', {
+        'propertySchemaId': schema,
+        'name': 'Importance',
+      }));
+      expect(await storedDisplay(), 'bullet'); // kept
 
-      // A present value replaces it; a stale set loses the row LWW race.
-      await appliers.apply(setBinding(1727200014300, '810d',
-          OperationPayloads.classPropertySet(
-            classId: taskClass,
-            propertySchemaId: schema,
-            display: 'inline',
-          )));
+      // A present value replaces it...
+      await appliers.apply(updateSchema(1727200014300, '810d', {
+        'propertySchemaId': schema,
+        'display': 'inline',
+      }));
       expect(await storedDisplay(), 'inline');
       expect(
         (await cache.getEffectiveProperties(nodeId))
@@ -434,25 +390,41 @@ void main() {
             .display,
         'inline',
       );
-      await appliers.apply(setBinding(1727200014250, '810e',
-          OperationPayloads.classPropertySet(
-            classId: taskClass,
-            propertySchemaId: schema,
-            display: 'bullet',
-          )));
-      expect(await storedDisplay(), 'inline');
+
+      // ...and an explicit null clears back to the 'panel' default.
+      await appliers.apply(updateSchema(1727200014400, '810e', {
+        'propertySchemaId': schema,
+        'display': null,
+      }));
+      expect(await storedDisplay(), isNull);
+      expect(
+        (await cache.getEffectiveProperties(nodeId))
+            .singleWhere((r) => r.propertySchemaId == schema)
+            .display,
+        isNull,
+      );
     });
 
-    test('an unbound authored value reads display null; an inactive binding '
+    test('an unbound authored value CARRIES the schema display; required '
+        'stays binding-sourced (null when unbound); an inactive binding '
         'contributes nothing', () async {
       await replayFixturePrefix(appliers, 5);
-      // Authored while no binding carries a display: null.
+      // Schema-side display, no authored value yet: the derived default
+      // reads it.
+      await appliers.apply(updateSchema(1727200014000, '820a', {
+        'propertySchemaId': schema,
+        'display': 'bullet',
+      }));
+
+      // Unbind: the authored value (written before the unbind) survives and
+      // CARRIES the schema display — §34.90: the contracts are
+      // PROPERTY-level, the same for every carrier, class-bound or not.
       await appliers.apply(OperationEnvelope(
-        id: '0192a000-0000-7000-8000-00000000820a',
+        id: '0192a000-0000-7000-8000-00000000820b',
         workspaceId: '0192a000-0000-7000-8000-000000000001',
         actorId: '0192a000-0000-7000-8000-000000000002',
         deviceId: 'test-device',
-        hlc: const Hlc(physical: 1727200014000, logical: 0),
+        hlc: const Hlc(physical: 1727200014100, logical: 0),
         affectedNodeIds: const [nodeId],
         opType: 'property.set',
         payload: OperationPayloads.propertySet(
@@ -460,65 +432,75 @@ void main() {
           propertySchemaId: schema,
           value: 'low',
         ),
-        timestamp: '2026-09-24T12:00:14.000Z',
+        timestamp: '2026-09-24T12:00:14.100Z',
       ));
-      expect(
-        (await cache.getEffectiveProperties(nodeId))
-            .singleWhere((r) => r.propertySchemaId == schema)
-            .display,
-        isNull,
-      );
-
-      // Unbind: the authored value survives, still display null.
       await appliers.apply(OperationEnvelope(
-        id: '0192a000-0000-7000-8000-00000000820b',
+        id: '0192a000-0000-7000-8000-00000000820c',
         workspaceId: '0192a000-0000-7000-8000-000000000001',
         actorId: '0192a000-0000-7000-8000-000000000002',
         deviceId: 'test-device',
-        hlc: const Hlc(physical: 1727200014100, logical: 0),
+        hlc: const Hlc(physical: 1727200014200, logical: 0),
         affectedNodeIds: const [taskClass],
         opType: 'class.property.unset',
         payload: OperationPayloads.classPropertyUnset(
           classId: taskClass,
           propertySchemaId: schema,
         ),
-        timestamp: '2026-09-24T12:00:14.100Z',
+        timestamp: '2026-09-24T12:00:14.200Z',
       ));
-      expect(
-        (await cache.getEffectiveProperties(nodeId))
-            .singleWhere((r) => r.propertySchemaId == schema)
-            .display,
-        isNull,
-      );
-
-      // Re-bind with a display position, then flip inactive: the inactive
-      // binding stops contributing — the authored value reads unbound with
-      // display null.
-      await appliers.apply(setBinding(1727200014200, '820c',
-          OperationPayloads.classPropertySet(
-            classId: taskClass,
-            propertySchemaId: schema,
-            defaultValue: 'medium',
-            display: 'bullet',
-          )));
-      expect(
-        (await cache.getEffectiveProperties(nodeId))
-            .singleWhere((r) => r.propertySchemaId == schema)
-            .display,
-        'bullet',
-      );
-      await appliers.apply(setBinding(1727200014300, '820d',
-          OperationPayloads.classPropertySet(
-            classId: taskClass,
-            propertySchemaId: schema,
-            active: false,
-          )));
-      final effective = await cache.getEffectiveProperties(nodeId);
-      final row =
-          effective.singleWhere((r) => r.propertySchemaId == schema);
+      var row = (await cache.getEffectiveProperties(nodeId))
+          .singleWhere((r) => r.propertySchemaId == schema);
       expect(row.source, 'authored');
       expect(row.boundBy, isNull);
-      expect(row.display, isNull);
+      expect(row.display, 'bullet'); // schema-sourced, rides unbound rows
+      expect(row.required, isNull); // binding-sourced: no current binding
+
+      // Re-bind (required + a default), then flip inactive: the inactive
+      // binding stops contributing metadata — the authored value reads
+      // unbound with required null — while the SCHEMA display still rides.
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-00000000820d',
+        workspaceId: '0192a000-0000-7000-8000-000000000001',
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'test-device',
+        hlc: const Hlc(physical: 1727200014300, logical: 0),
+        affectedNodeIds: const [taskClass],
+        opType: 'class.property.set',
+        payload: OperationPayloads.classPropertySet(
+          classId: taskClass,
+          propertySchemaId: schema,
+          required: true,
+          defaultValue: 'medium',
+        ),
+        timestamp: '2026-09-24T12:00:14.300Z',
+      ));
+      row = (await cache.getEffectiveProperties(nodeId))
+          .singleWhere((r) => r.propertySchemaId == schema);
+      expect(row.source, 'authored');
+      expect(row.required, isTrue); // the winning binding's per-class flag
+      expect(row.display, 'bullet');
+
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-00000000820e',
+        workspaceId: '0192a000-0000-7000-8000-000000000001',
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'test-device',
+        hlc: const Hlc(physical: 1727200014400, logical: 0),
+        affectedNodeIds: const [taskClass],
+        opType: 'class.property.set',
+        payload: OperationPayloads.classPropertySet(
+          classId: taskClass,
+          propertySchemaId: schema,
+          active: false,
+        ),
+        timestamp: '2026-09-24T12:00:14.400Z',
+      ));
+      final effective = await cache.getEffectiveProperties(nodeId);
+      row = effective.singleWhere((r) => r.propertySchemaId == schema);
+      expect(row.source, 'authored');
+      expect(row.boundBy, isNull);
+      expect(row.required, isNull); // the inactive binding contributes nothing
+      expect(row.display, 'bullet'); // the schema display still rides
       // The derived default vanishes with the inactive binding.
       expect(effective.where((r) => r.source == 'default'), isEmpty);
     });
@@ -578,12 +560,14 @@ void main() {
     });
 
     test('flags accept explicit null (clear) in raw maps', () {
+      // §34.90: the binding keeps ONLY required (the owner's per-class
+      // exception) — explicit null validates; readonly is retired here.
       expect(
         () => OperationPayloads.validatePayload('class.property.set', {
           'classId': classId,
           'propertySchemaId': schemaId,
           'required': null,
-          'readonly': false,
+          'active': false,
         }),
         returnsNormally,
       );
@@ -592,6 +576,14 @@ void main() {
           'classId': classId,
           'propertySchemaId': schemaId,
           'required': 'yes',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('class.property.set', {
+          'classId': classId,
+          'propertySchemaId': schemaId,
+          'readonly': false,
         }),
         throwsFormatException,
       );

@@ -1172,14 +1172,12 @@ class RelayAppliers {
       schemaId: schemaId,
       incoming: incoming,
       sequence: (payload['sequence'] as num?)?.toInt(),
+      // §34.90: the binding carries ONLY the per-class mechanics — required
+      // (the owner's exception) rides the row LWW; readonly/hideWhenEmpty/
+      // display are PROPERTY-level (propertySchema.create/update).
       required: payload['required'] as bool?,
-      readonly: payload['readonly'] as bool?,
-      hideWhenEmpty: payload['hideWhenEmpty'] as bool?,
       // PC4: the soft-unbind flag rides the row LWW (absent = keep).
       active: payload['active'] as bool?,
-      // §34.89: the value-display position rides the row LWW (absent = keep;
-      // a stored NULL/'panel' means the properties section only).
-      display: payload['display'] as String?,
       defaultValueJson: hasDefault
           ? jsonEncode(payload.containsKey('defaultValue')
               ? payload['defaultValue']
@@ -1286,6 +1284,12 @@ class RelayAppliers {
         numberPad: payload['numberPad'] as int?,
         numberDecimals: payload['numberDecimals'] as int?,
         numberRounding: payload['numberRounding'] as String?,
+        // §34.90 (owner review 2026-10-05): the render contracts are
+        // PROPERTY-level — the display position + readonly/hideWhenEmpty
+        // ride the schema row (absent = the 'panel'/unset defaults).
+        display: payload['display'] as String?,
+        readonly: payload['readonly'] as bool? ?? false,
+        hideWhenEmpty: payload['hideWhenEmpty'] as bool? ?? false,
       ),
     );
   }
@@ -1294,10 +1298,11 @@ class RelayAppliers {
     final propertySchemaId = payload['propertySchemaId'] as String;
     final existing = await _cache.getPropertySchemaRow(propertySchemaId);
     if (existing == null) {
-      throw NodeNotFoundError(
-        'propertySchema.update: schema $propertySchemaId does not exist',
-        'propertySchema.update',
-      );
+      // TS parity (appliers.ts applyPropertySchemaUpdate): a plain UPDATE
+      // silently affects no rows when the schema doesn't exist yet — replay
+      // orders that deliver the update before the create converge instead of
+      // throwing (the class-property-active fixture replays both orders).
+      return false;
     }
     await _cache.upsertPropertySchema(
       PropertySchemaRow(
@@ -1312,7 +1317,8 @@ class RelayAppliers {
                   const []
             : existing.options,
         // v2 propertySchema.update carries name/options/datePrecision/
-        // dateQualified; everything else is preserved from the stored row.
+        // dateQualified/number formats/§34.90 render contracts; everything
+        // else is preserved from the stored row.
         type: existing.type,
         multi: existing.multi,
         isSystem: existing.isSystem,
@@ -1321,8 +1327,6 @@ class RelayAppliers {
         iconVisibility: existing.iconVisibility,
         validationRules: existing.validationRules,
         required: existing.required,
-        readonly: existing.readonly,
-        hideWhenEmpty: existing.hideWhenEmpty,
         defaultValue: existing.defaultValue,
         classFilterUuids: existing.classFilterUuids,
         computed: existing.computed,
@@ -1343,6 +1347,18 @@ class RelayAppliers {
         numberRounding: payload.containsKey('numberRounding')
             ? payload['numberRounding'] as String?
             : existing.numberRounding,
+        // §34.90 render contracts (PROPERTY-level): the same keep/clear
+        // contract as the number formats (absent keeps, present null
+        // clears; `required` is NOT here — it stays on the class binding).
+        display: payload.containsKey('display')
+            ? payload['display'] as String?
+            : existing.display,
+        readonly: payload.containsKey('readonly')
+            ? (payload['readonly'] as bool?) ?? false
+            : existing.readonly,
+        hideWhenEmpty: payload.containsKey('hideWhenEmpty')
+            ? (payload['hideWhenEmpty'] as bool?) ?? false
+            : existing.hideWhenEmpty,
       ),
     );
     return true;
@@ -1476,6 +1492,11 @@ class RelayAppliers {
                 if (option['color'] != null) 'color': option['color'],
               },
           ],
+          // §34.90 (owner review 2026-10-05): the display position is
+          // PROPERTY-level — the Status schema defaults to 'bullet' (its
+          // value rides the block bullet as an icon button); the rest stay
+          // in the properties panel (null).
+          display: entry.display,
           createdAt: envelope.timestamp,
           updatedAt: envelope.timestamp,
         ),
@@ -1484,9 +1505,6 @@ class RelayAppliers {
         classId: classId,
         schemaId: entry.schemaId,
         sequence: entry.sequence,
-        // §34.89: the Status binding defaults to the bullet position; the
-        // rest stay in the properties panel (null display).
-        display: entry.display,
       );
     }
   }

@@ -53,23 +53,30 @@ level: the Revision-11 render-state model (`is_class` + `present_as_main`), the
 `code_block` and `hr` content tokens, `embed_ref.view`), the §34.57
 property-wire batch (per-element property value ids, `class_property.active`,
 date-node-backed qualifiers), the §34.79 number formats (pad / decimals /
-rounding), and the §34.89 property-display batch — `class.property.set` gains
-the optional `display` position (`panel` | `bullet` | `inline`, strict,
-row-LWW patch, no null-clear; stored NULL = the `panel` default) and select
-options gain the optional `icon` (MDI name, ≤ 64 chars, on a deliberately
-non-strict option record so icon-carrying options sync through older parsers).
-The app DB carries the batch as **v25** (`class_property.display`). The
-block-bullet value button renders a bound select / multi_select / boolean
-value next to the bullet (or before the content, per the winning binding's
-display position) as its option's MDI icon tinted with the §34.43 color —
-unset reads as a dimmed hollow circle — and opens the bottom-sheet picker to
-author `property.set` / `property.unset` through the sync service; it is the
-first lockstep-batch surface this app writes (the rest parse and replay).
-Per the three-client lockstep law, pre-§34.89-released peers reject the
-`display` envelope outright — do not flip display settings or run the
-task-status restyle against a workspace older clients sync with. Releases use
-plain `vX.Y.Z` tags; the pubspec version tracks the same X.Y.Z (build number
-`X·1000000 + Y·10000 + Z·100`).
+rounding), and the §34.90 property-display batch — `propertySchema.create/
+update` gain the PROPERTY-level render contracts: the `display` position
+(`panel` | `bullet` | `inline`, nullable+optional — absent keeps, null clears;
+stored NULL = the `panel` default) plus `readonly` / `hideWhenEmpty` (same
+keep/clear contract). `class.property.set` keeps ONLY the genuinely per-class
+mechanics (`sequence`, `required` — the owner's deliberate exception, a
+property may be mandatory for one class and optional for another —
+`defaultValue`, `active`); its retired `readonly` / `hideWhenEmpty` and the
+never-released §34.89 binding-level `display` reject there like any retired
+key. Select options keep the §34.89 `icon` (MDI name, ≤ 64 chars, on a
+deliberately non-strict option record so icon-carrying options sync through
+older parsers). The app DB carries the batch as **v26** (`property_schema.display` + the
+rebuilt `class_property` without the retired columns). The
+block-bullet value button renders a select / multi_select / boolean value next
+to the bullet (or before the content, per the SCHEMA's display position — the
+same for every carrier, class-bound or not) as its option's MDI icon tinted
+with the §34.43 color — unset reads as a dimmed hollow circle — and opens the
+bottom-sheet picker to author `property.set` / `property.unset` through the
+sync service; it is the first lockstep-batch surface this app writes (the rest
+parse and replay). Per the three-client lockstep law, pre-§34.90-released
+peers reject the schema-side `display` envelope outright — do not flip display
+settings or run the task-status restyle against a workspace older clients sync
+with. Releases use plain `vX.Y.Z` tags; the pubspec version tracks the same
+X.Y.Z (build number `X·1000000 + Y·10000 + Z·100`).
 
 ## Advanced search & node picker
 

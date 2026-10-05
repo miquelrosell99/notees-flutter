@@ -641,7 +641,8 @@ void main() {
     });
   });
 
-  group('AppDatabase v24 → v25 migration (§34.89 binding display)', () {
+  group('AppDatabase v25 → v26 migration (§34.90 render contracts to the '
+      'property)', () {
     late Database ffiDb;
 
     setUp(() async {
@@ -650,8 +651,11 @@ void main() {
         ':memory:',
         options: OpenDatabaseOptions(singleInstance: false),
       );
-      // The v24 class_property shape: every column through the PC4 'active'
-      // flag (v22); 'display' arrives with v25 (§34.89).
+      // The v25 class_property shape: the §34.89 binding-level experiment
+      // (display) on top of the original shape (readonly/hide_when_empty).
+      // (property_schema is created by the chain at its current shape — its
+      // CREATE is not idempotent, so the display add-column guard is covered
+      // by the same _addColumnIfMissing helper as v24 rather than a fixture.)
       await ffiDb.execute('''
         CREATE TABLE class_property (
           class_id TEXT NOT NULL,
@@ -661,6 +665,7 @@ void main() {
           readonly INTEGER,
           hide_when_empty INTEGER,
           default_value TEXT,
+          display TEXT,
           hlc_physical INTEGER NOT NULL DEFAULT 0,
           hlc_logical INTEGER NOT NULL DEFAULT 0,
           actor_id TEXT,
@@ -675,33 +680,62 @@ void main() {
       AppDatabase.reset();
     });
 
-    test('adds class_property.display additively; existing binding rows '
-        'survive and applier writes round-trip', () async {
-      // A pre-v25 binding row already lives in the table.
+    test('rebuilds class_property without the retired columns (rows copy '
+        'verbatim, required + LWW survive) and adds property_schema.display; '
+        'schema display rides the effective read', () async {
+      // A pre-v26 binding row already lives in the table.
       await ffiDb.insert('class_property', {
         'class_id': '0192a000-0000-7000-8000-000000000900',
         'property_schema_id': '0192a000-0000-7000-8000-000000000901',
         'sequence': 7,
+        'required': 1,
+        'default_value': '"legacy"',
+        'readonly': 1,
+        'hide_when_empty': 1,
+        'display': 'inline',
         'active': 1,
-        'hlc_physical': 0,
-        'hlc_logical': 0,
+        'hlc_physical': 42,
+        'hlc_logical': 1,
+        'actor_id': 'legacy-actor',
       });
       final database = AppDatabase.fromDatabase(ffiDb);
       await database.initializeSchema();
-      final columns = await ffiDb.rawQuery('PRAGMA table_info(class_property)');
-      expect(columns.map((c) => c['name'] as String), contains('display'));
 
-      // The migration is additive: the stored row survives with its
-      // sequence, and the new column reads the 'panel' NULL default.
-      final pre = await ffiDb.rawQuery(
-        'SELECT sequence, display FROM class_property WHERE class_id = ?',
+      // class_property: rebuilt to the per-class mechanics ONLY.
+      final columns = await ffiDb.rawQuery('PRAGMA table_info(class_property)');
+      final names = columns.map((c) => c['name'] as String).toList();
+      expect(names, contains('required'));
+      expect(names, contains('default_value'));
+      expect(names, contains('active'));
+      expect(names, contains('hlc_physical'));
+      expect(names, isNot(contains('readonly')));
+      expect(names, isNot(contains('hide_when_empty')));
+      expect(names, isNot(contains('display')));
+      // The surviving row copies verbatim (retired values dropped, LWW kept).
+      final migrated = await ffiDb.rawQuery(
+        'SELECT sequence, required, default_value, active, hlc_physical, '
+        'hlc_logical, actor_id FROM class_property WHERE class_id = ?',
         ['0192a000-0000-7000-8000-000000000900'],
       );
-      expect(pre.single['sequence'], 7);
-      expect(pre.single['display'], isNull);
+      expect(migrated.single['sequence'], 7);
+      expect(migrated.single['required'], 1);
+      expect(migrated.single['default_value'], '"legacy"');
+      expect(migrated.single['active'], 1);
+      expect(migrated.single['hlc_physical'], 42);
+      expect(migrated.single['hlc_logical'], 1);
+      expect(migrated.single['actor_id'], 'legacy-actor');
 
-      // A §34.89 display write lands through the applier on the migrated
-      // table and reads back on the effective row.
+      // property_schema: created by the chain at its current shape — the
+      // display column is present for the schema-side write below.
+      final schemaColumns =
+          await ffiDb.rawQuery('PRAGMA table_info(property_schema)');
+      expect(
+        schemaColumns.map((c) => c['name'] as String),
+        contains('display'),
+      );
+
+      // A §34.90 schema-side display write lands through the applier on the
+      // migrated tables and reads back on the effective row.
       const classId = '0192a000-0000-7000-8000-000000000901';
       const schemaId = '0192a000-0000-7000-8000-000000000902';
       const nodeId = '0192a000-0000-7000-8000-000000000903';
@@ -714,41 +748,49 @@ void main() {
         deviceId: 'migration-test-device',
         hlc: const Hlc(physical: 1000, logical: 0),
         affectedNodeIds: const [classId],
-        opType: 'class.property.set',
-        payload: OperationPayloads.classPropertySet(
-          classId: classId,
+        opType: 'propertySchema.create',
+        payload: OperationPayloads.propertySchemaCreate(
           propertySchemaId: schemaId,
-          // No schema row exists in this minimal migration fixture — the
-          // PC2 type check skips (schemaType null) and the default derives
-          // the effective row below.
-          defaultValue: 'x',
+          name: 'Stage',
+          type: 'select',
           display: 'bullet',
         ),
         timestamp: '2026-09-24T12:00:00.000Z',
       ));
-      final rows = await ffiDb.rawQuery(
-        'SELECT display, active FROM class_property WHERE class_id = ? AND property_schema_id = ?',
-        [classId, schemaId],
-      );
-      expect(rows.single['display'], 'bullet');
-      expect(rows.single['active'], 1); // the v22 default rides intact
-
-      // The effective read exposes the display on the derived default row's
-      // winning binding.
       await appliers.apply(OperationEnvelope(
         id: '0192a000-0000-7000-8000-000000000911',
         workspaceId: '0192a000-0000-7000-8000-000000000001',
         actorId: '0192a000-0000-7000-8000-000000000002',
         deviceId: 'migration-test-device',
         hlc: const Hlc(physical: 1100, logical: 0),
+        affectedNodeIds: const [classId],
+        opType: 'class.property.set',
+        payload: OperationPayloads.classPropertySet(
+          classId: classId,
+          propertySchemaId: schemaId,
+          defaultValue: 'x',
+        ),
+        timestamp: '2026-09-24T12:00:01.000Z',
+      ));
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-000000000912',
+        workspaceId: '0192a000-0000-7000-8000-000000000001',
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'migration-test-device',
+        hlc: const Hlc(physical: 1200, logical: 0),
         affectedNodeIds: const [nodeId],
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: nodeId,
           classIds: const [classId],
         ),
-        timestamp: '2026-09-24T12:00:01.000Z',
+        timestamp: '2026-09-24T12:00:02.000Z',
       ));
+      final rows = await ffiDb.rawQuery(
+        'SELECT display FROM property_schema WHERE uuid = ?',
+        [schemaId],
+      );
+      expect(rows.single['display'], 'bullet');
       final effective = await cache.getEffectiveProperties(nodeId);
       expect(effective.single.display, 'bullet');
     });

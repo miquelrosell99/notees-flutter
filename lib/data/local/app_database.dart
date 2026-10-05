@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 25,
+          version: 26,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 25,
+      version: 26,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -119,7 +119,7 @@ class AppDatabase {
     await _migrateV22(db);
     await _migrateV23(db);
     await _migrateV24(db);
-    await _migrateV25(db);
+    await _migrateV26(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -199,19 +199,61 @@ class AppDatabase {
     if (oldVersion < 24) {
       await _migrateV24(db);
     }
-    if (oldVersion < 25) {
-      await _migrateV25(db);
+    if (oldVersion < 26) {
+      await _migrateV26(db);
     }
   }
 
-  /// v25 — §34.89 binding display position + option icon (lockstep with the
-  /// TS store schema v12→v13): `class_property.display` — where a bound
-  /// select/multi_select (or boolean) value renders on a block row
-  /// ('panel' | 'bullet' | 'inline'; NULL = the 'panel' default — the
-  /// properties panel only). The column guard keeps it idempotent for
-  /// databases that already carry it (a fresh v25 create).
-  Future<void> _migrateV25(Database db) async {
-    await _addColumnIfMissing(db, 'class_property', 'display', 'TEXT');
+  /// v26 — §34.90 (owner review 2026-10-05 — the render contracts move from
+  /// the binding to the property; supersedes the never-shipped v25
+  /// experiment, folded away like the TS store's v13→v14):
+  ///  (1) `property_schema.display` — where a select/multi_select (or
+  ///      boolean) value renders on a block row ('panel' | 'bullet' |
+  ///      'inline'; NULL = the 'panel' default). `readonly`/
+  ///      `hide_when_empty` already ride the legacy v1 columns (NOT NULL 0 =
+  ///      unset) — only the position is new. Both guards keep the migration
+  ///      idempotent for databases that already carry them.
+  ///  (2) `class_property` is REBUILT without the retired binding columns
+  ///      (readonly/hide_when_empty from the original shape, display from the
+  ///      v25 experiment — the v23 property_value rebuild precedent: same
+  ///      surviving columns, rows copy verbatim, indexes recreated).
+  ///      `required` SURVIVES on the row — the owner's per-class exception.
+  Future<void> _migrateV26(Database db) async {
+    await _addColumnIfMissing(db, 'property_schema', 'display', 'TEXT');
+    final columns = await db.rawQuery('PRAGMA table_info(class_property)');
+    final names = columns.map((c) => c['name'] as String).toSet();
+    if (names.contains('display') ||
+        names.contains('hide_when_empty') ||
+        names.contains('readonly')) {
+      await db.execute('''
+        CREATE TABLE class_property_v26 (
+          class_id TEXT NOT NULL,
+          property_schema_id TEXT NOT NULL,
+          sequence INTEGER NOT NULL DEFAULT 0,
+          required INTEGER,
+          default_value TEXT,
+          active INTEGER NOT NULL DEFAULT 1,
+          hlc_physical INTEGER NOT NULL DEFAULT 0,
+          hlc_logical INTEGER NOT NULL DEFAULT 0,
+          actor_id TEXT,
+          PRIMARY KEY (class_id, property_schema_id)
+        )
+      ''');
+      await db.execute('''
+        INSERT INTO class_property_v26 (
+          class_id, property_schema_id, sequence, required, default_value, active,
+          hlc_physical, hlc_logical, actor_id
+        )
+        SELECT class_id, property_schema_id, sequence, required, default_value, active,
+               hlc_physical, hlc_logical, actor_id
+        FROM class_property
+      ''');
+      await db.execute('DROP TABLE class_property');
+      await db.execute('ALTER TABLE class_property_v26 RENAME TO class_property');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_class_property_schema ON class_property(property_schema_id)',
+      );
+    }
   }
 
   /// v24 — number display formatting (SCHEMA.md "Number formats", §34.79
@@ -609,13 +651,13 @@ class AppDatabase {
     );
   }
 
-  /// Class → property-schema bindings (SCHEMA.md "Class properties"):
-  /// configuration rows (sequence, required, readonly, hideWhenEmpty,
-  /// defaultValue, active, display) authored by class.property.set/unset.
-  /// `display` (§34.89): the value-display position — NULL/'panel' = the
-  /// properties section only; 'bullet' rides the block bullet as an icon
-  /// button; 'inline' renders before the block content. The legacy
-  /// `class_property_edge` table (v1 UI read model) stays untouched.
+  /// Class → property-schema bindings (SCHEMA.md "Class properties"): the
+  /// genuinely per-class mechanics ONLY (sequence, required, defaultValue,
+  /// active) since §34.90 moved the render contracts (readonly/
+  /// hideWhenEmpty/display) to the property schema. §34.90: `required` is
+  /// the owner's deliberate exception — a property may be mandatory for one
+  /// class, optional for another. The legacy `class_property_edge` table
+  /// (v1 UI read model) stays untouched.
   Future<void> _createClassProperty(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS class_property (
@@ -623,10 +665,8 @@ class AppDatabase {
         property_schema_id TEXT NOT NULL,
         sequence INTEGER NOT NULL DEFAULT 0,
         required INTEGER,
-        readonly INTEGER,
-        hide_when_empty INTEGER,
         default_value TEXT,
-        display TEXT,
+        active INTEGER NOT NULL DEFAULT 1,
         hlc_physical INTEGER NOT NULL DEFAULT 0,
         hlc_logical INTEGER NOT NULL DEFAULT 0,
         actor_id TEXT,
@@ -1110,6 +1150,10 @@ class AppDatabase {
         required INTEGER NOT NULL DEFAULT 0,
         readonly INTEGER NOT NULL DEFAULT 0,
         hide_when_empty INTEGER NOT NULL DEFAULT 0,
+        -- §34.90: the value-display position (panel|bullet|inline; NULL =
+        -- the 'panel' default) — PROPERTY-level, like the readonly/
+        -- hide-when-empty flags above (legacy v1 NOT NULL columns; 0 = unset).
+        display TEXT,
         default_value TEXT,
         class_filter_uuids TEXT NOT NULL DEFAULT '[]',
         options TEXT NOT NULL DEFAULT '[]',
@@ -1180,7 +1224,7 @@ class AppDatabase {
     await _migrateV22(db);
     await _migrateV23(db);
     await _migrateV24(db);
-    await _migrateV25(db);
+    await _migrateV26(db);
   }
 
   Future<int> enqueue(String method, String payload) async {
