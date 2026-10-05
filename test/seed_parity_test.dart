@@ -190,13 +190,12 @@ void main() {
     test('emits the citations-revision classes, extends, and property specs',
         () async {
       final emitted =
-          await LocalWorkspaceSeed(syncService).ensureLocalWorkspace(
-        displayName: 'Local user',
-      );
+          await LocalWorkspaceSeed(syncService).ensureLocalWorkspace();
       // 25 class.create + 3 class.setExtends + 1 propertySchema.create +
       // 1 class.property.set (authors, node-typed per the FINAL reversion)
-      // + 2 object.create (pages).
-      expect(emitted, 32);
+      // + 1 object.create (Inbox; the scratchpad seed was withdrawn
+      // 2026-10-05, §34.81).
+      expect(emitted, 31);
 
       final db = await database.database;
 
@@ -250,8 +249,7 @@ void main() {
 
       // Idempotent re-run emits nothing.
       expect(
-        await LocalWorkspaceSeed(syncService)
-            .ensureLocalWorkspace(displayName: 'Local user'),
+        await LocalWorkspaceSeed(syncService).ensureLocalWorkspace(),
         0,
       );
     });

@@ -326,9 +326,7 @@ class AuthProvider extends ChangeNotifier {
     _activeWorkspaceId = workspaceId;
     try {
       await sync.setWorkspaceId(workspaceId);
-      await LocalWorkspaceSeed(sync).ensureLocalWorkspace(
-        displayName: _localDisplayName,
-      );
+      await LocalWorkspaceSeed(sync).ensureLocalWorkspace();
     } on MissingPluginException {
       // The platform reports a supported database (e.g. test hosts reporting
       // Android) but the sqlcipher plugin is absent. Degrade to a session

@@ -6,8 +6,10 @@ import './sync_v2_service.dart';
 /// Client-side local workspace seed for offline (serverless) mode.
 ///
 /// Mirrors the web client's seed and the server seed: emits `class.create`
-/// for every system class, then `object.create` for the Inbox and the user's
-/// personal page (scratchpad).
+/// for every system class, then `object.create` for the Inbox. (The
+/// scratchpad page the local seed used to mint as a personal page was
+/// withdrawn 2026-10-05 per §34.81 of the main repo's plan — "not wanted";
+/// the web/server seed no longer creates it either.)
 ///
 /// Ops go through the normal outbox/applier path ([SyncV2Service.emitLocal]),
 /// so the local derived state matches what a server-seeded workspace would
@@ -85,7 +87,7 @@ class LocalWorkspaceSeed {
   /// Entries that already exist in the local store (e.g. a previously seeded
   /// or server-synced workspace) are skipped, so re-running emits nothing.
   /// Returns the number of seed operations emitted (0 when already seeded).
-  Future<int> ensureLocalWorkspace({required String displayName}) async {
+  Future<int> ensureLocalWorkspace() async {
     var emitted = 0;
 
     for (final entry in systemClassNames.entries) {
@@ -153,7 +155,6 @@ class LocalWorkspaceSeed {
 
     final pages = <String, String>{
       'Inbox': SystemPageUuids.inbox,
-      displayName: SystemPageUuids.scratchpad,
     };
     for (final entry in pages.entries) {
       final pageId = entry.value;

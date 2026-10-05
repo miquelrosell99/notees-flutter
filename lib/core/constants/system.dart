@@ -122,6 +122,9 @@ class TaskStatuses {
 class SystemPageUuids {
   SystemPageUuids._();
 
-  static const String scratchpad = '00000000-0000-0000-0002-000000000001';
+  // §34.81 of the main repo's plan (owner 2026-10-05): the scratchpad page
+  // (00000000-0000-0000-0002-000000000001) is WITHDRAWN — "not wanted". No
+  // longer seeded; the UUID is never reused. Pre-withdrawal workspaces keep
+  // the page as an ordinary node.
   static const String inbox = '00000000-0000-0000-0002-000000000002';
 }
