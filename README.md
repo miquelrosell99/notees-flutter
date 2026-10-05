@@ -50,12 +50,24 @@ built-in Kotlin releases.
 This app parses the Notees envelope-v3 operation log at the **3.0.0** protocol
 level: the Revision-11 render-state model (`is_class` + `present_as_main`), the
 §34.54 batch (`workspace.feature.set` for the five class-family toggles, the
-`code_block` and `hr` content tokens, `embed_ref.view`), and the §34.57
+`code_block` and `hr` content tokens, `embed_ref.view`), the §34.57
 property-wire batch (per-element property value ids, `class_property.active`,
-date-node-backed qualifiers). Per the three-client lockstep law these surfaces
-parse and replay but nothing in the app authors them yet — the Features
-settings UI, `/code` + `/hr` authoring, and the property-panel writes for the
-new shapes ride a later wave, after every client ships parsers. Releases use
+date-node-backed qualifiers), the §34.79 number formats (pad / decimals /
+rounding), and the §34.89 property-display batch — `class.property.set` gains
+the optional `display` position (`panel` | `bullet` | `inline`, strict,
+row-LWW patch, no null-clear; stored NULL = the `panel` default) and select
+options gain the optional `icon` (MDI name, ≤ 64 chars, on a deliberately
+non-strict option record so icon-carrying options sync through older parsers).
+The app DB carries the batch as **v25** (`class_property.display`). The
+block-bullet value button renders a bound select / multi_select / boolean
+value next to the bullet (or before the content, per the winning binding's
+display position) as its option's MDI icon tinted with the §34.43 color —
+unset reads as a dimmed hollow circle — and opens the bottom-sheet picker to
+author `property.set` / `property.unset` through the sync service; it is the
+first lockstep-batch surface this app writes (the rest parse and replay).
+Per the three-client lockstep law, pre-§34.89-released peers reject the
+`display` envelope outright — do not flip display settings or run the
+task-status restyle against a workspace older clients sync with. Releases use
 plain `vX.Y.Z` tags; the pubspec version tracks the same X.Y.Z (build number
 `X·1000000 + Y·10000 + Z·100`).
 

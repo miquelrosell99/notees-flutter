@@ -217,6 +217,47 @@ void main() {
       // re-enable after a client-authored schema change keeps the option.
       final schema = await cache.getPropertySchemaRow(SystemPropertyUuids.taskStatus);
       expect(schema!.options.first['label'], 'Backlog');
+
+      // §34.89: the designed status glyphs (owner-mandated icon + color set)
+      // seed with the schema; the Status binding defaults to the bullet
+      // position, the rest stay in the properties panel (NULL display).
+      expect(schema.options.map((o) => o['label']), [
+        'Backlog',
+        'Pending',
+        'Doing',
+        'Reviewing',
+        'Done',
+        'Cancelled',
+      ]);
+      expect(schema.options.map((o) => [o['icon'], o['color']]), [
+        ['mdiCircleOutline', 'gray'],
+        ['mdiCircle', 'yellow'],
+        ['mdiCircleHalfFull', 'orange'],
+        ['mdiEyeCircleOutline', 'blue'],
+        ['mdiCheckCircle', 'green'],
+        ['mdiCloseCircle', 'red'],
+      ]);
+      final bindings = await raw(
+        'SELECT property_schema_id, display FROM class_property '
+        'WHERE class_id = ? ORDER BY sequence',
+        [SystemClassUuids.task],
+      );
+      expect(bindings.map((b) => b['property_schema_id']), [
+        SystemPropertyUuids.taskStatus,
+        SystemPropertyUuids.taskScheduled,
+        SystemPropertyUuids.taskDeadline,
+        SystemPropertyUuids.taskPriority,
+        SystemPropertyUuids.taskClosedDate,
+        SystemPropertyUuids.taskRecurrence,
+      ]);
+      expect(bindings.map((b) => b['display']), [
+        'bullet',
+        null,
+        null,
+        null,
+        null,
+        null,
+      ]);
     });
 
     test('the ensure rides every enable payload, win or lose', () async {

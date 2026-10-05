@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 24,
+          version: 25,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 24,
+      version: 25,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -119,6 +119,7 @@ class AppDatabase {
     await _migrateV22(db);
     await _migrateV23(db);
     await _migrateV24(db);
+    await _migrateV25(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -198,6 +199,19 @@ class AppDatabase {
     if (oldVersion < 24) {
       await _migrateV24(db);
     }
+    if (oldVersion < 25) {
+      await _migrateV25(db);
+    }
+  }
+
+  /// v25 — §34.89 binding display position + option icon (lockstep with the
+  /// TS store schema v12→v13): `class_property.display` — where a bound
+  /// select/multi_select (or boolean) value renders on a block row
+  /// ('panel' | 'bullet' | 'inline'; NULL = the 'panel' default — the
+  /// properties panel only). The column guard keeps it idempotent for
+  /// databases that already carry it (a fresh v25 create).
+  Future<void> _migrateV25(Database db) async {
+    await _addColumnIfMissing(db, 'class_property', 'display', 'TEXT');
   }
 
   /// v24 — number display formatting (SCHEMA.md "Number formats", §34.79
@@ -597,7 +611,10 @@ class AppDatabase {
 
   /// Class → property-schema bindings (SCHEMA.md "Class properties"):
   /// configuration rows (sequence, required, readonly, hideWhenEmpty,
-  /// defaultValue) authored by class.property.set/unset. The legacy
+  /// defaultValue, active, display) authored by class.property.set/unset.
+  /// `display` (§34.89): the value-display position — NULL/'panel' = the
+  /// properties section only; 'bullet' rides the block bullet as an icon
+  /// button; 'inline' renders before the block content. The legacy
   /// `class_property_edge` table (v1 UI read model) stays untouched.
   Future<void> _createClassProperty(Database db) async {
     await db.execute('''
@@ -609,6 +626,7 @@ class AppDatabase {
         readonly INTEGER,
         hide_when_empty INTEGER,
         default_value TEXT,
+        display TEXT,
         hlc_physical INTEGER NOT NULL DEFAULT 0,
         hlc_logical INTEGER NOT NULL DEFAULT 0,
         actor_id TEXT,
@@ -1162,6 +1180,7 @@ class AppDatabase {
     await _migrateV22(db);
     await _migrateV23(db);
     await _migrateV24(db);
+    await _migrateV25(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

@@ -761,6 +761,51 @@ void main() {
       expect(property, isNull);
     });
 
+    test('§34.89: option icon rides verbatim through create and the '
+        'wholesale options update', () async {
+      const schemaUuid = '00000000-0000-0000-0000-0000000004a1';
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000004a1',
+        opType: 'propertySchema.create',
+        payload: OperationPayloads.propertySchemaCreate(
+          propertySchemaId: schemaUuid,
+          name: 'Status',
+          type: 'select',
+          options: const [
+            {'id': 'a', 'label': 'Open', 'icon': 'mdiCheckCircle', 'color': 'green'},
+            {'id': 'b', 'label': 'Shut'},
+          ],
+        ),
+      ));
+      var row = await cache.getPropertySchemaRow(schemaUuid);
+      expect(row!.options.first, {
+        'id': 'a',
+        'label': 'Open',
+        'icon': 'mdiCheckCircle',
+        'color': 'green',
+      });
+
+      // propertySchema.update carries a WHOLESALE options replace — the
+      // icons/colors ride verbatim into the stored JSON.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000004a2',
+        opType: 'propertySchema.update',
+        payload: OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: schemaUuid,
+          options: const [
+            {'id': 'a', 'label': 'Open', 'icon': 'mdiEyeCircleOutline', 'color': 'blue'},
+            {'id': 'c', 'label': 'New', 'icon': 'mdiCircle'},
+          ],
+        ),
+        physical: 2,
+      ));
+      row = await cache.getPropertySchemaRow(schemaUuid);
+      expect(row!.options, [
+        {'id': 'a', 'label': 'Open', 'icon': 'mdiEyeCircleOutline', 'color': 'blue'},
+        {'id': 'c', 'label': 'New', 'icon': 'mdiCircle'},
+      ]);
+    });
+
     test('object.delete permanent:true removes the node and its derived rows',
         () async {
       const nodeUuid = '00000000-0000-0000-0000-000000000701';

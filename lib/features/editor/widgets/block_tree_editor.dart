@@ -7,9 +7,101 @@ import '../../../core/constants/system.dart';
 import '../../../core/utils/ast_builder.dart';
 import '../../../core/utils/ast_stringifier.dart';
 import '../../../core/utils/color_presets.dart';
+import '../../../core/utils/node_icon.dart';
 import '../../../data/models/node.dart';
 import './asset_block_widget.dart';
 import './ast_rich_text.dart';
+
+/// §34.89: one select option of a display-positioned property. [icon] is a
+/// camelCase MDI name (absent = the tinted dot fallback); [color] is a
+/// §34.43 preset token or `#RRGGBB` hex.
+class BulletPropertyOption {
+  const BulletPropertyOption({
+    required this.id,
+    required this.label,
+    this.icon,
+    this.color,
+  });
+
+  final String id;
+  final String label;
+  final String? icon;
+  final String? color;
+}
+
+/// §34.89: one multi_select element carrier — the option ids written at one
+/// property idx (the effective read splits multi elements into per-element
+/// rows; toggles address the carrying row).
+class BulletPropertyElement {
+  const BulletPropertyElement({required this.idx, required this.ids});
+
+  final int idx;
+  final List<String> ids;
+}
+
+/// §34.89: one effective property value riding a block row. The host screen
+/// builds these from `getEffectiveProperties` for rows whose winning binding
+/// positions the value at 'bullet' (next to the bullet) or 'inline' (before
+/// the content) and whose schema type is select/multi_select/boolean.
+class BulletPropertyValue {
+  const BulletPropertyValue({
+    required this.propertySchemaId,
+    required this.label,
+    required this.display,
+    required this.type,
+    required this.required,
+    required this.options,
+    required this.selectedIds,
+    required this.elements,
+  });
+
+  final String propertySchemaId;
+
+  /// Schema display name (the sheet header + tooltip prefix).
+  final String label;
+
+  /// 'bullet' | 'inline'.
+  final String display;
+
+  /// 'select' | 'multi_select' | 'boolean'.
+  final String type;
+
+  /// The winning binding's required flag (hides the None clear row).
+  final bool required;
+
+  /// The schema's select options (empty in boolean mode — the two synthetic
+  /// true/false options replace them).
+  final List<BulletPropertyOption> options;
+
+  /// The chosen option ids in effective order ('true'/'false' for booleans);
+  /// empty = unset (renders the dimmed hollow circle).
+  final List<String> selectedIds;
+
+  /// Per-idx id carriers driving the multi_select toggles.
+  final List<BulletPropertyElement> elements;
+}
+
+/// One resolved §34.89 bullet-button write: the button computes the exact
+/// write (single/boolean/clear at idx 0; multi merges/toggles per carrying
+/// element idx) and the host performs it through the sync service.
+class BulletPropertyWrite {
+  const BulletPropertyWrite.set(
+    this.propertySchemaId,
+    this.value, {
+    this.idx = 0,
+  }) : unset = false;
+
+  const BulletPropertyWrite.unset(
+    this.propertySchemaId, {
+    this.idx = 0,
+  })  : value = null,
+        unset = true;
+
+  final String propertySchemaId;
+  final dynamic value;
+  final int idx;
+  final bool unset;
+}
 
 /// A single editable block in the outliner tree.
 class BlockNode {
@@ -78,6 +170,8 @@ class BlockTreeEditor extends StatefulWidget {
     this.onContentChanged,
     this.onToggleTask,
     this.linkColors,
+    this.bulletProperties = const {},
+    this.onBulletPropertyWrite,
   });
 
   final List<BlockNode> roots;
@@ -141,6 +235,17 @@ class BlockTreeEditor extends StatefulWidget {
 
   /// Data colors for link targets (node/class uuid → color).
   final Map<String, Color>? linkColors;
+
+  /// §34.89: the display-positioned property values per block node uuid
+  /// ('bullet' rides next to the bullet, 'inline' before the content). The
+  /// host screen resolves these through `getEffectiveProperties`.
+  final Map<String, List<BulletPropertyValue>> bulletProperties;
+
+  /// §34.89 write path: invoked with the resolved write when the user picks
+  /// an option (or the None row) on a value button. Null = read-only
+  /// projection — the current icon renders but never opens the sheet.
+  final Future<void> Function(BlockNode node, BulletPropertyWrite write)?
+  onBulletPropertyWrite;
 
   @override
   BlockTreeEditorState createState() => BlockTreeEditorState();
@@ -359,6 +464,18 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     final isTask = node.node.isTask;
     final isTaskDone = _isTaskDone(node);
 
+    // §34.89 value-display buttons: the bullet group hugs the bullet, the
+    // inline group hugs the content (mirrors the web BlockRow). In read-only
+    // projections (no write handler) the icons render but open nothing.
+    final displayProps = widget.bulletProperties[node.node.uuid] ??
+        const <BulletPropertyValue>[];
+    final bulletProps = displayProps
+        .where((p) => p.display == 'bullet')
+        .toList();
+    final inlineProps = displayProps
+        .where((p) => p.display == 'inline')
+        .toList();
+
     Widget content = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -388,6 +505,20 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
                   colors: colors,
                 ),
         ),
+        for (final prop in bulletProps)
+          _BulletPropertyButton(
+            node: node,
+            value: prop,
+            onWrite: widget.onBulletPropertyWrite,
+            colors: colors,
+          ),
+        for (final prop in inlineProps)
+          _BulletPropertyButton(
+            node: node,
+            value: prop,
+            onWrite: widget.onBulletPropertyWrite,
+            colors: colors,
+          ),
         Expanded(child: field),
         if (isFocused)
           IconButton(
@@ -1182,6 +1313,230 @@ class _Bullet extends StatelessWidget {
                   ),
                 ),
         ),
+      ),
+    );
+  }
+}
+
+/// §34.89 boolean mode: the owner-specified synthetic options — the checked
+/// circle (green) for true, the hollow circle (gray) for false. The option
+/// ids are the JSON boolean spelled out; writes translate back.
+const BulletPropertyOption _booleanTrueOption = BulletPropertyOption(
+  id: 'true',
+  label: 'True',
+  icon: 'mdiCheckCircle',
+  color: 'green',
+);
+const BulletPropertyOption _booleanFalseOption = BulletPropertyOption(
+  id: 'false',
+  label: 'False',
+  icon: 'mdiCircleOutline',
+  color: 'gray',
+);
+
+/// §34.89: the block-row value button (the Logseq-DB "beginning of the
+/// block" port). Shows the FIRST selected option's MDI icon tinted with its
+/// color — the at-a-glance state read; an unset value renders a dimmed
+/// hollow circle so a fresh value can be given in place. Tapping opens the
+/// option sheet (icon tinted + label + checkmark; booleans list True/False;
+/// a None row clears when the binding isn't required and a value is set).
+/// Read-only projections (no [onWrite]) render the icon but never open the
+/// sheet.
+class _BulletPropertyButton extends StatelessWidget {
+  const _BulletPropertyButton({
+    required this.node,
+    required this.value,
+    required this.onWrite,
+    required this.colors,
+  });
+
+  final BlockNode node;
+  final BulletPropertyValue value;
+  final Future<void> Function(BlockNode node, BulletPropertyWrite write)?
+  onWrite;
+  final ColorScheme colors;
+
+  bool get _isBoolean => value.type == 'boolean';
+
+  List<BulletPropertyOption> get _displayOptions => _isBoolean
+      ? const [_booleanTrueOption, _booleanFalseOption]
+      : value.options;
+
+  BulletPropertyOption? get _currentOption {
+    if (value.selectedIds.isEmpty) return null;
+    final id = value.selectedIds.first;
+    for (final option in _displayOptions) {
+      if (option.id == id) return option;
+    }
+    return null;
+  }
+
+  /// The exact write one pick resolves to (mirrors the web
+  /// PropertyIconButton.choose): booleans and single-select replace at
+  /// idx 0; multi_select toggles within the carrying element's array
+  /// (clearing the element when the last id leaves).
+  BulletPropertyWrite _resolveWrite(String optionId) {
+    if (_isBoolean) {
+      return BulletPropertyWrite.set(
+        value.propertySchemaId,
+        optionId == 'true',
+        idx: 0,
+      );
+    }
+    if (value.type == 'multi_select') {
+      final carrying = value.elements
+          .where((e) => e.ids.contains(optionId))
+          .firstOrNull;
+      if (carrying != null) {
+        final remaining =
+            carrying.ids.where((id) => id != optionId).toList();
+        if (remaining.isNotEmpty) {
+          return BulletPropertyWrite.set(
+            value.propertySchemaId,
+            remaining,
+            idx: carrying.idx,
+          );
+        }
+        return BulletPropertyWrite.unset(
+          value.propertySchemaId,
+          idx: carrying.idx,
+        );
+      }
+      final merged = <String>[
+        for (final id in value.selectedIds)
+          if (id != optionId) id,
+        optionId,
+      ];
+      return BulletPropertyWrite.set(
+        value.propertySchemaId,
+        merged,
+        idx: value.elements.isEmpty ? 0 : value.elements.first.idx,
+      );
+    }
+    return BulletPropertyWrite.set(value.propertySchemaId, optionId, idx: 0);
+  }
+
+  /// The option glyph: its MDI icon tinted with the option color, or the
+  /// tinted dot when the option declares no icon.
+  Widget _glyph(BulletPropertyOption? option, {required bool unset}) {
+    if (unset) {
+      return Icon(
+        MdiIcons.circleOutline,
+        size: 18,
+        color: colors.onSurfaceVariant.withAlpha((0.45 * 255).round()),
+      );
+    }
+    if (option == null) return const SizedBox(width: 18, height: 18);
+    final color = ColorPresets.tryResolve(option.color) ?? colors.onSurfaceVariant;
+    final iconData = mdiFromName(option.icon);
+    if (iconData != null) {
+      return Icon(iconData, size: 18, color: color);
+    }
+    return Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+  }
+
+  void _openSheet(BuildContext context) {
+    final handler = onWrite;
+    if (handler == null) return;
+    HapticFeedback.lightImpact();
+    final tooltip = _currentOption == null
+        ? '${value.label}: none'
+        : '${value.label}: ${_currentOption!.label}';
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  tooltip,
+                  style: Theme.of(
+                    ctx,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            if (_displayOptions.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No options.',
+                  style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            for (final option in _displayOptions)
+              Builder(
+                builder: (itemCtx) {
+                  final selected = value.selectedIds.contains(option.id);
+                  return ListTile(
+                    leading: _glyph(option, unset: false),
+                    title: Text(option.label),
+                    trailing: selected
+                        ? Icon(MdiIcons.check, color: colors.primary)
+                        : null,
+                    onTap: () async {
+                      Navigator.of(itemCtx).pop();
+                      await handler(node, _resolveWrite(option.id));
+                    },
+                  );
+                },
+              ),
+            if (!value.required && value.selectedIds.isNotEmpty)
+              Builder(
+                builder: (itemCtx) => ListTile(
+                  leading: _glyph(null, unset: true),
+                  title: const Text('None'),
+                  onTap: () async {
+                    Navigator.of(itemCtx).pop();
+                    await handler(
+                      node,
+                      BulletPropertyWrite.unset(value.propertySchemaId),
+                    );
+                  },
+                ),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final unset = value.selectedIds.isEmpty;
+    final tooltip = _currentOption == null
+        ? '${value.label}: none'
+        : '${value.label}: ${_currentOption!.label}';
+    final glyph = _glyph(_currentOption, unset: unset);
+    final handler = onWrite;
+    if (handler == null) {
+      return SizedBox(
+        width: 28,
+        height: 44,
+        child: Center(child: glyph),
+      );
+    }
+    return GestureDetector(
+      onTap: () => _openSheet(context),
+      behavior: HitTestBehavior.opaque,
+      child: Tooltip(
+        message: tooltip,
+        child: SizedBox(width: 28, height: 44, child: Center(child: glyph)),
       ),
     );
   }
