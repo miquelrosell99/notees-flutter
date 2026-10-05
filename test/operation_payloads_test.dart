@@ -239,6 +239,77 @@ void main() {
       );
     });
 
+    test('number formats: create accepts, validates ranges/enum; update keep/clear', () {
+      final created = OperationPayloads.propertySchemaCreate(
+        propertySchemaId: classId,
+        name: 'Dex number',
+        type: 'number',
+        numberPad: 4,
+        numberDecimals: 1,
+        numberRounding: 'floor',
+      );
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', created),
+        returnsNormally,
+      );
+      expect(created['numberPad'], 4);
+      expect(created['numberDecimals'], 1);
+      expect(created['numberRounding'], 'floor');
+
+      // Range and enum enforcement mirror the TS reference.
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', {
+          'propertySchemaId': classId,
+          'name': 'x',
+          'type': 'number',
+          'numberPad': 0,
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', {
+          'propertySchemaId': classId,
+          'name': 'x',
+          'type': 'number',
+          'numberDecimals': 11,
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', {
+          'propertySchemaId': classId,
+          'name': 'x',
+          'type': 'number',
+          'numberRounding': 'sideways',
+        }),
+        throwsFormatException,
+      );
+
+      // update carries the fields; an explicit null clear validates too.
+      final updated = OperationPayloads.propertySchemaUpdate(
+        propertySchemaId: classId,
+        numberDecimals: 2,
+      );
+      expect(updated['numberDecimals'], 2);
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.update', {
+          'propertySchemaId': classId,
+          'numberPad': null,
+        }),
+        returnsNormally,
+      );
+      // Unknown keys stay rejected (strict validator).
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', {
+          'propertySchemaId': classId,
+          'name': 'x',
+          'type': 'number',
+          'numberPadded': 4,
+        }),
+        throwsFormatException,
+      );
+    });
+
     test('asset.attach enforces the 64-char hash', () {
       expect(
         () => OperationPayloads.assetAttach(

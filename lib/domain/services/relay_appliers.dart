@@ -1278,6 +1278,11 @@ class RelayAppliers {
         // PC6 normalize-on-write consults dateQualified on property.set.
         datePrecision: payload['datePrecision'] as String?,
         dateQualified: payload['dateQualified'] as bool?,
+        // SCHEMA.md "Number formats" (§34.79 lockstep): display-only
+        // formatting for number schemas.
+        numberPad: payload['numberPad'] as int?,
+        numberDecimals: payload['numberDecimals'] as int?,
+        numberRounding: payload['numberRounding'] as String?,
       ),
     );
   }
@@ -1324,6 +1329,17 @@ class RelayAppliers {
         dateQualified: payload.containsKey('dateQualified')
             ? payload['dateQualified'] as bool?
             : existing.dateQualified,
+        // §34.79 number formats: absent keeps, explicit null clears
+        // (containsKey distinguishes the two).
+        numberPad: payload.containsKey('numberPad')
+            ? payload['numberPad'] as int?
+            : existing.numberPad,
+        numberDecimals: payload.containsKey('numberDecimals')
+            ? payload['numberDecimals'] as int?
+            : existing.numberDecimals,
+        numberRounding: payload.containsKey('numberRounding')
+            ? payload['numberRounding'] as String?
+            : existing.numberRounding,
       ),
     );
     return true;
