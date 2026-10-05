@@ -2332,17 +2332,20 @@ class NodeCacheRepository {
   /// seed-ensure). Authored with zero HLC columns — the row is a
   /// deterministic seed artifact, not a content write; a user flip on the
   /// same row later wins by HLC without clobbering (the "(Own row wins over
-  /// seeds)" contract).
+  /// seeds)" contract). [display] (§34.89) seeds the value-display position
+  /// ('bullet' for the task Status binding; null elsewhere).
   Future<void> insertClassPropertyBindingIfAbsent({
     required String classId,
     required String schemaId,
     required int sequence,
+    String? display,
   }) async {
     final db = await _database.database;
     await db.insert('class_property', {
       'class_id': classId,
       'property_schema_id': schemaId,
       'sequence': sequence,
+      'display': display,
       'hlc_physical': 0,
       'hlc_logical': 0,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
@@ -3332,7 +3335,9 @@ class NodeCacheRepository {
   /// patch, port of the SQL COALESCE); [defaultValueJson] is the JSON-encoded
   /// default (null = leave untouched — JSON-null defaults ride raw maps).
   /// [active] (PC4) is the soft-unbind flag: omitted keeps the stored flag;
-  /// a NEW row defaults to active.
+  /// a NEW row defaults to active. [display] (§34.89) is the value-display
+  /// position ('panel' | 'bullet' | 'inline'): omitted keeps the stored
+  /// position; a NEW row stores NULL = 'panel'.
   Future<void> upsertClassPropertyBinding({
     required String classId,
     required String schemaId,
@@ -3342,6 +3347,7 @@ class NodeCacheRepository {
     bool? readonly,
     bool? hideWhenEmpty,
     bool? active,
+    String? display,
     String? defaultValueJson,
   }) async {
     final db = await _database.database;
@@ -3369,6 +3375,7 @@ class NodeCacheRepository {
         'active': active == null
             ? (stored['active'] as num?) ?? 1
             : (active ? 1 : 0),
+        'display': display ?? stored['display'],
         'hlc_physical': incoming.physical,
         'hlc_logical': incoming.logical,
         'actor_id': incoming.actor,
@@ -3542,6 +3549,11 @@ class NodeCacheRepository {
 
     bool? flag(dynamic value) => value == null ? null : value == 1;
 
+    // §34.89: sanitize the stored position — only 'bullet'/'inline' surface
+    // (NULL/'panel'/unknown = null, the 'panel' default read).
+    String? displayOf(dynamic value) =>
+        value == 'bullet' || value == 'inline' ? value as String : null;
+
     // 5. Merge: authored wins per (schema, idx, ELEMENT — PG5: rows at the
     //    same idx are distinct elements and all surface); a winning ACTIVE
     //    binding with a default and no authored value at idx 0 derives a
@@ -3569,6 +3581,9 @@ class NodeCacheRepository {
         sequence: winner == null
             ? null
             : (winner.binding['sequence'] as num?)?.toInt(),
+        // §34.89: the winning binding's display rides authored AND derived
+        // rows; unbound rows read null.
+        display: winner == null ? null : displayOf(winner.binding['display']),
       );
     }
     for (final entry in winnerBySchema.entries) {
@@ -3604,6 +3619,7 @@ class NodeCacheRepository {
         readonly: flag(winner.binding['readonly']),
         hideWhenEmpty: flag(winner.binding['hide_when_empty']),
         sequence: (winner.binding['sequence'] as num?)?.toInt(),
+        display: displayOf(winner.binding['display']),
       );
     }
 
@@ -4605,6 +4621,7 @@ class EffectiveProperty {
     required this.readonly,
     required this.hideWhenEmpty,
     required this.sequence,
+    required this.display,
   });
 
   final String propertySchemaId;
@@ -4623,6 +4640,12 @@ class EffectiveProperty {
   final bool? readonly;
   final bool? hideWhenEmpty;
   final int? sequence;
+
+  /// §34.89: the winning binding's value-display position — 'bullet' rides
+  /// the block bullet as an icon button, 'inline' renders before the block
+  /// content, null = 'panel' (the properties section only). Sanitized at the
+  /// read: only 'bullet'/'inline' surface.
+  final String? display;
 }
 
 dynamic _decodeJsonOrRaw(String raw) {
