@@ -73,6 +73,9 @@ class PropertySchemaRow {
     this.computed,
     this.datePrecision,
     this.dateQualified,
+    this.numberPad,
+    this.numberDecimals,
+    this.numberRounding,
     this.active = true,
     this.createdAt,
     this.updatedAt,
@@ -102,6 +105,11 @@ class PropertySchemaRow {
   /// (metadata startDate/endDate as date-node refs).
   final String? datePrecision;
   final bool? dateQualified;
+  /// SCHEMA.md "Number formats" (§34.79 lockstep): display-only formatting
+  /// for number schemas (values stay exact; these shape render only).
+  final int? numberPad;
+  final int? numberDecimals;
+  final String? numberRounding;
   final bool active;
   final String? createdAt;
   final String? updatedAt;
@@ -4246,6 +4254,9 @@ class NodeCacheRepository {
       dateQualified: row['date_qualified'] == null
           ? null
           : (row['date_qualified'] as int? ?? 0) == 1,
+      numberPad: row['number_pad'] as int?,
+      numberDecimals: row['number_decimals'] as int?,
+      numberRounding: row['number_rounding'] as String?,
       active: (row['active'] as int? ?? 1) == 1,
       createdAt: row['created_at'] as String?,
       updatedAt: row['updated_at'] as String?,
@@ -4280,6 +4291,9 @@ class NodeCacheRepository {
       'date_qualified': schema.dateQualified == null
           ? null
           : (schema.dateQualified! ? 1 : 0),
+      'number_pad': schema.numberPad,
+      'number_decimals': schema.numberDecimals,
+      'number_rounding': schema.numberRounding,
       'active': schema.active ? 1 : 0,
       'created_at': schema.createdAt,
       'updated_at': schema.updatedAt,

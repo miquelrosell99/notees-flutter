@@ -401,6 +401,9 @@ class OperationPayloads {
     List<String>? targetClassFilter,
     String? datePrecision,
     bool? dateQualified,
+    int? numberPad,
+    int? numberDecimals,
+    String? numberRounding,
   }) =>
       _validated('propertySchema.create', {
         'propertySchemaId': propertySchemaId,
@@ -412,6 +415,9 @@ class OperationPayloads {
         'targetClassFilter': ?targetClassFilter,
         'datePrecision': ?datePrecision,
         'dateQualified': ?dateQualified,
+        'numberPad': ?numberPad,
+        'numberDecimals': ?numberDecimals,
+        'numberRounding': ?numberRounding,
       });
 
   static Map<String, dynamic> propertySchemaUpdate({
@@ -420,11 +426,17 @@ class OperationPayloads {
     List<Map<String, dynamic>>? options,
     String? datePrecision,
     bool? dateQualified,
+    int? numberPad,
+    int? numberDecimals,
+    String? numberRounding,
   }) {
     if (name == null &&
         options == null &&
         datePrecision == null &&
-        dateQualified == null) {
+        dateQualified == null &&
+        numberPad == null &&
+        numberDecimals == null &&
+        numberRounding == null) {
       throw ArgumentError('propertySchema.update requires at least one field');
     }
     return _validated('propertySchema.update', {
@@ -433,6 +445,9 @@ class OperationPayloads {
       'options': ?options,
       'datePrecision': ?datePrecision,
       'dateQualified': ?dateQualified,
+      'numberPad': ?numberPad,
+      'numberDecimals': ?numberDecimals,
+      'numberRounding': ?numberRounding,
     });
   }
 
@@ -571,6 +586,7 @@ class OperationPayloads {
   /// SCHEMA.md "Dates" precision enum (the finest granularity a date value
   /// may claim; NULL/absent = day at the read model).
   static const _datePrecisions = {'year', 'month', 'day'};
+  static const _numberRoundings = {'round', 'floor', 'ceil', 'truncate'};
 
   static final _uuidPattern = RegExp(
     r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
@@ -713,6 +729,9 @@ class OperationPayloads {
           'targetClassFilter',
           'datePrecision',
           'dateQualified',
+          'numberPad',
+          'numberDecimals',
+          'numberRounding',
         });
         _uuid(payload, 'propertySchemaId');
         _string(payload, 'name', min: 1, max: 256);
@@ -723,6 +742,11 @@ class OperationPayloads {
         _uuidList(payload, 'targetClassFilter', required: false);
         _enum(payload, 'datePrecision', _datePrecisions, required: false);
         _bool(payload, 'dateQualified', required: false);
+        // SCHEMA.md "Number formats" (§34.79 lockstep): display-only
+        // formatting for number schemas (values stay exact in the log).
+        _int(payload, 'numberPad', min: 1, max: 20, required: false);
+        _int(payload, 'numberDecimals', min: 0, max: 10, required: false);
+        _enum(payload, 'numberRounding', _numberRoundings, required: false);
       case 'propertySchema.update':
         _strict(payload, {
           'propertySchemaId',
@@ -730,12 +754,18 @@ class OperationPayloads {
           'options',
           'datePrecision',
           'dateQualified',
+          'numberPad',
+          'numberDecimals',
+          'numberRounding',
         });
         _uuid(payload, 'propertySchemaId');
         _string(payload, 'name', min: 1, max: 256, required: false);
         _options(payload, required: false);
         _enum(payload, 'datePrecision', _datePrecisions, required: false);
         _bool(payload, 'dateQualified', required: false);
+        _int(payload, 'numberPad', min: 1, max: 20, required: false);
+        _int(payload, 'numberDecimals', min: 0, max: 10, required: false);
+        _enum(payload, 'numberRounding', _numberRoundings, required: false);
       case 'propertySchema.delete':
         _strict(payload, {'propertySchemaId'});
         _uuid(payload, 'propertySchemaId');
@@ -918,6 +948,7 @@ class OperationPayloads {
     String key, {
     bool required = true,
     int min = 0,
+    int? max,
   }) {
     final value = payload[key];
     if (value == null) {
@@ -926,8 +957,10 @@ class OperationPayloads {
       }
       return;
     }
-    if (value is! int || value < min) {
-      throw FormatException('Field $key must be an int >= $min');
+    if (value is! int || value < min || (max != null && value > max)) {
+      throw FormatException(
+        'Field $key must be an int >= $min${max != null ? ' and <= $max' : ''}',
+      );
     }
   }
 

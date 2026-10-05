@@ -660,6 +660,58 @@ void main() {
       );
     });
 
+    test('number formats round-trip; update keeps absent and clears explicit null', () async {
+      const schemaUuid = '00000000-0000-0000-0000-0000000004f1';
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000004f1',
+        opType: 'propertySchema.create',
+        payload: OperationPayloads.propertySchemaCreate(
+          propertySchemaId: schemaUuid,
+          name: 'Dex number',
+          type: 'number',
+          numberPad: 4,
+          numberDecimals: 1,
+          numberRounding: 'floor',
+        ),
+      ));
+      var row = await cache.getPropertySchemaRow(schemaUuid);
+      expect(row, isNotNull);
+      expect(row!.numberPad, 4);
+      expect(row.numberDecimals, 1);
+      expect(row.numberRounding, 'floor');
+
+      // Absent keeps (the builder omits nulls — name-only update).
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000004f2',
+        opType: 'propertySchema.update',
+        payload: OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: schemaUuid,
+          name: 'Dex #',
+        ),
+        physical: 2,
+      ));
+      row = await cache.getPropertySchemaRow(schemaUuid);
+      expect(row!.numberPad, 4);
+      expect(row.numberDecimals, 1);
+      expect(row.numberRounding, 'floor');
+
+      // Explicit null clears (raw payload — the builders omit nulls).
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000004f3',
+        opType: 'propertySchema.update',
+        payload: {
+          'propertySchemaId': schemaUuid,
+          'numberDecimals': null,
+          'numberRounding': null,
+        },
+        physical: 3,
+      ));
+      row = await cache.getPropertySchemaRow(schemaUuid);
+      expect(row!.numberPad, 4);
+      expect(row.numberDecimals, isNull);
+      expect(row.numberRounding, isNull);
+    });
+
     test('applies propertySchema.create/update/delete', () async {
       const schemaUuid = '00000000-0000-0000-0000-000000000401';
 
