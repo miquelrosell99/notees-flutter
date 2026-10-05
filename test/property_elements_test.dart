@@ -461,6 +461,47 @@ void main() {
       expect(authoredIdx0.single.boundBy, pipelineClass);
     });
 
+    test('fixture class-property-active (§34.89): option icon rides verbatim; '
+        'the trailing display write lands on the row + the authored read',
+        () async {
+      final envelopes = fixtureEnvelopes('class-property-active.json');
+      const pipelineClass = '0192a000-0000-7000-8000-000000000742';
+      const dealNode = '0192a000-0000-7000-8000-000000000743';
+      const stageSchema = '0192a000-0000-7000-8000-000000000741';
+      expect(envelopes, hasLength(9));
+
+      // The schema create carries the §34.89 icon (plus the §34.43 color
+      // grammar from PG16): parsed verbatim into the stored options JSON.
+      expect(await appliers.apply(envelopes[0]), isTrue);
+      final schema = await cache.getPropertySchemaRow(stageSchema);
+      expect(schema!.options.first, {
+        'id': 'opt-a',
+        'label': 'A',
+        'icon': 'mdiCircle',
+        'color': 'yellow',
+      });
+      expect(schema.options[1], {'id': 'opt-b', 'label': 'B'});
+
+      // Full forward replay: the trailing display:"bullet" write rides the
+      // row LWW onto the binding and surfaces on the authored effective row
+      // (the re-enable made the binding active again).
+      for (var i = 1; i < envelopes.length; i++) {
+        expect(await appliers.apply(envelopes[i]), isTrue);
+      }
+      final row = await raw(
+        'SELECT display FROM class_property WHERE class_id = ? AND property_schema_id = ?',
+        [pipelineClass, stageSchema],
+      );
+      expect(row.single['display'], 'bullet');
+      final effective = await cache.getEffectiveProperties(dealNode);
+      final authored =
+          effective.singleWhere((e) => e.propertySchemaId == stageSchema);
+      expect(authored.value, 'opt-b');
+      expect(authored.source, 'authored');
+      expect(authored.boundBy, pipelineClass);
+      expect(authored.display, 'bullet');
+    });
+
     test('PC6 fixture: qualifier refs verbatim, ISO strings normalize on write',
         () async {
       for (final envelope

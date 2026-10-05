@@ -596,6 +596,21 @@ class NodeRepository {
     await syncService!.flush();
   }
 
+  /// §34.89: the v2 effective (schema, idx) rows for [nodeUuid] — the source
+  /// of the block-bullet value button (display bullet/inline select,
+  /// multi_select and boolean rows).
+  Future<List<EffectiveProperty>> fetchEffectiveProperties(String nodeUuid) async {
+    _requireCache();
+    return _cache!.getEffectiveProperties(nodeUuid);
+  }
+
+  /// §34.89: one cached property-schema row by UUID (the select options ride
+  /// the §34.89 icon + §34.43 color verbatim).
+  Future<PropertySchemaRow?> fetchPropertySchemaRow(String uuid) async {
+    _requireCache();
+    return _cache!.getPropertySchemaRow(uuid);
+  }
+
   Future<String?> getMostRecentTaskCompletionId(String taskUuid) async {
     _requireCache();
     return _cache!.getMostRecentTaskCompletionId(taskUuid);

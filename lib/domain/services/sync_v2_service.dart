@@ -880,6 +880,44 @@ class SyncV2Service {
         affectedNodeIds: [objectId],
       );
 
+  /// §34.89 bullet-button writes: sets a property value at [idx] (0 = the
+  /// single-value slot). Applied locally, push kicked off on the next flush
+  /// (`enqueue`'s set_property intent only addresses idx 0 and cannot carry
+  /// the multi_select array shape; these ride emitLocal like reorderClasses).
+  Future<OperationEnvelope> setPropertyValue({
+    required String objectId,
+    required String propertySchemaId,
+    required dynamic value,
+    int idx = 0,
+  }) =>
+      emitLocal(
+        opType: 'property.set',
+        payload: OperationPayloads.propertySet(
+          objectId: objectId,
+          propertySchemaId: propertySchemaId,
+          value: value,
+          idx: idx,
+        ),
+        affectedNodeIds: [objectId],
+      );
+
+  /// §34.89 bullet-button writes: clears the property slot at [idx] (the
+  /// "None" row of the value-display sheet).
+  Future<OperationEnvelope> unsetPropertyValue({
+    required String objectId,
+    required String propertySchemaId,
+    int idx = 0,
+  }) =>
+      emitLocal(
+        opType: 'property.unset',
+        payload: OperationPayloads.propertyUnset(
+          objectId: objectId,
+          propertySchemaId: propertySchemaId,
+          idx: idx,
+        ),
+        affectedNodeIds: [objectId],
+      );
+
   /// Rewrites the workspace (and optionally actor) id of all locally produced
   /// relay state: pending outbox envelopes, recorded operations and
   /// favorites. Called when a local profile attaches a server, so the

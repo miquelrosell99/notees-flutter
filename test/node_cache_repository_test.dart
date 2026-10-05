@@ -3,7 +3,11 @@ import 'package:notees/core/constants/system.dart';
 import 'package:notees/data/local/app_database.dart';
 import 'package:notees/data/models/node.dart';
 import 'package:notees/data/repositories/node_cache_repository.dart';
+import 'package:notees/domain/models/relay/hlc.dart';
+import 'package:notees/domain/models/relay/operation_envelope.dart';
+import 'package:notees/domain/models/relay/operation_payloads.dart';
 import 'package:notees/domain/models/search_filters.dart';
+import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -634,6 +638,119 @@ void main() {
         }),
         throwsA(isA<DatabaseException>()),
       );
+    });
+  });
+
+  group('AppDatabase v24 → v25 migration (§34.89 binding display)', () {
+    late Database ffiDb;
+
+    setUp(() async {
+      AppDatabase.reset();
+      ffiDb = await databaseFactoryFfi.openDatabase(
+        ':memory:',
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      // The v24 class_property shape: every column through the PC4 'active'
+      // flag (v22); 'display' arrives with v25 (§34.89).
+      await ffiDb.execute('''
+        CREATE TABLE class_property (
+          class_id TEXT NOT NULL,
+          property_schema_id TEXT NOT NULL,
+          sequence INTEGER NOT NULL DEFAULT 0,
+          required INTEGER,
+          readonly INTEGER,
+          hide_when_empty INTEGER,
+          default_value TEXT,
+          hlc_physical INTEGER NOT NULL DEFAULT 0,
+          hlc_logical INTEGER NOT NULL DEFAULT 0,
+          actor_id TEXT,
+          active INTEGER NOT NULL DEFAULT 1,
+          PRIMARY KEY (class_id, property_schema_id)
+        )
+      ''');
+    });
+
+    tearDown(() async {
+      await ffiDb.close();
+      AppDatabase.reset();
+    });
+
+    test('adds class_property.display additively; existing binding rows '
+        'survive and applier writes round-trip', () async {
+      // A pre-v25 binding row already lives in the table.
+      await ffiDb.insert('class_property', {
+        'class_id': '0192a000-0000-7000-8000-000000000900',
+        'property_schema_id': '0192a000-0000-7000-8000-000000000901',
+        'sequence': 7,
+        'active': 1,
+        'hlc_physical': 0,
+        'hlc_logical': 0,
+      });
+      final database = AppDatabase.fromDatabase(ffiDb);
+      await database.initializeSchema();
+      final columns = await ffiDb.rawQuery('PRAGMA table_info(class_property)');
+      expect(columns.map((c) => c['name'] as String), contains('display'));
+
+      // The migration is additive: the stored row survives with its
+      // sequence, and the new column reads the 'panel' NULL default.
+      final pre = await ffiDb.rawQuery(
+        'SELECT sequence, display FROM class_property WHERE class_id = ?',
+        ['0192a000-0000-7000-8000-000000000900'],
+      );
+      expect(pre.single['sequence'], 7);
+      expect(pre.single['display'], isNull);
+
+      // A §34.89 display write lands through the applier on the migrated
+      // table and reads back on the effective row.
+      const classId = '0192a000-0000-7000-8000-000000000901';
+      const schemaId = '0192a000-0000-7000-8000-000000000902';
+      const nodeId = '0192a000-0000-7000-8000-000000000903';
+      final cache = NodeCacheRepository(database);
+      final appliers = RelayAppliers(cache);
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-000000000910',
+        workspaceId: '0192a000-0000-7000-8000-000000000001',
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'migration-test-device',
+        hlc: const Hlc(physical: 1000, logical: 0),
+        affectedNodeIds: const [classId],
+        opType: 'class.property.set',
+        payload: OperationPayloads.classPropertySet(
+          classId: classId,
+          propertySchemaId: schemaId,
+          // No schema row exists in this minimal migration fixture — the
+          // PC2 type check skips (schemaType null) and the default derives
+          // the effective row below.
+          defaultValue: 'x',
+          display: 'bullet',
+        ),
+        timestamp: '2026-09-24T12:00:00.000Z',
+      ));
+      final rows = await ffiDb.rawQuery(
+        'SELECT display, active FROM class_property WHERE class_id = ? AND property_schema_id = ?',
+        [classId, schemaId],
+      );
+      expect(rows.single['display'], 'bullet');
+      expect(rows.single['active'], 1); // the v22 default rides intact
+
+      // The effective read exposes the display on the derived default row's
+      // winning binding.
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-000000000911',
+        workspaceId: '0192a000-0000-7000-8000-000000000001',
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'migration-test-device',
+        hlc: const Hlc(physical: 1100, logical: 0),
+        affectedNodeIds: const [nodeId],
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: nodeId,
+          classIds: const [classId],
+        ),
+        timestamp: '2026-09-24T12:00:01.000Z',
+      ));
+      final effective = await cache.getEffectiveProperties(nodeId);
+      expect(effective.single.display, 'bullet');
     });
   });
 }

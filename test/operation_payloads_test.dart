@@ -310,6 +310,86 @@ void main() {
       );
     });
 
+    test('§34.89: class.property.set display position + option icon', () {
+      // The builder carries the display position; the three designed values
+      // validate (omitted keeps the stored row value — row-LWW patch).
+      final payload = OperationPayloads.classPropertySet(
+        classId: classId,
+        propertySchemaId: objectId,
+        display: 'bullet',
+      );
+      expect(payload['display'], 'bullet');
+      expect(
+        () => OperationPayloads.validatePayload('class.property.set', payload),
+        returnsNormally,
+      );
+      for (final display in ['panel', 'bullet', 'inline']) {
+        expect(
+          () => OperationPayloads.validatePayload('class.property.set', {
+            'classId': classId,
+            'propertySchemaId': objectId,
+            'display': display,
+          }),
+          returnsNormally,
+          reason: display,
+        );
+      }
+      // An unknown display position is rejected outright (strict enum).
+      expect(
+        () => OperationPayloads.validatePayload('class.property.set', {
+          'classId': classId,
+          'propertySchemaId': objectId,
+          'display': 'hover',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('class.property.set', {
+          'classId': classId,
+          'propertySchemaId': objectId,
+          'display': 42,
+        }),
+        throwsFormatException,
+      );
+
+      // Option records accept the §34.89 icon (max 64 chars, absent/null =
+      // no icon) and stay NON-strict: unknown keys pass through so
+      // icon-carrying options sync through pre-§34.89 parsers.
+      final created = OperationPayloads.propertySchemaCreate(
+        propertySchemaId: classId,
+        name: 'Status',
+        type: 'select',
+        options: const [
+          {'id': 'a', 'label': 'Open', 'icon': 'mdiCheckCircle', 'color': 'green'},
+          {'id': 'b', 'label': 'Shut', 'icon': null, 'future': 'key'},
+        ],
+      );
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', created),
+        returnsNormally,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', {
+          'propertySchemaId': classId,
+          'name': 'Status',
+          'type': 'select',
+          'options': [
+            {'id': 'a', 'label': 'Open', 'icon': 'x' * 65},
+          ],
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.update', {
+          'propertySchemaId': classId,
+          'options': [
+            {'id': 'a', 'label': 'Open', 'icon': 'mdiCircle'},
+          ],
+        }),
+        returnsNormally,
+      );
+    });
+
     test('asset.attach enforces the 64-char hash', () {
       expect(
         () => OperationPayloads.assetAttach(

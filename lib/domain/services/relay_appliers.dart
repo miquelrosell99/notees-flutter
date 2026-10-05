@@ -1177,6 +1177,9 @@ class RelayAppliers {
       hideWhenEmpty: payload['hideWhenEmpty'] as bool?,
       // PC4: the soft-unbind flag rides the row LWW (absent = keep).
       active: payload['active'] as bool?,
+      // §34.89: the value-display position rides the row LWW (absent = keep;
+      // a stored NULL/'panel' means the properties section only).
+      display: payload['display'] as String?,
       defaultValueJson: hasDefault
           ? jsonEncode(payload.containsKey('defaultValue')
               ? payload['defaultValue']
@@ -1461,9 +1464,17 @@ class RelayAppliers {
           multi: false,
           isSystem: true,
           scope: 'class',
+          // §34.89: the designed status options carry the circle-family MDI
+          // glyphs + §34.43 color tokens (owner-mandated set); priority and
+          // the date schemas stay plain {id, label}.
           options: [
             for (final option in entry.options)
-              {'id': option['id'], 'label': option['label']},
+              {
+                'id': option['id'],
+                'label': option['label'],
+                if (option['icon'] != null) 'icon': option['icon'],
+                if (option['color'] != null) 'color': option['color'],
+              },
           ],
           createdAt: envelope.timestamp,
           updatedAt: envelope.timestamp,
@@ -1473,6 +1484,9 @@ class RelayAppliers {
         classId: classId,
         schemaId: entry.schemaId,
         sequence: entry.sequence,
+        // §34.89: the Status binding defaults to the bullet position; the
+        // rest stay in the properties panel (null display).
+        display: entry.display,
       );
     }
   }

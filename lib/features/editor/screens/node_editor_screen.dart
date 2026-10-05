@@ -21,6 +21,7 @@ import '../../../data/models/breadcrumb_item.dart';
 import '../../../data/models/linked_reference.dart';
 import '../../../data/models/node.dart';
 import '../../../data/models/property.dart';
+import '../../../data/repositories/node_cache_repository.dart';
 import '../../../data/repositories/node_repository.dart';
 import '../../../domain/services/sync_v2_service.dart';
 import '../../auth/providers/auth_provider.dart';
@@ -70,6 +71,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   Map<String, Color> _linkColors = {};
   Map<String, ResolvedClassStyle> _classStyles = {};
   Map<dynamic, String> _propertyValueNames = {};
+
+  /// §34.89: display-positioned property values per block uuid — the source
+  /// of the block-bullet value buttons.
+  Map<String, List<BulletPropertyValue>> _bulletProperties = {};
   String? _pageColor;
   String? _pageIcon;
   Node? _loadedPage;
@@ -197,6 +202,13 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
       final propertyValueNames = await _buildPropertyValueNameMap(repo, properties, dateFormat);
 
+      // §34.89 bullet buttons: best-effort — a failure here must not take
+      // down the page load (the properties panel still works).
+      Map<String, List<BulletPropertyValue>> bulletProperties = const {};
+      try {
+        bulletProperties = await _loadBulletProperties(repo);
+      } catch (_) {}
+
       final classNames = {
         for (final c in classes)
           if (c.uuid.isNotEmpty) c.uuid: c.displayName.toLowerCase(),
@@ -236,6 +248,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           _linkColors = linkColors;
           _classStyles = resolveClassStyles(classes);
           _propertyValueNames = propertyValueNames;
+          _bulletProperties = bulletProperties;
           _pageColor = page.color;
           _pageIcon = page.icon;
           _loadedPage = page;
@@ -1532,6 +1545,155 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     return result;
   }
 
+  /// The chosen option ids of one effective row (single id, or the legacy
+  /// array shape — the effective projection splits multi elements into rows,
+  /// but archived rows may still carry an array). Mirrors the web
+  /// PropertyIconButton's valuesOf.
+  List<String> _bulletIdsOf(dynamic value) {
+    if (value is List) return value.whereType<String>().toList();
+    if (value is String && value.isNotEmpty) return [value];
+    return const [];
+  }
+
+  /// §34.89: resolves the block-bullet value buttons for every visible
+  /// block — the effective rows whose winning binding positions a
+  /// select/multi_select/boolean value at 'bullet'/'inline', with the
+  /// schema options (the §34.89 icon + §34.43 color) attached.
+  Future<Map<String, List<BulletPropertyValue>>> _loadBulletProperties(
+    NodeRepository repo,
+  ) async {
+    final schemaRows = <String, PropertySchemaRow?>{};
+    Future<PropertySchemaRow?> schemaOf(String schemaId) async {
+      if (!schemaRows.containsKey(schemaId)) {
+        schemaRows[schemaId] = await repo.fetchPropertySchemaRow(schemaId);
+      }
+      return schemaRows[schemaId];
+    }
+
+    final map = <String, List<BulletPropertyValue>>{};
+    for (final block in _allBlocks()) {
+      final uuid = block.node.uuid;
+      if (uuid.isEmpty) continue;
+      final rows = await repo.fetchEffectiveProperties(uuid);
+      final groups = <String, _BulletPropertyAccumulator>{};
+      for (final row in rows) {
+        final display = row.display;
+        if (display != 'bullet' && display != 'inline') continue;
+        final type = row.schema?.type;
+        if (type != 'select' && type != 'multi_select' && type != 'boolean') {
+          continue;
+        }
+        // Promote for the putIfAbsent closure (equality guards don't promote).
+        final position = display!;
+        final schemaType = type!;
+        final schemaId = row.propertySchemaId;
+        final group = groups.putIfAbsent(
+          schemaId,
+          () => _BulletPropertyAccumulator(
+            schemaId: schemaId,
+            label: row.schema?.name ?? schemaId,
+            display: position,
+            type: schemaType,
+          ),
+        );
+        group.required = group.required || row.required == true;
+        final ids = schemaType == 'boolean'
+            ? row.value == true
+                  ? const ['true']
+                  : row.value == false
+                      ? const ['false']
+                      : const <String>[]
+            : _bulletIdsOf(row.value);
+        for (final id in ids) {
+          if (!group.selectedIds.contains(id)) group.selectedIds.add(id);
+        }
+        if (ids.isNotEmpty) {
+          group.elements.add(BulletPropertyElement(idx: row.idx, ids: ids));
+        }
+      }
+      if (groups.isEmpty) continue;
+      final values = <BulletPropertyValue>[];
+      for (final group in groups.values) {
+        final schema = await schemaOf(group.schemaId);
+        values.add(
+          BulletPropertyValue(
+            propertySchemaId: group.schemaId,
+            label: group.label,
+            display: group.display,
+            type: group.type,
+            required: group.required,
+            options: [
+              for (final raw in schema?.options ?? const <Map<String, dynamic>>[])
+                if (raw['id'] != null && raw['label'] is String)
+                  BulletPropertyOption(
+                    id: raw['id'] as String,
+                    label: raw['label'] as String,
+                    icon: raw['icon'] as String?,
+                    color: raw['color'] as String?,
+                  ),
+            ],
+            selectedIds: group.selectedIds,
+            elements: group.elements,
+          ),
+        );
+      }
+      map[uuid] = values;
+    }
+    return map;
+  }
+
+  /// §34.89 write path for the block-bullet value buttons: performs the
+  /// resolved write through the sync service, then refreshes the buttons.
+  Future<void> _onBulletPropertyWrite(
+    BlockNode node,
+    BulletPropertyWrite write,
+  ) async {
+    final auth = context.read<AuthProvider>();
+    final sync = auth.syncService;
+    if (sync == null) return;
+    try {
+      if (write.unset) {
+        await sync.unsetPropertyValue(
+          objectId: node.node.uuid,
+          propertySchemaId: write.propertySchemaId,
+          idx: write.idx,
+        );
+      } else {
+        await sync.setPropertyValue(
+          objectId: node.node.uuid,
+          propertySchemaId: write.propertySchemaId,
+          value: write.value,
+          idx: write.idx,
+        );
+      }
+      if (!mounted) return;
+      await _refreshBulletProperties();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update property: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _refreshBulletProperties() async {
+    final auth = context.read<AuthProvider>();
+    final sync = auth.syncService;
+    if (sync == null || !mounted) return;
+    try {
+      final repo = NodeRepository(
+        dio: auth.dio ?? Dio(),
+        syncService: sync,
+      );
+      final refreshed = await _loadBulletProperties(repo);
+      if (!mounted) return;
+      setState(() => _bulletProperties = refreshed);
+    } catch (_) {
+      // Best-effort refresh; the next page load converges.
+    }
+  }
+
   void _openBreadcrumbNode(BreadcrumbItem item) {
     context.push('${Routes.editor}/${item.uuid}');
   }
@@ -2030,6 +2192,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       onContentChanged: _markDirty,
       onToggleTask: _onToggleTaskStatus,
       linkColors: _linkColors,
+      bulletProperties: _bulletProperties,
+      onBulletPropertyWrite: _onBulletPropertyWrite,
     );
   }
 
@@ -2408,4 +2572,23 @@ class _EditorSkeletonState extends State<_EditorSkeleton>
       ),
     );
   }
+}
+
+/// §34.89: mutable accumulator for one display-positioned property while the
+/// per-block effective rows are grouped into [BulletPropertyValue]s.
+class _BulletPropertyAccumulator {
+  _BulletPropertyAccumulator({
+    required this.schemaId,
+    required this.label,
+    required this.display,
+    required this.type,
+  });
+
+  final String schemaId;
+  final String label;
+  final String display;
+  final String type;
+  bool required = false;
+  final List<String> selectedIds = [];
+  final List<BulletPropertyElement> elements = [];
 }

@@ -30,7 +30,7 @@ ParsedNodeIcon parseNodeIcon(String? iconField) {
     try {
       final json = jsonDecode(value) as Map<String, dynamic>;
       return ParsedNodeIcon(
-        iconData: _mdiFromName(json['icon'] as String?),
+        iconData: mdiFromName(json['icon'] as String?),
         color: ColorPresets.tryResolve(json['color'] as String?),
       );
     } catch (_) {
@@ -38,7 +38,7 @@ ParsedNodeIcon parseNodeIcon(String? iconField) {
     }
   }
 
-  final mdi = _mdiFromName(value);
+  final mdi = mdiFromName(value);
   if (mdi != null) return ParsedNodeIcon(iconData: mdi);
 
   // Anything else is treated as a literal emoji/symbol.
@@ -46,7 +46,7 @@ ParsedNodeIcon parseNodeIcon(String? iconField) {
 }
 
 /// Resolves an MDI name (`mdiCalendarToday` or `calendarToday`) to its glyph.
-IconData? _mdiFromName(String? name) {
+IconData? mdiFromName(String? name) {
   if (name == null || name.isEmpty) return null;
   var key = name.trim();
   if (key.startsWith('mdi')) key = key.substring(3);

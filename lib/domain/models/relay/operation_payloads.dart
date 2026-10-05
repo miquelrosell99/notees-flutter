@@ -316,6 +316,11 @@ class OperationPayloads {
   /// [active] (PC4, §34.57) is the soft-unbind flag: an inactive binding row
   /// stops contributing defaults + metadata to the effective read while the
   /// row and authored values survive; omitted = keep the stored flag.
+  /// [display] (§34.89) is the value-display position ('panel' | 'bullet' |
+  /// 'inline'): where a select/multi_select (or boolean) value renders on a
+  /// block row — next to the bullet, before the content, or the properties
+  /// panel only (the stored NULL/'panel' default). Omitted = keep the stored
+  /// value; there is no null-clear (not nullable, matching the TS zod).
   static Map<String, dynamic> classPropertySet({
     required String classId,
     required String propertySchemaId,
@@ -324,6 +329,7 @@ class OperationPayloads {
     bool? readonly,
     bool? hideWhenEmpty,
     bool? active,
+    String? display,
     dynamic defaultValue,
   }) =>
       _validated('class.property.set', {
@@ -334,6 +340,7 @@ class OperationPayloads {
         'readonly': ?readonly,
         'hideWhenEmpty': ?hideWhenEmpty,
         'active': ?active,
+        'display': ?display,
         'defaultValue': ?defaultValue,
       });
 
@@ -693,6 +700,7 @@ class OperationPayloads {
           'readonly',
           'hideWhenEmpty',
           'active',
+          'display',
           'defaultValue',
         });
         _uuid(payload, 'classId');
@@ -702,6 +710,9 @@ class OperationPayloads {
         _boolNullable(payload, 'readonly', required: false);
         _boolNullable(payload, 'hideWhenEmpty', required: false);
         _bool(payload, 'active', required: false);
+        // §34.89: the binding's value-display position — optional, not
+        // nullable (a stored NULL means 'panel'; no clear carrier).
+        _enum(payload, 'display', {'panel', 'bullet', 'inline'}, required: false);
       case 'class.property.unset':
         _strict(payload, {'classId', 'propertySchemaId'});
         _uuid(payload, 'classId');
@@ -1022,6 +1033,17 @@ class OperationPayloads {
           item['id'] == null ||
           item['label'] is! String) {
         throw FormatException('Field options must be a list of {id, label}');
+      }
+      // §34.89: an option may carry an OPTIONAL MDI icon name (the same
+      // camelCase shape as node/class icons, max 64 chars; absent/null = no
+      // icon). The record itself stays NON-strict — unknown keys pass through
+      // so icon-carrying options sync through pre-§34.89 parsers (which
+      // strip the icon instead of rejecting the envelope).
+      final icon = item['icon'];
+      if (icon != null && (icon is! String || icon.length > 64)) {
+        throw FormatException(
+          'Field options[].icon must be a string of length <= 64',
+        );
       }
     }
   }

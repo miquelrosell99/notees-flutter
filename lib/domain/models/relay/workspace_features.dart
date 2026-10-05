@@ -211,7 +211,11 @@ List<WorkspaceFeature> gatingFeaturesForClass(String name) {
 /// binding, authored idempotently when the `tasks` feature enables
 /// (§34.35 constraint 5 — closes the "task property schemas never authored
 /// in v2" row). Fixed ids end to end (schema + option uuids); [sequence]
-/// is the task-panel display order.
+/// is the task-panel display order. Status options carry the §34.89
+/// designed glyphs (the owner-mandated icon + color set, §34.43 grammar);
+/// [display] (§34.89) seeds the binding's value-display position — the
+/// Status binding defaults to 'bullet' (the value rides the block bullet
+/// as an icon button), the rest stay in the properties panel (null).
 class TaskFamilySeedEntry {
   const TaskFamilySeedEntry({
     required this.schemaId,
@@ -219,13 +223,15 @@ class TaskFamilySeedEntry {
     required this.type,
     required this.sequence,
     this.options = const [],
+    this.display,
   });
 
   final String schemaId;
   final String name;
   final String type; // 'select' | 'date'
   final int sequence;
-  final List<Map<String, String>> options; // [{id, label}]
+  final List<Map<String, String>> options; // [{id, label, icon?, color?}]
+  final String? display; // 'panel' | 'bullet' | 'inline'
 }
 
 /// The task-family seed-ensure manifest (TS manifest `TASK_FAMILY_SEED`):
@@ -238,13 +244,44 @@ const List<TaskFamilySeedEntry> taskFamilySeed = [
     name: 'Status',
     type: 'select',
     sequence: 1,
+    display: 'bullet',
     options: [
-      {'id': TaskFamilyOptionUuids.backlog, 'label': 'Backlog'},
-      {'id': TaskFamilyOptionUuids.pending, 'label': 'Pending'},
-      {'id': TaskFamilyOptionUuids.doing, 'label': 'Doing'},
-      {'id': TaskFamilyOptionUuids.reviewing, 'label': 'Reviewing'},
-      {'id': TaskFamilyOptionUuids.done, 'label': 'Done'},
-      {'id': TaskFamilyOptionUuids.cancelled, 'label': 'Cancelled'},
+      {
+        'id': TaskFamilyOptionUuids.backlog,
+        'label': 'Backlog',
+        'icon': 'mdiCircleOutline',
+        'color': 'gray',
+      },
+      {
+        'id': TaskFamilyOptionUuids.pending,
+        'label': 'Pending',
+        'icon': 'mdiCircle',
+        'color': 'yellow',
+      },
+      {
+        'id': TaskFamilyOptionUuids.doing,
+        'label': 'Doing',
+        'icon': 'mdiCircleHalfFull',
+        'color': 'orange',
+      },
+      {
+        'id': TaskFamilyOptionUuids.reviewing,
+        'label': 'Reviewing',
+        'icon': 'mdiEyeCircleOutline',
+        'color': 'blue',
+      },
+      {
+        'id': TaskFamilyOptionUuids.done,
+        'label': 'Done',
+        'icon': 'mdiCheckCircle',
+        'color': 'green',
+      },
+      {
+        'id': TaskFamilyOptionUuids.cancelled,
+        'label': 'Cancelled',
+        'icon': 'mdiCloseCircle',
+        'color': 'red',
+      },
     ],
   ),
   TaskFamilySeedEntry(
