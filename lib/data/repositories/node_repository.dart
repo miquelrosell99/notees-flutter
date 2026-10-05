@@ -596,7 +596,7 @@ class NodeRepository {
     await syncService!.flush();
   }
 
-  /// §34.89: the v2 effective (schema, idx) rows for [nodeUuid] — the source
+  /// §34.90: the v2 effective (schema, idx) rows for [nodeUuid] — the source
   /// of the block-bullet value button (display bullet/inline select,
   /// multi_select and boolean rows).
   Future<List<EffectiveProperty>> fetchEffectiveProperties(String nodeUuid) async {
