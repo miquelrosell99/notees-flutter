@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 23,
+          version: 24,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 23,
+      version: 24,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -118,6 +118,7 @@ class AppDatabase {
     await _createTrashRoot(db);
     await _migrateV22(db);
     await _migrateV23(db);
+    await _migrateV24(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -193,6 +194,23 @@ class AppDatabase {
     }
     if (oldVersion < 23) {
       await _migrateV23(db);
+    }
+    if (oldVersion < 24) {
+      await _migrateV24(db);
+    }
+  }
+
+  /// v24 — number display formatting (SCHEMA.md "Number formats", §34.79
+  /// lockstep): additive property_schema columns, NULL = unformatted. The
+  /// column guard keeps it idempotent for databases that already carry them
+  /// (a fresh v24 create).
+  Future<void> _migrateV24(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(property_schema)');
+    final names = columns.map((c) => c['name'] as String).toSet();
+    if (!names.contains('number_pad')) {
+      await db.execute('ALTER TABLE property_schema ADD COLUMN number_pad INTEGER');
+      await db.execute('ALTER TABLE property_schema ADD COLUMN number_decimals INTEGER');
+      await db.execute('ALTER TABLE property_schema ADD COLUMN number_rounding TEXT');
     }
   }
 
@@ -1143,6 +1161,7 @@ class AppDatabase {
     await _createTrashRoot(db);
     await _migrateV22(db);
     await _migrateV23(db);
+    await _migrateV24(db);
   }
 
   Future<int> enqueue(String method, String payload) async {
