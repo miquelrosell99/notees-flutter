@@ -712,6 +712,60 @@ void main() {
       expect(row.numberRounding, isNull);
     });
 
+    test('§34.90: schema-side render contracts round-trip; update keep/clear',
+        () async {
+      const schemaUuid = '00000000-0000-0000-0000-0000000004e1';
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000004e1',
+        opType: 'propertySchema.create',
+        payload: OperationPayloads.propertySchemaCreate(
+          propertySchemaId: schemaUuid,
+          name: 'Status',
+          type: 'select',
+          display: 'bullet',
+          readonly: true,
+          hideWhenEmpty: true,
+        ),
+      ));
+      var row = await cache.getPropertySchemaRow(schemaUuid);
+      expect(row!.display, 'bullet');
+      expect(row.readonly, isTrue);
+      expect(row.hideWhenEmpty, isTrue);
+
+      // Absent keeps (the builders omit nulls — name-only update).
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000004e2',
+        opType: 'propertySchema.update',
+        payload: OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: schemaUuid,
+          name: 'Stage',
+        ),
+        physical: 2,
+      ));
+      row = await cache.getPropertySchemaRow(schemaUuid);
+      expect(row!.display, 'bullet');
+      expect(row.readonly, isTrue);
+      expect(row.hideWhenEmpty, isTrue);
+
+      // Present values replace; explicit null clears (raw maps — the
+      // builders omit nulls, mirroring the number formats keep/clear).
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000004e3',
+        opType: 'propertySchema.update',
+        payload: {
+          'propertySchemaId': schemaUuid,
+          'display': 'inline',
+          'readonly': null,
+          'hideWhenEmpty': null,
+        },
+        physical: 3,
+      ));
+      row = await cache.getPropertySchemaRow(schemaUuid);
+      expect(row!.display, 'inline');
+      expect(row.readonly, isFalse); // null clear lands on the NOT NULL 0
+      expect(row.hideWhenEmpty, isFalse);
+    });
+
     test('applies propertySchema.create/update/delete', () async {
       const schemaUuid = '00000000-0000-0000-0000-000000000401';
 

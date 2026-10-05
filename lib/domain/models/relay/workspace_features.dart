@@ -213,9 +213,10 @@ List<WorkspaceFeature> gatingFeaturesForClass(String name) {
 /// in v2" row). Fixed ids end to end (schema + option uuids); [sequence]
 /// is the task-panel display order. Status options carry the §34.89
 /// designed glyphs (the owner-mandated icon + color set, §34.43 grammar);
-/// [display] (§34.89) seeds the binding's value-display position — the
-/// Status binding defaults to 'bullet' (the value rides the block bullet
-/// as an icon button), the rest stay in the properties panel (null).
+/// [display] (§34.90: PROPERTY-level after the owner review) rides the
+/// SCHEMA entry — the Status schema defaults to 'bullet' (its value rides
+/// the block bullet as an icon button), the rest stay in the properties
+/// panel (null). The binding row carries only the per-class mechanics.
 class TaskFamilySeedEntry {
   const TaskFamilySeedEntry({
     required this.schemaId,
