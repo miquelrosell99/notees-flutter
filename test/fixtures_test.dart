@@ -42,6 +42,7 @@ void main() {
     'object-color.json',
     'object-move-before.json',
     'object-move.json',
+    'object-restore.json',
     'property-date-qualifier.json',
     'property-set-lww.json',
     'property-value-elements.json',
