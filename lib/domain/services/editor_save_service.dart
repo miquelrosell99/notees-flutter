@@ -100,7 +100,7 @@ class EditorSaveService {
           contentAst: AstBuilder.parseInline(node.text),
         );
         if (node.parentUuid != null && node.parentUuid != effectiveParent) {
-          // v2 move orders siblings by parentId + afterId (the previous
+          // move orders siblings by parentId + afterId (the previous
           // sibling is the anchor the editor already knows).
           final afterUuid = i > 0 ? nodes[i - 1].uuid : null;
           await service.enqueue(

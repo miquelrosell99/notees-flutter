@@ -33,7 +33,7 @@ class User {
     return parts.isEmpty ? email : parts;
   }
 
-  // v2 server user: {id, email, displayName, name|null, surnames|null,
+  // Server user: {id, email, displayName, name|null, surnames|null,
   // avatarUrl|null, isAdmin}. Legacy keys (uuid/role/is_active/profile_pic)
   // are read as fallbacks so older payloads keep parsing.
   factory User.fromJson(Map<String, dynamic> json) {

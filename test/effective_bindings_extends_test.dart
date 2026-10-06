@@ -7,7 +7,7 @@ import 'package:notees/domain/models/relay/operation_payloads.dart';
 import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// Acceptance for the §34.32 PG4 extends-aware binding resolution port
+/// Acceptance for the PG4 extends-aware binding resolution port
 /// (`packages/store/src/effective.ts`): the winning binding per schema is
 /// discovered by BFS over class_extends (own binding = distance 0), the
 /// winner minimizing (distance, class-assignment HLC, class id), and

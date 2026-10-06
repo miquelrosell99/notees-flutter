@@ -426,7 +426,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       if (_dio == null) throw const AuthException('No server configured');
       final repo = AuthRepository(dio: _dio!, secureStorage: secureStorage);
-      // rememberMe was a v1 login field; the v2 server rejects unknown keys.
+      // rememberMe was a legacy login field; the server rejects unknown keys.
       final result = await repo.login(email: email, password: password);
       switch (result) {
         case LoginSuccess(:final user):
@@ -533,7 +533,7 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Connect-later adoption (v1): after the first successful server login
+  /// Connect-later adoption: after the first successful server login
   /// from a local profile, remap the local workspace id (and actor) of the
   /// accumulated outbox/operation state onto the server workspace, clear the
   /// local profile, then flush the outbox so local edits reach the server.

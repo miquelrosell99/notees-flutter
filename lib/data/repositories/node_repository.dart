@@ -18,7 +18,7 @@ import '../models/page_content.dart';
 import '../models/property.dart';
 
 /// Sentinel distinguishing an omitted [NodeRepository.updateNode] `color`
-/// argument from an explicit `null` — §34.43: a color clear rides the wire
+/// argument from an explicit `null`: a color clear rides the wire
 /// as `"color": null`, while an omitted argument writes nothing at all.
 const Object _undefinedColor = Object();
 
@@ -357,7 +357,7 @@ class NodeRepository {
     return _cache!.searchWithFilters(filters);
   }
 
-  /// Color ([color]) is tri-state (§34.43): omit it to leave the node's
+  /// Color ([color]) is tri-state: omit it to leave the node's
   /// color untouched, pass a preset token or `#RRGGBB` hex to set it, or
   /// pass an explicit `null` to CLEAR it — the queued `update_color` op
   /// serializes the clear as `"color": null` on the wire, and the outbox
@@ -596,7 +596,7 @@ class NodeRepository {
     await syncService!.flush();
   }
 
-  /// §34.90: the v2 effective (schema, idx) rows for [nodeUuid] — the source
+  /// The effective (schema, idx) rows for [nodeUuid] — the source
   /// of the block-bullet value button (display bullet/inline select,
   /// multi_select and boolean rows).
   Future<List<EffectiveProperty>> fetchEffectiveProperties(String nodeUuid) async {
@@ -604,8 +604,8 @@ class NodeRepository {
     return _cache!.getEffectiveProperties(nodeUuid);
   }
 
-  /// §34.89: one cached property-schema row by UUID (the select options ride
-  /// the §34.89 icon + §34.43 color verbatim).
+  /// One cached property-schema row by UUID (the select options ride
+  /// the icon + color verbatim).
   Future<PropertySchemaRow?> fetchPropertySchemaRow(String uuid) async {
     _requireCache();
     return _cache!.getPropertySchemaRow(uuid);

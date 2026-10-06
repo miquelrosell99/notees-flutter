@@ -69,7 +69,7 @@ final RegExp _isoDatePattern = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$');
 
 /// Strict `YYYY-MM-DD` parse with real-calendar validation (leap years
 /// included) — the port of `parseIsoDate` in the monorepo's
-/// `packages/domain/src/dates.ts` (PC6 normalize-on-write, §34.57).
+/// `packages/domain/src/dates.ts` (PC6 normalize-on-write).
 /// Datetimes are rejected: date-node ids address whole days; time-of-day
 /// has nowhere to go. Returns null on any deviation (callers ride the value
 /// through untouched).
@@ -117,9 +117,9 @@ class ParsedDateNodeId {
 const _dateUuidMinYear = 1900;
 const _dateUuidMaxYear = 2200;
 
-/// v1 `parse_date_uuid` port (monorepo `packages/domain/src/dates.ts`
+/// Legacy `parse_date_uuid` port (monorepo `packages/domain/src/dates.ts`
 /// `parseDateNodeId`): extract precision + date components from a date-node
-/// id, or null when the id is not a date UUID (or falls outside the v1
+/// id, or null when the id is not a date UUID (or falls outside the
 /// 1900..2200 window). Round-trips with the deterministic encoders above.
 ParsedDateNodeId? parseDateNodeId(String id) {
   if (id.length != 36) return null;

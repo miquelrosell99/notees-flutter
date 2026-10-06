@@ -4,7 +4,7 @@ import 'store_errors.dart';
 
 /// Property-value shapes — the one-shape-per-type invariant (SCHEMA.md
 /// "Node-backed text properties" / "Dates"), enforced fail-loud at the
-/// apply-time write path (PB2/PC2/PG6, §34.32/§34.51) and re-checked
+/// apply-time write path (PB2/PC2/PG6) and re-checked
 /// defensively at the effective read model (a stored value/default that no
 /// longer matches the schema type yields nothing instead of garbage).
 /// Port of the monorepo store's `packages/store/src/property-values.ts`
@@ -19,13 +19,13 @@ import 'store_errors.dart';
 ///    rejected.
 ///  - date_range: `{ "start": ref|null, "end": ref|null }` — either side
 ///    open; each present side is a reference (legacy bare uuid normalized).
-///  - number: a finite number; a NUMERIC STRING is the v1-migrated legacy
+///  - number: a finite number; a NUMERIC STRING is the migrated legacy
 ///    encoding (live data carries epoch-millis strings) and normalizes to a
 ///    number, anything else is rejected.
 ///  - boolean: a boolean. url / email / select: a string. multi_select: an
 ///    array of strings (the option-id list).
 ///  - image: UNCHECKED by design — the type has no defined value shape yet
-///    (§34.32 PG14's zombie row): live data carries v1 asset-payload records
+///    (PG14's zombie row): live data carries migrated asset-payload records
 ///    and legacy bare uuids, so any shape check would break replay of the
 ///    migrated log.
 final _uuidLike = RegExp(
@@ -145,7 +145,7 @@ dynamic assertScalarShapeForType(String type, dynamic value, String opType) {
   switch (type) {
     case 'number':
       if (value is num && value.isFinite) return value;
-      // v1-migrated epoch-millis strings (live-data verified): normalize.
+      // migrated epoch-millis strings (live-data verified): normalize.
       // JS Number(string) trims whitespace; Dart's num.tryParse does not,
       // so trim first (hex/octal/binary literals parse in JS but not here —
       // decimal digit strings are what the migrated log carries).

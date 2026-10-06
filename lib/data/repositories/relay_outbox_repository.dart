@@ -26,7 +26,7 @@ class PendingRelayEnvelope {
         jsonDecode(row['envelope_json'] as String) as Map<String, dynamic>;
     // Envelopes persisted before protocolVersion existed are locally
     // produced; stamp the current version so strict envelope parsing can
-    // proceed. Rows still failing parse (e.g. legacy v1 shapes predating
+    // proceed. Rows still failing parse (e.g. legacy shapes predating
     // deviceId) are surfaced by the outbox repository, which quarantines
     // them instead of letting flush() wedge on an unreadable outbox.
     envelopeJson.putIfAbsent('protocolVersion', () => kRelayProtocolVersion);
@@ -71,7 +71,7 @@ class RelayOutboxRepository {
       whereArgs: [now.millisecondsSinceEpoch],
       // The rowid tiebreak keeps insertion order for envelopes enqueued
       // within the same created_at millisecond — load-bearing for the
-      // §34.65 default-mirror sweep, whose property.unset envelopes must
+      // default-mirror sweep, whose property.unset envelopes must
       // apply before the class.unassign they ride ahead of.
       orderBy: 'created_at ASC, id ASC',
     );
@@ -80,7 +80,7 @@ class RelayOutboxRepository {
       try {
         pending.add(PendingRelayEnvelope.fromRow(row));
       } on FormatException {
-        // Unreadable (e.g. legacy v1) envelope: quarantine the row so a
+        // Unreadable (e.g. legacy) envelope: quarantine the row so a
         // stale outbox entry cannot wedge the sync loop; it stays
         // inspectable in `relay_outbox`.
         await db.update(

@@ -78,13 +78,13 @@ class Node {
   /// For class-definition nodes: UUIDs of classes this class extends.
   final List<String> extendsUuid;
 
-  /// Legacy v1 scalar title slot, kept only so pre-title-is-content rows
-  /// still render. The v2 protocol has no object `name` field (title-is-
-  /// content, 2026-10-01): appliers never set this from v2 payloads; the
+  /// Legacy scalar title slot, kept only so pre-title-is-content rows
+  /// still render. The relay protocol has no object `name` field (title-is-
+  /// content, 2026-10-01): appliers never set this from relay payloads; the
   /// display name derives from the content AST stored in [name].
   final String? title;
 
-  /// Lexicographic fractional sibling position (v2 `node_child_order`
+  /// Lexicographic fractional sibling position (the `node_child_order`
   /// equivalent); null for legacy rows that only have [sequence].
   final String? position;
 
@@ -106,7 +106,7 @@ class Node {
   /// id (store schema v7 `node.class_order` parity).
   final List<String> classOrder;
 
-  /// Row-LWW winner for v2 object.update/object.move: an incoming write whose
+  /// Row-LWW winner for object.update/object.move: an incoming write whose
   /// (hlc, actor) does not beat these values is dropped.
   final int hlcPhysical;
   final int hlcLogical;
@@ -140,7 +140,7 @@ class Node {
         classesUuid.contains(SystemClassUuids.year);
 
     // Display resolution: an explicit display_name (set by local optimistic
-    // writes) wins; then the v2 scalar title; finally the content plain text.
+    // writes) wins; then the scalar title; finally the content plain text.
     final title = json['title'] as String?;
     var displayName =
         (json['display_name'] as String?)?.trim() ??

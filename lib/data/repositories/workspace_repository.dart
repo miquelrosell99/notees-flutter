@@ -27,7 +27,7 @@ class Workspace {
   /// the server 403s non-owners on those routes.
   bool get isOwner => role == 'owner';
 
-  // v2 server entries: {id, name|null, role, createdAt, envelopeCount, latestSeq}.
+  // Server entries: {id, name|null, role, createdAt, envelopeCount, latestSeq}.
   factory Workspace.fromJson(Map<String, dynamic> json) => Workspace(
         uuid: json['id'] as String,
         name: json['name'] as String?,
@@ -46,7 +46,7 @@ class WorkspaceRepository {
   final Dio dio;
 
   Future<List<Workspace>> listWorkspaces() async {
-    // The v2 server answers { workspaces: [...] }.
+    // The server answers { workspaces: [...] }.
     final response = await dio.get<Map<String, dynamic>>('/workspaces');
     final data = response.data;
     if (data == null) return [];

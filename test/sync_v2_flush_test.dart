@@ -187,7 +187,7 @@ void main() {
     });
 
     test('update_color explicit null survives the offline queue as a wire '
-        'clear (§34.43)', () async {
+        'clear', () async {
       final service = await buildService(buildDio());
       await service.enqueue(
         type: 'create',

@@ -7,11 +7,11 @@ import '../../domain/models/relay/operation_envelope.dart';
 import '../../domain/models/relay/relay_requests.dart';
 
 /// HTTP client for the Notees operation-relay endpoints (protocol v2,
-/// `WIRE.md` §1 — base path `/api/relay/v2`).
+/// `WIRE.md` — base path `/api/relay/v2`).
 ///
 /// The caller is expected to supply a [Dio] instance whose base URL already
 /// includes `/api` (e.g. `https://notees.example.com/api`). All methods here
-/// use paths relative to that base. v2 M1 authenticates with a single-user
+/// use paths relative to that base. The relay authenticates with a single-user
 /// API key: the `X-API-Key` header is attached by `RelayApiKeyInterceptor`
 /// in `api_client.dart` (wired per active server); when no key is stored the
 /// request goes out without the header and the server's 401 surfaces.
@@ -82,7 +82,7 @@ class RelayClient {
     return LatestSnapshotResponse.fromJson(data);
   }
 
-  /// Upload a client-produced snapshot for [workspaceId] (WIRE.md §1:
+  /// Upload a client-produced snapshot for [workspaceId] (WIRE.md:
   /// `PUT /snapshot/data` with the covering HLC as query parameters).
   ///
   /// Callers decide when: only an explicit [SyncV2Service.uploadSnapshot]
@@ -138,7 +138,7 @@ class RelayException implements Exception {
   String toString() => 'RelayException: $message';
 }
 
-/// Parsed v2 wire error envelope (WIRE.md §3):
+/// Parsed v2 wire error envelope (WIRE.md):
 /// `{"error": {"code", "message", "status"}}` with stable machine codes.
 class RelayWireError {
   const RelayWireError({
@@ -152,7 +152,7 @@ class RelayWireError {
   final int status;
 
   /// Extracts the wire error from a failed request, or null when the body
-  /// does not carry the v2 envelope shape.
+  /// does not carry the envelope shape.
   static RelayWireError? tryParse(DioException error) {
     final data = error.response?.data;
     if (data is Map<String, dynamic>) {

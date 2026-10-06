@@ -100,21 +100,21 @@ class PropertySchemaRow {
   final List<String> classFilterUuids;
   final List<Map<String, dynamic>> options;
   final String? computed;
-  /// SCHEMA.md "Dates" (PC6, §34.57): finest granularity a date value may
+  /// SCHEMA.md "Dates" (PC6): finest granularity a date value may
   /// claim ("year"|"month"|"day"; null = day at the read model) and, for
   /// node-typed schemas, whether values may carry date qualifiers
   /// (metadata startDate/endDate as date-node refs).
   final String? datePrecision;
   final bool? dateQualified;
-  /// SCHEMA.md "Number formats" (§34.79 lockstep): display-only formatting
+  /// SCHEMA.md "Number formats": display-only formatting
   /// for number schemas (values stay exact; these shape render only).
   final int? numberPad;
   final int? numberDecimals;
   final String? numberRounding;
-  /// §34.90 (owner review 2026-10-05): the render contracts are
+  /// Owner review 2026-10-05: the render contracts are
   /// PROPERTY-level — the value-display position ('panel' | 'bullet' |
   /// 'inline'; NULL = the 'panel' default; sanitized at the effective read).
-  /// `readonly`/`hideWhenEmpty` ride the legacy v1 NOT NULL columns above
+  /// `readonly`/`hideWhenEmpty` ride the legacy NOT NULL columns above
   /// (0 = unset). `required` is deliberately NOT here — it stays on the
   /// class binding (per-class mechanics).
   final String? display;
@@ -254,10 +254,10 @@ class NodeCacheRepository {
   }
 
   /// Hard-deletes [uuid] and its whole subtree plus derived rows, matching
-  /// the v2 `object.delete permanent:true` semantics: node rows, search
+  /// the `object.delete permanent:true` semantics: node rows, search
   /// index, favorites, task completions/recurrence, share rows, content-HLC
-  /// markers, class membership, and property rows all go. (The v1 server
-  /// cascade only removed the single row; v2 deletes the subtree.)
+  /// markers, class membership, and property rows all go. (The legacy server
+  /// cascade only removed the single row; the relay deletes the subtree.)
   Future<void> hardDelete(String uuid) async {
     final ids = await subtreeUuids(uuid);
     if (ids.isEmpty) return;
@@ -435,9 +435,9 @@ class NodeCacheRepository {
   /// Restores the local node cache from a server-derived snapshot byte
   /// payload.
   ///
-  /// The v2 snapshot is a serialized derived-state SQLite database (the
+  /// The snapshot is a serialized derived-state SQLite database (the
   /// store schema in `packages/store/src/schema.ts`). This method opens it
-  /// in a temp file and maps the v2 shape into the local cache: `node`
+  /// in a temp file and maps the snapshot shape into the local cache: `node`
   /// (is_class/present_as_main/is_active/name/class_ids + hlc winner) into
   /// `node_cache`, `node_child_order.position` strings into the fractional
   /// `position` column, `class_member_set` and `property_value` rows into
@@ -568,7 +568,7 @@ class NodeCacheRepository {
     }
   }
 
-  /// Reads the v2 snapshot into a [SnapshotRestoreData] bundle.
+  /// Reads the snapshot into a [SnapshotRestoreData] bundle.
   ///
   /// Exposed for testing; most callers should use [restoreFromSnapshot].
   Future<SnapshotRestoreData> readSnapshot(
@@ -745,7 +745,7 @@ class NodeCacheRepository {
     return rows.isNotEmpty;
   }
 
-  /// Reads [Node] objects from a v2 server-derived snapshot database.
+  /// Reads [Node] objects from a server-derived snapshot database.
   ///
   /// Exposed for testing; most callers should use [restoreFromSnapshot].
   /// Class rows (`is_class = 1`) are skipped: the local cache keeps classes
@@ -834,7 +834,7 @@ class NodeCacheRepository {
         name: name,
         // Title-is-content: the display name derives from the content
         // excerpt (date labels formatted); there is no node `name` column
-        // on v2 snapshots anymore.
+        // on server snapshots anymore.
         displayName: deriveDisplayName(name),
         icon: row['icon'] as String?,
         color: row['color'] as String?,
@@ -868,7 +868,7 @@ class NodeCacheRepository {
     }).toList();
   }
 
-  /// Reads class rows from a v2 server-derived snapshot database.
+  /// Reads class rows from a server-derived snapshot database.
   Future<List<_ClassRow>> _readClassesFromSnapshotDatabase(
     Database db,
     String workspaceId,
@@ -904,7 +904,7 @@ class NodeCacheRepository {
     }).toList();
   }
 
-  /// Reads property-schema rows from a v2 server-derived snapshot database.
+  /// Reads property-schema rows from a server-derived snapshot database.
   Future<List<PropertySchemaRow>> _readPropertySchemasFromSnapshotDatabase(
     Database db,
     String workspaceId,
@@ -956,9 +956,9 @@ class NodeCacheRepository {
     }).toList();
   }
 
-  /// Reads class-property binding rows from a v2 server-derived snapshot
-  /// database (the v2 `class_property` table; empty by default in M1).
-  /// §34.90: the v2 table carries ONLY the per-class mechanics — the
+  /// Reads class-property binding rows from a server-derived snapshot
+  /// database (the `class_property` table; empty by default).
+  /// The table carries ONLY the per-class mechanics — the
   /// retired readonly/hide_when_empty columns are gone from the source, so
   /// the legacy row model reads them as unset.
   Future<List<ClassPropertyEdgeRow>>
@@ -1305,7 +1305,7 @@ class NodeCacheRepository {
   /// rows and refreshes the class-derived flags. User order
   /// (node_cache.class_order, written by class.reorder) wins: ordered
   /// members first, then any unlisted present members sorted by id
-  /// (recomputeClassIds in the v2 store appliers).
+  /// (recomputeClassIds in the TS store appliers).
   Future<void> recomputeClassIds(String uuid) async {
     final db = await _database.database;
     final rows = await db.query(
@@ -1442,7 +1442,7 @@ class NodeCacheRepository {
   }
 
   /// Recomputes [uuid]'s tag list from the tag OR-Set's present rows
-  /// (sorted by id — recomputeTagIds in the v2 store appliers).
+  /// (sorted by id — recomputeTagIds in the TS store appliers).
   Future<void> recomputeTagIds(String uuid) async {
     final db = await _database.database;
     final rows = await db.query(
@@ -1551,7 +1551,7 @@ class NodeCacheRepository {
   }
 
   /// Deterministic full rebuild of the class_hierarchy closure from the
-  /// class_extends edge set (port of the v2 store's rebuildClassHierarchy:
+  /// class_extends edge set (port of the TS store's rebuildClassHierarchy:
   /// rows inserted per class in sorted id order with sorted ancestor
   /// order, so wipe -> replay converges to identical state).
   Future<void> rebuildClassHierarchy() async {
@@ -1901,7 +1901,7 @@ class NodeCacheRepository {
 
   /// The property schema's type, null when the schema row is unknown or
   /// inactive (property values have no schema FK — arbitrary ids store
-  /// unchecked). The §34.45 carrier-trash guard keys off "text".
+  /// unchecked). The carrier-trash guard keys off "text".
   Future<String?> propertySchemaTypeOf(String schemaId) async {
     final db = await _database.database;
     final rows = await db.query(
@@ -2100,7 +2100,7 @@ class NodeCacheRepository {
 
   /// True when any live property_value row still references [target] in
   /// either stored shape — the canonical `{"nodeId": target}` or the legacy
-  /// bare-uuid encoding (§34.45: the unset-carrier exclusivity guard scans
+  /// bare-uuid encoding: the unset-carrier exclusivity guard scans
   /// any owner/slot).
   Future<bool> propertyValueReferencesTarget(String target) async {
     final db = await _database.database;
@@ -2236,7 +2236,7 @@ class NodeCacheRepository {
     );
   }
 
-  // === Workspace features (§34.35, §34.54/§34.55 lockstep) ================
+  // === Workspace features ====================================================
 
   /// Winner of a (workspace, feature) toggle row, if any.
   Future<LwwWinner?> workspaceFeatureWinner(
@@ -2339,7 +2339,7 @@ class NodeCacheRepository {
   /// seed-ensure). Authored with zero HLC columns — the row is a
   /// deterministic seed artifact, not a content write; a user flip on the
   /// same row later wins by HLC without clobbering (the "(Own row wins over
-  /// seeds)" contract). §34.90: the row carries ONLY the per-class mechanics
+  /// seeds)" contract). The row carries ONLY the per-class mechanics
   /// (sequence) — the render contracts live on the property schema.
   Future<void> insertClassPropertyBindingIfAbsent({
     required String classId,
@@ -2356,7 +2356,7 @@ class NodeCacheRepository {
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
-  /// Direct children of [parentUuid] in v2 fractional position order.
+  /// Direct children of [parentUuid] in fractional position order.
   ///
   /// Rows carrying a lexicographic `position` sort before legacy rows, which
   /// keep falling back to the numeric `sequence`.
@@ -2429,7 +2429,7 @@ class NodeCacheRepository {
   }
 
   /// Live properties of [uuid], read from the derived `property_value` table
-  /// (the v2 LWW authority). Multiple idx rows under one schema surface as a
+  /// (the wire LWW authority). Multiple idx rows under one schema surface as a
   /// list; a single row stays a scalar. Legacy rows that predate the table
   /// fall back to the payload projection.
   Future<List<NodePropertyValue>> getNodeProperties(String uuid) async {
@@ -2992,10 +2992,10 @@ class NodeCacheRepository {
     return rows.map(_nodeFromRow).toList();
   }
 
-  // === Client-produced v2 snapshots (restoreFromSnapshot's inverse) =========
+  // === Client-produced snapshots (restoreFromSnapshot's inverse) ==============
 
-  /// Serializes the local derived state into a v2 derived-state snapshot
-  /// (the store schema in `v2/packages/store/src/schema.ts`) — the inverse
+  /// Serializes the local derived state into a derived-state snapshot
+  /// (the store schema in `packages/store/src/schema.ts`) — the inverse
   /// of [restoreFromSnapshot], used by the explicit snapshot-upload trigger.
   ///
   /// The bytes are a real SQLite database file: a temp-file DB is populated
@@ -3311,7 +3311,7 @@ class NodeCacheRepository {
   }
 
   // === Class → property bindings + effective read model ====================
-  // (SCHEMA.md "Class properties"; ports of the v2 store's
+  // (SCHEMA.md "Class properties"; ports of the TS store's
   // applyClassPropertySet/Unset and effective.ts getEffectiveProperties.)
 
   /// Winner of a binding row, if any.
@@ -3340,7 +3340,7 @@ class NodeCacheRepository {
   /// patch, port of the SQL COALESCE); [defaultValueJson] is the JSON-encoded
   /// default (null = leave untouched — JSON-null defaults ride raw maps).
   /// [active] (PC4) is the soft-unbind flag: omitted keeps the stored flag;
-  /// a NEW row defaults to active. §34.90: the row carries ONLY the
+  /// a NEW row defaults to active. The row carries ONLY the
   /// per-class mechanics (sequence, required, defaultValue, active) — the
   /// render contracts (readonly/hideWhenEmpty/display) are PROPERTY-level
   /// and live on the property schema.
@@ -3397,7 +3397,7 @@ class NodeCacheRepository {
   /// All binding rows of [classId] that carry a stored default, with the
   /// default decoded per the web client's `getClassBindings` decodeDefault:
   /// a JSON string rides as the string itself; any other JSON value
-  /// RE-ENCODES to its JSON text (the §34.65 sweep compares JSON texts, so
+  /// RE-ENCODES to its JSON text (the default-mirror sweep compares JSON texts, so
   /// a non-string default only sweeps an authored value whose own JSON text
   /// equals the quoted string — web parity, quirk included). Rows ride
   /// regardless of the PC4 active flag, matching the web sweep.
@@ -3458,7 +3458,7 @@ class NodeCacheRepository {
     });
 
     // 3. Winning binding per schema, extends-aware (SCHEMA.md diamond rule,
-    //    §34.32 PG4): candidates are (class, ancestor) pairs where the
+    //    PG4): candidates are (class, ancestor) pairs where the
     //    ancestor's class_property row binds the schema, discovered by BFS
     //    over class_extends (the class itself is distance 0 = own binding —
     //    the class_hierarchy closure carries no distance, so shortest-path
@@ -3523,7 +3523,7 @@ class NodeCacheRepository {
 
     bool? flag(dynamic value) => value == null ? null : value == 1;
 
-    // §34.90: sanitize the stored display position — only 'bullet'/'inline'
+    // Sanitize the stored display position — only 'bullet'/'inline'
     // surface (NULL/'panel'/unknown = null, the 'panel' default read).
     String? displayOf(dynamic value) =>
         value == 'bullet' || value == 'inline' ? value as String : null;
@@ -3548,7 +3548,7 @@ class NodeCacheRepository {
           name: row['name'] as String,
           type: row['type'] as String? ?? 'text',
           multi: (row['multi'] as num?)?.toInt() == 1,
-          // §34.90: the PROPERTY-level render contracts — schema-sourced,
+          // The PROPERTY-level render contracts — schema-sourced,
           // the same for every carrier, class-bound or not.
           display: displayOf(row['display']),
           readonly: flag(row['readonly']),
@@ -3560,7 +3560,7 @@ class NodeCacheRepository {
     // 5. Merge: authored wins per (schema, idx, ELEMENT — PG5: rows at the
     //    same idx are distinct elements and all surface); a winning ACTIVE
     //    binding with a default and no authored value at idx 0 derives a
-    //    default row. §34.90 sourcing: `required` is per-CLASS (the winning
+    //    default row. Sourcing: `required` is per-CLASS (the winning
     //    binding — null when no current class binds the schema); readonly /
     //    hideWhenEmpty / display are per-PROPERTY (the schema row) and ride
     //    authored AND derived rows, INCLUDING unbound authored values.
@@ -3650,7 +3650,7 @@ class NodeCacheRepository {
     return result;
   }
 
-  // === Edge index (derived references; v2 store edges.ts port) ===========
+  // === Edge index (derived references; the TS store's edges.ts port) =======
 
   /// Rebuilds the derived `edge` rows for [sourceId] from its current
   /// content tokens and node-typed property values:
@@ -3658,7 +3658,7 @@ class NodeCacheRepository {
   ///  - `mention` — mention tokens (edge per instance);
   ///  - `typed_link` — typed-link word marks, top-level and inside quotes;
   ///    target_id stays NULL by design (candidateSpans are recorded,
-  ///    resolution is M2 work); verb is the free string or the bound
+  ///    resolution is deferred); verb is the free string or the bound
   ///    propertySchemaId; metadata carries locator/candidateSpans + text;
   ///  - `property` — node-typed property values (`{"nodeId": ...}`), with
   ///    verb = propertySchemaId.
@@ -3928,7 +3928,7 @@ class NodeCacheRepository {
       'write_date': node.writeDate,
       'payload': jsonEncode(node.toJson()),
       'synced_at': syncedAt,
-      // v2 derived-state columns (see AppDatabase._migrateV16 / _migrateV19 /
+      // derived-state columns (see AppDatabase._migrateV16 / _migrateV19 /
       // _migrateV20 — Revision 11: is_class/present_as_main replace the
       // retired node_type).
       'title': node.title,
@@ -4474,7 +4474,7 @@ class NodeCacheRepository {
   }
 }
 
-/// Row-level LWW metadata read from a `node_cache` row (v2 derived columns).
+/// Row-level LWW metadata read from a `node_cache` row (derived columns).
 class NodeRowMeta {
   const NodeRowMeta({
     required this.isClass,
@@ -4532,7 +4532,7 @@ _deriveFlags(List<String> classIds) {
   );
 }
 
-/// Bundle of everything read from a v2 server-derived snapshot database,
+/// Bundle of everything read from a server-derived snapshot database,
 /// ready to be written into the local derived-state tables.
 class SnapshotRestoreData {
   const SnapshotRestoreData({
@@ -4565,7 +4565,7 @@ class SnapshotRestoreData {
 }
 
 
-/// One desired derived edge (v2 store DesiredEdge port).
+/// One desired derived edge (TS store DesiredEdge port).
 class _DesiredEdge {
   const _DesiredEdge({
     required this.targetId,
@@ -4611,7 +4611,7 @@ class EffectivePropertySchema {
   final String type;
   final bool multi;
 
-  /// §34.90: the PROPERTY-level render contracts — schema-sourced, the same
+  /// The PROPERTY-level render contracts — schema-sourced, the same
   /// for every carrier, class-bound or not. [display] is sanitized (only
   /// 'bullet'/'inline' surface; NULL = the 'panel' default).
   final String? display;
@@ -4619,7 +4619,7 @@ class EffectivePropertySchema {
   final bool? hideWhenEmpty;
 }
 
-/// One effective (schema, idx) row for a node (port of the v2 store's
+/// One effective (schema, idx) row for a node (port of the TS store's
 /// EffectiveProperty): `source` tags authored vs derived; `boundBy` is the
 /// class supplying the binding metadata, or null when no current class binds
 /// the schema (an authored value whose binding went away stays visible).
@@ -4657,7 +4657,7 @@ class EffectiveProperty {
   final bool? hideWhenEmpty;
   final int? sequence;
 
-  /// §34.90: the PROPERTY-level render contracts — 'bullet' rides the block
+  /// The PROPERTY-level render contracts — 'bullet' rides the block
   /// bullet as an icon button, 'inline' renders before the block content,
   /// null = 'panel' (the properties section only). Schema-sourced: they ride
   /// authored AND derived rows, INCLUDING unbound authored values. Sanitized

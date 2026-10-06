@@ -181,7 +181,7 @@ Haptics are good in providers and many screens, but missing in several high-traf
 - `lib/core/utils/color_presets.dart` hardcodes note colors that match the web app. This is acceptable as data-level metadata, but document that these are content colors, not theme colors.
 - `lib/core/theme/app_colors.dart:14,17` defines `noteesAccentBeige` and `noteesAccentLegacy` that appear unused. Remove or use them.
 - `lib/features/settings/screens/about_screen.dart:94` privacy text adds “and your self-hosted Notees server.” The fleet About screen expects exactly “No cloud. All data stays on your device.” Consider aligning the wording with the fleet template.
-- `lib/main.dart:23-26` locks the app to portrait. That’s fine for a phone-first v1, but document it as intentional.
+- `lib/main.dart:23-26` locks the app to portrait. That’s fine for a phone-first app, but document it as intentional.
 - The app is English-only with no `.arb`/AppLocalizations setup. Fine for an initial release, but plan i18n before wider rollout.
 - `package_info_plus` is pinned to `^10.2.0`; the fleet rules reference `^9.0.1`. This is not a problem if the newer version works, but keep an eye on drift from the fleet dependency baseline.
 - Many settings list tiles use built-in `Icons` rather than `MdiIcons`. If you adopt the fleet icon dependency, migrate these too.
