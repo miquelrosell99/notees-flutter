@@ -8,6 +8,19 @@ lives in git history.
 
 ## 2026-10-06
 
+- **chore(sync): re-vendored the wire fixture corpus from the main repo
+  (lockstep convergence).** `test/fixtures/wire/` is byte-identical (sha256)
+  to the monorepo's `packages/protocol/fixtures/` again — 21 files, zero
+  mismatches / zero extras / zero missing in the pairwise sweep. Adds
+  `object-restore.json` (object.create → object.delete → object.restore,
+  picked up by the all-fixtures replay and the fixtures gate list) and
+  updates `class-property-defaults.json` (a ninth envelope appends an
+  unrelated number-format `propertySchema.create`; the first eight are
+  unchanged, so the prefix-replay acceptance only had to re-track the
+  envelope count — the same slicing the TS reference store tests use).
+  Wire models and appliers already carried `object.restore`,
+  `class.property.unset`, and the number-format schema fields, so no
+  implementation change was needed — the corpus was the only lag.
 - **chore(docs): record-keeping aligned with the main repo — plan-era
   citations scrubbed, AGENTS.md aligned, per-client skill pair added.** Same
   treatment the main Notees monorepo gave itself on this date: every §-citation
