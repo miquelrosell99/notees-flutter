@@ -1,4 +1,4 @@
-/// v1 timestamp-based sync request (used by the mobile pull path).
+/// Legacy timestamp-based sync request (used by the mobile pull path).
 class SyncRequest {
   const SyncRequest({
     this.lastSync,

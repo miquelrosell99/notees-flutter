@@ -4,7 +4,7 @@ import 'package:notees/core/utils/color_presets.dart';
 import 'package:notees/domain/models/relay/colors.dart';
 import 'package:notees/domain/models/relay/operation_payloads.dart';
 
-/// §34.43 color grammar: node/class `color` is a preset token, a `#RRGGBB`
+/// Color grammar: node/class `color` is a preset token, a `#RRGGBB`
 /// hex, or null (clear) — the retired `var(--color-preset-*)` encoding and
 /// garbage are rejected loud. Covers the strict validators, the builders'
 /// presence-vs-null sentinel, the ColorPresets rendering/lookup table, and

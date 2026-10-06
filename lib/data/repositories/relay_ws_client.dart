@@ -6,7 +6,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../domain/models/relay/operation_envelope.dart';
 
-/// WIRE.md §2 framing version; a newer one from the relay fails loud.
+/// WIRE.md framing version; a newer one from the relay fails loud.
 const kWsProtocolVersion = 2;
 
 /// Default reconnect backoff after abnormal closes (reset on every hello).
@@ -88,7 +88,7 @@ Future<WsConnection> defaultWsConnector(String url) async {
 typedef WsConnector = Future<WsConnection> Function(String url);
 
 /// Realtime subscriber for one workspace — the relay's acceleration path
-/// (WIRE.md §2).
+/// (WIRE.md).
 ///
 /// Framing contract:
 ///  - server → client `hello` (`wsProtocolVersion`/`restoreEpoch`/
@@ -97,7 +97,7 @@ typedef WsConnector = Future<WsConnection> Function(String url);
 ///  - a `hello`/`ops` with a NEWER framing version fails loud:
 ///    [ProtocolVersionError] via [onError], the socket is closed and the
 ///    client NEVER reconnects (silently applying newer framing is the
-///    failure mode WIRE.md §2 forbids);
+///    failure mode WIRE.md forbids);
 ///  - malformed JSON answers the error callback and keeps the connection;
 ///  - abnormal closes reconnect on the backoff schedule (reset after a
 ///    successful `hello`); [stop] closes cleanly (code 1000, no reconnect).
@@ -245,7 +245,7 @@ class RelayWsClient {
       frame = parsed;
     } catch (error) {
       // Malformed frames answer the error callback and keep the connection
-      // (WIRE.md §2 unknown-frame semantics).
+      // (WIRE.md unknown-frame semantics).
       _emitError(
         error is RealtimeProtocolError
             ? error
@@ -270,7 +270,7 @@ class RelayWsClient {
         final message = frame['message'];
         _emitError(Exception(message is String ? message : 'relay error'));
       default:
-        // Unknown frame types are ignored (WIRE.md §2).
+        // Unknown frame types are ignored (WIRE.md).
         break;
     }
   }
@@ -352,7 +352,7 @@ class RelayWsClient {
 String buildRelayWsUrl(String baseUrl, String workspaceId, String token) {
   var base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
   // The Dio base already carries /api (e.g. https://host/api); the WS path
-  // appends the relay v2 route under it.
+  // appends the relay route under it.
   if (base.endsWith('/api')) {
     base = base.substring(0, base.length - 4);
   }

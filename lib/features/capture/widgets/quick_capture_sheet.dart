@@ -622,7 +622,7 @@ class _ColorPicker extends StatelessWidget {
             onTap: () => onColorSelected(ColorPresets.defaultHex),
           ),
           ...ColorPresets.entries.map((entry) {
-            // §34.43: preset picks write the preset TOKEN to the wire; the
+            // Preset picks write the preset TOKEN to the wire; the
             // hex is kept for the swatch render only. The custom cream
             // default above keeps writing its hex.
             final (token, hex, label) = entry;

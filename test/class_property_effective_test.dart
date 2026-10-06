@@ -33,7 +33,7 @@ void main() {
   const nodeId = '0192a000-0000-7000-8000-000000000304';
 
   List<Map<String, dynamic>> loadFixture() =>
-      ((jsonDecode(File('test/fixtures/v2/class-property-defaults.json')
+      ((jsonDecode(File('test/fixtures/wire/class-property-defaults.json')
                   .readAsStringSync())
               as Map<String, dynamic>)['envelopes'] as List<dynamic>)
           .cast<Map<String, dynamic>>();
@@ -247,7 +247,7 @@ void main() {
       expect(jsonDecode(rows.single['default_value'] as String), 'medium');
       expect(rows.single['active'], 1);
 
-      // §34.90: the binding row carries ONLY the per-class mechanics — the
+      // The binding row carries ONLY the per-class mechanics — the
       // retired readonly/hideWhenEmpty/display columns are gone from the
       // table outright.
       final columns = await db.rawQuery('PRAGMA table_info(class_property)');
@@ -281,7 +281,7 @@ void main() {
     });
   });
 
-  group('§34.90 property-level render contracts (schema-sourced display)', () {
+  group('property-level render contracts (schema-sourced display)', () {
     late AppDatabase database;
     late NodeCacheRepository cache;
     late RelayAppliers appliers;
@@ -417,7 +417,7 @@ void main() {
       }));
 
       // Unbind: the authored value (written before the unbind) survives and
-      // CARRIES the schema display — §34.90: the contracts are
+      // CARRIES the schema display — the contracts are
       // PROPERTY-level, the same for every carrier, class-bound or not.
       await appliers.apply(OperationEnvelope(
         id: '0192a000-0000-7000-8000-00000000820b',
@@ -560,7 +560,7 @@ void main() {
     });
 
     test('flags accept explicit null (clear) in raw maps', () {
-      // §34.90: the binding keeps ONLY required (the owner's per-class
+      // The binding keeps ONLY required (the owner's per-class
       // exception) — explicit null validates; readonly is retired here.
       expect(
         () => OperationPayloads.validatePayload('class.property.set', {
@@ -638,10 +638,10 @@ const taskClass = '0192a000-0000-7000-8000-000000000302';
 const projectClass = '0192a000-0000-7000-8000-000000000303';
 
 /// Replays the first [count] envelopes of the canonical
-/// `class-property-defaults.json` fixture through [appliers] (the §34.89
+/// `class-property-defaults.json` fixture through [appliers] (the
 /// group shares the seed: prefix 5 = Task binds priority=medium).
 Future<void> replayFixturePrefix(RelayAppliers appliers, int count) async {
-  final envelopes = ((jsonDecode(File('test/fixtures/v2/class-property-defaults.json')
+  final envelopes = ((jsonDecode(File('test/fixtures/wire/class-property-defaults.json')
                   .readAsStringSync())
           as Map<String, dynamic>)['envelopes'] as List<dynamic>)
       .cast<Map<String, dynamic>>()

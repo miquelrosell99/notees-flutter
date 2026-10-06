@@ -11,7 +11,7 @@ import './floating_capture_sheet.dart';
 
 /// In-app floating quick-capture bubble.
 ///
-/// This v1 implementation lives inside the Notees app so it works without a
+/// This implementation lives inside the Notees app so it works without a
 /// native foreground service or `SYSTEM_ALERT_WINDOW` runtime permission. A
 /// future version can swap the widget for a system-level overlay managed by
 /// [BubbleService].

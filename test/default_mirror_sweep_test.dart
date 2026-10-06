@@ -11,7 +11,7 @@ import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:notees/domain/services/sync_v2_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// Acceptance for the §34.65 default-mirror sweep port (web
+/// Acceptance for the default-mirror sweep port (web
 /// `unassignClass` parity): removing a class sweeps the node's authored
 /// values that merely MIRROR the departing class's binding defaults —
 /// explicit property.unset envelopes enqueued BEFORE the class.unassign so

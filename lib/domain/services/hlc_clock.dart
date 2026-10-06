@@ -4,8 +4,8 @@ import '../models/relay/hlc.dart';
 
 /// Hybrid logical clock used when generating local operations.
 ///
-/// Semantics verified against `v2/packages/protocol/src/hlc.ts` (the v2 norm):
-/// [advance] mirrors `Clock.now` and [update] mirrors `Clock.update` —
+/// Semantics verified against `packages/protocol/src/hlc.ts` (the normative
+/// reference): [advance] mirrors `Clock.now` and [update] mirrors `Clock.update` —
 /// `physical = max(wallClock, last.physical, received.physical)` with the
 /// logical counter resolved per branch. The clock never moves backwards, and
 /// a follow-up local advance is always strictly greater than a merged remote

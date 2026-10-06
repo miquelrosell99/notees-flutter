@@ -59,7 +59,7 @@ void main() {
     return captured;
   }
 
-  group('RelayApiKeyInterceptor (X-API-Key, v2 M1 auth)', () {
+  group('RelayApiKeyInterceptor (X-API-Key auth)', () {
     test('attaches the stored per-server key to relay requests', () async {
       keyring['api_key_server-1'] = 'secret-key';
 

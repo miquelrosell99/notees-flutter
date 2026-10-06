@@ -77,7 +77,7 @@ void main() {
     });
   });
 
-  // Direct port of the branch matrix in `v2/packages/protocol/src/hlc.ts`
+  // Direct port of the branch matrix in `packages/protocol/src/hlc.ts`
   // Clock.update/advance: physical = max(wall, last.physical,
   // received.physical); the logical component then resolves by which
   // operand(s) won the max. Pins the Dart clock to the TypeScript norm so it

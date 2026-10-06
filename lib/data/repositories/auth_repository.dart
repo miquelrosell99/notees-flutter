@@ -20,7 +20,7 @@ class AuthRepository {
     try {
       final response = await dio.post<Map<String, dynamic>>(
         '/auth/login',
-        // The v2 server's login body is strict {email, password} — extra
+        // The server's login body is strict {email, password} — extra
         // keys are rejected with 422 (the old remember_me blocked login).
         data: {
           'email': email,
@@ -163,7 +163,7 @@ class AuthRepository {
   }
 
   User _handleTokenResponse(Map<String, dynamic> data) {
-    // The v2 server returns the session as `token` (plus expiresAt/user/kdf);
+    // The server returns the session as `token` (plus expiresAt/user/kdf);
     // there is no refresh-token cookie surface.
     final accessToken = data['token'] as String?;
     final userJson = data['user'] as Map<String, dynamic>?;

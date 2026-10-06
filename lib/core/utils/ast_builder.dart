@@ -2,12 +2,12 @@ import 'dart:convert';
 
 import '../../domain/models/content/content_token.dart';
 
-/// Builder/parser for Notees block content in the v2 flat token grammar
+/// Builder/parser for Notees block content in the flat token grammar
 /// (SCHEMA.md "Content grammar" — the port of content-mark.ts).
 ///
 /// The mobile editor edits blocks as plain text with lightweight Markdown-like
 /// markers; before saving, the text is parsed into the flat token stream so
-/// the web app and the relay speak one grammar. v2 has no block-level
+/// the web app and the relay speak one grammar. The grammar has no block-level
 /// segments: newlines inside a block become `hard_break` tokens, headings do
 /// not exist (a literal `# ` stays text), and inline styles are `marks` on
 /// text runs rather than nested nodes.
@@ -15,7 +15,7 @@ import '../../domain/models/content/content_token.dart';
 /// Supported syntax:
 /// - `**bold**` → text run with the `bold` mark
 /// - `*italic*` → `italic` mark
-/// - `__underline__` → `highlight` mark (the v2 mark set has no underline)
+/// - `__underline__` → `highlight` mark (the mark set has no underline)
 /// - `~~strike~~` → `strike` mark
 /// - `==highlight==` → `highlight` mark
 /// - `` `code` `` → `code` mark
@@ -25,7 +25,7 @@ import '../../domain/models/content/content_token.dart';
 class AstBuilder {
   AstBuilder._();
 
-  /// Parses [text] into the flat v2 token stream.
+  /// Parses [text] into the flat token stream.
   static List<Map<String, dynamic>> parseInline(String text) {
     final tokens = <Map<String, dynamic>>[];
     final lines = text.split('\n');
@@ -45,7 +45,7 @@ class AstBuilder {
     'text': value,
   };
 
-  /// Builds a mention token (v2 node_link replacement).
+  /// Builds a mention token (the node_link replacement).
   static Map<String, dynamic> nodeLink({
     required String targetId,
     String? linkUuid,
@@ -130,7 +130,7 @@ class AstBuilder {
     }
   }
 
-  /// Extracts plain text from a token stream (the v2 excerpt derivation).
+  /// Extracts plain text from a token stream (the excerpt derivation).
   static String toPlainText(List<Map<String, dynamic>> ast) =>
       plainTextExcerpt(parseContentAst(ast));
 
@@ -175,7 +175,7 @@ class AstBuilder {
   }
 
   /// Merges adjacent plain text runs produced by the split so the stream
-  /// stays compact (the v2 grammar has no run boundaries to preserve).
+  /// stays compact (the grammar has no run boundaries to preserve).
   static List<Map<String, dynamic>> _mergeAdjacentText(
     List<Map<String, dynamic>> nodes,
   ) {

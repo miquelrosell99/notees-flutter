@@ -1,5 +1,5 @@
-/// Flat v2 content-token model — the Dart port of
-/// `v2/packages/protocol/src/content-mark.ts` (SCHEMA.md "Content grammar"
+/// Flat content-token model — the Dart port of
+/// `packages/protocol/src/content-mark.ts` (SCHEMA.md "Content grammar"
 /// is normative).
 ///
 /// A block node's content is ONE flat, ordered token array. There are no
@@ -10,7 +10,7 @@ library;
 
 import 'dart:convert';
 
-/// The v2 mark names (content-mark.ts MARKS): attributes on text runs.
+/// The mark names (content-mark.ts MARKS): attributes on text runs.
 const List<String> kContentMarks = [
   'bold',
   'italic',
@@ -31,8 +31,8 @@ sealed class ContentToken {
   /// Parses one token map, dispatching on `type`. Unknown shapes become
   /// [UnsupportedToken] so a newer stream degrades to placeholders instead
   /// of crashing the renderer. Known types with MALFORMED shapes fail loud
-  /// (FormatException) per the strict content grammar — §34.54 made
-  /// `code_block`/`hr`/`embed_ref.view` strict entries (a malformed known
+  /// (FormatException) per the strict content grammar —
+  /// `code_block`/`hr`/`embed_ref.view` are strict entries (a malformed known
   /// token is a wire violation, not a forward-compat case).
   factory ContentToken.fromJson(Map<String, dynamic> json) {
     return switch (json['type']) {
@@ -144,7 +144,7 @@ class BoundVerb extends TypedLinkVerb {
   String get display => propertySchemaId;
 }
 
-/// A typed link — a MARK on a prose word (01-knowledge-model.md §9): nothing
+/// A typed link — a MARK on a prose word (01-knowledge-model.md): nothing
 /// is inserted; the marked word is the annotation and dies with its word.
 class TypedLinkToken extends ContentToken {
   const TypedLinkToken({required this.verb, required this.text, this.metadata});
@@ -303,7 +303,7 @@ class AssetRefToken extends ContentToken {
 /// Embed — RENDER THE LIVE SUBTREE, NEVER A CLONE (cycle guard is a
 /// renderer obligation). Rendered as a labeled placeholder here.
 ///
-/// [view] (§34.34 B8, additive 2026-10-04 lockstep) selects the
+/// [view] (B8, additive 2026-10-04 lockstep) selects the
 /// presentation on the mention↔embed spectrum: absent (or the explicit
 /// "embed") = the full live transclusion; "small_card" / "wide_card" = the
 /// intermediate bounded identity cards (cards never transclude). Unknown
@@ -342,7 +342,7 @@ class EmbedRefToken extends ContentToken {
   }
 }
 
-/// Block-scale: a code block (§34.34 B3, §34.54 lockstep). [text] is the
+/// Block-scale: a code block (B3, strict grammar). [text] is the
 /// verbatim source (the grammar stores it plain — no nested tokens);
 /// [language] is an OPTIONAL hint tag (free lowercase string — "python",
 /// "typescript", "mermaid", …) for renderers; absent = plain text. A
@@ -392,7 +392,7 @@ class CodeBlockToken extends ContentToken {
   }
 }
 
-/// Block-scale: a horizontal rule (§34.34 B5, §34.54 lockstep) — the layout
+/// Block-scale: a horizontal rule (B5) — the layout
 /// divider token. Carries no payload. Deliberately NOT a promotion survivor:
 /// an hr holds no prose, so block→page promotion stringifies it away (a
 /// rule in a page title is meaningless).
@@ -517,8 +517,8 @@ ContentAst parseContentAst(dynamic raw) {
 
 dynamic _decode(String source) => jsonDecode(source);
 
-/// v2 plaintext excerpt derivation (port of
-/// `v2/packages/domain/src/node.ts` plainTextExcerpt): text and typed-link
+/// Plaintext excerpt derivation (port of
+/// `packages/domain/src/node.ts` plainTextExcerpt): text and typed-link
 /// runs contribute their text, mentions their displayText (captured text
 /// when absent), math its expression, quotes recurse, and hard_break becomes
 /// a space; whitespace collapses to single spaces.

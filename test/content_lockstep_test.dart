@@ -10,7 +10,7 @@ import 'package:notees/domain/models/relay/operation_envelope.dart';
 import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// Acceptance for the §34.54 content-grammar lockstep entries:
+/// Acceptance for the content-grammar lockstep entries:
 ///
 ///  - `code_block` `{language?, text}` — strict lowercase language hint,
 ///    verbatim text, no nested tokens; a PROMOTION SURVIVOR (block→page
@@ -26,7 +26,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
 
-  const fixturesDir = 'test/fixtures/v2';
+  const fixturesDir = 'test/fixtures/wire';
 
   List<Map<String, dynamic>> loadFixture(String name) =>
       ((jsonDecode(File('$fixturesDir/$name').readAsStringSync())
@@ -198,7 +198,7 @@ void main() {
     });
   });
 
-  group('§34.54 content fixtures replay', () {
+  group('content fixtures replay', () {
     late AppDatabase database;
     late NodeCacheRepository cache;
     late RelayAppliers appliers;

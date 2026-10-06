@@ -12,7 +12,7 @@ import 'package:notees/domain/models/relay/workspace_features.dart';
 import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// Acceptance for the §34.54/§34.55 `workspace.feature.set` lockstep op:
+/// Acceptance for the `workspace.feature.set` lockstep op:
 /// the strict five-family enum (retired ids rejected outright), the
 /// `workspace_feature` LWW row (absent = ON, F2), the membership-preserving
 /// family archival via per-class re-derivation (F3 + the event→meeting /
@@ -24,7 +24,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
 
-  const fixturesDir = 'test/fixtures/v2';
+  const fixturesDir = 'test/fixtures/wire';
   const ws = '0192a000-0000-7000-8000-000000000001';
   const actor = '0192a000-0000-7000-8000-000000000002';
 
@@ -80,7 +80,7 @@ void main() {
             enabled: true,
           ),
           throwsFormatException,
-          reason: '$retired must fail loud (§34.55)',
+          reason: '$retired must fail loud',
         );
       }
     });
@@ -218,7 +218,7 @@ void main() {
       final schema = await cache.getPropertySchemaRow(SystemPropertyUuids.taskStatus);
       expect(schema!.options.first['label'], 'Backlog');
 
-      // §34.90: the designed status glyphs (owner-mandated icon + color set)
+      // The designed status glyphs (owner-mandated icon + color set)
       // AND the display position are PROPERTY-level — they seed with the
       // SCHEMA (Status defaults to 'bullet'), not the binding; the binding
       // rows carry only the per-class mechanics.
@@ -377,7 +377,7 @@ void main() {
       await appliers.apply(toggle('meetings', false, 3000));
       expect(await bits(), [true, false, true]);
       // Re-enabling events must NOT un-archive a meetings-off meeting
-      // (per-class re-derivation — the TS §34.55 convergence fix).
+      // (per-class re-derivation — the TS convergence fix).
       await appliers.apply(toggle('events', false, 4000));
       await appliers.apply(toggle('events', true, 5000));
       expect(await bits(), [true, false, true]);

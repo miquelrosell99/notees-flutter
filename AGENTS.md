@@ -171,13 +171,42 @@ For major refactors, trigger a CI build via `./trigger-ci-build.sh` rather than 
 
 ## Server Reference
 
-The backend/server source for Notees is kept in a sibling folder for reference while building the mobile app:
+The backend/server source for Notees is kept in a sibling clone of
+`git@github.com:miquelrosell99/notees.git`, kept up to date, for reference
+while building the mobile app:
+
+Keep the clone current when the mobile app needs to align with API contracts,
+data models, auth flows, or deployment conventions from the server
+repository.
+
+## Records
+
+- **The changelog is the record**: what shipped and why lives in
+  `CHANGELOG.md` at the repo root — one entry per shipped slice, newest
+  first. This file and `docs/` stay static guidance/history; never append
+  work-log entries to them. A change without its changelog entry is not done.
+- In-flight proposals and parked decisions live in the main Notees monorepo
+  (`.plans/YYYY-MM-DD-HHMM-<slug>/` and `.agents/parked-decisions.md` there).
+
+| Record | Home |
+|--------|------|
+| Shipped work | `CHANGELOG.md` (newest first, one entry per slice) |
+| Historical plans & audits | `docs/` (`flutter-audit.md`, `gap-analysis-web-vs-mobile.md`) |
+
+## Project skills
 
 ```
-../notees/   # git@github.com:miquelrosell99/notees.git
+AGENTS.md
+    │
+    ├── notees-flutter-development   (project skill — .agents/skills/notees-flutter-development/)
+    │      └── development workflow  → references/development-workflow.md
+    └── notees-flutter-operations    (project skill — .agents/skills/notees-flutter-operations/)
+           └── releases & packaging → references/releases.md
 ```
 
-Keep this clone up to date when the mobile app needs to align with API contracts, data models, auth flows, or deployment conventions from the server repository.
+Kimi Code auto-discovers these from `.agents/skills/` (Project scope); invoke
+the matching skill first for any code change (`notees-flutter-development`)
+or release/CI question (`notees-flutter-operations`).
 
 ## Skill References
 

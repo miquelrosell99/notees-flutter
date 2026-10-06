@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import '../../../core/utils/ast_stringifier.dart';
 import '../../../core/utils/color_presets.dart';
 
-/// Renders a Notees block content document (the v2 flat token stream,
+/// Renders a Notees block content document (the flat token stream,
 /// serialized to JSON in the node `name` slot) as styled rich text.
 ///
-/// Legacy v1 nested AST documents are converted on the fly
+/// Legacy nested AST documents are converted on the fly
 /// ([normalizeContentAst]), so rows written before the port render through
 /// the same path. Resolution rules (mirroring the GTK renderer):
 ///

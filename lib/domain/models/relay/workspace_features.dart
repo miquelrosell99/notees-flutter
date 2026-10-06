@@ -1,5 +1,5 @@
-/// Workspace feature map (§34.35, RESHAPED per owner directive 2026-10-04,
-/// §34.55) — the Dart port of `packages/domain/src/features.ts` in the
+/// Workspace feature map (reshaped per owner directive 2026-10-04) — the
+/// Dart port of `packages/domain/src/features.ts` in the
 /// Notees monorepo.
 ///
 /// The per-workspace feature toggles ARE the core class families:
@@ -52,7 +52,7 @@ class WorkspaceFeatureSpec {
   final String powers;
 }
 
-/// The core class families (owner directive 2026-10-04, §34.55).
+/// The core class families (owner directive 2026-10-04).
 const Map<WorkspaceFeature, WorkspaceFeatureSpec> workspaceFeatureMap = {
   'tasks': WorkspaceFeatureSpec(
     baseClass: 'task',
@@ -81,7 +81,7 @@ const Map<WorkspaceFeature, WorkspaceFeatureSpec> workspaceFeatureMap = {
   ),
 };
 
-/// Class name → fixed system class UUID (the §34.55 family subset of the TS
+/// Class name → fixed system class UUID (the family subset of the TS
 /// manifest `SYSTEM_CLASS_UUIDS`).
 const Map<String, String> systemClassUuids = {
   'task': SystemClassUuids.task,
@@ -209,11 +209,11 @@ List<WorkspaceFeature> gatingFeaturesForClass(String name) {
 
 /// One task-family seed-ensure entry: a property schema + its task-class
 /// binding, authored idempotently when the `tasks` feature enables
-/// (§34.35 constraint 5 — closes the "task property schemas never authored
-/// in v2" row). Fixed ids end to end (schema + option uuids); [sequence]
-/// is the task-panel display order. Status options carry the §34.89
-/// designed glyphs (the owner-mandated icon + color set, §34.43 grammar);
-/// [display] (§34.90: PROPERTY-level after the owner review) rides the
+/// (closes the "task property schemas never authored" row). Fixed ids end
+/// to end (schema + option uuids); [sequence]
+/// is the task-panel display order. Status options carry the
+/// designed glyphs (the owner-mandated icon + color set);
+/// [display] (PROPERTY-level after the owner review) rides the
 /// SCHEMA entry — the Status schema defaults to 'bullet' (its value rides
 /// the block bullet as an icon button), the rest stay in the properties
 /// panel (null). The binding row carries only the per-class mechanics.
@@ -315,7 +315,7 @@ const List<TaskFamilySeedEntry> taskFamilySeed = [
     type: 'date',
     sequence: 5,
   ),
-  // v1 migrated recurrence as a plain select (no engine executes it);
+  // migrated recurrence as a plain select (no engine executes it);
   // authored optionless until the recurrence spec lands.
   TaskFamilySeedEntry(
     schemaId: SystemPropertyUuids.taskRecurrence,

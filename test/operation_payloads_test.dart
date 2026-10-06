@@ -1,14 +1,14 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/domain/models/relay/operation_payloads.dart';
 
-/// Unit tests for the v2 op payload factories and their strict validation
-/// (the Dart port of `v2/packages/protocol/src/op-types.ts`).
+/// Unit tests for the op payload factories and their strict validation
+/// (the Dart port of `packages/protocol/src/op-types.ts`).
 void main() {
   const objectId = '0192a000-0000-7000-8000-000000000010';
   const classId = '0192a000-0000-7000-8000-0000000000c5';
 
   group('factories emit registry-valid payloads', () {
-    test('object.create carries v2 field names', () {
+    test('object.create carries the wire field names', () {
       final payload = OperationPayloads.objectCreate(
         objectId: objectId,
         presentAsMain: true,
@@ -310,9 +310,9 @@ void main() {
       );
     });
 
-    test('§34.90: render contracts are PROPERTY-level (schema), not binding '
+    test('render contracts are PROPERTY-level (schema), not binding '
         '— option icon unchanged', () {
-      // class.property.set carries ONLY the per-class mechanics: the §34.89
+      // class.property.set carries ONLY the per-class mechanics: the
       // binding-level display experiment is gone, and readonly/hideWhenEmpty
       // reject here like any retired key (the strict 5-key payload keeps
       // `required` — the owner's per-class exception).
@@ -417,9 +417,9 @@ void main() {
         );
       }
 
-      // Option records accept the §34.89 icon (max 64 chars, absent/null =
+      // Option records accept the icon (max 64 chars, absent/null =
       // no icon) and stay NON-strict: unknown keys pass through so
-      // icon-carrying options sync through pre-§34.89 parsers.
+      // icon-carrying options sync through older parsers.
       final createdWithIcon = OperationPayloads.propertySchemaCreate(
         propertySchemaId: classId,
         name: 'Status',

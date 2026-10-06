@@ -9,10 +9,10 @@ import 'package:notees/domain/services/editor_save_service.dart';
 import 'package:notees/domain/services/sync_v2_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// Editor save path on the v2 grammar: titles ride object.update
+/// Editor save path on the content grammar: titles ride object.update
 /// contentAst (title-is-content — the protocol has no scalar name slot),
 /// content rides contentAst, and block moves pass the previous sibling as
-/// afterId (v2 sibling anchor).
+/// afterId (the sibling anchor).
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -23,7 +23,7 @@ void main() {
   const blockB = '20000000-0000-4000-8000-000000000003';
   const blockC = '20000000-0000-4000-8000-000000000004';
 
-  group('EditorSaveService (v2 grammar)', () {
+  group('EditorSaveService (content grammar)', () {
     late AppDatabase database;
     late List<Map<String, dynamic>> pushed;
 

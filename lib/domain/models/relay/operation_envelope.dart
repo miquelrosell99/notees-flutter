@@ -3,7 +3,7 @@ import './hlc.dart';
 /// Envelope schema version this client speaks (`PROTOCOL_VERSION` in
 /// `packages/protocol/src/envelope.ts`). v2 made the version mandatory:
 /// envelopes without `protocolVersion` are rejected and receivers fail loud
-/// on a newer version (WIRE.md §3). v3 (Revision 11, 2026-10-02) carries the
+/// on a newer version (WIRE.md). v3 (Revision 11, 2026-10-02) carries the
 /// render-state model (`is_class` + `present_as_main` replace `node_type`);
 /// only version 3 is accepted — no backward compatibility (owner directive).
 const kRelayProtocolVersion = 3;
@@ -156,7 +156,7 @@ class OperationEnvelope {
     );
   }
 
-  /// The M3 E2EE slot is reserved in v2 so E2EE never breaks the protocol:
+  /// The E2EE slot is reserved in v2 so E2EE never breaks the protocol:
   /// a payload carrying `$e` must be exactly `{"$e": {iv, ct}}` with string
   /// `iv`/`ct` (`envelope.ts` `encryptedPayloadSchema`, `.strict()`).
   static void _validateEncryptedSlot(Map<String, dynamic> payload, Object? id) {

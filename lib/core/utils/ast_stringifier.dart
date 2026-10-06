@@ -1,8 +1,8 @@
 /// Content-stream normalization and plain-text derivation for Notees node
 /// content (stored as JSON in the node `name` slot).
 ///
-/// The v2 wire/local format is the flat token stream (SCHEMA.md "Content
-/// grammar"); rows written before the port still carry the v1 nested block
+/// The wire/local format is the flat token stream (SCHEMA.md "Content
+/// grammar"); rows written before the port still carry the legacy nested block
 /// AST (paragraph/heading children with strong/em/strikethrough/highlight/
 /// underline mark nodes and node_link pills). [normalizeContentAst] detects
 /// the shape and converts legacy documents to flat tokens so the renderer,
@@ -45,8 +45,8 @@ List<dynamic> unwrapCrdtContentAst(List<dynamic> ast) {
   return inner is List && inner.isNotEmpty ? inner : ast;
 }
 
-/// True when [ast] is already a flat v2 token stream (top-level tokens with
-/// v2 `type` discriminators).
+/// True when [ast] is already a flat token stream (top-level tokens with
+/// `type` discriminators).
 bool isFlatTokenStream(List<dynamic> ast) {
   if (ast.isEmpty) return true;
   const flatTypes = {
@@ -73,8 +73,8 @@ bool isFlatTokenStream(List<dynamic> ast) {
   return true;
 }
 
-/// Normalizes a stored content document to the flat v2 token stream:
-/// unwraps CRDT-wrapped rows, detects legacy v1 nested AST documents and
+/// Normalizes a stored content document to the flat token stream:
+/// unwraps CRDT-wrapped rows, detects legacy nested AST documents and
 /// converts them (marks, node_link pills, code/math), and passes flat
 /// streams through unchanged.
 List<Map<String, dynamic>> normalizeContentAst(List<dynamic> ast) {
@@ -85,20 +85,20 @@ List<Map<String, dynamic>> normalizeContentAst(List<dynamic> ast) {
   return legacyAstToTokens(unwrapped);
 }
 
-/// Converts a legacy v1 nested AST document into the flat v2 token stream.
+/// Converts a legacy nested AST document into the flat token stream.
 ///
-/// Mapping decisions (v1 port):
-///  - paragraph/heading children flatten into the same stream (v2 has no
-///    block-level segments; heading levels do not exist in the grammar and
-///    their text is kept verbatim);
+/// Mapping decisions:
+///  - paragraph/heading children flatten into the same stream (the grammar
+///    has no block-level segments; heading levels do not exist in the grammar
+///    and their text is kept verbatim);
 ///  - strong/em/strikethrough/underline/highlight mark nodes fold into
-///    `marks` on text runs (underline → highlight: the v2 mark set has no
+///    `marks` on text runs (underline → highlight: the mark set has no
 ///    underline); nested marks merge;
 ///  - node_link pills become `mention` tokens (target from the link_id's
 ///    `target` prefix; ref_type class → `class_chip`);
 ///  - code nodes become text runs with the `code` mark; math nodes, external
 ///    links, and hard breaks map one-to-one; user_mention degrades to a
-///    plain '@label' text run (the v2 grammar has no user token).
+///    plain '@label' text run (the grammar has no user token).
 List<Map<String, dynamic>> legacyAstToTokens(List<dynamic> ast) {
   final out = <Map<String, dynamic>>[];
   for (final block in ast) {
@@ -261,7 +261,7 @@ String _collectPlain(Map<String, dynamic> node) {
 }
 
 /// Parses a stored content document (serialized JSON or decoded list) into
-/// the flat v2 token stream. Null/invalid input yields an empty stream;
+/// the flat token stream. Null/invalid input yields an empty stream;
 /// legacy plain-text content becomes a single text run.
 List<Map<String, dynamic>> contentTokensFromSource(dynamic source) {
   if (source == null) return const [];
@@ -280,7 +280,7 @@ List<Map<String, dynamic>> contentTokensFromSource(dynamic source) {
   return const [];
 }
 
-/// The v2 excerpt over a stored content document: unwraps, normalizes
+/// The excerpt over a stored content document: unwraps, normalizes
 /// (legacy-converting), and derives plain text per plainTextExcerpt.
 String contentSourceToExcerpt(dynamic source) =>
     plainTextExcerpt(parseContentAst(contentTokensFromSource(source)));
@@ -288,10 +288,10 @@ String contentSourceToExcerpt(dynamic source) =>
 /// Flattens any token stream to text-only content (pages and classes carry
 /// text-only content — SCHEMA.md "title-is-content"). Port of
 /// `stringifyContentAst` in `packages/domain/src/node.ts`: block-scale
-/// structural widgets (whiteboard, query, code_block — §34.34 B3) survive
+/// structural widgets (whiteboard, query, code_block — B3) survive
 /// as tokens — they are displays/source, not prose — and everything else
 /// folds into a single leading text run of the plain-text excerpt.
-/// `hr` (§34.34 B5) is deliberately NOT a survivor: it carries no prose.
+/// `hr` (B5) is deliberately NOT a survivor: it carries no prose.
 /// Used by the appliers when a block's (possibly rich) content lands on a
 /// page/class node.
 List<Map<String, dynamic>> stringifyContentAst(

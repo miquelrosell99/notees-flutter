@@ -112,7 +112,7 @@ class SyncWatermarkRepository {
       whereArgs: [workspaceId],
     );
     // The outbox deliberately survives a workspace reset: unsent local ops
-    // are parked (v2 restoreEpoch recovery) and re-pushed after the resync
+    // are parked (restoreEpoch recovery) and re-pushed after the resync
     // catch-up; envelope-id dedupe on the server makes the overlap harmless.
   }
 }

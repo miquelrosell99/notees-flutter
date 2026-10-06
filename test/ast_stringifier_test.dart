@@ -65,8 +65,8 @@ void main() {
       expect(astToPlainText(ast), 'not json at all');
     });
 
-    test('external links contribute nothing to the v2 excerpt', () {
-      // plainTextExcerpt (v2/packages/domain/src/node.ts) only takes
+    test('external links contribute nothing to the excerpt', () {
+      // plainTextExcerpt (packages/domain/src/node.ts) only takes
       // text/typed_link/mention/math/quote/hard_break.
       const ast = '[{"type":"paragraph","children":['
           '{"type":"external_link","url":"https://example.com","children":[{"type":"text","text":"Example"}]}'
@@ -82,8 +82,8 @@ void main() {
     });
 
     test('node_link without label becomes a mention of the raw target', () {
-      // v2 mentions contribute their captured text; a legacy pill without a
-      // label captures the raw target id (never the v1 '…' placeholder).
+      // mentions contribute their captured text; a legacy pill without a
+      // label captures the raw target id (never the legacy '…' placeholder).
       const ast = '[{"type":"paragraph","children":['
           '{"type":"node_link","link_id":"uuid-1"}'
           ']}]';
@@ -97,10 +97,10 @@ void main() {
       expect(astToPlainText(ast), '@alice');
     });
 
-    test('whiteboard tokens contribute nothing to the v2 excerpt', () {
-      // v1 indexed whiteboard element texts; the v2 excerpt derivation
-      // ignores block-scale tokens (whiteboard cards are ordinary blocks and
-      // index naturally via their own content).
+    test('whiteboard tokens contribute nothing to the excerpt', () {
+      // the legacy grammar indexed whiteboard element texts; the excerpt
+      // derivation ignores block-scale tokens (whiteboard cards are ordinary
+      // blocks and index naturally via their own content).
       const ast = '[{"type":"whiteboard","data":{"elements":['
           '{"type":"text","text":"Sticky note"},'
           '{"type":"shape","text":"Shape text"}'
