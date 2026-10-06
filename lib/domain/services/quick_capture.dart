@@ -36,7 +36,7 @@ class QuickCaptureService {
     final targetParent = parentUuid ?? SystemPageUuids.inbox;
 
     if (syncService != null) {
-      // Always use the v2 outbox so the note can be created offline and synced
+      // Always use the relay outbox so the note can be created offline and synced
       // when connectivity returns. The parent defaults to the workspace Inbox
       // but can be overridden (e.g. today's daily journal).
       final nodeUuid = const Uuid().v7();

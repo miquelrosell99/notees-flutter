@@ -6,7 +6,7 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:notees/data/models/node.dart';
 import 'package:notees/features/editor/widgets/block_tree_editor.dart';
 
-/// Widget acceptance for the §34.89 block-bullet value button (the
+/// Widget acceptance for the block-bullet value button (the
 /// PropertyIconButton port): the current option's MDI icon renders tinted
 /// (unset = the dimmed hollow circle), tapping opens the option sheet, a
 /// pick fires the resolved write through [BlockTreeEditor.onBulletPropertyWrite],

@@ -17,7 +17,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
 
-  group('RelayAppliers (v2 registry) against SQLite', () {
+  group('RelayAppliers (op registry) against SQLite', () {
     late AppDatabase database;
     late NodeCacheRepository cache;
     late RelayAppliers appliers;
@@ -172,7 +172,7 @@ void main() {
 
       final node = await cache.getByUuid(nodeUuid);
       // The rename landed in the content slot; the display name derives
-      // from it. There is no scalar name slot on the v2 wire.
+      // from it. There is no scalar name slot on the wire.
       expect(node!.displayName, 'Renamed');
       expect(AstBuilder.toPlainText(contentTokensFromSource(node.name)),
           'Renamed');
@@ -712,7 +712,7 @@ void main() {
       expect(row.numberRounding, isNull);
     });
 
-    test('§34.90: schema-side render contracts round-trip; update keep/clear',
+    test('schema-side render contracts round-trip; update keep/clear',
         () async {
       const schemaUuid = '00000000-0000-0000-0000-0000000004e1';
       await appliers.apply(envelope(
@@ -799,7 +799,7 @@ void main() {
       ));
       property = await cache.getPropertySchema(schemaUuid);
       expect(property!.name, 'Importance');
-      // v2 update carries only name/options; everything else is preserved.
+      // update carries only name/options; everything else is preserved.
       expect(property.type, 'select');
       expect(property.options.length, 2);
 
@@ -815,7 +815,7 @@ void main() {
       expect(property, isNull);
     });
 
-    test('§34.89: option icon rides verbatim through create and the '
+    test('option icon rides verbatim through create and the '
         'wholesale options update', () async {
       const schemaUuid = '00000000-0000-0000-0000-0000000004a1';
       await appliers.apply(envelope(
@@ -1071,7 +1071,7 @@ void main() {
       expect((await cache.getByUuid(nodeUuid))!.displayName, 'Renamed');
     });
 
-    test('ignores asset/collection/activity ops and legacy v1 ops without failing',
+    test('ignores asset/collection/activity ops and legacy ops without failing',
         () async {
       const nodeUuid = '00000000-0000-0000-0000-000000000709';
       final cases = <(String, Map<String, dynamic>)>[
@@ -1096,7 +1096,7 @@ void main() {
         ('share.public.create', {'objectId': nodeUuid}),
         ('nodeView.create', {'objectId': nodeUuid}),
         ('node.addAlias', {'objectId': nodeUuid}),
-        // Legacy v1 ops dropped from the v2 M1 registry: no local apply.
+        // Legacy ops dropped from the op registry: no local apply.
         ('node.archive', {'nodeId': nodeUuid}),
         ('task.recordCompletion', {'nodeId': nodeUuid}),
         ('user.favorite.add', {'nodeId': nodeUuid}),

@@ -12,9 +12,9 @@ import '../../../data/models/node.dart';
 import './asset_block_widget.dart';
 import './ast_rich_text.dart';
 
-/// §34.90: one select option of a display-positioned property. [icon] is a
+/// One select option of a display-positioned property. [icon] is a
 /// camelCase MDI name (absent = the tinted dot fallback); [color] is a
-/// §34.43 preset token or `#RRGGBB` hex.
+/// preset token or `#RRGGBB` hex.
 class BulletPropertyOption {
   const BulletPropertyOption({
     required this.id,
@@ -29,7 +29,7 @@ class BulletPropertyOption {
   final String? color;
 }
 
-/// §34.89: one multi_select element carrier — the option ids written at one
+/// One multi_select element carrier — the option ids written at one
 /// property idx (the effective read splits multi elements into per-element
 /// rows; toggles address the carrying row).
 class BulletPropertyElement {
@@ -39,7 +39,7 @@ class BulletPropertyElement {
   final List<String> ids;
 }
 
-/// §34.90: one effective property value riding a block row. The host screen
+/// One effective property value riding a block row. The host screen
 /// builds these from `getEffectiveProperties` for rows whose schema (the
 /// display contract is PROPERTY-level) positions the value at 'bullet' (next to the bullet) or 'inline' (before
 /// the content) and whose schema type is select/multi_select/boolean.
@@ -81,7 +81,7 @@ class BulletPropertyValue {
   final List<BulletPropertyElement> elements;
 }
 
-/// One resolved §34.89 bullet-button write: the button computes the exact
+/// One resolved bullet-button write: the button computes the exact
 /// write (single/boolean/clear at idx 0; multi merges/toggles per carrying
 /// element idx) and the host performs it through the sync service.
 class BulletPropertyWrite {
@@ -236,12 +236,12 @@ class BlockTreeEditor extends StatefulWidget {
   /// Data colors for link targets (node/class uuid → color).
   final Map<String, Color>? linkColors;
 
-  /// §34.90: the display-positioned property values per block node uuid
+  /// The display-positioned property values per block node uuid
   /// ('bullet' rides next to the bullet, 'inline' before the content). The
   /// host screen resolves these through `getEffectiveProperties`.
   final Map<String, List<BulletPropertyValue>> bulletProperties;
 
-  /// §34.90 write path: invoked with the resolved write when the user picks
+  /// Write path: invoked with the resolved write when the user picks
   /// an option (or the None row) on a value button. Null = read-only
   /// projection — the current icon renders but never opens the sheet.
   final Future<void> Function(BlockNode node, BulletPropertyWrite write)?
@@ -464,7 +464,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
     final isTask = node.node.isTask;
     final isTaskDone = _isTaskDone(node);
 
-    // §34.90 value-display buttons: the bullet group hugs the bullet, the
+    // Value-display buttons: the bullet group hugs the bullet, the
     // inline group hugs the content (mirrors the web BlockRow). In read-only
     // projections (no write handler) the icons render but open nothing.
     final displayProps = widget.bulletProperties[node.node.uuid] ??
@@ -1318,7 +1318,7 @@ class _Bullet extends StatelessWidget {
   }
 }
 
-/// §34.89 boolean mode: the owner-specified synthetic options — the checked
+/// Boolean mode: the owner-specified synthetic options — the checked
 /// circle (green) for true, the hollow circle (gray) for false. The option
 /// ids are the JSON boolean spelled out; writes translate back.
 const BulletPropertyOption _booleanTrueOption = BulletPropertyOption(
@@ -1334,7 +1334,7 @@ const BulletPropertyOption _booleanFalseOption = BulletPropertyOption(
   color: 'gray',
 );
 
-/// §34.90: the block-row value button (the Logseq-DB "beginning of the
+/// The block-row value button (the Logseq-DB "beginning of the
 /// block" port). Shows the FIRST selected option's MDI icon tinted with its
 /// color — the at-a-glance state read; an unset value renders a dimmed
 /// hollow circle so a fresh value can be given in place. Tapping opens the

@@ -1,14 +1,14 @@
 # Gap Analysis — Notees Mobile (Flutter) vs. Web Client
 
 **Date:** 2026-08-10  
-**Scope:** Mobile app `lib/` vs. web client `frontend/src/` in the sibling `notees` repo.  
+**Scope:** Mobile app `lib/` vs. the web client in the main Notees monorepo.  
 **Purpose:** Identify feature, UX, and protocol gaps so the mobile roadmap can be prioritized against the web source of truth.
 
 ---
 
 ## Executive summary
 
-The Flutter app now matches the Android product description for a **capture-first, task-first, three-tab phone experience** (Inbox · Tasks · Library) and is aligned with the server's operation-relay sync protocol. The web client remains the richer, full-workspace surface. The biggest gaps are not in basic note/task capture but in **advanced view modes, analytic/exploratory surfaces, plugin ecosystem, administrative features, and deep editor power-user features** that are intentionally out of scope for a v1 mobile app.
+The Flutter app now matches the Android product description for a **capture-first, task-first, three-tab phone experience** (Inbox · Tasks · Library) and is aligned with the server's operation-relay sync protocol. The web client remains the richer, full-workspace surface. The biggest gaps are not in basic note/task capture but in **advanced view modes, analytic/exploratory surfaces, plugin ecosystem, administrative features, and deep editor power-user features** that are intentionally out of scope for a mobile app.
 
 | Category | Web | Mobile | Gap verdict |
 |---|---|---|---|
@@ -27,7 +27,7 @@ The Flutter app now matches the Android product description for a **capture-firs
 
 | Feature | Web | Mobile | Status | Notes |
 |---|---|---|---|---|
-| Operation-relay protocol (`/api/relay/*`) | ✅ | ✅ | Parity | Mobile rewritten to relay in `plan-sync-relay.md`. |
+| Operation-relay protocol (`/api/relay/*`) | ✅ | ✅ | Parity | Mobile rewritten to the relay protocol. |
 | HLC/version-vector conflict resolution | ✅ | ✅ | Parity | Implemented in `hlc_clock.dart`, `relay_models.dart`. |
 | Offline outbox / background sync | Service worker + IndexedDB | WorkManager + SQLite | Parity in concept | Mobile background sync exists; asset uploads may still need foreground. |
 | Local-first derived state rebuild | ✅ Full SQLite rebuild from op log | Partial (`node_cache` appliers) | Partial | Mobile appliers cover node CRUD, content, properties, class assign. Not a full derived rebuild. |
@@ -58,7 +58,7 @@ The Flutter app now matches the Android product description for a **capture-firs
 | Page templates | ✅ | ✅ | Parity | Templates exist in mobile. |
 | Version history / page activity | ✅ | ❌ | Missing | No history view. |
 | Focus mode (distraction-free read) | ✅ | Partial | Partial | Reader view exists; no dedicated focus toggle. |
-| Presentation mode | ✅ | ❌ | Missing | N/A for phone v1. |
+| Presentation mode | ✅ | ❌ | Missing | N/A for a phone app. |
 | Page properties / metadata editor | ✅ Full class/property editor | Partial | Partial | Mobile implements class-level property metadata recently. |
 
 **Verdict:** The mobile editor covers ~70 % of web editor power. The intentional omissions (whiteboard full editing, complex tables, version history) match the product description.
@@ -160,7 +160,7 @@ The Flutter app now matches the Android product description for a **capture-firs
 | Shares (workspace-internal) | ✅ | ❌ | Missing | No shares list / bottom sheet. |
 | Public share links | ✅ | ❌ | Missing |  |
 | Public share read view | ✅ | ❌ | Missing |  |
-| Collaborative cursors / presence | ✅ | ❌ | Missing | Product description says not in v1. |
+| Collaborative cursors / presence | ✅ | ❌ | Missing | Product description says not included. |
 | Mentions / notifications | ✅ | Partial | Partial | Notifications screen exists. |
 
 **Verdict:** Collaboration is largely absent on mobile. Comments need the endpoint fix; shares/public views are entirely missing.
@@ -171,13 +171,13 @@ The Flutter app now matches the Android product description for a **capture-firs
 
 | Feature | Web | Mobile | Status | Notes |
 |---|---|---|---|---|
-| Plugin manager / runtime | ✅ | ❌ | Missing | N/A for v1. |
+| Plugin manager / runtime | ✅ | ❌ | Missing | N/A for the phone scope. |
 | Flashcards plugin | ✅ | ❌ | Missing |  |
 | OPML import/export | ✅ | ❌ | Missing |  |
 | Custom importers / exporters | ✅ | ❌ | Missing |  |
 | Command palette extensions | ✅ | ❌ | Missing |  |
 
-**Verdict:** Plugins are correctly out of scope for v1 per product description.
+**Verdict:** Plugins are correctly out of scope for mobile per product description.
 
 ---
 
@@ -265,4 +265,4 @@ Reported runtime errors:
 
 ## 14. Conclusion
 
-The Flutter app is no longer misaligned with the web's **data model or sync protocol**, and it has a superior mobile capture layer. The remaining gaps are mostly **intentional v1 omissions** (graph, timeline, plugins, admin) and **UX polish** (drag handles, empty states, title editing, sheet consistency). The next most valuable work is closing the stability/UX items in Phase 1 and Phase 2, then adding shares/comments parity, rather than chasing feature-for-feature web parity.
+The Flutter app is no longer misaligned with the web's **data model or sync protocol**, and it has a superior mobile capture layer. The remaining gaps are mostly **intentional mobile scope omissions** (graph, timeline, plugins, admin) and **UX polish** (drag handles, empty states, title editing, sheet consistency). The next most valuable work is closing the stability/UX items in Phase 1 and Phase 2, then adding shares/comments parity, rather than chasing feature-for-feature web parity.

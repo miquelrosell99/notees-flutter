@@ -34,7 +34,7 @@ void main() {
   const nodeId = '0192a000-0000-7000-8000-000000000413';
 
   List<OperationEnvelope> fixtureEnvelopes() =>
-      ((jsonDecode(File('test/fixtures/v2/class-unassign.json')
+      ((jsonDecode(File('test/fixtures/wire/class-unassign.json')
                   .readAsStringSync())
               as Map<String, dynamic>)['envelopes'] as List<dynamic>)
           .cast<Map<String, dynamic>>()

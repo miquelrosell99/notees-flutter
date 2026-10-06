@@ -12,9 +12,9 @@ import 'package:notees/domain/services/sync_v2_service.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// Engine wiring for the realtime acceleration path (WIRE.md §2): ops frames
+/// Engine wiring for the realtime acceleration path (WIRE.md): ops frames
 /// apply through the same path as catch-up, hello drives pull decisions, and
-/// the snapshot-upload trigger PUTs a real v2 derived-state database.
+/// the snapshot-upload trigger PUTs a real derived-state database.
 Future<void> waitFor(bool Function() condition, {String? reason}) async {
   final stopwatch = Stopwatch()..start();
   while (!condition()) {
@@ -311,7 +311,7 @@ void main() {
       expect(await db.query('relay_outbox'), isEmpty);
     });
 
-    test('uploadSnapshot PUTs a real v2 derived-state database', () async {
+    test('uploadSnapshot PUTs a real derived-state database', () async {
       await service.enqueue(
         type: 'create',
         nodeUuid: node1,
@@ -332,7 +332,7 @@ void main() {
       final body = put['body']! as Uint8List;
       expect(body, isNotEmpty);
 
-      // The bytes are a SQLite database in the v2 derived-state schema.
+      // The bytes are a SQLite database in the derived-state schema.
       final snapPath = p.join(tempDir.path, 'verify_snapshot.db');
       final snapFile = File(snapPath)
         ..writeAsBytesSync(body.toList(), flush: true);

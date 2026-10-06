@@ -37,7 +37,7 @@ class SystemClassUuids {
   /// itself is not part of the mobile seed delta (TS manifest …029).
   static const String agent = '00000000-0000-0000-0001-000000000029';
 
-  // §34.36/§34.55 feature-family classes (2026-10-04 lockstep, TS manifest
+  // Feature-family classes (2026-10-04 lockstep, TS manifest
   // `SYSTEM_CLASS_UUIDS` — the five family bases and their
   // extends-children; fixed ids, never reuse).
   static const String book = '00000000-0000-0000-0001-000000000024';
@@ -81,7 +81,7 @@ class SystemPropertyUuids {
 }
 
 /// Deterministic select-option ids for the applier-side task-family
-/// seed-ensure (§34.35 constraint 5 — the `workspace.feature.set
+/// seed-ensure (the `workspace.feature.set
 /// {feature:"tasks", enabled:true}` path authors the six schemas at apply
 /// time, so its option ids must be fixed, not client-random). The
 /// select-option namespace (`…0004-…`) continues after the role options
@@ -122,7 +122,7 @@ class TaskStatuses {
 class SystemPageUuids {
   SystemPageUuids._();
 
-  // §34.81 of the main repo's plan (owner 2026-10-05): the scratchpad page
+  // Owner ruling (2026-10-05): the scratchpad page
   // (00000000-0000-0000-0002-000000000001) is WITHDRAWN — "not wanted". No
   // longer seeded; the UUID is never reused. Pre-withdrawal workspaces keep
   // the page as an ordinary node.

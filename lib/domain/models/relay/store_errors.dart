@@ -1,5 +1,5 @@
 /// Typed errors for the relay-v2 derived-state appliers, ported from
-/// `v2/packages/store/src/errors.ts`. Appliers fail loud: constraint
+/// `packages/store/src/errors.ts`. Appliers fail loud: constraint
 /// violations, move-guard breaches, extends cycles, and unsupported wire
 /// carriers surface as dedicated types instead of silent drops, so the sync
 /// service can quarantine with a typed reason and rolls back by not
@@ -41,8 +41,8 @@ class CycleError extends StoreError {
 }
 
 /// object.update arrived with the canonical CRDT wire carrier
-/// (contentDeltaB64) but no readable contentAst mirror. The Yjs port is M1+
-/// work; until it lands this carrier cannot be interpreted, so the applier
+/// (contentDeltaB64) but no readable contentAst mirror. The Yjs port is
+/// future work; until it lands this carrier cannot be interpreted, so the applier
 /// fails loud rather than dropping a write silently.
 class UnsupportedCarrierError extends StoreError {
   const UnsupportedCarrierError(super.message, [super.opType]);
@@ -56,7 +56,7 @@ class NodeNotFoundError extends StoreError {
 /// property.set / class.property.set carried a value whose shape does not
 /// match the property schema's type (SCHEMA.md "Node-backed text
 /// properties": one-shape-per-type, fail-loud at the apply-time write path;
-/// PG6, §34.51). Node-typed refs failing the schema's graph constraints
+/// PG6). Node-typed refs failing the schema's graph constraints
 /// (existence, targetClassFilter, datePrecision ceiling) throw this too.
 class PropertyValueShapeError extends StoreError {
   const PropertyValueShapeError(super.message, [super.opType]);

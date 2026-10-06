@@ -273,7 +273,7 @@ void main() {
       syncService.actorId = user1;
       expect(syncService.hasUserActor, isTrue);
 
-      // Create the node first: v2 object.delete requires the target row.
+      // Create the node first: object.delete requires the target row.
       await syncService.enqueue(
         type: 'create',
         nodeUuid: node1,
@@ -414,7 +414,7 @@ void main() {
       snapshotEpoch = 7;
     });
 
-    test('produced envelopes carry v2 provenance (deviceId, client, timestamp)',
+    test('produced envelopes carry wire provenance (deviceId, client, timestamp)',
         () async {
       syncService = SyncV2Service(
         database: database,

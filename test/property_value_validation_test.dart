@@ -10,7 +10,7 @@ import 'package:notees/domain/models/relay/store_errors.dart';
 import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// Acceptance for the §34.51 PG6 apply-time value validation port
+/// Acceptance for the PG6 apply-time value validation port
 /// (`packages/store/src/property-values.ts` → property_value_shapes.dart +
 /// the repository graph checks), hooked into the property.set /
 /// class.property.set appliers:
@@ -18,7 +18,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 ///  - one-shape-per-type with fail-loud rejection, the legacy encodings
 ///    (bare-uuid refs, numeric strings) normalizing to the canonical shape
 ///    AT WRITE (the stored row carries the normalized value);
-///  - image values deliberately unchecked (the §34.32 PG14 zombie row) and
+///  - image values deliberately unchecked (the PG14 zombie row) and
 ///    unknown schema ids storing unchecked (property.set has no schema FK);
 ///  - cardinality: a single-value schema takes idx 0 only;
 ///  - datePrecision ceiling + targetClassFilter (extends-aware membership)
@@ -231,7 +231,7 @@ void main() {
     });
 
     test('number accepts finite numbers and normalizes numeric strings '
-        '(the v1 epoch-millis legacy)', () async {
+        '(the epoch-millis legacy)', () async {
       const numberSchema = '0192a000-0000-7000-8000-000000000205';
       await createNode(owner);
       await createSchema(numberSchema, 'number', multi: true);

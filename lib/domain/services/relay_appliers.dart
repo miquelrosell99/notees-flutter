@@ -16,7 +16,7 @@ import '../models/relay/property_value_shapes.dart';
 import '../models/relay/store_errors.dart';
 import '../models/relay/workspace_features.dart';
 
-/// Applies v2 relay operation envelopes to the local derived state, porting
+/// Applies relay operation envelopes to the local derived state, porting
 /// `packages/store/src/appliers.ts` semantics:
 ///
 ///  - row-level LWW by (hlc_physical, hlc_logical, actor_id): higher HLC
@@ -46,8 +46,8 @@ import '../models/relay/workspace_features.dart';
 ///    is HLC-only so on equal HLC the add wins regardless of actor);
 ///    dateQualified schemas normalize the reserved metadata qualifier keys
 ///    to date-node refs on write (PC6); unsetting a node-backed text value
-///    trashes the unreferenced carrier block (§34.45);
-///  - PG6 apply-time value validation (§34.51): a property.set against a
+///    trashes the unreferenced carrier block;
+///  - PG6 apply-time value validation: a property.set against a
 ///    known schema row validates one-shape-per-type (legacy bare-uuid refs
 ///    and numeric strings normalize to the canonical encoding), the
 ///    datePrecision ceiling, the targetClassFilter via the extends-aware
@@ -66,7 +66,7 @@ import '../models/relay/workspace_features.dart';
 ///    the task family at the fixed seed ids on every enable payload);
 ///  - appliers fail loud with typed [StoreError]s and never swallow a write
 ///    silently. Envelope-id idempotency lives in the sync service
-///    (relay_operations dedupe), mirroring applied_envelope in the v2 store.
+///    (relay_operations dedupe), mirroring applied_envelope in the TS store.
 class RelayAppliers {
   RelayAppliers(this._cache);
 
@@ -98,7 +98,7 @@ class RelayAppliers {
       return false;
     }
 
-    // Known v2 ops validate their payload before touching state (the relay
+    // Known ops validate their payload before touching state (the relay
     // would 422 them otherwise); unknown/legacy types fall to the ignore
     // list below.
     if (OperationPayloads.isKnownOpType(envelope.opType)) {
@@ -184,7 +184,7 @@ class RelayAppliers {
         return false;
       default:
         // No silent fallthrough: log op types this client does not know
-        // (including v1-only ops dropped from the v2 M1 registry:
+        // (including legacy ops dropped from the op registry:
         // node.archive/restore, user.favorite.*, task.*, classPropertyEdge.*,
         // share.user.*).
         debugPrint(
@@ -229,11 +229,11 @@ class RelayAppliers {
       }
     }
 
-    // Seed OR-Set membership first: a re-issued create is the v2 membership
+    // Seed OR-Set membership first: a re-issued create is the membership
     // carrier (add-wins per pair), even when the node already exists. The
     // class add's comparator is >= on the actor tiebreak (an exact-HLC add
     // beats a class.unassign remove in either delivery order); the tag add's
-    // is strictly-greater, matching the v2 store's tagMemberUpsert gating.
+    // is strictly-greater, matching the TS store's tagMemberUpsert gating.
     final classIds = _readStringList(payload['classIds']);
     for (final classId in classIds) {
       final stored = await _cache.classMemberWinner(objectId, classId);
@@ -250,7 +250,7 @@ class RelayAppliers {
     }
 
     // First create wins for the tree: re-issuing object.create on an
-    // existing id must not move the node or revert later edits (the v1
+    // existing id must not move the node or revert later edits (the legacy
     // dual-parent corruption class this op replaces).
     if (await _cache.getByUuid(objectId) != null) {
       if (classIds.isNotEmpty) await _cache.recomputeClassIds(objectId);
@@ -419,7 +419,7 @@ class RelayAppliers {
     }
     final permanent = payload['permanent'] == true;
     if (!permanent) {
-      // Soft delete: trash the whole subtree (v2 semantics — restore is
+      // Soft delete: trash the whole subtree (relay semantics — restore is
       // whole-tree). The trash/archive view reads is_archived; the
       // trash_root row (one per root, lockstep with the TS `trash` table)
       // is what lets object.restore tell "rode with the parent" apart from
@@ -588,13 +588,13 @@ class RelayAppliers {
 
   // --- properties ---------------------------------------------------------------
   //
-  // PG5 (§34.57 lockstep): multi-value slots are an OR-Set of elements. A
+  // PG5: multi-value slots are an OR-Set of elements. A
   // payload `elementId` is an element ADD (the property_value row id IS the
   // element id); a payload WITHOUT it is the legacy positional carrier at
   // the deterministic `node:schema:idx` element — replayed stored logs and
-  // old clients keep applying unchanged. PC6 (§34.57): dateQualified schemas
+  // old clients keep applying unchanged. PC6: dateQualified schemas
   // normalize the reserved metadata qualifier keys (startDate/endDate) to
-  // date-node refs on write. §34.45 (PB2): unsetting a node-backed TEXT
+  // date-node refs on write. PB2: unsetting a node-backed TEXT
   // value trashes the now-unreferenced carrier block under three guards
   // (child-of-owner, active non-class, unreferenced) — derived-state parity
   // with the TS reference on wipe+replay.
@@ -609,7 +609,7 @@ class RelayAppliers {
     final idx = (payload['idx'] as num?)?.toInt() ?? 0;
     final elementId = payload['elementId'] as String?;
 
-    // PB2/PG6 (§34.32/§34.51): one-shape-per-type + schema-linked integrity
+    // PB2/PG6: one-shape-per-type + schema-linked integrity
     // at the write path. The schema row (when known — property.set has no
     // schema FK) types the slot: shape/scalar mismatch, a date ref finer
     // than the schema's precision, a target outside the class filter, and a
@@ -845,7 +845,7 @@ class RelayAppliers {
                 ((existing['hlc_logical'] as num?)?.toInt() ?? 0));
     if (!removeWinsByHlc) return; // add-wins ties: the live row stays.
     await _cache.deletePropertyValueById(elementId);
-    // §34.45: unsetting a node-backed text value deletes the carrier block
+    // Unsetting a node-backed text value deletes the carrier block
     // under the same guards as the positional path.
     await _trashTextCarrierIfOrphaned(
       objectId,
@@ -890,7 +890,7 @@ class RelayAppliers {
     );
     if (compareLww(incoming, rowWinner) <= 0) return;
     await _cache.deletePropertyValueById(rowId);
-    // §34.45 (SCHEMA.md "Node-backed text properties"): unsetting a
+    // SCHEMA.md "Node-backed text properties": unsetting a
     // node-backed text value deletes the carrier block — trash + retention,
     // consistent with node deletion (three guards below).
     await _trashTextCarrierIfOrphaned(
@@ -901,7 +901,7 @@ class RelayAppliers {
     );
   }
 
-  /// The carrier-deletion half of property.unset (§34.45 PB2). The value
+  /// The carrier-deletion half of property.unset (PB2). The value
   /// row is already deleted; [removedValueRaw] is its stored JSON. Trashes
   /// the now-unreferenced carrier inside the same apply. Guards: the removed
   /// value references a node (canonical {nodeId} or legacy bare uuid), no
@@ -1052,7 +1052,7 @@ class RelayAppliers {
     return contentSourceToExcerpt(contentAst);
   }
 
-  /// F4 (§34.35/§34.55): a delete addressed at a family BASE class is
+  /// F4: a delete addressed at a family BASE class is
   /// routed to the toggle — applied as a feature-disable so the Features
   /// setting is the single archive path for the families and the lossy
   /// plain delete (membership tombstoning) never runs on them. The five
@@ -1142,7 +1142,7 @@ class RelayAppliers {
       return false;
     }
 
-    // PC2 (§34.32): defaultValue is typed per the schema type — a
+    // PC2: defaultValue is typed per the schema type — a
     // wrong-typed default fails loud here instead of deriving silently on
     // every read. Omitted defaultValue (patch keeps the stored one) skips
     // the check; a stored default that drifts out of match (schema
@@ -1172,7 +1172,7 @@ class RelayAppliers {
       schemaId: schemaId,
       incoming: incoming,
       sequence: (payload['sequence'] as num?)?.toInt(),
-      // §34.90: the binding carries ONLY the per-class mechanics — required
+      // The binding carries ONLY the per-class mechanics — required
       // (the owner's exception) rides the row LWW; readonly/hideWhenEmpty/
       // display are PROPERTY-level (propertySchema.create/update).
       required: payload['required'] as bool?,
@@ -1279,12 +1279,12 @@ class RelayAppliers {
         // PC6 normalize-on-write consults dateQualified on property.set.
         datePrecision: payload['datePrecision'] as String?,
         dateQualified: payload['dateQualified'] as bool?,
-        // SCHEMA.md "Number formats" (§34.79 lockstep): display-only
+        // SCHEMA.md "Number formats": display-only
         // formatting for number schemas.
         numberPad: payload['numberPad'] as int?,
         numberDecimals: payload['numberDecimals'] as int?,
         numberRounding: payload['numberRounding'] as String?,
-        // §34.90 (owner review 2026-10-05): the render contracts are
+        // Owner review 2026-10-05: the render contracts are
         // PROPERTY-level — the display position + readonly/hideWhenEmpty
         // ride the schema row (absent = the 'panel'/unset defaults).
         display: payload['display'] as String?,
@@ -1316,8 +1316,8 @@ class RelayAppliers {
                       ?.cast<Map<String, dynamic>>() ??
                   const []
             : existing.options,
-        // v2 propertySchema.update carries name/options/datePrecision/
-        // dateQualified/number formats/§34.90 render contracts; everything
+        // propertySchema.update carries name/options/datePrecision/
+        // dateQualified/number formats/render contracts; everything
         // else is preserved from the stored row.
         type: existing.type,
         multi: existing.multi,
@@ -1336,7 +1336,7 @@ class RelayAppliers {
         dateQualified: payload.containsKey('dateQualified')
             ? payload['dateQualified'] as bool?
             : existing.dateQualified,
-        // §34.79 number formats: absent keeps, explicit null clears
+        // Number formats: absent keeps, explicit null clears
         // (containsKey distinguishes the two).
         numberPad: payload.containsKey('numberPad')
             ? payload['numberPad'] as int?
@@ -1347,7 +1347,7 @@ class RelayAppliers {
         numberRounding: payload.containsKey('numberRounding')
             ? payload['numberRounding'] as String?
             : existing.numberRounding,
-        // §34.90 render contracts (PROPERTY-level): the same keep/clear
+        // render contracts (PROPERTY-level): the same keep/clear
         // contract as the number formats (absent keeps, present null
         // clears; `required` is NOT here — it stays on the class binding).
         display: payload.containsKey('display')
@@ -1397,7 +1397,7 @@ class RelayAppliers {
     return true;
   }
 
-  // --- workspace.feature.* (§34.35, §34.54/§34.55 lockstep) ---------------------
+  // --- workspace.feature.* ----------------------------------------------------
   //
   // Per-workspace feature toggles: LWW by (workspaceId, feature) on the
   // envelope (hlc, actor) — the winning row lands in `workspace_feature`
@@ -1457,7 +1457,7 @@ class RelayAppliers {
     }
   }
 
-  /// The `tasks` enable path (§34.35 constraint 5): author the task class +
+  /// The `tasks` enable path: author the task class +
   /// the six property schemas + their bindings at the fixed seed ids.
   /// Purely additive (INSERT-or-ignore everywhere) so a client-authored
   /// family (random option ids) or a server-seeded one is never clobbered —
@@ -1480,8 +1480,8 @@ class RelayAppliers {
           multi: false,
           isSystem: true,
           scope: 'class',
-          // §34.89: the designed status options carry the circle-family MDI
-          // glyphs + §34.43 color tokens (owner-mandated set); priority and
+          // The designed status options carry the circle-family MDI
+          // glyphs + color tokens (owner-mandated set); priority and
           // the date schemas stay plain {id, label}.
           options: [
             for (final option in entry.options)
@@ -1492,7 +1492,7 @@ class RelayAppliers {
                 if (option['color'] != null) 'color': option['color'],
               },
           ],
-          // §34.90 (owner review 2026-10-05): the display position is
+          // Owner review 2026-10-05: the display position is
           // PROPERTY-level — the Status schema defaults to 'bullet' (its
           // value rides the block bullet as an icon button); the rest stay
           // in the properties panel (null).
@@ -1635,10 +1635,10 @@ class RelayAppliers {
 
 /// Sentinel distinguishing "argument not given" from an explicit null
 /// (clearing `parentUuid`/`position` on a move to the workspace root, and
-/// clearing `color` on object.update — §34.43 present-null semantics).
+/// clearing `color` on object.update — present-null semantics).
 const _undefined = Object();
 
-/// Field-wise copy used by the v2 appliers (the local [Node] model predates
+/// Field-wise copy used by the appliers (the local [Node] model predates
 /// copyWith for these fields).
 Node _copyWith(
   Node node, {

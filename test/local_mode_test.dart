@@ -220,11 +220,11 @@ void main() {
       final seed = LocalWorkspaceSeed(syncService);
 
       // 25 system classes (21 legacy + source + song/tv_series/conference
-      // from the citations revision; v2 class.create carries the name) +
+      // from the citations revision; class.create carries the name) +
       // 3 class.setExtends (the new classes extend source) +
       // 1 propertySchema.create + 1 class.property.set (authors, node-typed
       // per the FINAL owner reversion) + 1 page (Inbox; the scratchpad seed
-      // was withdrawn 2026-10-05, §34.81).
+      // was withdrawn 2026-10-05).
       final emitted = await seed.ensureLocalWorkspace();
       expect(emitted, 31);
 

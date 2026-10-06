@@ -10,7 +10,7 @@ import 'package:notees/domain/models/relay/store_errors.dart';
 import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// Acceptance suite: replays the vendored v2 protocol fixtures through the
+/// Acceptance suite: replays the vendored protocol fixtures through the
 /// Flutter derived-state appliers — the same envelopes the monorepo's store
 /// tests and the GTK client replay must converge to the same derived state
 /// here. The cycle fixture is deliberately excluded from the all-fixtures
@@ -18,12 +18,12 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// on apply (see the cycle test).
 ///
 /// Expected outcomes mirror `tests/test_store_fixtures.py` (GTK) and
-/// `v2/packages/store/test/store.test.ts` (monorepo).
+/// `packages/store/test/store.test.ts` (monorepo).
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
 
-  const fixturesDir = 'test/fixtures/v2';
+  const fixturesDir = 'test/fixtures/wire';
 
   const ws = '0192a000-0000-7000-8000-000000000001';
   const nodePage = '0192a000-0000-7000-8000-000000000010';
@@ -90,7 +90,7 @@ void main() {
         timestamp: '2026-09-24T12:00:00.000Z',
       );
 
-  /// The typed-link fixtures update the BLOCK under nodePage (the v2 store
+  /// The typed-link fixtures update the BLOCK under nodePage (the TS store
   /// tests seed it the same way via baseStoreWithBlock).
   OperationEnvelope baseBlock(String nodeId, String parentId, int physical) =>
       OperationEnvelope(
@@ -109,7 +109,7 @@ void main() {
         timestamp: '2026-09-24T12:00:00.000Z',
       );
 
-  group('v2 fixture replay acceptance', () {
+  group('fixture replay acceptance', () {
     late NodeCacheRepository cache;
     late RelayAppliers appliers;
     late AppDatabase database;
@@ -188,7 +188,7 @@ void main() {
       const classProbe = '0192a000-0000-7000-8000-000000000511';
       final envelopes = fixtureEnvelopes('object-color.json');
 
-      // object.create carries no color slot (§34.43: color rides
+      // object.create carries no color slot (color rides
       // object.update), so the probe page starts uncolored.
       expect(await appliers.apply(envelopes[0]), isTrue);
       expect((await cache.getByUuid(objectProbe))!.color, isNull);
@@ -201,7 +201,7 @@ void main() {
       expect(await appliers.apply(envelopes[2]), isTrue);
       expect((await cache.getByUuid(objectProbe))!.color, '#123abc');
 
-      // object.update with a present null CLEARS (§34.43 null-clear) — a
+      // object.update with a present null CLEARS — a
       // `!= null` drop here would leave '#123abc' behind.
       expect(await appliers.apply(envelopes[3]), isTrue);
       expect((await cache.getByUuid(objectProbe))!.color, isNull);
@@ -438,7 +438,7 @@ void main() {
       // The typed-link updates (physical 2000/3000) lose the row-LWW race to
       // the object-move fixture (physical 7000+, which creates their target
       // ...020 = "Move Fixture" earlier in the alphabetical order) — the
-      // same convergence the v2 store's all-fixtures replay produces. The
+      // same convergence the TS store's all-fixtures replay produces. The
       // page content stays the move fixture's title text; the typed-link
       // content landing is covered by the block-seeded test above.
       for (final envelope in envelopes) {

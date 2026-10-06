@@ -183,7 +183,7 @@ class SyncV2Service {
       throw const SyncV2Exception('No workspace configured');
     }
 
-    // Guard: an op that would miss a field the v2 registry requires (null
+    // Guard: an op that would miss a field the op registry requires (null
     // content, or a missing property/tag/class target) is rejected by the
     // relay with 422 and would sit in the quarantine forever. Skip it
     // instead and surface via the log.
@@ -236,7 +236,7 @@ class SyncV2Service {
       isYearly: isYearly,
       favoriteNodeUuids: favoriteNodeUuids,
     );
-    // §34.65 (owner rule, web `unassignClass` parity): authored values that
+    // Owner rule (web `unassignClass` parity): authored values that
     // merely MIRROR the departing class's binding defaults carry no user
     // data — the user never put anything in that property. Sweep them with
     // explicit property.unset envelopes (enqueued BEFORE the membership
@@ -252,7 +252,7 @@ class SyncV2Service {
     return op;
   }
 
-  /// The §34.65 default-mirror sweep: for every binding of [classId] with a
+  /// The default-mirror sweep: for every binding of [classId] with a
   /// stored default, unset the node's authored rows whose value JSON-text
   /// equals the default's JSON-text (the web's decodeDefault string quirk —
   /// see [NodeCacheRepository.classPropertyDefaultsOf]). PG5 rows unset by
@@ -297,7 +297,7 @@ class SyncV2Service {
   /// Sends pending relay envelopes to the server and updates local state.
   ///
   /// A 200 acks the whole chunk (WIRE.md: duplicate ids are silently
-  /// ignored, so savedIds may omit resent ids). v2 wire error codes decide
+  /// ignored, so savedIds may omit resent ids). Wire error codes decide
   /// retry vs quarantine: `validation_failed`/`not_found` are permanent
   /// (quarantine), `unauthenticated`/`forbidden`/`rate_limited`/`conflict`
   /// retry with backoff, and `idempotency_replay` means the server already
@@ -414,7 +414,7 @@ class SyncV2Service {
   /// snapshot-freshness decisions and for advancing the local HLC clock used
   /// when producing new operations. `restoreEpoch` changes wipe the derived
   /// state and resync from seq 0 (pending outbox ops survive and are
-  /// re-pushed after the catch-up, mirroring the v2 engine's park/resync).
+  /// re-pushed after the catch-up, mirroring the TS engine's park/resync).
   /// Per-page progress is reported through [onPullProgress].
   Future<void> pull() async {
     if (serverless) return;
@@ -467,7 +467,7 @@ class SyncV2Service {
     var lastReceived =
         await _watermarks.getReceived(workspaceId) ??
         const Hlc(physical: 0, logical: 0);
-    // Snapshot freshness is decided by the seq cursor (SPEC §2.1); the HLC
+    // Snapshot freshness is decided by the seq cursor (SPEC); the HLC
     // comparison is only a fallback for snapshots recorded before the seq
     // cursor existed (upToSeq == null).
     final snapshotIsNewer =
@@ -560,7 +560,7 @@ class SyncV2Service {
 
   /// Shared remote-apply path (catch-up pages and buffered WS ops frames):
   /// dedupe against envelopes already applied from the server, apply through
-  /// the v2 appliers, record, and track the HLC watermark. Locally produced
+  /// the appliers, record, and track the HLC watermark. Locally produced
   /// envelopes (is_local = 1) are NOT deduped here: they are applied to the
   /// cache on flush, and re-applying the echo is harmless — the appliers are
   /// row-LWW / first-create-wins idempotent.
@@ -583,7 +583,7 @@ class SyncV2Service {
         // Typed applier failure (cycle, move guard, placement CHECK,
         // payload validation): fail loud, and do NOT consume the
         // envelope id — a later pull re-applies it, and a wipe resyncs
-        // the prefix deterministically (mirrors the v2 store, where a
+        // the prefix deterministically (mirrors the TS store, where a
         // thrown apply rolls back with the dedupe record).
         debugPrint(
           'SyncV2Service: skipping ${envelope.id} (${envelope.opType}): $e',
@@ -597,7 +597,7 @@ class SyncV2Service {
     return (applied: applied, maxHlc: maxHlc);
   }
 
-  // --- realtime acceleration path (WIRE.md §2) -------------------------------
+  // --- realtime acceleration path (WIRE.md) -----------------------------------
 
   /// Starts the realtime WebSocket acceleration path for the current
   /// workspace. [apiKey] authenticates the handshake (the per-server key the
@@ -686,7 +686,7 @@ class SyncV2Service {
 
   /// Server restoreEpoch changed (advertised by a WS hello): park unsent
   /// ops (the outbox survives), wipe the derived state, and resync from
-  /// seq 0. Mirrors the v2 engine's resyncFromEpochChange.
+  /// seq 0. Mirrors the TS engine's resyncFromEpochChange.
   Future<void> _resyncFromEpochChange(String workspaceId, int newEpoch) async {
     await _cache.clear();
     await _watermarks.resetWorkspace(workspaceId);
@@ -729,7 +729,7 @@ class SyncV2Service {
       } on FormatException catch (e) {
         // Unparseable frame: drop the remaining buffer — unapplied frames
         // never advanced the cursor, so the next pull re-fetches them
-        // through catch-up (v1 buffer-drop semantics).
+        // through catch-up (legacy buffer-drop semantics).
         _wsBuffer.clear();
         debugPrint('SyncV2Service: dropping WS buffer after $e');
         return;
@@ -742,7 +742,7 @@ class SyncV2Service {
     await _outbox.removeByEnvelopeIds(savedIds);
   }
 
-  /// Builds a v2 derived-state snapshot from the local cache and uploads it
+  /// Builds a derived-state snapshot from the local cache and uploads it
   /// to the relay (`PUT /snapshot/data`). Explicit/manual only — settings
   /// surfaces the trigger; the client never auto-uploads on pull. The
   /// covering HLC is the pushed watermark (falling back to received).
@@ -815,7 +815,7 @@ class SyncV2Service {
 
   /// Builds a relay envelope for a raw [opType]/[payload]: fresh id, the
   /// advanced local HLC, the current workspace. Shared by [emitLocal] and
-  /// the §34.65 default-mirror sweep.
+  /// the default-mirror sweep.
   Future<OperationEnvelope> _buildEnvelope({
     required String opType,
     required Map<String, dynamic> payload,
@@ -880,7 +880,7 @@ class SyncV2Service {
         affectedNodeIds: [objectId],
       );
 
-  /// §34.90 bullet-button writes: sets a property value at [idx] (0 = the
+  /// Bullet-button writes: sets a property value at [idx] (0 = the
   /// single-value slot). Applied locally, push kicked off on the next flush
   /// (`enqueue`'s set_property intent only addresses idx 0 and cannot carry
   /// the multi_select array shape; these ride emitLocal like reorderClasses).
@@ -901,7 +901,7 @@ class SyncV2Service {
         affectedNodeIds: [objectId],
       );
 
-  /// §34.90 bullet-button writes: clears the property slot at [idx] (the
+  /// Bullet-button writes: clears the property slot at [idx] (the
   /// "None" row of the value-display sheet).
   Future<OperationEnvelope> unsetPropertyValue({
     required String objectId,
@@ -968,10 +968,10 @@ class SyncV2Service {
     );
   }
 
-  /// Maps a local [OperationIntent] to a v2 relay envelope (WIRE.md +
-  /// `op-types.ts`). v1 intents with no v2 home (restore, favorites, task
-  /// completions) throw [UnsupportedError] — fail loud rather than silently
-  /// dropping or emitting a v1 op the relay would 422.
+  /// Maps a local [OperationIntent] to a relay envelope (WIRE.md +
+  /// `op-types.ts`). Legacy intents with no relay op (restore, favorites,
+  /// task completions) throw [UnsupportedError] — fail loud rather than
+  /// silently dropping or emitting an op the relay would 422.
   Future<OperationEnvelope> _intentToEnvelope(
     OperationIntent op,
     String workspaceId,
@@ -1017,8 +1017,8 @@ class SyncV2Service {
         final contentAst =
             op.contentAst ??
             (op.name != null ? AstBuilder.parseInline(op.name!) : null);
-        // v1 create also carried a zero-padded child `index` and `color`;
-        // v2 object.create has no position slot (sibling order rides
+        // Legacy create also carried a zero-padded child `index` and `color`;
+        // object.create has no position slot (sibling order rides
         // object.move) and no color slot (color rides object.update).
         opType = 'object.create';
         payload = OperationPayloads.objectCreate(
@@ -1050,7 +1050,7 @@ class SyncV2Service {
           icon: op.propertyValue as String?,
         );
       case 'update_color':
-        // §34.43 tri-state: "absent" never reaches this case (the caller
+        // Tri-state color: "absent" never reaches this case (the caller
         // omits the color argument and no op is enqueued); a queued op with
         // a null propertyValue is an EXPLICIT CLEAR — the payload builder
         // turns it into `"color": null`, and the outbox envelope JSON keeps
@@ -1061,7 +1061,7 @@ class SyncV2Service {
           color: op.propertyValue as String?,
         );
       case 'delete':
-        // v1 node.delete was a hard delete; v2 carries that as
+        // Legacy node.delete was a hard delete; the relay carries that as
         // object.delete with permanent: true.
         opType = 'object.delete';
         payload = OperationPayloads.objectDelete(
@@ -1069,8 +1069,8 @@ class SyncV2Service {
           permanent: true,
         );
       case 'archive':
-        // v2 has no archive op; the soft tombstone (permanent: false) is the
-        // recoverable-delete equivalent of v1's node.archive (trash).
+        // The wire has no archive op; the soft tombstone (permanent: false) is the
+        // recoverable-delete equivalent of the legacy node.archive (trash).
         opType = 'object.delete';
         payload = OperationPayloads.objectDelete(
           objectId: op.nodeUuid,
@@ -1078,12 +1078,13 @@ class SyncV2Service {
         );
       case 'restore':
         throw UnsupportedError(
-          'restore has no v2 op (Phase A gap): the v2 M1 registry has no '
+          'restore has no op (Phase A gap): the op registry has no '
           'un-delete; object.delete is one-way',
         );
       case 'move':
-        // v1 ordered children with a zero-padded newIndex position; v2
-        // orders by parentId + afterId (server-side fractional allocator).
+        // the legacy queue ordered children with a zero-padded newIndex
+        // position; the relay orders by parentId + afterId (server-side
+        // fractional allocator).
         opType = 'object.move';
         payload = OperationPayloads.objectMove(
           objectId: op.nodeUuid,
@@ -1098,7 +1099,7 @@ class SyncV2Service {
           value: op.propertyValue,
         );
       case 'add_class':
-        // v2 has no class.assign op: class membership is an add-wins OR-Set
+        // The registry has no class.assign op: class membership is an add-wins OR-Set
         // seeded by re-issuing object.create with the classIds to add (the
         // server keeps the tree untouched on a re-create).
         opType = 'object.create';
@@ -1115,7 +1116,7 @@ class SyncV2Service {
           classId: op.classUuid ?? '',
         );
       case 'add_tag':
-        // v2 has no tag.assign op: tag membership is an add-wins OR-Set
+        // The registry has no tag.assign op: tag membership is an add-wins OR-Set
         // seeded by re-issuing object.create with the tagIds to add (the
         // server keeps the tree untouched on a re-create).
         opType = 'object.create';
@@ -1135,14 +1136,14 @@ class SyncV2Service {
       case 'remove_favorite':
       case 'reorder_favorites':
         throw UnsupportedError(
-          '${op.type} has no v2 op (Phase A gap): favorites were dropped '
-          'from the v2 M1 registry',
+          '${op.type} has no op (Phase A gap): favorites were dropped '
+          'from the op registry',
         );
       case 'task_record_completion':
       case 'task_delete_completion':
         throw UnsupportedError(
-          '${op.type} has no v2 op (Phase A gap): task completions were '
-          'dropped from the v2 M1 registry',
+          '${op.type} has no op (Phase A gap): task completions were '
+          'dropped from the op registry',
         );
       default:
         throw SyncV2Exception('Unsupported operation type: ${op.type}');

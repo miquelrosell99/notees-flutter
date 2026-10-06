@@ -33,7 +33,7 @@ Future<CookieJar> sharedCookieJar() async {
 ///
 /// [serverId] is the active server profile id; it lets
 /// [RelayApiKeyInterceptor] attach the per-server `X-API-Key` to relay
-/// requests (v2 M1 auth).
+/// requests (relay auth).
 Dio createApiClient({
   required String baseUrl,
   required SecureStorage secureStorage,

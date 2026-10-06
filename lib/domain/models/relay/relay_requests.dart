@@ -1,7 +1,7 @@
 import './hlc.dart';
 import './operation_envelope.dart';
 
-/// Request body for `POST /api/relay/v2/batch` (WIRE.md §1).
+/// Request body for `POST /api/relay/v2/batch` (WIRE.md).
 class RelayBatchRequest {
   const RelayBatchRequest({required this.envelopes});
 
@@ -12,7 +12,7 @@ class RelayBatchRequest {
       };
 }
 
-/// Response body for `POST /api/relay/v2/batch` (WIRE.md §1).
+/// Response body for `POST /api/relay/v2/batch` (WIRE.md).
 ///
 /// Duplicate envelope ids are silently ignored server-side (idempotent
 /// retry), so [savedIds] may omit ids that were sent.
@@ -33,7 +33,7 @@ class RelayBatchResponse {
       );
 }
 
-/// Request body for `POST /api/relay/v2/catch-up` (WIRE.md §1).
+/// Request body for `POST /api/relay/v2/catch-up` (WIRE.md).
 class CatchUpRequest {
   const CatchUpRequest({
     required this.workspaceId,
@@ -55,7 +55,7 @@ class CatchUpRequest {
       };
 }
 
-/// Response body for `POST /api/relay/v2/catch-up` (WIRE.md §1).
+/// Response body for `POST /api/relay/v2/catch-up` (WIRE.md).
 class CatchUpResponse {
   const CatchUpResponse({
     required this.envelopes,

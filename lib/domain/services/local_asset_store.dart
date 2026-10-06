@@ -178,7 +178,7 @@ class LocalAssetService {
 
     try {
       if (existingNodeUuid != null) {
-        // v2 has no class.assign op: a re-issued object.create with the
+        // The registry has no class.assign op: a re-issued object.create with the
         // asset class is the OR-Set membership carrier.
         await _sync.emitLocal(
           opType: 'object.create',

@@ -1,7 +1,7 @@
 /// Factory functions and validation for the operation payloads of the
 /// Notees relay protocol v2.
 ///
-/// This is the Dart port of `packages/protocol/src/op-types.ts` — the M1
+/// This is the Dart port of `packages/protocol/src/op-types.ts` — the
 /// op registry (18 op types). Factories return plain JSON maps for direct
 /// storage in an [OperationEnvelope.payload]; every factory validates its
 /// output through [validatePayload] before returning, so producers fail loud
@@ -17,19 +17,19 @@
 /// `contentAst` wins and `name` is dropped. The validators reject a `name`
 /// key in object/class payloads like the relay does.
 ///
-/// Color grammar (§34.43, 2026-10-03): `color` on object.update /
+/// Color grammar (2026-10-03): `color` on object.update /
 /// class.create / class.update is a preset token (`sky`) or `#RRGGBB` hex —
 /// see [isColorValue]. `null` CLEARS (object.update gained null-clear here;
 /// class.update documented it). The builders take [color] as an `Object?`
 /// [_undefined]-defaulted sentinel so an explicit `null` reaches the wire as
 /// `"color": null` while an omitted argument stays absent.
 ///
-/// §34.54/§34.57 property-wire batch (2026-10-04 lockstep, TS reference
+/// Property-wire batch (2026-10-04 lockstep, TS reference
 /// shipped inert — the parsers land here; authoring stays disabled until
 /// every client parses the new shapes):
 ///  - `workspace.feature.set {feature, enabled}` — the per-workspace
 ///    feature toggles; [feature] is the strict five-family enum
-///    (tasks|events|meetings|sources|persons, the §34.55 reshape) and the
+///    (tasks|events|meetings|sources|persons) and the
 ///    retired pre-reshape ids (journals|readItLater|library|people|
 ///    collections) are rejected outright;
 ///  - `property.set`/`property.unset` gain the optional PG5 `elementId`
@@ -51,7 +51,7 @@ class OperationPayloads {
 
   // --- registry ---------------------------------------------------------------
 
-  /// The v2 M1 op registry (`KNOWN_OP_TYPES` in `op-types.ts`). Unknown op
+  /// The op registry (`KNOWN_OP_TYPES` in `op-types.ts`). Unknown op
   /// types are rejected at relay ingest with 422 `validation_failed`.
   static const List<String> knownOpTypes = [
     'object.create',
@@ -82,8 +82,8 @@ class OperationPayloads {
 
   static bool isKnownOpType(String opType) => knownOpTypes.contains(opType);
 
-  /// The per-workspace feature toggle ids (§34.35, RESHAPED per owner
-  /// directive 2026-10-04, §34.55): the toggles ARE the five core class
+  /// The per-workspace feature toggle ids (reshaped per owner
+  /// directive 2026-10-04): the toggles ARE the five core class
   /// families — tasks=task, events=event, meetings=meeting, sources=source,
   /// persons=person. Feature ids are protocol vocabulary (not UUIDs); the
   /// retired pre-reshape ids (journals/readItLater/library/people/
@@ -151,7 +151,7 @@ class OperationPayloads {
   /// [presentAsMain] true/false — identity is preserved, and promotion
   /// (false → true) stringifies the content in the same op.
   ///
-  /// Color (§34.43): [color] is a preset token or `#RRGGBB` hex; pass `null`
+  /// Color: [color] is a preset token or `#RRGGBB` hex; pass `null`
   /// explicitly to CLEAR the node's color (the wire carries `"color": null`).
   static Map<String, dynamic> objectUpdate({
     required String objectId,
@@ -228,7 +228,7 @@ class OperationPayloads {
 
   /// Title-is-content: the class's title text rides `contentAst` (text-only
   /// content, like pages). [name] is a convenience wrapped into a single
-  /// text token (`WorkspaceClient.createClass` parity). Color (§34.43):
+  /// text token (`WorkspaceClient.createClass` parity). Color:
   /// [color] is a preset token or `#RRGGBB` hex (omit for no color).
   static Map<String, dynamic> classCreate({
     required String classId,
@@ -255,7 +255,7 @@ class OperationPayloads {
   }
 
   /// Title-text replacement (text-only content), same contract as
-  /// [classCreate]. Color (§34.43): [color] is a preset token or `#RRGGBB`
+  /// [classCreate]. Color: [color] is a preset token or `#RRGGBB`
   /// hex; pass `null` explicitly to CLEAR the class's color (the wire
   /// carries `"color": null` — the schema now accepts what the catalog
   /// always documented).
@@ -304,17 +304,17 @@ class OperationPayloads {
         'parentClassIds': parentClassIds,
       });
 
-  /// [type] is the v2 property-schema enum (op-types.ts); [targetClassFilter]
+  /// [type] is the property-schema enum (op-types.ts); [targetClassFilter]
   /// constrains node-typed (m2o/m2m) schemas to those classes.
   /// Binding upsert: a configuration row on `class_property` (sequence,
   /// required, defaultValue, active). Row-level LWW by envelope HLC; omitted
   /// fields KEEP their existing values (partial patch, not a replace). A null
   /// parameter is indistinguishable from "leave unset" through typed Dart
-  /// params, so clearing a flag means passing `false` (the v2 applier maps
+  /// params, so clearing a flag means passing `false` (the applier maps
   /// explicit null to false as well); send a raw map for JSON-null
   /// defaultValue.
   ///
-  /// §34.90 (owner review 2026-10-05): the row carries ONLY the genuinely
+  /// Owner review 2026-10-05: the row carries ONLY the genuinely
   /// per-class mechanics — the render contracts (readonly/hideWhenEmpty/
   /// display) are PROPERTY-level and live on the property schema
   /// (`propertySchema.create/update`); this strict payload rejects them like
@@ -385,14 +385,14 @@ class OperationPayloads {
         'tagId': tagId,
       });
 
-  /// [type] is the v2 property-schema enum (op-types.ts); [targetClassFilter]
+  /// [type] is the property-schema enum (op-types.ts); [targetClassFilter]
   /// constrains node-typed (m2o/m2m) schemas to those classes.
   /// [datePrecision] (year|month|day) caps the granularity a date value may
   /// claim (SCHEMA.md "Dates"; NULL = day at the read model) and
   /// [dateQualified] (PC6) allows node-typed values to carry date qualifiers
   /// (metadata startDate/endDate as date-node refs).
   ///
-  /// §34.90 (owner review 2026-10-05): the render contracts are
+  /// Owner review 2026-10-05: the render contracts are
   /// PROPERTY-level — [display] ('panel' | 'bullet' | 'inline'; where a
   /// select/multi_select/boolean value renders on a block row; NULL/'panel'
   /// = the properties section only) and [readonly] / [hideWhenEmpty] (a
@@ -523,9 +523,9 @@ class OperationPayloads {
         'idx': idx,
       });
 
-  // --- workspace features (§34.35, RESHAPED §34.55) ----------------------------
+  // --- workspace features ----------------------------------------------------
 
-  /// Per-workspace feature toggle (§34.54 lockstep): LWW by HLC on
+  /// Per-workspace feature toggle: LWW by HLC on
   /// (workspace, feature); an absent derived row reads ENABLED. [feature] is
   /// the strict five-family enum ([workspaceFeatures]); the retired
   /// pre-reshape ids fail loud. Applying the toggle derives the
@@ -623,7 +623,7 @@ class OperationPayloads {
     return payload;
   }
 
-  /// Validates [payload] against the v2 schema for [opType], throwing
+  /// Validates [payload] against the schema for [opType], throwing
   /// [FormatException] on any deviation. Strict: unknown keys are rejected
   /// (zod `.strict()` parity), so a renamed wire field fails here instead of
   /// drifting silently. This is the client-side half of the relay's 422
@@ -708,7 +708,7 @@ class OperationPayloads {
         _uuid(payload, 'classId');
         _uuidList(payload, 'parentClassIds');
       case 'class.property.set':
-        // §34.90: the binding carries ONLY the per-class mechanics
+        // The binding carries ONLY the per-class mechanics
         // (sequence, required, defaultValue, active) — the render contracts
         // (readonly/hideWhenEmpty/display) are PROPERTY-level
         // (propertySchema.create/update) and reject here like retired keys.
@@ -768,12 +768,12 @@ class OperationPayloads {
         _uuidList(payload, 'targetClassFilter', required: false);
         _enum(payload, 'datePrecision', _datePrecisions, required: false);
         _bool(payload, 'dateQualified', required: false);
-        // SCHEMA.md "Number formats" (§34.79 lockstep): display-only
+        // SCHEMA.md "Number formats": display-only
         // formatting for number schemas (values stay exact in the log).
         _int(payload, 'numberPad', min: 1, max: 20, required: false);
         _int(payload, 'numberDecimals', min: 0, max: 10, required: false);
         _enum(payload, 'numberRounding', _numberRoundings, required: false);
-        // §34.90: the PROPERTY-level render contracts — nullable+optional
+        // The PROPERTY-level render contracts — nullable+optional
         // (absent keeps, null clears; stored NULL = 'panel' / unset).
         // `required` is deliberately NOT here: it stays on the class binding.
         _enum(payload, 'display', {'panel', 'bullet', 'inline'}, required: false);
@@ -801,7 +801,7 @@ class OperationPayloads {
         _int(payload, 'numberPad', min: 1, max: 20, required: false);
         _int(payload, 'numberDecimals', min: 0, max: 10, required: false);
         _enum(payload, 'numberRounding', _numberRoundings, required: false);
-        // §34.90 render contracts — the same keep/clear contract as the
+        // render contracts — the same keep/clear contract as the
         // number formats (absent keeps, present null clears).
         _enum(payload, 'display', {'panel', 'bullet', 'inline'}, required: false);
         _boolNullable(payload, 'readonly', required: false);
@@ -838,7 +838,7 @@ class OperationPayloads {
         _uuid(payload, 'elementId', required: false);
         _int(payload, 'idx', min: 0, required: false);
       case 'workspace.feature.set':
-        // §34.35/§34.55: the strict five-family enum; the retired
+        // The strict five-family enum; the retired
         // pre-reshape ids (journals/readItLater/library/people/collections)
         // are rejected outright like any unknown value.
         _strict(payload, {'feature', 'enabled'});
@@ -939,7 +939,7 @@ class OperationPayloads {
     }
   }
 
-  /// Color grammar (§34.43): a preset token or `#RRGGBB` hex ([isColorValue]);
+  /// Color grammar: a preset token or `#RRGGBB` hex ([isColorValue]);
   /// a present `null` CLEARS (object.update / class.update). The retired
   /// `var(--color-preset-*)` encoding and any other garbage fail loud here.
   static void _color(Map<String, dynamic> payload, String key) {
@@ -1063,10 +1063,10 @@ class OperationPayloads {
           item['label'] is! String) {
         throw FormatException('Field options must be a list of {id, label}');
       }
-      // §34.89: an option may carry an OPTIONAL MDI icon name (the same
+      // An option may carry an OPTIONAL MDI icon name (the same
       // camelCase shape as node/class icons, max 64 chars; absent/null = no
       // icon). The record itself stays NON-strict — unknown keys pass through
-      // so icon-carrying options sync through pre-§34.89 parsers (which
+      // so icon-carrying options sync through older parsers (which
       // strip the icon instead of rejecting the envelope).
       final icon = item['icon'];
       if (icon != null && (icon is! String || icon.length > 64)) {

@@ -13,7 +13,7 @@ import './sync_v2_service.dart';
 /// returns. Supports quick-note creation and editor page saves.
 ///
 /// When a [SyncV2Service] is available, legacy queued items are translated into
-/// v2 sync operations so they participate in the same outbox and conflict
+/// sync operations so they participate in the same outbox and conflict
 /// resolution path.
 class OfflineQueue {
   OfflineQueue({

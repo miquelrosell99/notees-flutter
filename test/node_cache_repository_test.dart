@@ -252,7 +252,7 @@ void main() {
         ':memory:',
         options: OpenDatabaseOptions(singleInstance: false),
       );
-      // v2 derived-state schema (packages/store/src/schema.ts, Revision 11).
+      // derived-state schema (packages/store/src/schema.ts, Revision 11).
       await snapshotDb.execute('''
         CREATE TABLE node (
           id TEXT PRIMARY KEY,
@@ -382,7 +382,7 @@ void main() {
       await snapshotDb.close();
     });
 
-    test('reads page, task, properties, and child order from a v2 snapshot',
+    test('reads page, task, properties, and child order from a snapshot',
         () async {
       const workspaceId = 'ws-1';
       await snapshotDb.insert('node', {
@@ -471,7 +471,7 @@ void main() {
       expect(task.isClass, isFalse);
       expect(task.presentAsMain, isFalse);
       expect(task.parentUuid, 'page-1');
-      // v2 fractional positions stay strings.
+      // Fractional positions stay strings.
       expect(task.position, 'a');
       expect(task.properties[SystemPropertyUuids.taskStatus], 'Pending');
       expect(snapshot.propertyValueRows, hasLength(1));
@@ -641,7 +641,7 @@ void main() {
     });
   });
 
-  group('AppDatabase v25 → v26 migration (§34.90 render contracts to the '
+  group('AppDatabase v25 → v26 migration (render contracts to the '
       'property)', () {
     late Database ffiDb;
 
@@ -651,7 +651,7 @@ void main() {
         ':memory:',
         options: OpenDatabaseOptions(singleInstance: false),
       );
-      // The v25 class_property shape: the §34.89 binding-level experiment
+      // The v25 class_property shape: the binding-level experiment
       // (display) on top of the original shape (readonly/hide_when_empty).
       // (property_schema is created by the chain at its current shape — its
       // CREATE is not idempotent, so the display add-column guard is covered
@@ -734,7 +734,7 @@ void main() {
         contains('display'),
       );
 
-      // A §34.90 schema-side display write lands through the applier on the
+      // A schema-side display write lands through the applier on the
       // migrated tables and reads back on the effective row.
       const classId = '0192a000-0000-7000-8000-000000000901';
       const schemaId = '0192a000-0000-7000-8000-000000000902';

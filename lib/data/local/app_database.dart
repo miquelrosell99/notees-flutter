@@ -8,7 +8,7 @@ import 'package:sqflite_sqlcipher/sqflite.dart';
 
 import '../../core/constants/system.dart';
 
-/// Simple SQLite database for the offline queue and v2 sync outbox.
+/// Simple SQLite database for the offline queue and the sync outbox.
 ///
 /// The database is a singleton so all callers share the same connection and
 /// encryption password. Encryption is opt-in; when enabled the database file is
@@ -204,13 +204,13 @@ class AppDatabase {
     }
   }
 
-  /// v26 — §34.90 (owner review 2026-10-05 — the render contracts move from
+  /// v26 — owner review 2026-10-05 (the render contracts move from
   /// the binding to the property; supersedes the never-shipped v25
   /// experiment, folded away like the TS store's v13→v14):
   ///  (1) `property_schema.display` — where a select/multi_select (or
   ///      boolean) value renders on a block row ('panel' | 'bullet' |
   ///      'inline'; NULL = the 'panel' default). `readonly`/
-  ///      `hide_when_empty` already ride the legacy v1 columns (NOT NULL 0 =
+  ///      `hide_when_empty` already ride the legacy columns (NOT NULL 0 =
   ///      unset) — only the position is new. Both guards keep the migration
   ///      idempotent for databases that already carry them.
   ///  (2) `class_property` is REBUILT without the retired binding columns
@@ -256,7 +256,7 @@ class AppDatabase {
     }
   }
 
-  /// v24 — number display formatting (SCHEMA.md "Number formats", §34.79
+  /// v24 — number display formatting (SCHEMA.md "Number formats",
   /// lockstep): additive property_schema columns, NULL = unformatted. The
   /// column guard keeps it idempotent for databases that already carry them
   /// (a fresh v24 create).
@@ -271,8 +271,8 @@ class AppDatabase {
   }
 
   /// v21 — trash retention metadata for the relay-v2 restore applier
-  /// (lockstep with the TS reference's `trash` table, implementation-plan
-  /// §34.38): one row per soft-deleted ROOT, so `object.restore` can tell
+  /// (lockstep with the TS reference's `trash` table): one row per soft-deleted
+  /// ROOT, so `object.restore` can tell
   /// "trashed with the parent" apart from "trashed independently".
   Future<void> _createTrashRoot(Database db) async {
     await db.execute('''
@@ -284,7 +284,7 @@ class AppDatabase {
     ''');
   }
 
-  /// v22 — §34.54/§34.57 property-wire batch, part 1 (lockstep with the TS
+  /// v22 — property-wire batch, part 1 (lockstep with the TS
   /// store schema v9→v10 + the PC4/PC6 columns):
   ///  - `workspace_feature`: the winning LWW row per (workspace_id, feature)
   ///    for `workspace.feature.set`; an ABSENT row means enabled (all
@@ -323,7 +323,7 @@ class AppDatabase {
     );
   }
 
-  /// v23 — §34.57 property-wire batch, part 2 (PG5 element identity,
+  /// v23 — property-wire batch, part 2 (PG5 element identity,
   /// lockstep with the TS store schema v10→v11):
   ///  - `property_value` is REBUILT without the retired
   ///    UNIQUE(node_uuid, property_schema_id, idx): per-element identity
@@ -384,8 +384,8 @@ class AppDatabase {
     );
   }
 
-  /// v16 — derived-state depth for the relay-v2 appliers:
-  ///  - `node_cache` gains the v2 row shape: scalar `title` (the v2 `name`
+  /// v16 — derived-state depth for the relay appliers:
+  ///  - `node_cache` gains the wire row shape: scalar `title` (the old `name`
   ///    slot, split from the content `name` column; since retired — the
   ///    protocol has no node `name` field anymore (title-is-content,
   ///    2026-10-01) — the column stays for legacy rows only), lexicographic
@@ -393,7 +393,7 @@ class AppDatabase {
   ///    migration rebuilds the table with `is_class`/`present_as_main` and
   ///    drops it), and the row-LWW winner
   ///    (`hlc_physical`, `hlc_logical`, `actor_id`);
-  ///  - new derived tables mirroring the v2 store: OR-Set class membership,
+  ///  - new derived tables mirroring the TS store: OR-Set class membership,
   ///    m2m class extends + transitive closure, multi-value property rows
   ///    with LWW tombstones, and collection membership.
   Future<void> _migrateV16(Database db) async {
@@ -535,7 +535,7 @@ class AppDatabase {
   Future<void> _createTagMemberSet(Database db) async {
     // OR-Set of tag assignments (add-wins, LWW per (node, tag) pair by
     // (hlc, actor)); the applier projects the present rows into
-    // node_cache's tags_uuid payload. Mirrors v2 store schema.ts
+    // node_cache's tags_uuid payload. Mirrors the TS store schema.ts
     // tag_member_set.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS tag_member_set (
@@ -556,7 +556,7 @@ class AppDatabase {
   Future<void> _createClassMemberSet(Database db) async {
     // OR-Set of class assignments (add-wins, LWW per (node, class) pair by
     // (hlc, actor)); the applier projects the present rows into
-    // node_cache.classes_uuid. Mirrors v2 store schema.ts class_member_set.
+    // node_cache.classes_uuid. Mirrors the TS store schema.ts class_member_set.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS class_member_set (
         node_uuid TEXT NOT NULL,
@@ -575,8 +575,8 @@ class AppDatabase {
 
   Future<void> _createClassExtends(Database db) async {
     // Direct m2m extends edges (class.setExtends replace semantics) plus the
-    // applier-maintained transitive closure (self-row included). Mirrors v2
-    // store class_extends / class_hierarchy.
+    // applier-maintained transitive closure (self-row included). Mirrors the
+    // TS store class_extends / class_hierarchy.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS class_extends (
         class_id TEXT NOT NULL,
@@ -602,13 +602,13 @@ class AppDatabase {
   Future<void> _createPropertyValue(Database db) async {
     // Authored property rows — the LIVE visible rows only (the applier
     // deletes a row when its element's OR-Set remove wins). The row id IS
-    // the element id (PG5, §34.57): writer-minted UUIDv7 for element adds,
+    // the element id (PG5): writer-minted UUIDv7 for element adds,
     // the deterministic composite 'node:schema:idx' for single-value slots
     // and legacy positional writes. The pre-PG5 UNIQUE(node, schema, idx)
     // is GONE (v23): per-element identity means concurrent adds at the same
     // idx are DISTINCT elements and both stay visible — 'idx' is only a
     // per-element order hint (readers order by (idx, element id); gaps
-    // never heal). Mirrors v2 store schema v11 property_value.
+    // never heal). Mirrors the TS store schema v11 property_value.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS property_value (
         id TEXT PRIMARY KEY,
@@ -653,11 +653,11 @@ class AppDatabase {
 
   /// Class → property-schema bindings (SCHEMA.md "Class properties"): the
   /// genuinely per-class mechanics ONLY (sequence, required, defaultValue,
-  /// active) since §34.90 moved the render contracts (readonly/
-  /// hideWhenEmpty/display) to the property schema. §34.90: `required` is
+  /// active) since the render contracts moved (readonly/
+  /// hideWhenEmpty/display) to the property schema. `required` is
   /// the owner's deliberate exception — a property may be mandatory for one
   /// class, optional for another. The legacy `class_property_edge` table
-  /// (v1 UI read model) stays untouched.
+  /// (the old UI read model) stays untouched.
   Future<void> _createClassProperty(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS class_property (
@@ -680,7 +680,7 @@ class AppDatabase {
 
   /// Derived reference index (never authored): mention/typed_link edges
   /// projected from content tokens plus node-typed property values. Mirrors
-  /// the v2 store `edge` table.
+  /// the TS store `edge` table.
   Future<void> _createEdge(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS edge (
@@ -700,7 +700,7 @@ class AppDatabase {
 
   Future<void> _createCollectionMember(Database db) async {
     // OR-Set membership for collection nodes (add-wins per member pair).
-    // Mirrors v2 store collection_member.
+    // Mirrors the TS store collection_member.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS collection_member (
         collection_id TEXT NOT NULL,
@@ -1150,9 +1150,9 @@ class AppDatabase {
         required INTEGER NOT NULL DEFAULT 0,
         readonly INTEGER NOT NULL DEFAULT 0,
         hide_when_empty INTEGER NOT NULL DEFAULT 0,
-        -- §34.90: the value-display position (panel|bullet|inline; NULL =
+        -- the value-display position (panel|bullet|inline; NULL =
         -- the 'panel' default) — PROPERTY-level, like the readonly/
-        -- hide-when-empty flags above (legacy v1 NOT NULL columns; 0 = unset).
+        -- hide-when-empty flags above (legacy NOT NULL columns; 0 = unset).
         display TEXT,
         default_value TEXT,
         class_filter_uuids TEXT NOT NULL DEFAULT '[]',

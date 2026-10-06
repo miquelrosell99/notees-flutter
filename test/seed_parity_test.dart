@@ -194,7 +194,7 @@ void main() {
       // 25 class.create + 3 class.setExtends + 1 propertySchema.create +
       // 1 class.property.set (authors, node-typed per the FINAL reversion)
       // + 1 object.create (Inbox; the scratchpad seed was withdrawn
-      // 2026-10-05, §34.81).
+      // 2026-10-05).
       expect(emitted, 31);
 
       final db = await database.database;

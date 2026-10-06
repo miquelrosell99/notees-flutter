@@ -8,7 +8,7 @@ import './sync_v2_service.dart';
 /// Mirrors the web client's seed and the server seed: emits `class.create`
 /// for every system class, then `object.create` for the Inbox. (The
 /// scratchpad page the local seed used to mint as a personal page was
-/// withdrawn 2026-10-05 per §34.81 of the main repo's plan — "not wanted";
+/// withdrawn 2026-10-05 (owner ruling — "not wanted";
 /// the web/server seed no longer creates it either.)
 ///
 /// Ops go through the normal outbox/applier path ([SyncV2Service.emitLocal]),
@@ -52,7 +52,7 @@ class LocalWorkspaceSeed {
   };
 
   /// Icons for the classes the citations-model revision added (TS manifest
-  /// `SYSTEM_CLASS_ICONS`); the legacy v1 mobile subset seeds without icons.
+  /// `SYSTEM_CLASS_ICONS`); the legacy mobile subset seeds without icons.
   static const Map<String, String> systemClassIcons = {
     'source': 'mdiBookshelf',
     'song': 'mdiMusicNote',
@@ -93,9 +93,10 @@ class LocalWorkspaceSeed {
     for (final entry in systemClassNames.entries) {
       final classId = entry.value;
       if (await _sync.cache.getClassByUuid(classId) != null) continue;
-      // v2 class.create carries the title as contentAst (title-is-content;
+      // class.create carries the title as contentAst (title-is-content;
       // the builder wraps the `name` convenience); no separate content op
-      // is needed (v1 emitted a node.updateContent for the class-page title).
+      // is needed (the legacy app emitted a node.updateContent for the
+      // class-page title).
       await _sync.emitLocal(
         opType: 'class.create',
         payload: OperationPayloads.classCreate(

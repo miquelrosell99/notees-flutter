@@ -58,12 +58,12 @@ void main() {
       AppDatabase.reset();
     });
 
-    // Phase A gate: task completions have no op in the v2 M1 registry
+    // Phase A gate: task completions have no op in the registry
     // (task.* was dropped), so the intents fail loud instead of emitting a
-    // v1 op the relay would 422. The local completion is still recorded
+    // legacy op the relay would 422. The local completion is still recorded
     // (NodeRepository writes the local cache first); only the sync envelope
-    // is missing. Phase B re-homes task state on the v2 model.
-    test('record completion intent throws UnsupportedError (no v2 op)',
+    // is missing. Phase B re-homes task state on the relay model.
+    test('record completion intent throws UnsupportedError (no relay op)',
         () async {
       final repo = NodeRepository(dio: dio, syncService: syncService);
 
@@ -84,7 +84,7 @@ void main() {
       expect(await db.query('relay_operations'), isEmpty);
     });
 
-    test('delete completion intent throws UnsupportedError (no v2 op)',
+    test('delete completion intent throws UnsupportedError (no relay op)',
         () async {
       final repo = NodeRepository(dio: dio, syncService: syncService);
 
@@ -98,7 +98,7 @@ void main() {
       expect(await db.query('relay_operations'), isEmpty);
     });
 
-    test('favorites intents throw UnsupportedError (no v2 op)', () async {
+    test('favorites intents throw UnsupportedError (no relay op)', () async {
       await expectLater(
         syncService.enqueue(type: 'add_favorite', nodeUuid: taskUuid),
         throwsUnsupportedError,
@@ -135,7 +135,7 @@ void main() {
       expect(envelopeJson, contains('30000000-0000-4000-8000-000000000001'));
     });
 
-    test('restore intent throws UnsupportedError (no v2 op)', () async {
+    test('restore intent throws UnsupportedError (no relay op)', () async {
       await expectLater(
         syncService.enqueue(type: 'restore', nodeUuid: taskUuid),
         throwsUnsupportedError,

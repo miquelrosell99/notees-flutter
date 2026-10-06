@@ -7,16 +7,16 @@ import 'package:notees/domain/models/relay/operation_payloads.dart';
 
 /// Cross-implementation parity gate for the Notees protocol v2.
 ///
-/// `test/fixtures/v2/` is a verbatim port of
-/// `v2/packages/protocol/fixtures/` from the Notees monorepo — the same
+/// `test/fixtures/wire/` is a verbatim port of
+/// `packages/protocol/fixtures/` from the Notees monorepo — the same
 /// canonical fixtures the TypeScript reference and the GTK client validate
 /// against. Every envelope the reference produces must parse through the
 /// Flutter wire models and re-serialize field-by-field, and every payload
-/// must validate against the v2 op registry (`op-types.ts` port in
+/// must validate against the op registry (`op-types.ts` port in
 /// `OperationPayloads.validatePayload`). If a model and a fixture drift
 /// (renamed field, changed default, changed casing), this test fails.
 void main() {
-  final fixturesDir = Directory('test/fixtures/v2');
+  final fixturesDir = Directory('test/fixtures/wire');
 
   Map<String, dynamic> loadFixture(String name) =>
       jsonDecode(File('${fixturesDir.path}/$name').readAsStringSync())
@@ -58,22 +58,22 @@ void main() {
     expect(
       envelope.toJson(),
       raw,
-      reason: '$fixtureName drifted from the v2 wire models',
+      reason: '$fixtureName drifted from the wire models',
     );
     expect(
       () => OperationPayloads.validatePayload(envelope.opType, envelope.payload),
       returnsNormally,
-      reason: '$fixtureName payload failed v2 registry validation '
+      reason: '$fixtureName payload failed registry validation '
           '(${envelope.opType})',
     );
     expect(
       OperationPayloads.isKnownOpType(envelope.opType),
       isTrue,
-      reason: '$fixtureName carries an op type outside the v2 M1 registry',
+      reason: '$fixtureName carries an op type outside the op registry',
     );
   }
 
-  group('v2 fixture parity (monorepo canonical fixtures)', () {
+  group('fixture parity (monorepo canonical fixtures)', () {
     for (final name in singleEnvelopeFixtures) {
       test('$name parses and re-serializes exactly', () {
         expectEnvelopeRoundTrips(loadFixture(name), name);

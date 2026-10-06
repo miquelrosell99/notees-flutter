@@ -32,7 +32,7 @@ void main() {
       expect(restored.marks, ['bold', 'code']);
     });
 
-    test('unknown marks are dropped on parse (mark names are the v2 set)', () {
+    test('unknown marks are dropped on parse (mark names are the grammar set)', () {
       final token = TextToken.fromJson({
         'type': 'text',
         'text': 'x',
@@ -230,7 +230,7 @@ void main() {
     });
   });
 
-  group('legacy v1 AST conversion', () {
+  group('legacy AST conversion', () {
     test('paragraph children flatten with mark mapping', () {
       final tokens = legacyAstToTokens([
         {
@@ -449,7 +449,7 @@ void main() {
       ));
       // Blocks keep the full (rich) token stream — pages/classes carry
       // text-only content (title-is-content), so the marked words live on a
-      // block, mirroring the v2 store's baseStoreWithBlock tests.
+      // block, mirroring the TS store's baseStoreWithBlock tests.
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-000000000002',
         opType: 'object.create',
@@ -498,7 +498,7 @@ void main() {
       expect(mention['verb'], isNull);
 
       final typedLink = edges.firstWhere((e) => e['type'] == 'typed_link');
-      // target_id is NULL by design (RECORD, DON'T RESOLVE until M2).
+      // target_id is NULL by design (RECORD, DON'T RESOLVE).
       expect(typedLink['target_id'], isNull);
       expect(typedLink['verb'], 'cites');
       final metadata =
@@ -722,7 +722,7 @@ void main() {
       expect(math.text, 'x');
     });
 
-    testWidgets('legacy v1 documents render through the conversion',
+    testWidgets('legacy documents render through the conversion',
         (tester) async {
       await tester.pumpWidget(wrap(AstRichText(
         source: jsonEncode([

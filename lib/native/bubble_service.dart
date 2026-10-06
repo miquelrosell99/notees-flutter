@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 
 /// Method channel for a future native floating bubble service.
 ///
-/// The current v1 bubble is an in-app widget, so this class is a stub that
+/// The current bubble is an in-app widget, so this class is a stub that
 /// documents the expected native contract. Once a system-level bubble is
 /// implemented, call [startBubble] / [stopBubble] from the settings toggle and
 /// replace the in-app bubble with the native overlay.

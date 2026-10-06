@@ -6,7 +6,7 @@ import '../../domain/models/relay/colors.dart';
 /// (`apps/web/src/ui/variables.css` `--color-preset-*` values, 2026-10-03
 /// refresh — brighter, perceptually even hues + light blue and gray).
 ///
-/// §34.43: the wire carries the preset TOKEN (`sky`) or a custom `#RRGGBB`
+/// The wire carries the preset TOKEN (`sky`) or a custom `#RRGGBB`
 /// hex — never a resolved hex and never the retired
 /// `var(--color-preset-*)` encoding (strict payload validators reject it).
 /// Mobile previously stored resolved hexes for preset picks; the pickers
@@ -36,7 +36,7 @@ class ColorPresets {
   static final RegExp _cssVarPattern = RegExp(r'^var\(--color-preset-([a-z]+)\)$');
 
   /// Maps any stored color shape to its preset token: a token as-is, a
-  /// preset hex (mobile's pre-§34.43 resolved storage), or the retired
+  /// preset hex (the mobile app's earlier resolved storage), or the retired
   /// `var(--color-preset-*)` encoding (pre-migration stored data). Returns
   /// null for custom hexes, unknown values, and unset.
   static String? tokenFor(String? stored) {
@@ -54,9 +54,9 @@ class ColorPresets {
 
   /// Resolves a stored color value to a [Color], or null when unset/unknown.
   ///
-  /// Accepts every storage shape existing data may carry: the §34.43 preset
-  /// token (`sky`), a stored `#RRGGBB` hex (custom colors and mobile's
-  /// pre-§34.43 resolved preset hexes), and the retired web CSS variable
+  /// Accepts every storage shape existing data may carry: the preset
+  /// token (`sky`), a stored `#RRGGBB` hex (custom colors and the mobile
+  /// app's earlier resolved preset hexes), and the retired web CSS variable
   /// references (`var(--color-preset-green)`), which the monorepo migration
   /// rewrites out of stored logs.
   static Color? tryResolve(String? stored) {

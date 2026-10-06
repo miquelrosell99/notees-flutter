@@ -1,7 +1,7 @@
 /// Row-level last-write-wins winner tuple, ported from
-/// `v2/packages/store/src/appliers.ts` compareLww.
+/// `packages/store/src/appliers.ts` compareLww.
 ///
-/// v2 convergence: higher HLC wins; equal HLC breaks the tie on actor id
+/// Convergence: higher HLC wins; equal HLC breaks the tie on actor id
 /// (lexicographic, deterministic). Property slots and OR-Set pairs all key
 /// their winners by (hlc_physical, hlc_logical, actor_id).
 typedef LwwWinner = ({int physical, int logical, String actor});
@@ -15,7 +15,7 @@ int compareLww(LwwWinner a, LwwWinner b) {
 }
 
 /// The winning (hlc, actor) tuple stamped on a node row by the last applied
-/// v2 `object.update`/`object.move`/`object.create`.
+/// `object.update`/`object.move`/`object.create`.
 LwwWinner lwwWinnerFrom({
   required int physical,
   required int logical,

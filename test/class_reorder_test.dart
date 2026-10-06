@@ -15,7 +15,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// the order list unconditionally (deterministic per op order, so replicas
 /// converge) and the class_ids projection becomes: ordered members first
 /// (per class_order, filtered to present members), then any unlisted
-/// present members sorted by id (recomputeClassIds in the v2 store appliers).
+/// present members sorted by id (recomputeClassIds in the TS store appliers).
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();

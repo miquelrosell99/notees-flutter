@@ -138,9 +138,9 @@ void main() {
       return db.query('relay_operations', orderBy: 'rowid');
     }
 
-    test('upload emits object.create + asset.attach with v2 payload shapes',
+    test('upload emits object.create + asset.attach with wire payload shapes',
         () async {
-      // v2 object.create requires the parent row to exist.
+      // object.create requires the parent row to exist.
       await syncService.enqueue(
         type: 'create',
         nodeUuid: '60000000-0000-4000-8000-000000000001',
@@ -169,7 +169,7 @@ void main() {
       expect(create['parentId'], '60000000-0000-4000-8000-000000000001');
       expect(create['classIds'], [SystemClassUuids.asset]);
       final contentAst = create['contentAst'] as List<dynamic>;
-      // v2 flat grammar: a single text run, no paragraph wrapper.
+      // flat grammar: a single text run, no paragraph wrapper.
       expect(contentAst.single['type'], 'text');
       expect(contentAst.single['text'], contains('voice'));
 
@@ -219,7 +219,7 @@ void main() {
 
       final ops = await recordedOps();
       expect(ops, hasLength(3));
-      // v2 has no class.assign: a re-issued object.create with the asset
+      // The registry has no class.assign: a re-issued object.create with the asset
       // class is the OR-Set membership carrier.
       expect(ops[1]['op_type'], 'object.create');
       final assign =

@@ -6,7 +6,7 @@ import 'package:notees/data/models/node.dart';
 import 'package:notees/features/editor/widgets/block_tree_editor.dart';
 
 /// Regression for the "grey box where page content should be" bug: rows must
-/// render for every content shape the v2 grammar produces (and for corrupt
+/// render for every content shape the grammar produces (and for corrupt
 /// data), and one bad block must degrade to a quiet placeholder instead of
 /// taking down the page body.
 ///
@@ -81,7 +81,7 @@ void main() {
     expect(richTextContaining('Beta'), findsOneWidget);
   });
 
-  testWidgets('every v2 token shape renders', (tester) async {
+  testWidgets('every token shape renders', (tester) async {
     final root = block(
       'aaaaaaaa-0000-0000-0000-000000000001',
       '[{"type":"text","text":"plain "},'

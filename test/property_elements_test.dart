@@ -11,7 +11,7 @@ import 'package:notees/domain/models/relay/operation_payloads.dart';
 import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-/// Acceptance for the §34.57 property-wire batch lockstep:
+/// Acceptance for the property-wire batch lockstep:
 ///
 ///  - PG5 — per-element value identity: the property_value row id IS the
 ///    element id (writer UUIDv7 adds, the deterministic `node:schema:idx`
@@ -28,16 +28,16 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 ///    metadata startDate/endDate normalize on write to the deterministic
 ///    day-node ref (dateQualified schemas only, the two reserved keys only);
 ///    reads stay lenient for both shapes;
-///  - §34.45 — unsetting a node-backed TEXT value trashes the unreferenced
+///  - unsetting a node-backed TEXT value trashes the unreferenced
 ///    carrier block (child-of-owner, active non-class, unreferenced).
 ///
-/// Replays the three canonical §34.57 fixtures (property-value-elements,
+/// Replays the three canonical fixtures (property-value-elements,
 /// class-property-active, property-date-qualifier) through the appliers.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
 
-  const fixturesDir = 'test/fixtures/v2';
+  const fixturesDir = 'test/fixtures/wire';
   const ws = '0192a000-0000-7000-8000-000000000001';
   const actor = '0192a000-0000-7000-8000-000000000002';
   const carol = '0192a000-0000-7000-8000-000000000712';
@@ -54,7 +54,7 @@ void main() {
   List<OperationEnvelope> fixtureEnvelopes(String name) =>
       loadFixture(name).map(OperationEnvelope.fromJson).toList();
 
-  group('§34.57 payload factories', () {
+  group('payload factories', () {
     test('property.set/unset carry the optional PG5 elementId', () {
       final set = OperationPayloads.propertySet(
         objectId: carol,
@@ -461,7 +461,7 @@ void main() {
       expect(authoredIdx0.single.boundBy, pipelineClass);
     });
 
-    test('fixture class-property-active (§34.90): option icon rides verbatim; '
+    test('fixture class-property-active: option icon rides verbatim; '
         'the trailing display write is a propertySchema.update landing on the '
         'schema row + riding the authored read', () async {
       final envelopes = fixtureEnvelopes('class-property-active.json');
@@ -469,12 +469,12 @@ void main() {
       const dealNode = '0192a000-0000-7000-8000-000000000743';
       const stageSchema = '0192a000-0000-7000-8000-000000000741';
       expect(envelopes, hasLength(9));
-      // The §34.90 correction: the trailing envelope is a
+      // The correction: the trailing envelope is a
       // propertySchema.update — the display position is PROPERTY-level.
       expect(envelopes.last.opType, 'propertySchema.update');
       expect(envelopes.last.payload['display'], 'bullet');
 
-      // The schema create carries the §34.89 icon (plus the §34.43 color
+      // The schema create carries the icon (plus the color
       // grammar from PG16): parsed verbatim into the stored options JSON.
       expect(await appliers.apply(envelopes[0]), isTrue);
       final schema = await cache.getPropertySchemaRow(stageSchema);
@@ -665,7 +665,7 @@ void main() {
       });
     });
 
-    group('§34.45 unset-carrier trashing', () {
+    group('unset-carrier trashing', () {
       const owner = '0192a000-0000-7000-8000-000000000901';
       const textSchema = '0192a000-0000-7000-8000-000000000902';
       const carrier = '0192a000-0000-7000-8000-000000000903';
