@@ -64,7 +64,7 @@ void main() {
 
     Future<void> replayPrefix(int count) async {
       final envelopes = fixtureEnvelopes();
-      expect(envelopes, hasLength(8));
+      expect(envelopes, hasLength(9));
       for (var i = 0; i < count; i++) {
         await appliers.apply(envelopes[i]);
       }
@@ -647,7 +647,7 @@ Future<void> replayFixturePrefix(RelayAppliers appliers, int count) async {
       .cast<Map<String, dynamic>>()
       .map(OperationEnvelope.fromJson)
       .toList();
-  expect(envelopes, hasLength(8));
+  expect(envelopes, hasLength(9));
   for (var i = 0; i < count; i++) {
     await appliers.apply(envelopes[i]);
   }
