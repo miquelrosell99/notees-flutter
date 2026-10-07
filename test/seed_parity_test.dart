@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/core/constants/system.dart';
 import 'package:notees/data/local/app_database.dart';
+import 'package:notees/domain/models/relay/workspace_features.dart';
 import 'package:notees/domain/services/local_workspace_seed.dart';
 import 'package:notees/domain/services/sync_v2_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -11,6 +12,11 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// fixed UUIDs, never reused; new classes extend `source`; the `authors`
 /// spec is verbatim-text (never node-typed person creation); `linkedAuthors`
 /// is the explicit person linkage.
+///
+/// Also pins the #14 follow-up five (owner list, 2026-10-06):
+/// definition/idea/place/project as plain seeds + trip extending event
+/// (the events-family cascade) — the fixed ids, the static-map coverage,
+/// the local seed emission, and the features.ts gating/family mirror.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -184,6 +190,111 @@ void main() {
     });
   });
 
+  group('deploy-catalog five (#14 follow-up)', () {
+    // The #14 follow-up seed convergence (owner list, 2026-10-06): the
+    // deploy catalog's missing everyday classes — definition/idea/place/
+    // project as plain seeds, trip extending event so the events-family
+    // cascade reaches it. The seeds.ts record (…0043-…0047), pinned here
+    // so the seed drift cannot recur (the GTK lockstep commit fd50e5c).
+    const five = <(String, String, String, String)>[
+      // (seed key, uuid, mdi icon, display title) — the seeds.ts record.
+      ('definition', '00000000-0000-0000-0001-000000000043',
+        'mdiBookOpenPageVariant', 'Definition'),
+      ('idea', '00000000-0000-0000-0001-000000000044',
+        'mdiThoughtBubbleOutline', 'Idea'),
+      ('place', '00000000-0000-0000-0001-000000000045',
+        'mdiMapMarkerOutline', 'Place'),
+      ('project', '00000000-0000-0000-0001-000000000046',
+        'mdiBriefcaseOutline', 'Project'),
+      ('trip', '00000000-0000-0000-0001-000000000047', 'mdiAirplane', 'Trip'),
+    ];
+
+    // The WITHDRAWN class slots the five must never collide with: …0001
+    // (the seeded `class` meta class, retired 2026-10-07) and …0042
+    // (`cover`, withdrawn 2026-10-04 the day it was minted) — dead slots,
+    // never reused (the seeds.ts withdrawal comments).
+    const withdrawnClassIds = <String>[
+      '00000000-0000-0000-0001-000000000001',
+      '00000000-0000-0000-0001-000000000042',
+    ];
+
+    test('fixed ids: block-prefixed, unique, withdrawn slots untouched',
+        () {
+      final ids = [for (final entry in five) entry.$2];
+      expect(ids.toSet(), hasLength(ids.length), reason: 'unique class UUIDs');
+      for (final id in ids) {
+        expect(
+          id.startsWith('00000000-0000-0000-0001-'),
+          isTrue,
+          reason: 'class UUIDs live in the 0001 block: $id',
+        );
+      }
+      for (final id in withdrawnClassIds) {
+        expect(ids.contains(id), isFalse, reason: 'withdrawn slot: $id');
+      }
+    });
+
+    test('the static maps carry the five with the seeds.ts icons + display '
+        'titles', () {
+      // The drift guard: every one of the five resolves through the
+      // Flutter maps at its fixed id, with the seeds.ts icon + display
+      // title — a future main-repo seed change that skips this port fails
+      // here.
+      const constants = <String, String>{
+        'definition': SystemClassUuids.definition,
+        'idea': SystemClassUuids.idea,
+        'place': SystemClassUuids.place,
+        'project': SystemClassUuids.project,
+        'trip': SystemClassUuids.trip,
+      };
+      for (final entry in five) {
+        final name = entry.$1;
+        expect(constants[name], entry.$2, reason: 'SystemClassUuids.$name');
+        expect(systemClassUuids[name], entry.$2,
+            reason: 'workspace_features systemClassUuids.$name');
+        expect(LocalWorkspaceSeed.systemClassNames[name], entry.$2,
+            reason: 'local seed systemClassNames.$name');
+        expect(systemClassIcons[name], entry.$3, reason: 'icons.$name');
+        expect(LocalWorkspaceSeed.systemClassIcons[name], entry.$3,
+            reason: 'local seed icons.$name');
+        expect(systemClassDisplayNames[name], entry.$4,
+            reason: 'display names.$name');
+      }
+      // trip → event is the only extends edge among the five (the cascade
+      // authority); the four plain seeds extend nothing.
+      expect(LocalWorkspaceSeed.systemClassExtends['trip'], ['event']);
+      for (final name in ['definition', 'idea', 'place', 'project']) {
+        expect(LocalWorkspaceSeed.systemClassExtends[name], isNull,
+            reason: '$name is a plain seed');
+        expect(systemClassExtends[name], isNull, reason: '$name is a plain seed');
+      }
+      expect(systemClassExtends['trip'], ['event']);
+      // The extends targets all resolve to seeded classes.
+      expect(LocalWorkspaceSeed.systemClassNames.containsKey('event'), isTrue);
+    });
+
+    test('gating and family groupings mirror features.ts', () {
+      // features.ts parity: trip joined the events family (the cascade
+      // set + the gating walk), while the four plain seeds are unmanaged —
+      // exactly like the TS record, where they are absent from
+      // ALWAYS_ON_SYSTEM_CLASSES and gate on nothing.
+      expect(systemClassAncestors('trip'), {'event'});
+      expect(familyClassNames('events'),
+          ['event', 'birthday', 'meeting', 'trip']);
+      expect(managedClassIds('events'), [
+        SystemClassUuids.event,
+        SystemClassUuids.birthday,
+        SystemClassUuids.meeting,
+        SystemClassUuids.trip,
+      ]);
+      expect(gatingFeaturesForClass('trip'), ['events']);
+      for (final name in ['definition', 'idea', 'place', 'project']) {
+        expect(systemClassAncestors(name), isEmpty, reason: name);
+        expect(gatingFeaturesForClass(name), isEmpty, reason: name);
+      }
+    });
+  });
+
   group('seed emission', () {
     late AppDatabase database;
     late SyncV2Service syncService;
@@ -213,13 +324,15 @@ void main() {
         () async {
       final emitted =
           await LocalWorkspaceSeed(syncService).ensureLocalWorkspace();
-      // 25 class.create (the seeded `class` meta class retired 2026-10-07;
-      // weblink joins the source family) + 4 class.setExtends (song,
-      // tv_series, conference, weblink — all extend source) +
+      // 31 class.create (the seeded `class` meta class retired 2026-10-07;
+      // weblink joins the source family; event joins as trip's extends
+      // target; the #14 follow-up five join, 2026-10-06) + 5 class.setExtends
+      // (song, tv_series, conference, weblink — all extend source; trip
+      // extends event) +
       // 1 propertySchema.create + 1 class.property.set (authors,
       // node-typed per the FINAL reversion) + 1 object.create (Inbox; the
       // scratchpad seed was withdrawn 2026-10-05).
-      expect(emitted, 32);
+      expect(emitted, 39);
 
       final db = await database.database;
 
@@ -234,6 +347,20 @@ void main() {
         [SystemClassUuids.weblink],
       );
       expect(weblink.single['icon'], 'mdiLinkVariant');
+      // The #14 follow-up five seeded with their mdi icons.
+      for (final entry in [
+        (SystemClassUuids.definition, 'mdiBookOpenPageVariant'),
+        (SystemClassUuids.idea, 'mdiThoughtBubbleOutline'),
+        (SystemClassUuids.place, 'mdiMapMarkerOutline'),
+        (SystemClassUuids.project, 'mdiBriefcaseOutline'),
+        (SystemClassUuids.trip, 'mdiAirplane'),
+      ]) {
+        final row = await db.rawQuery(
+          'SELECT icon FROM class_cache WHERE uuid = ?',
+          [entry.$1],
+        );
+        expect(row.single['icon'], entry.$2);
+      }
 
       // Extends edges + closure: the four source-family classes extend
       // source.
@@ -255,6 +382,18 @@ void main() {
         );
         expect(closure, hasLength(1));
       }
+      // The #14 follow-up cascade: trip extends event (edge + closure).
+      final tripEdges = await db.rawQuery(
+        'SELECT parent_class_id FROM class_extends WHERE class_id = ?',
+        [SystemClassUuids.trip],
+      );
+      expect(tripEdges.map((r) => r['parent_class_id']).toList(),
+          [SystemClassUuids.event]);
+      final tripClosure = await db.rawQuery(
+        'SELECT ancestor_id FROM class_hierarchy WHERE class_id = ? AND ancestor_id = ?',
+        [SystemClassUuids.trip, SystemClassUuids.event],
+      );
+      expect(tripClosure, hasLength(1));
 
       // Property schemas + bindings on source.
       for (final schemaId in [

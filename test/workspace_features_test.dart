@@ -16,7 +16,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// the strict five-family enum (retired ids rejected outright), the
 /// `workspace_feature` LWW row (absent = ON, F2), the membership-preserving
 /// family archival via per-class re-derivation (F3 + the event→meeting /
-/// birthday cascade), the F4 class.delete routing on the five bases only,
+/// birthday / trip cascade), the F4 class.delete routing on the five bases
+/// only,
 /// and the idempotent task-family seed-ensure riding every enable payload.
 /// Replays the two canonical fixtures (workspace-feature-set,
 /// class-delete-managed) through the appliers.
@@ -113,7 +114,10 @@ void main() {
       expect(familyClassNames('tasks'), ['task']);
       expect(familyClassNames('meetings'), ['meeting']);
       expect(familyClassNames('persons'), ['person']);
-      expect(familyClassNames('events'), ['event', 'birthday', 'meeting']);
+      // The #14 follow-up (owner list, 2026-10-06): trip extends event — a
+      // trip is calendar-bound, so the events family set archives it with
+      // meeting and birthday (the four-strong cascade).
+      expect(familyClassNames('events'), ['event', 'birthday', 'meeting', 'trip']);
       expect(
         familyClassNames('sources'),
         [
@@ -135,9 +139,20 @@ void main() {
       expect(gatingFeaturesForClass('event'), ['events']);
       expect(gatingFeaturesForClass('birthday'), ['events']);
       expect(gatingFeaturesForClass('meeting'), ['meetings', 'events']);
+      expect(gatingFeaturesForClass('trip'), ['events']);
       expect(gatingFeaturesForClass('book'), ['sources']);
       expect(gatingFeaturesForClass('person'), ['persons']);
       expect(gatingFeaturesForClass('day'), isEmpty);
+    });
+
+    test('the four plain deploy-catalog seeds have no gating', () {
+      // features.ts parity: definition/idea/place/project are plain seeds —
+      // unmanaged, like the TS record (absent from ALWAYS_ON_SYSTEM_CLASSES,
+      // no family base ancestor, gate on nothing).
+      for (final name in ['definition', 'idea', 'place', 'project']) {
+        expect(systemClassAncestors(name), isEmpty);
+        expect(gatingFeaturesForClass(name), isEmpty);
+      }
     });
 
     test('F4 routing resolves the five base ids and nothing else', () {
@@ -153,10 +168,12 @@ void main() {
       expect(featureForManagedClass(SystemClassUuids.person), 'persons');
       expect(featureForManagedClass(SystemClassUuids.book), isNull);
       expect(featureForManagedClass(SystemClassUuids.birthday), isNull);
+      expect(featureForManagedClass(SystemClassUuids.trip), isNull);
       expect(managedClassIds('events'), [
         SystemClassUuids.event,
         SystemClassUuids.birthday,
         SystemClassUuids.meeting,
+        SystemClassUuids.trip,
       ]);
     });
   });
@@ -322,13 +339,16 @@ void main() {
       expect(forward.length, 6 + 6 + 1);
     });
 
-    test('family archival cascades per-class (events → meeting + birthday)',
-        () async {
+    test('family archival cascades per-class '
+        '(events → meeting + birthday + trip)', () async {
       Future<void> seedEventFamily() async {
         for (final entry in [
           ('event', SystemClassUuids.event),
           ('meeting', SystemClassUuids.meeting),
           ('birthday', SystemClassUuids.birthday),
+          // The #14 follow-up (owner list, 2026-10-06): trip extends
+          // event, so the events toggle cascades to it too.
+          ('trip', SystemClassUuids.trip),
         ]) {
           if (await cache.getClassByUuid(entry.$2) != null) continue;
           await appliers.apply(OperationEnvelope(
@@ -364,23 +384,31 @@ void main() {
             ))
                 .single['active'] ==
                 1,
+            (await raw(
+              'SELECT active FROM class_cache WHERE uuid = ?',
+              [SystemClassUuids.trip],
+            ))
+                .single['active'] ==
+                1,
           ];
 
       await seedEventFamily();
-      expect(await bits(), [true, true, true]);
+      expect(await bits(), [true, true, true, true]);
 
       // Events off archives the whole family; meetings off alone leaves
-      // event + birthday live.
+      // event + birthday + trip live (the trip child has no toggle of its
+      // own — it rides the events base).
       await appliers.apply(toggle('events', false, 1000));
-      expect(await bits(), [false, false, false]);
+      expect(await bits(), [false, false, false, false]);
       await appliers.apply(toggle('events', true, 2000));
       await appliers.apply(toggle('meetings', false, 3000));
-      expect(await bits(), [true, false, true]);
+      expect(await bits(), [true, false, true, true]);
       // Re-enabling events must NOT un-archive a meetings-off meeting
-      // (per-class re-derivation — the TS convergence fix).
+      // (per-class re-derivation — the TS convergence fix); the trip child
+      // comes back with the events base.
       await appliers.apply(toggle('events', false, 4000));
       await appliers.apply(toggle('events', true, 5000));
-      expect(await bits(), [true, false, true]);
+      expect(await bits(), [true, false, true, true]);
     });
 
     test('fixture workspace-feature-set: disable wins the same-slot race',
