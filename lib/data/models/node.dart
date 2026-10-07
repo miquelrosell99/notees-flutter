@@ -42,6 +42,9 @@ class Node {
     this.hlcPhysical = 0,
     this.hlcLogical = 0,
     this.actorId,
+    this.coverAssetId,
+    this.bannerAssetId,
+    this.aliasedNodeId,
   });
 
   final int id;
@@ -111,6 +114,16 @@ class Node {
   final int hlcPhysical;
   final int hlcLogical;
   final String? actorId;
+
+  /// Wire node fields (the icon/color precedent, 2026-10-07 lockstep):
+  /// an asset node for the page cover, an asset node for the page banner,
+  /// and the main page this node aliases at (many-to-one FROM the alias).
+  /// `object.update` only — `object.create` carries none. Derived columns
+  /// (`cover_asset_id` / `banner_asset_id` / `aliased_node_id`) project
+  /// them for SQL reads; the payload JSON is the read authority.
+  final String? coverAssetId;
+  final String? bannerAssetId;
+  final String? aliasedNodeId;
 
   bool get isJournal => isDaily || isMonthly || isYearly;
 
@@ -205,6 +218,9 @@ class Node {
       hlcPhysical: (json['hlc_physical'] as num?)?.toInt() ?? 0,
       hlcLogical: (json['hlc_logical'] as num?)?.toInt() ?? 0,
       actorId: json['actor_id'] as String?,
+      coverAssetId: json['cover_asset_id'] as String?,
+      bannerAssetId: json['banner_asset_id'] as String?,
+      aliasedNodeId: json['aliased_node_id'] as String?,
     );
   }
 
@@ -255,6 +271,9 @@ class Node {
       hlcPhysical: hlcPhysical,
       hlcLogical: hlcLogical,
       actorId: actorId,
+      coverAssetId: coverAssetId,
+      bannerAssetId: bannerAssetId,
+      aliasedNodeId: aliasedNodeId,
     );
   }
 
@@ -300,6 +319,9 @@ class Node {
       hlcPhysical: hlcPhysical,
       hlcLogical: hlcLogical,
       actorId: actorId,
+      coverAssetId: coverAssetId,
+      bannerAssetId: bannerAssetId,
+      aliasedNodeId: aliasedNodeId,
     );
   }
 
@@ -343,5 +365,8 @@ class Node {
     'hlc_physical': hlcPhysical,
     'hlc_logical': hlcLogical,
     'actor_id': actorId,
+    'cover_asset_id': coverAssetId,
+    'banner_asset_id': bannerAssetId,
+    'aliased_node_id': aliasedNodeId,
   };
 }

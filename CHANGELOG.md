@@ -6,6 +6,62 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-07
+
+- **feat(protocol,store): lockstep convergence with the main repo's
+  node-fields / class-convert / alias-validation / asset-type batches
+  (fixture-gated).** Ports the four protocol+store slices the monorepo
+  shipped today; the fixture corpus gains three files (24 total, all
+  sha256-identical to `packages/protocol/fixtures/`).
+  **Wire node fields:** `object.update` gains the optional nullable
+  `coverAssetId` / `bannerAssetId` / `aliasedNodeId` (presence writes,
+  present-null clears — the `_undefined` sentinel builder pattern, the
+  icon/color precedent); `object.create` still carries none (the strict
+  validator rejects the keys there). The local DB schema bumps to **v27**:
+  `node_cache` gains `cover_asset_id` / `banner_asset_id` /
+  `aliased_node_id` (guarded idempotent migration; the Node payload is the
+  read authority, the columns are the SQL projections — snapshots at store
+  schema v16+ map them, older snapshots read null). **Title applier:** the
+  `object.update` content path no longer flattens rich content to
+  text-only for main-presenting nodes — only class rows flatten on update
+  now (create-as-main and the promotion stringify keep the lossy
+  boundaries); a page title may carry inline rich tokens, display-name
+  derivation still flattens for labels. **class-convert:** `class.create`
+  on an EXISTING node now DECLARES it a class — the node row flips
+  `is_class`, a parented node is cut to a root (parent + fractional
+  position drop), the render bit clears, the registry adopts the node's
+  title, and absent icon/color/name PRESERVE on re-declaration (the upsert
+  used to wipe them with null); the registry never writes `description` on
+  create (TS parity — the payload key is accepted, the applier drops it;
+  storing it would break wipe→replay convergence); every declaration lands
+  the `class_hierarchy` self-row. **Alias write-time validation (M12):**
+  `object.update {aliasedNodeId}` walks the would-be chain — a revisit
+  (self-alias included) throws `CycleError` and the write is never
+  applied; clearing (null) skips the check; a stale-HLC write drops by the
+  row LWW before any check. The read helper `resolveAlias` walks a chain
+  to its terminal — cycle-safe (a revisit yields the starting id unchanged)
+  with a 32-link depth cap. **The `asset` property type (M38):** the
+  `propertySchema.create` type enum gains `"asset"` — a node-typed value
+  (`{nodeId}`) whose target must carry the asset class, the filter
+  implicit in the type (explicit filters ignored); node-typed defaults stay
+  unsupported. **Seeds:** the seeded `class` meta class (…0001) retires —
+  the local seed no longer emits it (the UUID is withdrawn, never reused);
+  `weblink` (…0034) joins the seeded source family with its
+  `mdiLinkVariant` icon and the `weblink extends source` edge. The alias
+  read-path repointing (redirect, roll-up) and the M38 UI are the main
+  repo's recorded follow-ons — same here. **Verification:** the fixture
+  gate lists the three new files; `fixture_replay_test` gains the
+  wire-fields set/clear + LWW/absence block, the class-convert
+  parentless/parented/re-declaration block, the asset-type rows +
+  implicit-filter value-validation block, and the six alias-cycle blocks;
+  `operation_payloads_test` pins the strict field semantics; the seed
+  parity + local-mode suites track the retirement and weblink; the full
+  gate green — `flutter analyze` clean, `flutter test`: **598 tests, all
+  passed**.
+- **chore(docs): the development skill's version-range keep-list tracks the
+  v27 schema bump.** Law 5's live-identifier parenthetical moves to
+  "local DB schema versions v16–v27".
+
 ## 2026-10-06
 
 - **chore(sync): re-vendored the wire fixture corpus from the main repo

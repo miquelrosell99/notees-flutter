@@ -34,7 +34,7 @@ the other way around. AGENTS.md at the repo root is the canonical orientation
    (M1–M5), no narrative v1/v2 qualifiers ("the v2 store", "v1 behavior") in
    comments, docs, or test titles. Version numbers that ARE the protocol stay
    (`protocol v2`, envelope v3, `/api/relay/v2`, `v2.0.0-m11`-style tags,
-   local DB schema versions v16–v26, `test/fixtures/wire/` paths).
+   local DB schema versions v16–v27, `test/fixtures/wire/` paths).
 6. **Comments/docs only for record-keeping changes.** Never rename symbols,
    files, or test structure to satisfy the record rules; reword the prose.
 

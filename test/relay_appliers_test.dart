@@ -233,6 +233,58 @@ void main() {
       expect(node.displayName, 'Todo: shopping');
     });
 
+    test('object.update on a main-presenting node keeps the rich token '
+        'stream (only class rows flatten on update)', () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000107';
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f5',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: pageUuid,
+          presentAsMain: true,
+        ),
+      ));
+      // The page title IS its content and may carry inline rich tokens
+      // (mentions, external links) — the update path no longer flattens
+      // document-chrome content to text-only (create-as-main and promotion
+      // remain the lossy boundaries); display-name derivation still
+      // flattens for labels.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f6',
+        opType: 'object.update',
+        payload: OperationPayloads.objectUpdate(
+          objectId: pageUuid,
+          contentAst: const [
+            {'type': 'text', 'text': 'Meet '},
+            {
+              'type': 'mention',
+              'targetNodeId': '00000000-0000-0000-0000-000000000199',
+              'text': 'Ada',
+            },
+            {'type': 'text', 'text': ' at noon'},
+          ],
+        ),
+        physical: 2,
+      ));
+
+      final node = await cache.getByUuid(pageUuid);
+      expect(node!.presentAsMain, isTrue);
+      expect(
+        jsonDecode(node.name),
+        [
+          {'type': 'text', 'text': 'Meet '},
+          {
+            'type': 'mention',
+            'targetNodeId': '00000000-0000-0000-0000-000000000199',
+            'text': 'Ada',
+          },
+          {'type': 'text', 'text': ' at noon'},
+        ],
+      );
+      expect(node.displayName, 'Meet Ada at noon');
+    });
+
     test('applies property.set and property.unset by propertySchemaId',
         () async {
       const nodeUuid = '00000000-0000-0000-0000-000000000102';
@@ -382,8 +434,9 @@ void main() {
       expect(cls, isNull);
     });
 
-    test('class.update without description keeps the stored one (TS '
-        '`p.description !== undefined` parity)', () async {
+    test('class.create drops description (TS parity: the payload schema '
+        'accepts the key, the applier ignores it) and class.update without '
+        'description keeps the stored one', () async {
       const classUuid = '00000000-0000-0000-0000-000000000303';
 
       await appliers.apply(envelope(
@@ -405,6 +458,21 @@ void main() {
         return rows.single['description'] as String?;
       }
 
+      // class.create never writes description — a fresh row starts
+      // description-less (wipe → replay converges; storing it would lose
+      // the value on every replay, since the create op ignores the key).
+      expect(await storedDescription(), isNull);
+
+      // The description lands through class.update.
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f1b',
+        opType: 'class.update',
+        payload: OperationPayloads.classUpdate(
+          classId: classUuid,
+          description: 'A way to shelve books',
+        ),
+        physical: 2,
+      ));
       expect(await storedDescription(), 'A way to shelve books');
 
       // A color-only patch (here: an explicit null clear) must not clobber
@@ -413,7 +481,7 @@ void main() {
         id: '0192a000-0000-7000-8000-0000000000f2',
         opType: 'class.update',
         payload: OperationPayloads.classUpdate(classId: classUuid, color: null),
-        physical: 2,
+        physical: 3,
       ));
       expect((await cache.getClassByUuid(classUuid))!.color, isNull);
       expect(await storedDescription(), 'A way to shelve books');
@@ -426,7 +494,7 @@ void main() {
           classId: classUuid,
           description: 'Renamed shelf',
         ),
-        physical: 3,
+        physical: 4,
       ));
       expect(await storedDescription(), 'Renamed shelf');
     });
