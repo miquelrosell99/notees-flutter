@@ -3,7 +3,11 @@
 class SystemClassUuids {
   SystemClassUuids._();
 
-  static const String class_ = '00000000-0000-0000-0001-000000000001';
+  // …0001 WITHDRAWN 2026-10-07 (owner ruling, lockstep with the TS seed
+  // manifest `SYSTEM_CLASS_UUIDS`): the seeded `class` META class is
+  // retired — nodes bound to it become REAL classes (class.create on an
+  // existing node, the conversion capability) and the seed no longer emits
+  // it. Never reuse.
   static const String page = '00000000-0000-0000-0001-000000000002';
   static const String year = '00000000-0000-0000-0001-000000000003';
   static const String month = '00000000-0000-0000-0001-000000000004';
@@ -47,6 +51,11 @@ class SystemClassUuids {
   static const String document = '00000000-0000-0000-0001-000000000028';
   static const String person = '00000000-0000-0000-0001-000000000030';
   static const String movie = '00000000-0000-0000-0001-000000000035';
+  // The web link IS a source (owner ruling, 2026-10-07 seed convergence):
+  // a bookmarked page is a cited web source — weblink inherits the source
+  // family's bibliographic bindings while its own `url` binding stays the
+  // class-local winner; disabling `source` hides weblinks with the family.
+  static const String weblink = '00000000-0000-0000-0001-000000000034';
   static const String meeting = '00000000-0000-0000-0001-000000000039';
   static const String event = '00000000-0000-0000-0001-000000000040';
   static const String birthday = '00000000-0000-0000-0001-000000000041';

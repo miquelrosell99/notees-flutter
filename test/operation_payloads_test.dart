@@ -97,6 +97,76 @@ void main() {
       );
     });
 
+    test('object.update carries the wire node fields set + clear; '
+        'object.create rejects them outright', () {
+      const asset = '0192a000-0000-7000-8000-00000000052b';
+      // Presence writes; an explicit null reaches the wire as a clear.
+      final set = OperationPayloads.objectUpdate(
+        objectId: objectId,
+        coverAssetId: asset,
+        bannerAssetId: asset,
+        aliasedNodeId: asset,
+      );
+      expect(set['coverAssetId'], asset);
+      expect(set['bannerAssetId'], asset);
+      expect(set['aliasedNodeId'], asset);
+      final cleared = OperationPayloads.objectUpdate(
+        objectId: objectId,
+        aliasedNodeId: null,
+      );
+      expect(cleared.containsKey('aliasedNodeId'), isTrue);
+      expect(cleared['aliasedNodeId'], isNull);
+      // Omitted stays absent (absence = no write, distinct from a clear).
+      final iconOnly = OperationPayloads.objectUpdate(
+        objectId: objectId,
+        icon: 'mdiStar',
+      );
+      expect(iconOnly.containsKey('coverAssetId'), isFalse);
+      expect(iconOnly.containsKey('bannerAssetId'), isFalse);
+      expect(iconOnly.containsKey('aliasedNodeId'), isFalse);
+      // A non-uuid reference is rejected outright.
+      expect(
+        () => OperationPayloads.validatePayload('object.update', {
+          'objectId': objectId,
+          'coverAssetId': 'not-a-uuid',
+        }),
+        throwsFormatException,
+      );
+      // The fields are object.update-only: object.create rejects them like
+      // any unknown key (the strict schema).
+      for (final key in ['coverAssetId', 'bannerAssetId', 'aliasedNodeId']) {
+        expect(
+          () => OperationPayloads.validatePayload('object.create', {
+            'objectId': objectId,
+            key: asset,
+          }),
+          throwsFormatException,
+        );
+      }
+    });
+
+    test('propertySchema.create accepts the asset type and rejects a bogus '
+        'one', () {
+      final payload = OperationPayloads.propertySchemaCreate(
+        propertySchemaId: classId,
+        name: 'Attachment',
+        type: 'asset',
+        multi: true,
+        scope: 'class',
+      );
+      expect(payload['type'], 'asset');
+      expect(() => OperationPayloads.validatePayload(
+          'propertySchema.create', payload), returnsNormally);
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', {
+          'propertySchemaId': classId,
+          'name': 'Bogus',
+          'type': 'asset_payload',
+        }),
+        throwsFormatException,
+      );
+    });
+
     test('class.create name convenience converts to contentAst', () {
       final payload = OperationPayloads.classCreate(
         classId: classId,

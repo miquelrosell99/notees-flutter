@@ -14,9 +14,11 @@ import 'store_errors.dart';
 ///  - text: a scalar string OR a carrier-block reference `{ "nodeId": … }`
 ///    (node-backed rich text). Archived data may hold the legacy bare-uuid
 ///    carrier shape — reads stay lenient, writes go `{nodeId}`.
-///  - date / object: a node reference `{ "nodeId": … }`; a bare-uuid string
-///    (legacy) normalizes to the reference shape, other strings are
-///    rejected.
+///  - date / object / asset: a node reference `{ "nodeId": … }`; a bare-uuid
+///    string (legacy) normalizes to the reference shape, other strings are
+///    rejected. (`asset` is M38: the target must carry the asset class —
+///    the implicit filter is a graph check, applied with the rest of the
+///    schema-linked integrity on the cache repository.)
 ///  - date_range: `{ "start": ref|null, "end": ref|null }` — either side
 ///    open; each present side is a reference (legacy bare uuid normalized).
 ///  - number: a finite number; a NUMERIC STRING is the migrated legacy
@@ -70,6 +72,7 @@ dynamic assertValueShapeForType(String type, dynamic value, String opType) {
       break;
     case 'date':
     case 'object':
+    case 'asset':
       final ref = nodeRefOfValue(value);
       if (ref != null) return {'nodeId': ref};
       break;
@@ -109,8 +112,8 @@ dynamic assertValueShapeForType(String type, dynamic value, String opType) {
 }
 
 /// PC2: a class-binding defaultValue must be typed per the schema type.
-/// Node-typed schemas (date/date_range/object) accept only JSON null — a
-/// default that links a node is meaningless. `text` accepts scalar strings,
+/// Node-typed schemas (date/date_range/object/asset) accept only JSON null —
+/// a default that links a node is meaningless. `text` accepts scalar strings,
 /// not carrier references. Returns false instead of throwing so the read
 /// model can drop silently; the write path (class.property.set) fails loud.
 bool isValidDefaultForType(String type, dynamic value) {
@@ -131,6 +134,7 @@ bool isValidDefaultForType(String type, dynamic value) {
     case 'date':
     case 'date_range':
     case 'object':
+    case 'asset':
       return false;
     default:
       return true;
@@ -169,7 +173,8 @@ dynamic assertScalarShapeForType(String type, dynamic value, String opType) {
       if (value is List && value.every((v) => v is String)) return value;
       break;
     default:
-      // image and any future type: unchecked (see the file header).
+      // image, asset (shape-normalized above), and any future type:
+      // unchecked (see the file header).
       return value;
   }
   throw PropertyValueShapeError(

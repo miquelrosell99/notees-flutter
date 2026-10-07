@@ -220,17 +220,23 @@ void main() {
       final seed = LocalWorkspaceSeed(syncService);
 
       // 25 system classes (21 legacy + source + song/tv_series/conference
-      // from the citations revision; class.create carries the name) +
-      // 3 class.setExtends (the new classes extend source) +
+      // from the citations revision + weblink joining the source family;
+      // the seeded `class` meta class retired 2026-10-07 — class.create
+      // carries the name) +
+      // 4 class.setExtends (the new classes extend source) +
       // 1 propertySchema.create + 1 class.property.set (authors, node-typed
       // per the FINAL owner reversion) + 1 page (Inbox; the scratchpad seed
       // was withdrawn 2026-10-05).
       final emitted = await seed.ensureLocalWorkspace();
-      expect(emitted, 31);
+      expect(emitted, 32);
 
       final taskClass =
           await syncService.cache.getClassByUuid(SystemClassUuids.task);
       expect(taskClass?.name, 'task');
+
+      final weblinkClass =
+          await syncService.cache.getClassByUuid(SystemClassUuids.weblink);
+      expect(weblinkClass?.name, 'weblink');
 
       final inbox = await syncService.cache.getByUuid(SystemPageUuids.inbox);
       expect(inbox, isNotNull);
@@ -239,11 +245,11 @@ void main() {
 
       final db = await database.database;
       // Seed ops stay in the outbox for a later server attach.
-      expect(await db.query('relay_outbox'), hasLength(31));
+      expect(await db.query('relay_outbox'), hasLength(32));
 
       // Re-running emits nothing.
       expect(await seed.ensureLocalWorkspace(), 0);
-      expect(await db.query('relay_outbox'), hasLength(31));
+      expect(await db.query('relay_outbox'), hasLength(32));
     });
   });
 }

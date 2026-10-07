@@ -371,14 +371,32 @@ class RelayAppliers {
     }
     final contentAst = payload['contentAst'];
     if (contentAst is List<dynamic>) {
-      // Document-chrome content (class nodes and main-presenting nodes) is
-      // text-only; inline blocks keep the rich tokens they were sent.
-      final flatten = node.isClass || resultingPresentAsMain;
+      // Class content stays text-only; every other node keeps the rich token
+      // stream it was sent. A page's own content may carry inline tokens
+      // (mentions, external links) — the header title edits it with the
+      // full block editor — while display-name derivation still flattens to
+      // text for labels (title-is-content). Create-as-main and the promotion
+      // stringify above remain the lossy boundaries.
+      final flatten = node.isClass;
       final flatAst = flatten
           ? stringifyContentAst(normalizeContentAst(contentAst))
           : normalizeContentAst(contentAst);
       newName = AstBuilder.serialize(flatAst);
       newDisplay = deriveDisplayName(newName);
+    }
+
+    // Wire node fields (the icon/color precedent, 2026-10-07 lockstep):
+    // presence writes, present-null clears — exactly like `color` above.
+    // Cover/banner map without validating (asset existence is a read/
+    // client-layer concern); the alias target DOES validate — see
+    // _assertAliasAcyclic below (the extends-DAG precedent: structural
+    // invariants are write-time impossible). Clearing (null) cannot create
+    // a cycle and skips the check.
+    if (payload.containsKey('aliasedNodeId')) {
+      final target = payload['aliasedNodeId'] as String?;
+      if (target != null) {
+        await _assertAliasAcyclic(objectId, target, opType);
+      }
     }
     await _cache.upsert(
       _copyWith(
@@ -396,6 +414,15 @@ class RelayAppliers {
         color: payload.containsKey('color')
             ? payload['color'] as String?
             : node.color,
+        coverAssetId: payload.containsKey('coverAssetId')
+            ? payload['coverAssetId'] as String?
+            : node.coverAssetId,
+        bannerAssetId: payload.containsKey('bannerAssetId')
+            ? payload['bannerAssetId'] as String?
+            : node.bannerAssetId,
+        aliasedNodeId: payload.containsKey('aliasedNodeId')
+            ? payload['aliasedNodeId'] as String?
+            : node.aliasedNodeId,
         writeDate: envelope.timestamp,
         hlcPhysical: incoming.physical,
         hlcLogical: incoming.logical,
@@ -406,6 +433,35 @@ class RelayAppliers {
       await _cache.rebuildEdges(objectId, at: envelope.timestamp);
     }
     return true;
+  }
+
+  /// M12 write-time alias-cycle validation (the extends-DAG precedent):
+  /// `object.update {aliasedNodeId: T}` on node N must not close an alias
+  /// cycle. The would-be chain is N → T → T's target → … — walk it from T;
+  /// a revisit of any visited node (including N itself — the 1-edge
+  /// self-alias) means the write would create a cycle, so it fails loud and
+  /// is NEVER applied. Chains without a cycle terminate (finite graph); the
+  /// visited set makes the walk exact.
+  Future<void> _assertAliasAcyclic(
+    String nodeId,
+    String targetId,
+    String opType,
+  ) async {
+    final visited = {nodeId};
+    var current = targetId;
+    for (;;) {
+      if (visited.contains(current)) {
+        throw CycleError(
+          '$opType: aliasing $nodeId → $targetId would close an alias '
+          'cycle at $current',
+          opType,
+        );
+      }
+      visited.add(current);
+      final next = await _cache.aliasedNodeIdOf(current);
+      if (next == null) return;
+      current = next;
+    }
   }
 
   Future<bool> _applyDelete(
@@ -995,18 +1051,62 @@ class RelayAppliers {
     Map<String, dynamic> payload,
   ) async {
     final classId = payload['classId'] as String;
+    final existing = await _cache.getClassByUuid(classId);
+    // Registry `name` is a denormalized cache of the class node's title
+    // text. Absent fields PRESERVE on re-declaration (the upsert used to
+    // wipe icon/color with null — the TS COALESCE semantics); a conversion
+    // (no contentAst) on a fresh row adopts the node's current title
+    // (title-is-content: the node row is the authority).
+    String? adoptedTitle;
+    if (!payload.containsKey('contentAst')) {
+      final node = await _cache.getByUuid(classId);
+      if (node != null) adoptedTitle = node.displayName;
+    }
     await _cache.upsertClass(
       uuid: classId,
-      // Title-is-content: the registry name is a denormalized cache of the
-      // class node's title text — the plain-text excerpt of contentAst.
-      name: _classTitle(payload),
-      icon: payload['icon'] as String?,
-      color: payload['color'] as String?,
-      description: payload['description'] as String?,
+      name: payload.containsKey('contentAst')
+          ? _classTitle(payload)
+          : (existing?.name ?? adoptedTitle ?? ''),
+      icon: payload.containsKey('icon')
+          ? payload['icon'] as String?
+          : existing?.icon,
+      color: payload.containsKey('color')
+          ? payload['color'] as String?
+          : existing?.color,
+      // class.create never writes description: a fresh row starts
+      // description-less and a re-declaration keeps the stored one (TS
+      // parity — the payload schema accepts the key, the applier drops it).
+      description: await _cache.classDescription(classId),
       active: true,
       createdAt: envelope.timestamp,
       updatedAt: envelope.timestamp,
     );
+
+    // Conversion (owner ruling retiring the seeded `class` class,
+    // 2026-10-07): class.create on an EXISTING node DECLARES that node a
+    // class — the flip is the whole capability: is_class = 1, classes are
+    // roots (the parent edge + its fractional position drop), the render
+    // bit clears. The node's title/icon/color stay (conversion carries no
+    // content unless sent). Membership and the node's own children are
+    // untouched (classes are containers). Applied unconditionally:
+    // declaration is structural, not a row-field race (the extends-DAG
+    // precedent).
+    final node = await _cache.getByUuid(classId);
+    if (node != null && !node.isClass) {
+      await _cache.upsert(
+        _copyWith(
+          node,
+          isClass: true,
+          presentAsMain: false,
+          isPage: false,
+          parentUuid: null,
+          position: null,
+        ),
+      );
+    }
+    // Hierarchy self-row: the closure queries match through it, so every
+    // class needs (id, id) even before any setExtends runs.
+    await _cache.insertClassHierarchySelfRow(classId);
   }
 
   Future<bool> _applyClassUpdate(
@@ -1154,7 +1254,7 @@ class RelayAppliers {
       final defaultValue = payload['defaultValue'];
       if (schemaType != null && !isValidDefaultForType(schemaType, defaultValue)) {
         final expectation = switch (schemaType) {
-          'date' || 'date_range' || 'object' =>
+          'date' || 'date_range' || 'object' || 'asset' =>
             'must be null — node-typed defaults are not supported',
           _ => 'must be typed $schemaType',
         };
@@ -1647,6 +1747,9 @@ Node _copyWith(
   bool? presentAsMain,
   String? icon,
   Object? color = _undefined,
+  Object? coverAssetId = _undefined,
+  Object? bannerAssetId = _undefined,
+  Object? aliasedNodeId = _undefined,
   Object? parentUuid = _undefined,
   Object? position = _undefined,
   double? sequence,
@@ -1655,6 +1758,9 @@ Node _copyWith(
   int? hlcLogical,
   String? actorId,
   bool? isPage,
+  // Identity only changes on the class.create conversion path (a node
+  // declared a class); update/move never flip it.
+  bool? isClass,
 }) => Node(
   id: node.id,
   uuid: node.uuid,
@@ -1662,6 +1768,15 @@ Node _copyWith(
   displayName: displayName ?? node.displayName,
   icon: icon ?? node.icon,
   color: identical(color, _undefined) ? node.color : color as String?,
+  coverAssetId: identical(coverAssetId, _undefined)
+      ? node.coverAssetId
+      : coverAssetId as String?,
+  bannerAssetId: identical(bannerAssetId, _undefined)
+      ? node.bannerAssetId
+      : bannerAssetId as String?,
+  aliasedNodeId: identical(aliasedNodeId, _undefined)
+      ? node.aliasedNodeId
+      : aliasedNodeId as String?,
   parentId: node.parentId,
   parentUuid: identical(parentUuid, _undefined)
       ? node.parentUuid
@@ -1691,8 +1806,7 @@ Node _copyWith(
   writeDate: writeDate ?? node.writeDate,
   extendsUuid: node.extendsUuid,
   title: node.title,
-  // Identity never changes on the update/move paths.
-  isClass: node.isClass,
+  isClass: isClass ?? node.isClass,
   presentAsMain: presentAsMain ?? node.presentAsMain,
   classOrder: node.classOrder,
   hlcPhysical: hlcPhysical ?? node.hlcPhysical,

@@ -39,6 +39,14 @@
 ///  - `propertySchema.create`/`update` gain the SCHEMA.md "Dates" fields
 ///    `datePrecision` (year|month|day) and `dateQualified` (PC6: values may
 ///    carry date-node qualifier refs in metadata startDate/endDate).
+///
+/// Node-fields + asset-type batch (2026-10-07 lockstep):
+///  - `object.update` gains the optional nullable wire node fields
+///    `coverAssetId` / `bannerAssetId` / `aliasedNodeId` (presence writes,
+///    present-null clears; `object.create` carries none — the strict
+///    validator rejects them there like any unknown key);
+///  - the `propertySchema.create` type enum gains `"asset"` (an asset-node
+///    reference whose class filter is implicit in the type).
 library;
 
 import 'colors.dart';
@@ -153,17 +161,32 @@ class OperationPayloads {
   ///
   /// Color: [color] is a preset token or `#RRGGBB` hex; pass `null`
   /// explicitly to CLEAR the node's color (the wire carries `"color": null`).
+  ///
+  /// Wire node fields (the icon/color precedent, 2026-10-07 lockstep):
+  /// [coverAssetId] (an asset node for the page cover), [bannerAssetId]
+  /// (an asset node for the page banner) and [aliasedNodeId] (the main page
+  /// a node alias points at) are `object.update`-only — `object.create`
+  /// carries none. Presence writes, an explicit `null` CLEARS; the applier
+  /// maps them without validating the references, except the alias target:
+  /// an update that would close an alias cycle fails loud and is never
+  /// applied. Reference integrity beyond that is a read/client-layer concern.
   static Map<String, dynamic> objectUpdate({
     required String objectId,
     bool? presentAsMain,
     String? icon,
     Object? color = _undefined,
+    Object? coverAssetId = _undefined,
+    Object? bannerAssetId = _undefined,
+    Object? aliasedNodeId = _undefined,
     String? contentDeltaB64,
     List<Map<String, dynamic>>? contentAst,
   }) {
     if (presentAsMain == null &&
         icon == null &&
         identical(color, _undefined) &&
+        identical(coverAssetId, _undefined) &&
+        identical(bannerAssetId, _undefined) &&
+        identical(aliasedNodeId, _undefined) &&
         contentDeltaB64 == null &&
         contentAst == null) {
       throw ArgumentError('object.update requires at least one field');
@@ -179,6 +202,12 @@ class OperationPayloads {
       'presentAsMain': ?presentAsMain,
       'icon': ?icon,
       if (!identical(color, _undefined)) 'color': color,
+      if (!identical(coverAssetId, _undefined))
+        'coverAssetId': coverAssetId,
+      if (!identical(bannerAssetId, _undefined))
+        'bannerAssetId': bannerAssetId,
+      if (!identical(aliasedNodeId, _undefined))
+        'aliasedNodeId': aliasedNodeId,
       'contentDeltaB64': ?contentDeltaB64,
       'contentAst': ?contentAst,
     });
@@ -603,6 +632,10 @@ class OperationPayloads {
     'multi_select',
     'object',
     'image',
+    // An asset reference — a node-typed value ({ nodeId }) whose target must
+    // carry the asset class; the filter is IMPLICIT in the type (an explicit
+    // targetClassFilter is redundant on an asset schema).
+    'asset',
   };
   static const _propertySchemaScopes = {'global', 'class', 'object'};
 
@@ -655,6 +688,9 @@ class OperationPayloads {
           'presentAsMain',
           'icon',
           'color',
+          'coverAssetId',
+          'bannerAssetId',
+          'aliasedNodeId',
           'contentDeltaB64',
           'contentAst',
         });
@@ -662,6 +698,12 @@ class OperationPayloads {
         _bool(payload, 'presentAsMain', required: false);
         _string(payload, 'icon', max: 64, required: false);
         _color(payload, 'color');
+        // Wire node fields: nullable uuids (absence = no write, present
+        // null = clear — the `_uuid` helper accepts a present null and
+        // validates the shape only when a string rides).
+        _uuid(payload, 'coverAssetId', required: false);
+        _uuid(payload, 'bannerAssetId', required: false);
+        _uuid(payload, 'aliasedNodeId', required: false);
         _string(payload, 'contentDeltaB64', required: false);
         _list(payload, 'contentAst', required: false);
         if (payload.length == 1) {

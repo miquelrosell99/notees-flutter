@@ -18,7 +18,8 @@ void main() {
   group('system UUID parity', () {
     test('all system class UUIDs are unique and live in the 0001 block', () {
       const uuids = <String>[
-        SystemClassUuids.class_,
+        // …0001 was withdrawn 2026-10-07 (the seeded `class` meta class is
+        // retired — never reused); no live constant carries it.
         SystemClassUuids.page,
         SystemClassUuids.year,
         SystemClassUuids.month,
@@ -137,7 +138,7 @@ void main() {
     });
 
     test('new classes extend source with the TS manifest icons', () {
-      for (final name in ['song', 'tv_series', 'conference']) {
+      for (final name in ['song', 'tv_series', 'conference', 'weblink']) {
         expect(LocalWorkspaceSeed.systemClassExtends[name], ['source']);
       }
       expect(LocalWorkspaceSeed.systemClassIcons['song'], 'mdiMusicNote');
@@ -145,6 +146,7 @@ void main() {
           'mdiTelevisionClassic');
       expect(LocalWorkspaceSeed.systemClassIcons['conference'],
           'mdiPresentation');
+      expect(LocalWorkspaceSeed.systemClassIcons['weblink'], 'mdiLinkVariant');
       // The extends targets all resolve to seeded classes.
       final targets = <String>{
         for (final parents in LocalWorkspaceSeed.systemClassExtends.values)
@@ -154,6 +156,26 @@ void main() {
         expect(LocalWorkspaceSeed.systemClassNames.containsKey(target), isTrue,
             reason: 'extends target $target is seeded');
       }
+    });
+
+    test('the seeded class meta class is retired (…0001 withdrawn, never '
+        'reused)', () {
+      // The seed map no longer emits the `class` meta class; the UUID
+      // appears nowhere in the seed maps (the linkedAuthors …0025
+      // precedent).
+      expect(LocalWorkspaceSeed.systemClassNames.containsKey('class'), isFalse);
+      final seeded = <String>[
+        ...LocalWorkspaceSeed.systemClassNames.values,
+      ];
+      expect(
+        seeded.contains('00000000-0000-0000-0001-000000000001'),
+        isFalse,
+      );
+      // weblink leads the source-family convergence (owner ruling,
+      // 2026-10-07): seeded, and its extends edge targets source.
+      expect(LocalWorkspaceSeed.systemClassNames['weblink'],
+          '00000000-0000-0000-0001-000000000034');
+      expect(LocalWorkspaceSeed.systemClassExtends['weblink'], ['source']);
     });
 
     test('seeded class UUIDs in the seed map stay unique', () {
@@ -191,11 +213,13 @@ void main() {
         () async {
       final emitted =
           await LocalWorkspaceSeed(syncService).ensureLocalWorkspace();
-      // 25 class.create + 3 class.setExtends + 1 propertySchema.create +
-      // 1 class.property.set (authors, node-typed per the FINAL reversion)
-      // + 1 object.create (Inbox; the scratchpad seed was withdrawn
-      // 2026-10-05).
-      expect(emitted, 31);
+      // 25 class.create (the seeded `class` meta class retired 2026-10-07;
+      // weblink joins the source family) + 4 class.setExtends (song,
+      // tv_series, conference, weblink — all extend source) +
+      // 1 propertySchema.create + 1 class.property.set (authors,
+      // node-typed per the FINAL reversion) + 1 object.create (Inbox; the
+      // scratchpad seed was withdrawn 2026-10-05).
+      expect(emitted, 32);
 
       final db = await database.database;
 
@@ -205,12 +229,19 @@ void main() {
         [SystemClassUuids.song],
       );
       expect(song.single['icon'], 'mdiMusicNote');
+      final weblink = await db.rawQuery(
+        'SELECT icon FROM class_cache WHERE uuid = ?',
+        [SystemClassUuids.weblink],
+      );
+      expect(weblink.single['icon'], 'mdiLinkVariant');
 
-      // Extends edges + closure: the three new classes extend source.
+      // Extends edges + closure: the four source-family classes extend
+      // source.
       for (final classId in [
         SystemClassUuids.song,
         SystemClassUuids.tvSeries,
         SystemClassUuids.conference,
+        SystemClassUuids.weblink,
       ]) {
         final edges = await db.rawQuery(
           'SELECT parent_class_id FROM class_extends WHERE class_id = ?',

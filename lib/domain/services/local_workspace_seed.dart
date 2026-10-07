@@ -22,9 +22,12 @@ class LocalWorkspaceSeed {
 
   /// Class name → fixed system class UUID. Matches `SYSTEM_CLASS_UUIDS` in
   /// `frontend/src/constants/systemProperties.ts` (the obsolete `page` class
-  /// is not seeded; page status derives from the node kind).
+  /// is not seeded; page status derives from the node kind). The seeded
+  /// `class` meta class (…0001) was retired 2026-10-07 (owner ruling —
+  /// lockstep with the TS seed manifest): nodes bound to it become real
+  /// classes (the class.create conversion capability) and the seed no
+  /// longer emits it; the UUID is withdrawn, never reused.
   static const Map<String, String> systemClassNames = {
-    'class': SystemClassUuids.class_,
     'year': SystemClassUuids.year,
     'month': SystemClassUuids.month,
     'day': SystemClassUuids.day,
@@ -46,6 +49,7 @@ class LocalWorkspaceSeed {
     'success': SystemClassUuids.success,
     'cloze': SystemClassUuids.cloze,
     'source': SystemClassUuids.source,
+    'weblink': SystemClassUuids.weblink,
     'song': SystemClassUuids.song,
     'tv_series': SystemClassUuids.tvSeries,
     'conference': SystemClassUuids.conference,
@@ -58,14 +62,17 @@ class LocalWorkspaceSeed {
     'song': 'mdiMusicNote',
     'tv_series': 'mdiTelevisionClassic',
     'conference': 'mdiPresentation',
+    'weblink': 'mdiLinkVariant',
   };
 
   /// Canonical extends edges for the new classes (TS manifest
-  /// `SYSTEM_CLASS_EXTENDS`): all three extend `source`.
+  /// `SYSTEM_CLASS_EXTENDS`): all four extend `source` — the web link IS a
+  /// cited web source (owner ruling, 2026-10-07 seed convergence).
   static const Map<String, List<String>> systemClassExtends = {
     'song': ['source'],
     'tv_series': ['source'],
     'conference': ['source'],
+    'weblink': ['source'],
   };
 
   /// System property specs the citations-model revision touched (TS manifest

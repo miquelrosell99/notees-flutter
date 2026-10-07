@@ -30,6 +30,7 @@ void main() {
 
   // Fixtures holding {"comment": ..., "envelopes": [...]}.
   const envelopeListFixtures = [
+    'class-convert.json',
     'class-delete-managed.json',
     'class-extends-cycle.json',
     'class-extends-m2m.json',
@@ -43,6 +44,8 @@ void main() {
     'object-move-before.json',
     'object-move.json',
     'object-restore.json',
+    'object-wire-fields.json',
+    'property-asset-type.json',
     'property-date-qualifier.json',
     'property-set-lww.json',
     'property-value-elements.json',
