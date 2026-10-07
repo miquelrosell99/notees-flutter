@@ -295,6 +295,66 @@ void main() {
     });
   });
 
+  group('display titles + the events family (2026-10-07 follow-up)', () {
+    // The display-title revision: the local seed authors the display
+    // titles (the seeds.ts SYSTEM_CLASS_DISPLAY_NAMES slice), matching the
+    // server seed's shape — never the raw keys. The completeness pin
+    // (one entry per seeded class) mirrors the TS domain test over the
+    // manifest.
+    test('every seeded class resolves a display title', () {
+      for (final name in LocalWorkspaceSeed.systemClassNames.keys) {
+        final title = systemClassDisplayNames[name];
+        expect(title, isNotNull, reason: 'display title for $name');
+        expect(title!.isNotEmpty, isTrue, reason: 'non-empty for $name');
+        expect(title.contains('_'), isFalse,
+            reason: 'normal wording, not the raw key: $name');
+      }
+    });
+
+    test('the wording pins (the seeds.ts record)', () {
+      expect(systemClassDisplayNames['tv_series'], 'TV series');
+      expect(systemClassDisplayNames['weblink'], 'Web link');
+      expect(systemClassDisplayNames['task'], 'Task');
+      expect(systemClassDisplayNames['source'], 'Source');
+      expect(systemClassDisplayNames['meeting'], 'Meeting');
+      expect(systemClassDisplayNames['event'], 'Event');
+      expect(systemClassDisplayNames['birthday'], 'Birthday');
+      expect(systemClassDisplayNames['trip'], 'Trip');
+    });
+
+    test('the events family seeds whole: meeting + event + birthday + trip',
+        () {
+      // The server seed keeps the full family (SEEDED_SYSTEM_CLASSES), so
+      // the local subset mirrors it as a unit — meeting/birthday carry
+      // their fixed ids + the extends edge to event, trip's cascade
+      // siblings.
+      expect(LocalWorkspaceSeed.systemClassNames['meeting'],
+          '00000000-0000-0000-0001-000000000039');
+      expect(LocalWorkspaceSeed.systemClassNames['event'],
+          '00000000-0000-0000-0001-000000000040');
+      expect(LocalWorkspaceSeed.systemClassNames['birthday'],
+          '00000000-0000-0000-0001-000000000041');
+      expect(LocalWorkspaceSeed.systemClassExtends['meeting'], ['event']);
+      expect(LocalWorkspaceSeed.systemClassExtends['birthday'], ['event']);
+      // The extends targets all resolve to seeded classes.
+      final targets = <String>{
+        for (final parents in LocalWorkspaceSeed.systemClassExtends.values)
+          ...parents,
+      };
+      for (final target in targets) {
+        expect(LocalWorkspaceSeed.systemClassNames.containsKey(target), isTrue,
+            reason: 'extends target $target is seeded');
+      }
+      // The property-schema axis stays the authors-only slice (documented
+      // divergence — the meeting/event/birthday bindings are server-seeded,
+      // like the source family's bibliography specs).
+      expect(
+        LocalWorkspaceSeed.systemPropertySpecs.map((s) => s.name),
+        ['authors'],
+      );
+    });
+  });
+
   group('seed emission', () {
     late AppDatabase database;
     late SyncV2Service syncService;
@@ -324,17 +384,35 @@ void main() {
         () async {
       final emitted =
           await LocalWorkspaceSeed(syncService).ensureLocalWorkspace();
-      // 31 class.create (the seeded `class` meta class retired 2026-10-07;
-      // weblink joins the source family; event joins as trip's extends
-      // target; the #14 follow-up five join, 2026-10-06) + 5 class.setExtends
-      // (song, tv_series, conference, weblink — all extend source; trip
-      // extends event) +
+      // 33 class.create (the seeded `class` meta class retired 2026-10-07;
+      // weblink joins the source family; meeting + event + birthday join as
+      // the full events family, 2026-10-07; the #14 follow-up five join,
+      // 2026-10-06) + 7 class.setExtends (song, tv_series, conference,
+      // weblink — all extend source; meeting, birthday, trip extend event) +
       // 1 propertySchema.create + 1 class.property.set (authors,
       // node-typed per the FINAL reversion) + 1 object.create (Inbox; the
       // scratchpad seed was withdrawn 2026-10-05).
-      expect(emitted, 39);
+      expect(emitted, 43);
 
       final db = await database.database;
+
+      // Class titles land in DISPLAY wording (the server seed's shape —
+      // SYSTEM_CLASS_DISPLAY_NAMES, never the raw keys).
+      for (final entry in [
+        (SystemClassUuids.task, 'Task'),
+        (SystemClassUuids.tvSeries, 'TV series'),
+        (SystemClassUuids.weblink, 'Web link'),
+        (SystemClassUuids.meeting, 'Meeting'),
+        (SystemClassUuids.event, 'Event'),
+        (SystemClassUuids.birthday, 'Birthday'),
+        (SystemClassUuids.trip, 'Trip'),
+      ]) {
+        final row = await db.rawQuery(
+          'SELECT name FROM class_cache WHERE uuid = ?',
+          [entry.$1],
+        );
+        expect(row.single['name'], entry.$2, reason: 'display title');
+      }
 
       // Icons landed on the new classes.
       final song = await db.rawQuery(
@@ -394,6 +472,24 @@ void main() {
         [SystemClassUuids.trip, SystemClassUuids.event],
       );
       expect(tripClosure, hasLength(1));
+      // The full events family (2026-10-07 follow-up): meeting + birthday
+      // extend event exactly like trip (edge + closure).
+      for (final classId in [
+        SystemClassUuids.meeting,
+        SystemClassUuids.birthday,
+      ]) {
+        final edges = await db.rawQuery(
+          'SELECT parent_class_id FROM class_extends WHERE class_id = ?',
+          [classId],
+        );
+        expect(edges.map((r) => r['parent_class_id']).toList(),
+            [SystemClassUuids.event]);
+        final closure = await db.rawQuery(
+          'SELECT ancestor_id FROM class_hierarchy WHERE class_id = ? AND ancestor_id = ?',
+          [classId, SystemClassUuids.event],
+        );
+        expect(closure, hasLength(1));
+      }
 
       // Property schemas + bindings on source.
       for (final schemaId in [

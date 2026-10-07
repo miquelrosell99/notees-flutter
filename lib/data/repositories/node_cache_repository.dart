@@ -1217,6 +1217,28 @@ class NodeCacheRepository {
     return current; // depth cap — best-effort terminal
   }
 
+  /// Every node whose alias-TERMINAL is [nodeId] (the aliases listing
+  /// behind the title-row affordance): the recursive reverse walk over the
+  /// `aliased_node_id` column (the `Store.aliasNodesOf` read — chains
+  /// included: with A → B → C, C's listing carries both A and B).
+  /// Trashed rows never list; the caller filters to pages (the render-state
+  /// restriction — "page" is not a class, so no column expresses it). The
+  /// main page itself never lists.
+  Future<List<String>> aliasNodeIdsOf(String nodeId) async {
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      '''WITH RECURSIVE alias_set(id) AS (
+           SELECT ?
+           UNION
+           SELECT n.uuid FROM node_cache n JOIN alias_set a ON n.aliased_node_id = a.id
+           WHERE n.is_deleted = 0
+         )
+         SELECT id FROM alias_set WHERE id != ? ORDER BY id''',
+      [nodeId, nodeId],
+    );
+    return [for (final row in rows) row['id'] as String];
+  }
+
   // --- fractional child positions --------------------------------------
 
   /// The stored fractional position of [childUuid] under [parentUuid].

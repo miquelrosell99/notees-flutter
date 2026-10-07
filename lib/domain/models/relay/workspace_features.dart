@@ -139,10 +139,46 @@ const Map<String, String> systemClassIcons = {
 };
 
 /// The display titles the server seed authors into the class nodes' text
-/// content for the #14 follow-up five (seeds.ts
-/// `SYSTEM_CLASS_DISPLAY_NAMES` slice — title-is-content; the raw keys stay
-/// code-facing vocabulary, these are the human wordings).
+/// content (seeds.ts `SYSTEM_CLASS_DISPLAY_NAMES` slice — title-is-content;
+/// the raw keys stay code-facing vocabulary, these are the human wordings).
+/// Covers every class the local workspace seed emits — the local seed writes
+/// these into its class.create content, exactly the server seed's shape
+/// (normal wording, "TV series" not "tv_series"). The seed-parity test pins
+/// one entry per local-seed class key — the seed-parity suite pins the
+/// completeness.
 const Map<String, String> systemClassDisplayNames = {
+  'year': 'Year',
+  'month': 'Month',
+  'day': 'Day',
+  'quote': 'Quote',
+  'query': 'Query',
+  'code': 'Code',
+  'asset': 'Asset',
+  'whiteboard': 'Whiteboard',
+  'card': 'Card',
+  'task': 'Task',
+  'template': 'Template',
+  'comment': 'Comment',
+  'table': 'Table',
+  'warning': 'Warning',
+  'note': 'Note',
+  'tip': 'Tip',
+  'info': 'Info',
+  'danger': 'Danger',
+  'success': 'Success',
+  'cloze': 'Cloze',
+  'source': 'Source',
+  'weblink': 'Web link',
+  'song': 'Song',
+  'tv_series': 'TV series',
+  'conference': 'Conference',
+  // The full events family (the server seed keeps meeting + event +
+  // birthday + trip — the local seed mirrors the family as a unit, not
+  // event alone as trip's extends target).
+  'meeting': 'Meeting',
+  'event': 'Event',
+  'birthday': 'Birthday',
+  // The #14 follow-up five (owner list, 2026-10-06).
   'definition': 'Definition',
   'idea': 'Idea',
   'place': 'Place',

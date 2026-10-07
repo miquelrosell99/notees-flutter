@@ -178,6 +178,30 @@ class NodeRepository {
     return _cache!.getByUuids(uuids);
   }
 
+  /// Every live PAGE whose alias-terminal is [uuid] (the aliases listing
+  /// behind the title-row affordance): the store's recursive
+  /// `aliasNodeIdsOf` read, mapped to nodes and filtered to pages — the
+  /// render-state restriction (a non-page carrier never acts as an alias,
+  /// exactly like the web's rendersWithDocumentChrome filter).
+  Future<List<Node>> fetchAliasNodesOf(String uuid) async {
+    _requireCache();
+    final ids = await _cache!.aliasNodeIdsOf(uuid);
+    if (ids.isEmpty) return const [];
+    final nodes = await _cache!.getByUuids(ids);
+    return nodes.where((n) => n.isPage).toList();
+  }
+
+  /// The node-alias write: point [uuid]'s `aliasedNodeId` at [aliasedNodeId]
+  /// (the main page) or clear it with `null` — a single object.update op
+  /// through the sync service (applied locally, pushed on the next flush).
+  Future<void> setAliasedNodeId(String uuid, String? aliasedNodeId) async {
+    _requireCache();
+    await syncService!.setAliasedNode(
+      objectId: uuid,
+      aliasedNodeId: aliasedNodeId,
+    );
+  }
+
   Future<List<BreadcrumbItem>> fetchBreadcrumbs(String uuid) async {
     _requireCache();
     final uuids = await _cache!.getBreadcrumbs(uuid);
