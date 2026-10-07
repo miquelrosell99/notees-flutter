@@ -8,6 +8,32 @@ lives in git history.
 
 ## 2026-10-07
 
+- **feat(seed): port the #14 follow-up five — definition/idea/place/
+  project/trip seeds, the trip→event cascade (seed convergence).**
+  Mirrors the GTK lockstep commit fd50e5c and the monorepo's
+  `packages/domain/src/seeds.ts` (owner list, 2026-10-06 — plain seeds
+  per the meeting-system ruling, zero wire cost): `SystemClassUuids`
+  gains the five fixed class ids (…0043-…0047);
+  `workspace_features.dart` resolves them (`systemClassUuids`) with
+  their mdi icons + display titles (`systemClassIcons` /
+  `systemClassDisplayNames`, the seeds.ts slices) and the `trip → event`
+  extends edge — so the events-family cascade (family set, gating walk,
+  the applier's archival re-derivation) reaches trip exactly like
+  meeting/birthday, while the four plain seeds stay unmanaged (no
+  gating, not always-on — features.ts parity). The local workspace seed
+  (serverless mode) emits the five too (plus `event` as trip's extends
+  target — the calendar family root), so a locally seeded workspace
+  no longer misses classes the server seed authors. The parity suites
+  pin the manifest: `seed_parity_test.dart` gains the deploy-catalog
+  five group (fixed ids, the withdrawn …0001/…0042 slots untouched,
+  static-map coverage, the features.ts gating/family mirror) and the
+  seed-emission count moves 32 → 39 (31 class.create — event joins as
+  trip's extends target — + 5 class.setExtends + the authors pair +
+  Inbox);
+  `workspace_features_test.dart` pins the four-strong events family and
+  replays the toggle cascade with trip. Wire/fixtures untouched (the
+  seed change is server-side).
+
 - **feat(protocol,store): lockstep convergence with the main repo's
   node-fields / class-convert / alias-validation / asset-type batches
   (fixture-gated).** Ports the four protocol+store slices the monorepo

@@ -6,9 +6,9 @@
 /// tasks=task, events=event, meetings=meeting, sources=source,
 /// persons=person. Each family is a seeded system class with built-in
 /// product logic; the extends-children ride the base class (disabling
-/// events archives meetings and birthdays with it — [systemClassExtends]
-/// is the cascade authority). Feature ids are protocol vocabulary
-/// ([OperationPayloads.workspaceFeatures]); the op-log home is
+/// events archives meetings, birthdays, and trips with it —
+/// [systemClassExtends] is the cascade authority). Feature ids are protocol
+/// vocabulary ([OperationPayloads.workspaceFeatures]); the op-log home is
 /// `workspace.feature.set`; the derived home is the app DB's
 /// `workspace_feature` table (v22 migration).
 ///
@@ -100,6 +100,17 @@ const Map<String, String> systemClassUuids = {
   'conference': SystemClassUuids.conference,
   'person': SystemClassUuids.person,
   'agent': SystemClassUuids.agent,
+  // The #14 follow-up five (owner list, 2026-10-06 — the deploy catalog's
+  // missing everyday classes, plain seeds per the meeting-system ruling;
+  // the TS manifest `SYSTEM_CLASS_UUIDS` parity). trip rides the events
+  // family through its extends edge; the four plain seeds stay unmanaged
+  // (no gating, not a family base — features.ts parity, absent from the TS
+  // ALWAYS_ON_SYSTEM_CLASSES too).
+  'definition': SystemClassUuids.definition,
+  'idea': SystemClassUuids.idea,
+  'place': SystemClassUuids.place,
+  'project': SystemClassUuids.project,
+  'trip': SystemClassUuids.trip,
 };
 
 /// Icons for the family classes (TS manifest `SYSTEM_CLASS_ICONS` slice).
@@ -119,12 +130,30 @@ const Map<String, String> systemClassIcons = {
   'tv_series': 'mdiTelevisionClassic',
   'conference': 'mdiPresentation',
   'person': 'mdiAccountOutline',
+  // The #14 follow-up five (seeds.ts `SYSTEM_CLASS_ICONS` slice).
+  'definition': 'mdiBookOpenPageVariant',
+  'idea': 'mdiThoughtBubbleOutline',
+  'place': 'mdiMapMarkerOutline',
+  'project': 'mdiBriefcaseOutline',
+  'trip': 'mdiAirplane',
+};
+
+/// The display titles the server seed authors into the class nodes' text
+/// content for the #14 follow-up five (seeds.ts
+/// `SYSTEM_CLASS_DISPLAY_NAMES` slice — title-is-content; the raw keys stay
+/// code-facing vocabulary, these are the human wordings).
+const Map<String, String> systemClassDisplayNames = {
+  'definition': 'Definition',
+  'idea': 'Idea',
+  'place': 'Place',
+  'project': 'Project',
+  'trip': 'Trip',
 };
 
 /// Canonical `extends` edges between the family classes (TS manifest
 /// `SYSTEM_CLASS_EXTENDS` slice): the source family's ten-strong set,
-/// meeting + birthday under event (the event→meeting/birthday cascade),
-/// person under agent.
+/// meeting + birthday + trip under event (the event→meeting/birthday/trip
+/// cascade), person under agent.
 const Map<String, List<String>> systemClassExtends = {
   'book': ['source'],
   'paper': ['source'],
@@ -138,6 +167,10 @@ const Map<String, List<String>> systemClassExtends = {
   'person': ['agent'],
   'meeting': ['event'],
   'birthday': ['event'],
+  // A trip IS an event (the #14 follow-up, owner list 2026-10-06): a trip
+  // is calendar-bound, so the events toggle cascades to it — this map is
+  // the cascade authority (seeds.ts `SYSTEM_CLASS_EXTENDS` parity).
+  'trip': ['event'],
 };
 
 /// The transitive ancestor set of [name] over [systemClassExtends];

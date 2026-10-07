@@ -53,26 +53,50 @@ class LocalWorkspaceSeed {
     'song': SystemClassUuids.song,
     'tv_series': SystemClassUuids.tvSeries,
     'conference': SystemClassUuids.conference,
+    // The events-family root joins the local subset as trip's extends
+    // target below (the calendar family root; the meeting/birthday children
+    // stay server-seeded, like the rest of the subset's absent families).
+    'event': SystemClassUuids.event,
+    // The #14 follow-up five (owner list, 2026-10-06 — the deploy catalog's
+    // missing everyday classes, plain seeds per the meeting-system ruling;
+    // seeds.ts …0043-…0047). trip extends `event` (the events cascade) —
+    // see [systemClassExtends].
+    'definition': SystemClassUuids.definition,
+    'idea': SystemClassUuids.idea,
+    'place': SystemClassUuids.place,
+    'project': SystemClassUuids.project,
+    'trip': SystemClassUuids.trip,
   };
 
-  /// Icons for the classes the citations-model revision added (TS manifest
-  /// `SYSTEM_CLASS_ICONS`); the legacy mobile subset seeds without icons.
+  /// Icons for the seeded classes that carry one (TS manifest
+  /// `SYSTEM_CLASS_ICONS` slice — the citations-model revision's four plus
+  /// the #14 follow-up five); the rest of the legacy mobile subset seeds
+  /// without icons.
   static const Map<String, String> systemClassIcons = {
     'source': 'mdiBookshelf',
     'song': 'mdiMusicNote',
     'tv_series': 'mdiTelevisionClassic',
     'conference': 'mdiPresentation',
     'weblink': 'mdiLinkVariant',
+    'definition': 'mdiBookOpenPageVariant',
+    'idea': 'mdiThoughtBubbleOutline',
+    'place': 'mdiMapMarkerOutline',
+    'project': 'mdiBriefcaseOutline',
+    'trip': 'mdiAirplane',
   };
 
-  /// Canonical extends edges for the new classes (TS manifest
-  /// `SYSTEM_CLASS_EXTENDS`): all four extend `source` — the web link IS a
-  /// cited web source (owner ruling, 2026-10-07 seed convergence).
+  /// Canonical extends edges for the seeded classes that carry one (TS
+  /// manifest `SYSTEM_CLASS_EXTENDS` slice): the citations-model revision's
+  /// four all extend `source` — the web link IS a cited web source (owner
+  /// ruling, 2026-10-07 seed convergence) — and the #14 follow-up's trip IS
+  /// an event (a trip is calendar-bound, so the events toggle cascades to
+  /// it; this map is the cascade authority).
   static const Map<String, List<String>> systemClassExtends = {
     'song': ['source'],
     'tv_series': ['source'],
     'conference': ['source'],
     'weblink': ['source'],
+    'trip': ['event'],
   };
 
   /// System property specs the citations-model revision touched (TS manifest
