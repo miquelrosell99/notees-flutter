@@ -918,6 +918,26 @@ class SyncV2Service {
         affectedNodeIds: [objectId],
       );
 
+  /// The node-alias write (SCHEMA.md "Node aliases"): point [objectId]'s
+  /// `aliasedNodeId` at [aliasedNodeId] — the main page the alias names —
+  /// or clear the field with an explicit `null` (presence writes,
+  /// present-null clears, the wire node fields precedent). The applier
+  /// cycle-checks a non-null target and fails loud, never applying a
+  /// cyclic alias. Applied locally, push kicked off on the next flush
+  /// (rides emitLocal like reorderClasses).
+  Future<OperationEnvelope> setAliasedNode({
+    required String objectId,
+    required String? aliasedNodeId,
+  }) =>
+      emitLocal(
+        opType: 'object.update',
+        payload: OperationPayloads.objectUpdate(
+          objectId: objectId,
+          aliasedNodeId: aliasedNodeId,
+        ),
+        affectedNodeIds: [objectId],
+      );
+
   /// Rewrites the workspace (and optionally actor) id of all locally produced
   /// relay state: pending outbox envelopes, recorded operations and
   /// favorites. Called when a local profile attaches a server, so the

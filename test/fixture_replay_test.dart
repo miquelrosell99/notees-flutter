@@ -435,6 +435,34 @@ void main() {
         }
         expect(await cache.resolveAlias(a), isNot(a));
       });
+
+      test('aliasNodeIdsOf lists every node whose alias-terminal is this '
+          'one (chains included, trashed excluded, the main never lists)',
+          () async {
+        for (final id in [a, b, c, d]) {
+          await appliers.apply(basePage(id, 0));
+        }
+        expect(await cache.aliasNodeIdsOf(c), isEmpty);
+        // A → B → C: C's listing carries BOTH A and B (the reverse walk
+        // follows chains, not just direct links); B lists only A.
+        await appliers.apply(alias(a, b, 1000));
+        await appliers.apply(alias(b, c, 2000));
+        expect(await cache.aliasNodeIdsOf(c), [a, b]);
+        expect(await cache.aliasNodeIdsOf(b), [a]);
+        expect(await cache.aliasNodeIdsOf(a), isEmpty);
+        // Re-pointing collapses the listing with the chain: B → D moves
+        // A's listing to D.
+        await appliers.apply(alias(b, d, 3000));
+        expect(await cache.aliasNodeIdsOf(c), isEmpty);
+        expect(await cache.aliasNodeIdsOf(d), [a, b]);
+        // Trashed rows never list.
+        final db = await database.database;
+        await db.rawUpdate(
+          'UPDATE node_cache SET is_deleted = 1 WHERE uuid = ?',
+          [a],
+        );
+        expect(await cache.aliasNodeIdsOf(d), [b]);
+      });
     });
 
     test('class-convert declares an existing parentless page a class: '
