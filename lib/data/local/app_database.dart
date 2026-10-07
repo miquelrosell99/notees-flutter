@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 26,
+          version: 27,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 26,
+      version: 27,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -120,6 +120,7 @@ class AppDatabase {
     await _migrateV23(db);
     await _migrateV24(db);
     await _migrateV26(db);
+    await _migrateV27(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -202,6 +203,24 @@ class AppDatabase {
     if (oldVersion < 26) {
       await _migrateV26(db);
     }
+    if (oldVersion < 27) {
+      await _migrateV27(db);
+    }
+  }
+
+  /// v27 — the wire node fields (2026-10-07 lockstep with the TS store
+  /// schema v16): `node_cache` gains `cover_asset_id` / `banner_asset_id` /
+  /// `aliased_node_id` — the direct projections of `object.update`'s
+  /// coverAssetId / bannerAssetId / aliasedNodeId (presence writes,
+  /// present-null clears; NULL = unset). Reference integrity (asset
+  /// existence, alias cycles) is NOT a column concern: the alias cycle
+  /// check is write-time applier logic, the rest rides the read layer.
+  /// The column guard keeps the migration idempotent for databases that
+  /// already carry them (a fresh v27 create).
+  Future<void> _migrateV27(Database db) async {
+    await _addColumnIfMissing(db, 'node_cache', 'cover_asset_id', 'TEXT');
+    await _addColumnIfMissing(db, 'node_cache', 'banner_asset_id', 'TEXT');
+    await _addColumnIfMissing(db, 'node_cache', 'aliased_node_id', 'TEXT');
   }
 
   /// v26 — owner review 2026-10-05 (the render contracts move from
@@ -1225,6 +1244,7 @@ class AppDatabase {
     await _migrateV23(db);
     await _migrateV24(db);
     await _migrateV26(db);
+    await _migrateV27(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

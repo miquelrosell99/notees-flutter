@@ -864,6 +864,11 @@ class NodeCacheRepository {
         hlcPhysical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
         hlcLogical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
         actorId: row['actor_id'] as String?,
+        // Wire node fields: snapshots at store schema v16+ carry the
+        // columns; older snapshots return null (unset) — both read safely.
+        coverAssetId: row['cover_asset_id'] as String?,
+        bannerAssetId: row['banner_asset_id'] as String?,
+        aliasedNodeId: row['aliased_node_id'] as String?,
       );
     }).toList();
   }
@@ -1051,8 +1056,9 @@ class NodeCacheRepository {
   }
 
   /// Classes from the dedicated `class_cache` table.
-  /// Filters out system/structural classes (e.g. `page`, `class`) that are not
-  /// meaningful as user-facing class categories.
+  /// Filters out system/structural classes (e.g. the retired `class` meta
+  /// class …0001 and the obsolete `page` class) that are not meaningful as
+  /// user-facing class categories.
   Future<List<Node>> getClasses() async {
     final db = await _database.database;
     final rows = await db.query(
@@ -1060,7 +1066,7 @@ class NodeCacheRepository {
       where: 'active = 1',
       orderBy: 'name ASC',
     );
-    const hidden = <String>{SystemClassUuids.class_, SystemClassUuids.page};
+    const hidden = <String>{SystemClassUuids.page};
     return rows
         .map(_classFromRow)
         .where((c) => !hidden.contains(c.uuid))
@@ -1172,6 +1178,43 @@ class NodeCacheRepository {
     final meta = await getRowMeta(uuid);
     if (meta?.isClass == true) return true;
     return await getClassByUuid(uuid) != null;
+  }
+
+  /// The stored alias target of [uuid]'s node row (the direct
+  /// `aliased_node_id` column projection), or null when the row is unknown
+  /// or carries no alias. The write-time cycle check walks chains through
+  /// this; it reads the STORED column, never the incoming payload.
+  Future<String?> aliasedNodeIdOf(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'node_cache',
+      columns: ['aliased_node_id'],
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['aliased_node_id'] as String?;
+  }
+
+  /// The terminal of a node-alias chain (the `Store.resolveAlias` read
+  /// helper behind the alias semantics): follow `aliased_node_id` links to
+  /// the final main node. Cycle-safe by construction — a revisit yields the
+  /// STARTING id unchanged (a cyclic alias is no alias, the SCHEMA.md
+  /// navigation ruling) — and bounded by a 32-link depth cap (best-effort
+  /// terminal at the cap). Unset/unstored rows are their own terminal.
+  Future<String> resolveAlias(String nodeId) async {
+    const depthCap = 32;
+    final visited = <String>{};
+    var current = nodeId;
+    for (var depth = 0; depth < depthCap; depth++) {
+      if (visited.contains(current)) return nodeId; // cycle — the id unchanged
+      visited.add(current);
+      final target = await aliasedNodeIdOf(current);
+      if (target == null) return current;
+      current = target;
+    }
+    return current; // depth cap — best-effort terminal
   }
 
   // --- fractional child positions --------------------------------------
@@ -1548,6 +1591,19 @@ class NodeCacheRepository {
       limit: 1,
     );
     return rows.isNotEmpty;
+  }
+
+  /// The class_hierarchy self-row (class_id, ancestor_id = id, id): the
+  /// closure queries match through it, so every class carries it from
+  /// declaration (class.create) even before any setExtends runs — the TS
+  /// store's `INSERT OR IGNORE` on the same pair.
+  Future<void> insertClassHierarchySelfRow(String classId) async {
+    final db = await _database.database;
+    await db.insert(
+      'class_hierarchy',
+      {'class_id': classId, 'ancestor_id': classId},
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
   }
 
   /// Deterministic full rebuild of the class_hierarchy closure from the
@@ -1999,7 +2055,12 @@ class NodeCacheRepository {
         opType,
       );
     }
-    final filter = schema.targetClassFilterRaw;
+    final filter = schema.type == 'asset'
+        // M38: an asset-typed schema's filter is IMPLICIT — the type IS the
+        // filter (the asset class); an explicit targetClassFilter on an
+        // asset schema is redundant and ignored.
+        ? <dynamic>[SystemClassUuids.asset]
+        : schema.targetClassFilterRaw;
     if (filter != null && filter.isNotEmpty) {
       final carried = await nodeClassIdsOf(ref) ?? const <String>[];
       final allowed = {...carried};
@@ -2046,7 +2107,9 @@ class NodeCacheRepository {
     final shaped = assertValueShapeForType(schema.type, value, opType);
     final typed = assertScalarShapeForType(schema.type, shaped, opType);
     if (typed == null) return typed;
-    if (schema.type == 'date' || schema.type == 'object') {
+    if (schema.type == 'date' ||
+        schema.type == 'object' ||
+        schema.type == 'asset') {
       final ref = nodeRefOfValue(typed);
       if (ref != null) await assertPropertyValueRefTarget(schema, ref, opType);
     } else if (schema.type == 'date_range') {
@@ -3939,6 +4002,11 @@ class NodeCacheRepository {
       'hlc_physical': node.hlcPhysical,
       'hlc_logical': node.hlcLogical,
       'actor_id': node.actorId,
+      // Wire node fields (v27 — the direct projections of object.update's
+      // coverAssetId / bannerAssetId / aliasedNodeId).
+      'cover_asset_id': node.coverAssetId,
+      'banner_asset_id': node.bannerAssetId,
+      'aliased_node_id': node.aliasedNodeId,
     };
   }
 

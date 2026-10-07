@@ -213,6 +213,445 @@ void main() {
       expect((await cache.getClassByUuid(classProbe))!.color, isNull);
     });
 
+    test('object-wire-fields lands set + clear through object.update', () async {
+      const page = '0192a000-0000-7000-8000-00000000052a';
+      const asset = '0192a000-0000-7000-8000-00000000052b';
+      const main = '0192a000-0000-7000-8000-00000000052c';
+      final envelopes = fixtureEnvelopes('object-wire-fields.json');
+      for (final envelope in envelopes.take(3)) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+
+      Future<({String? cover, String? banner, String? alias})> fields() async {
+        final node = await cache.getByUuid(page);
+        final rows = await raw(
+          'SELECT cover_asset_id, banner_asset_id, aliased_node_id '
+          'FROM node_cache WHERE uuid = ?',
+          [page],
+        );
+        expect(rows, hasLength(1));
+        final row = rows.single;
+        // The Node payload and the derived v27 columns project the same
+        // fields (the payload is the read authority; the columns serve SQL).
+        expect(node!.coverAssetId, row['cover_asset_id']);
+        expect(node.bannerAssetId, row['banner_asset_id']);
+        expect(node.aliasedNodeId, row['aliased_node_id']);
+        return (
+          cover: row['cover_asset_id'] as String?,
+          banner: row['banner_asset_id'] as String?,
+          alias: row['aliased_node_id'] as String?,
+        );
+      }
+
+      expect(await fields(), (cover: null, banner: null, alias: null));
+      expect(await appliers.apply(envelopes[3]), isTrue); // coverAssetId = ASSET
+      expect(await fields(), (cover: asset, banner: null, alias: null));
+      expect(await appliers.apply(envelopes[4]), isTrue); // banner + alias
+      expect(await fields(), (cover: asset, banner: asset, alias: main));
+      expect(await appliers.apply(envelopes[5]), isTrue); // alias clear
+      expect(await fields(), (cover: asset, banner: asset, alias: null));
+      expect(await appliers.apply(envelopes[6]), isTrue); // cover clear
+      expect(await fields(), (cover: null, banner: asset, alias: null));
+      expect(await appliers.apply(envelopes[7]), isTrue); // banner clear
+      expect(await fields(), (cover: null, banner: null, alias: null));
+    });
+
+    test('wire fields: absence preserves, present-null clears, stale-HLC '
+        'drops', () async {
+      const page = '0192a000-0000-7000-8000-00000000052a';
+      const asset = '0192a000-0000-7000-8000-00000000052b';
+      const main = '0192a000-0000-7000-8000-00000000052c';
+
+      OperationEnvelope update(
+        Map<String, dynamic> payload,
+        int physical,
+      ) =>
+          OperationEnvelope(
+            id: '0192a000-0000-7000-8000-0000000009$physical',
+            workspaceId: ws,
+            actorId: '0192a000-0000-7000-8000-000000000002',
+            deviceId: 'fixture-test-device',
+            hlc: Hlc(physical: physical, logical: 0),
+            affectedNodeIds: [page],
+            opType: 'object.update',
+            payload: payload,
+            timestamp: '2026-09-24T12:00:09.000Z',
+          );
+
+      await appliers.apply(basePage(page, 0));
+      await appliers.apply(update({
+        'objectId': page,
+        'coverAssetId': asset,
+        'bannerAssetId': asset,
+        'aliasedNodeId': main,
+      }, 1000));
+      // An absent field is not a write: an icon-only update keeps the fields.
+      await appliers
+          .apply(update({'objectId': page, 'icon': 'mdiStar'}, 2000));
+      var node = await cache.getByUuid(page);
+      expect(node!.icon, 'mdiStar');
+      expect(node.coverAssetId, asset);
+      expect(node.bannerAssetId, asset);
+      expect(node.aliasedNodeId, main);
+      // A stale-HLC update loses the row LWW race: nothing changes.
+      await appliers
+          .apply(update({'objectId': page, 'coverAssetId': null}, 500));
+      node = await cache.getByUuid(page);
+      expect(node!.coverAssetId, asset);
+      // The winning clear.
+      await appliers
+          .apply(update({'objectId': page, 'coverAssetId': null}, 3000));
+      node = await cache.getByUuid(page);
+      expect(node!.coverAssetId, isNull);
+    });
+
+    group('alias cycles (M12)', () {
+      const a = '0192a000-0000-7000-8000-0000000000a1';
+      const b = '0192a000-0000-7000-8000-0000000000a2';
+      const c = '0192a000-0000-7000-8000-0000000000a3';
+      const d = '0192a000-0000-7000-8000-0000000000a4';
+
+      OperationEnvelope alias(
+        String from,
+        String? to,
+        int physical,
+      ) =>
+          OperationEnvelope(
+            id: '0192a000-0000-7000-8000-0000000009$physical',
+            workspaceId: ws,
+            actorId: '0192a000-0000-7000-8000-000000000002',
+            deviceId: 'fixture-test-device',
+            hlc: Hlc(physical: physical, logical: 0),
+            affectedNodeIds: [from],
+            opType: 'object.update',
+            payload: {'objectId': from, 'aliasedNodeId': to},
+            timestamp: '2026-09-24T12:00:09.000Z',
+          );
+
+      test('a plain chain sets and resolves; acyclic re-points stay legal',
+          () async {
+        for (final id in [a, b, c, d]) {
+          await appliers.apply(basePage(id, 0));
+        }
+        await appliers.apply(alias(a, b, 1000));
+        await appliers.apply(alias(b, c, 2000));
+        expect((await cache.getByUuid(a))!.aliasedNodeId, b);
+        expect(await cache.resolveAlias(a), c);
+        expect(await cache.resolveAlias(b), c);
+        expect(await cache.resolveAlias(c), c);
+        // Re-pointing the middle of the chain is fine while it stays
+        // acyclic: B → D (D carries no alias) collapses A's chain to D.
+        await appliers.apply(alias(b, d, 3000));
+        expect(await cache.resolveAlias(a), d);
+        expect(await cache.resolveAlias(b), d);
+      });
+
+      test('self-alias (the 1-edge cycle) fails loud and is never applied',
+          () async {
+        await appliers.apply(basePage(a, 0));
+        expect(() => appliers.apply(alias(a, a, 1000)),
+            throwsA(isA<CycleError>()));
+        expect((await cache.getByUuid(a))!.aliasedNodeId, isNull);
+      });
+
+      test('an indirect cycle fails loud: A→B→C then C→A is rejected and '
+          'nothing changes', () async {
+        for (final id in [a, b, c]) {
+          await appliers.apply(basePage(id, 0));
+        }
+        await appliers.apply(alias(a, b, 1000));
+        await appliers.apply(alias(b, c, 2000));
+        // C → A would close A → B → C → A: rejected, never applied.
+        expect(() => appliers.apply(alias(c, a, 3000)),
+            throwsA(isA<CycleError>()));
+        expect((await cache.getByUuid(c))!.aliasedNodeId, isNull);
+        expect((await cache.getByUuid(a))!.aliasedNodeId, b);
+        expect((await cache.getByUuid(b))!.aliasedNodeId, c);
+        // Same for a 2-cycle proposal: B → A revisits A's chain back to B.
+        expect(() => appliers.apply(alias(b, a, 4000)),
+            throwsA(isA<CycleError>()));
+        expect((await cache.getByUuid(b))!.aliasedNodeId, c);
+      });
+
+      test('clearing an alias lands NULL and re-opens the chain for new '
+          'targets', () async {
+        for (final id in [a, b]) {
+          await appliers.apply(basePage(id, 0));
+        }
+        await appliers.apply(alias(a, b, 1000));
+        expect(await cache.resolveAlias(a), b);
+        // Clearing cannot create a cycle — it never touches the check and
+        // lands.
+        await appliers.apply(alias(a, null, 2000));
+        expect((await cache.getByUuid(a))!.aliasedNodeId, isNull);
+        expect(await cache.resolveAlias(a), a);
+        // With A's alias gone, B → A is acyclic and legal.
+        await appliers.apply(alias(b, a, 3000));
+        expect(await cache.resolveAlias(b), a);
+      });
+
+      test('a stale-HLC alias write is dropped by the row LWW before any '
+          'check', () async {
+        for (final id in [a, b, c]) {
+          await appliers.apply(basePage(id, 0));
+        }
+        await appliers.apply(alias(a, b, 1000));
+        await appliers.apply(alias(b, c, 2000));
+        // Older than both rows — dropped silently (LWW), no throw, no
+        // change.
+        await appliers.apply(alias(a, c, 500));
+        expect((await cache.getByUuid(a))!.aliasedNodeId, b);
+      });
+
+      test('resolveAlias is cycle-safe (id unchanged on a revisit) and '
+          'depth-capped', () async {
+        for (final id in [a, b, c]) {
+          await appliers.apply(basePage(id, 0));
+        }
+        await appliers.apply(alias(a, b, 1000));
+        await appliers.apply(alias(b, c, 2000));
+        expect(await cache.resolveAlias(a), c);
+        // A cycle can only exist if it predates the write-path check (a
+        // legacy row, a hand-edited store): close C → A in place and
+        // observe the walker's ruling — every member's walk revisits its
+        // start and yields the STARTING id unchanged.
+        final db = await database.database;
+        await db.rawUpdate(
+          'UPDATE node_cache SET aliased_node_id = ? WHERE uuid = ?',
+          [a, c],
+        );
+        expect(await cache.resolveAlias(a), a);
+        expect(await cache.resolveAlias(b), b);
+        expect(await cache.resolveAlias(c), c);
+        // Depth cap: a hand-built 40-link chain resolves to the node
+        // reached at the cap (best-effort terminal), never loops forever.
+        var prev = a;
+        for (var i = 0; i < 40; i++) {
+          final next =
+              '0192a000-0000-7000-8000-0000000001${i.toString().padLeft(2, '0')}';
+          await appliers.apply(basePage(next, 10000 + i));
+          await appliers.apply(alias(prev, next, 20000 + i));
+          prev = next;
+        }
+        expect(await cache.resolveAlias(a), isNot(a));
+      });
+    });
+
+    test('class-convert declares an existing parentless page a class: '
+        'identity flips, the title rides along', () async {
+      const genre = '0192a000-0000-7000-8000-00000000053a';
+      final envelopes = fixtureEnvelopes('class-convert.json');
+      expect(await appliers.apply(envelopes[0]), isTrue);
+      expect(await appliers.apply(envelopes[3]), isTrue);
+
+      final node = await cache.getByUuid(genre);
+      expect(node!.isClass, isTrue);
+      expect(node.presentAsMain, isFalse);
+      expect(node.parentUuid, isNull);
+      // Title-is-content: the node's existing text content is the class
+      // title (the conversion payload carried no contentAst).
+      expect(jsonDecode(node.name), [
+        {'type': 'text', 'text': 'Genre collection'},
+      ]);
+      expect(node.displayName, 'Genre collection');
+      // The registry row adopted the title + the hierarchy self-row landed.
+      final cls = await cache.getClassByUuid(genre);
+      expect(cls, isNotNull);
+      expect(cls!.displayName, 'Genre collection');
+      expect(await cache.isClassNode(genre), isTrue);
+      final selfRow = await raw(
+        'SELECT 1 FROM class_hierarchy WHERE class_id = ? AND ancestor_id = ?',
+        [genre, genre],
+      );
+      expect(selfRow, hasLength(1));
+    });
+
+    test('class-convert cuts a parented node to a root: the parent edge '
+        'and its position go', () async {
+      const rack = '0192a000-0000-7000-8000-00000000053b';
+      const shelf = '0192a000-0000-7000-8000-00000000053c';
+      final envelopes = fixtureEnvelopes('class-convert.json');
+      expect(await appliers.apply(envelopes[1]), isTrue);
+      expect(await appliers.apply(envelopes[2]), isTrue);
+      expect((await cache.getChildren(rack)).map((n) => n.uuid).toList(),
+          [shelf]);
+
+      expect(await appliers.apply(envelopes[4]), isTrue);
+      final node = await cache.getByUuid(shelf);
+      expect(node!.isClass, isTrue);
+      expect(node.parentUuid, isNull);
+      expect(node.position, isNull);
+      expect((await cache.getChildren(rack)), isEmpty);
+      // The registry adopted the shelf title.
+      expect((await cache.getClassByUuid(shelf))!.displayName, 'Shelf');
+    });
+
+    test('class-convert re-declaration is a replace no-op and fresh '
+        'declaration keeps working', () async {
+      const genre = '0192a000-0000-7000-8000-00000000053a';
+      const fresh = '0192a000-0000-7000-8000-00000000053d';
+      final envelopes = fixtureEnvelopes('class-convert.json');
+      expect(await appliers.apply(envelopes[0]), isTrue);
+      expect(await appliers.apply(envelopes[3]), isTrue);
+      final contentBefore = (await cache.getByUuid(genre))!.name;
+
+      // Re-declaration (bare id, absent fields preserve): the node's title
+      // and the registry row ride untouched.
+      expect(await appliers.apply(envelopes[5]), isTrue);
+      expect((await cache.getByUuid(genre))!.name, contentBefore);
+      expect((await cache.getClassByUuid(genre))!.displayName,
+          'Genre collection');
+
+      // A fresh id still declares a brand-new class.
+      expect(await appliers.apply(envelopes[6]), isTrue);
+      expect((await cache.getClassByUuid(fresh))!.displayName, 'Fresh genre');
+      // The fresh class has no local node row (classes live in class_cache
+      // locally); it still answers class-identity reads and carries its
+      // hierarchy self-row.
+      expect(await cache.getByUuid(fresh), isNull);
+      expect(await cache.isClassNode(fresh), isTrue);
+      final selfRow = await raw(
+        'SELECT 1 FROM class_hierarchy WHERE class_id = ? AND ancestor_id = ?',
+        [fresh, fresh],
+      );
+      expect(selfRow, hasLength(1));
+    });
+
+    test('property-asset-type lands asset-typed schemas and the coexisting '
+        'update', () async {
+      for (final envelope in fixtureEnvelopes('property-asset-type.json')) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      final rows = await raw(
+        'SELECT uuid, type, multi, scope, name FROM property_schema '
+        'ORDER BY uuid',
+      );
+      expect(rows, hasLength(2));
+      expect(rows[0]['uuid'], '0192a000-0000-7000-8000-000000000541');
+      expect(rows[0]['type'], 'asset');
+      expect(rows[0]['multi'], 1);
+      expect(rows[0]['scope'], 'class');
+      expect(rows[0]['name'], 'Attachment');
+      expect(rows[1]['uuid'], '0192a000-0000-7000-8000-000000000542');
+      expect(rows[1]['type'], 'asset');
+      expect(rows[1]['multi'], 0);
+      expect(rows[1]['scope'], 'object');
+      expect(rows[1]['name'], 'Cover file (renamed)');
+    });
+
+    test('asset values validate as asset-node references — the implicit '
+        'filter is the asset class', () async {
+      const schema = '0192a000-0000-7000-8000-000000000541';
+      const page = '0192a000-0000-7000-8000-0000000000f1';
+      const assetNode = '0192a000-0000-7000-8000-0000000000f2';
+      const plainNode = '0192a000-0000-7000-8000-0000000000f3';
+      const assetClass = '00000000-0000-0000-0001-000000000009';
+      const bindingClass = '00000000-0000-7000-8000-0000000000f4';
+
+      OperationEnvelope op(
+        String opType,
+        Map<String, dynamic> payload,
+        int physical,
+      ) =>
+          OperationEnvelope(
+            id: '0192a000-0000-7000-8000-0000000009$physical',
+            workspaceId: ws,
+            actorId: '0192a000-0000-7000-8000-000000000002',
+            deviceId: 'fixture-test-device',
+            hlc: Hlc(physical: physical, logical: 0),
+            affectedNodeIds: [payload['objectId'] ?? payload['classId'] ?? ''],
+            opType: opType,
+            payload: payload,
+            timestamp: '2026-09-24T12:00:09.000Z',
+          );
+
+      // The asset system class + a binding host class + the value targets.
+      await appliers.apply(op('class.create', {
+        'classId': assetClass,
+        'contentAst': [
+          {'type': 'text', 'text': 'Asset'},
+        ],
+      }, 900));
+      await appliers.apply(op('class.create', {
+        'classId': bindingClass,
+        'contentAst': [
+          {'type': 'text', 'text': 'Source'},
+        ],
+      }, 950));
+      await appliers.apply(basePage(page, 1000));
+      await appliers.apply(op('object.create', {
+        'objectId': assetNode,
+        'presentAsMain': true,
+        'classIds': [assetClass],
+      }, 1100));
+      await appliers.apply(basePage(plainNode, 1200));
+      await appliers.apply(op('propertySchema.create', {
+        'propertySchemaId': schema,
+        'name': 'Attachment',
+        'type': 'asset',
+        'multi': true,
+        'scope': 'class',
+      }, 1300));
+      await appliers.apply(op('class.property.set', {
+        'classId': bindingClass,
+        'propertySchemaId': schema,
+        'sequence': 0,
+      }, 1400));
+
+      // A legacy bare-uuid carrier normalizes to {nodeId}.
+      await appliers.apply(op('property.set', {
+        'objectId': page,
+        'propertySchemaId': schema,
+        'value': assetNode,
+      }, 1500));
+      final rows = await raw(
+        'SELECT value FROM property_value WHERE node_uuid = ? AND '
+        'property_schema_id = ?',
+        [page, schema],
+      );
+      expect(jsonDecode(rows.single['value'] as String),
+          {'nodeId': assetNode});
+
+      // A target NOT carrying the asset class fails loud (implicit
+      // filter)…
+      expect(
+        () => appliers.apply(op('property.set', {
+              'objectId': page,
+              'propertySchemaId': schema,
+              'value': {'nodeId': plainNode},
+            }, 1600)),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+      // …as does a nonexistent node…
+      expect(
+        () => appliers.apply(op('property.set', {
+              'objectId': page,
+              'propertySchemaId': schema,
+              'value': {'nodeId': '0192a000-0000-7000-8000-00000000ffff'},
+            }, 1700)),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+      // …and a non-reference shape fails the type's shape check.
+      expect(
+        () => appliers.apply(op('property.set', {
+              'objectId': page,
+              'propertySchemaId': schema,
+              'value': 'not-a-ref',
+            }, 1800)),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+      // Node-typed defaults stay unsupported: a defaultValue on an asset
+      // schema fails loud at the binding.
+      expect(
+        () => appliers.apply(op('class.property.set', {
+              'classId': bindingClass,
+              'propertySchemaId': schema,
+              'defaultValue': {'nodeId': assetNode},
+            }, 1900)),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+    });
+
     test('property-set-lww converges to the higher-HLC phone value both orders',
         () async {
       final laptop = fixtureEnvelopes('property-set-lww.json')[0];
