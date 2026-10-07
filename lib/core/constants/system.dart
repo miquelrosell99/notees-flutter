@@ -59,6 +59,19 @@ class SystemClassUuids {
   static const String meeting = '00000000-0000-0000-0001-000000000039';
   static const String event = '00000000-0000-0000-0001-000000000040';
   static const String birthday = '00000000-0000-0000-0001-000000000041';
+
+  // The #14 follow-up five (owner list, 2026-10-06, lockstep with the TS
+  // seed manifest `SYSTEM_CLASS_UUIDS` — plain seeds per the meeting-system
+  // ruling: zero wire cost, seed convergence only; the deploy catalog's
+  // missing everyday classes). trip extends `event` — a trip is
+  // calendar-bound, so the events toggle cascades to it
+  // (workspace_features.dart `systemClassExtends` is the cascade authority).
+  // Fixed ids, never reuse.
+  static const String definition = '00000000-0000-0000-0001-000000000043';
+  static const String idea = '00000000-0000-0000-0001-000000000044';
+  static const String place = '00000000-0000-0000-0001-000000000045';
+  static const String project = '00000000-0000-0000-0001-000000000046';
+  static const String trip = '00000000-0000-0000-0001-000000000047';
 }
 
 class SystemPropertyUuids {
