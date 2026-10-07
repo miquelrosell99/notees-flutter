@@ -28,6 +28,9 @@ import '../../auth/providers/auth_provider.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../../shared/views/node_list_view.dart';
 import '../selection_utils.dart';
+import '../widgets/aliased_node_row.dart';
+import '../widgets/aliases_sheet.dart';
+import '../widgets/alias_target_guard.dart';
 import '../widgets/block_tree_editor.dart';
 import '../widgets/cover_image_widget.dart';
 import '../widgets/editor_inline_toolbar.dart';
@@ -96,6 +99,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   /// Asset node uuid from the page's `cover` system property, rendered as a
   /// header thumbnail instead of a property row (web parity with NodeView).
   String? _coverAssetUuid;
+
+  /// Node-alias chrome (SCHEMA.md "Node aliases"): every page whose
+  /// alias-terminal is this one (the title-row affordance lists them) and,
+  /// when this page IS an alias, its main-page target (the pseudo-property
+  /// row shows/changes/clears it).
+  List<Node> _aliasNodes = const [];
+  String? _aliasedTargetId;
+  Node? _aliasedTargetNode;
 
   /// Block multi-select mode: long-press a block's content to enter, tap rows
   /// to toggle, batch actions run from the bottom selection bar.
@@ -209,6 +220,19 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         bulletProperties = await _loadBulletProperties(repo);
       } catch (_) {}
 
+      // Node-alias chrome: best-effort the same way (non-critical).
+      List<Node> aliasNodes = const [];
+      Node? aliasedTarget;
+      String? aliasedTargetId;
+      try {
+        aliasNodes = await repo.fetchAliasNodesOf(widget.nodeUuid);
+        aliasedTargetId = page.aliasedNodeId;
+        if (aliasedTargetId != null) {
+          final targets = await repo.fetchNodesByUuids([aliasedTargetId]);
+          aliasedTarget = targets.firstOrNull;
+        }
+      } catch (_) {}
+
       final classNames = {
         for (final c in classes)
           if (c.uuid.isNotEmpty) c.uuid: c.displayName.toLowerCase(),
@@ -249,6 +273,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           _classStyles = resolveClassStyles(classes);
           _propertyValueNames = propertyValueNames;
           _bulletProperties = bulletProperties;
+          _aliasNodes = aliasNodes;
+          _aliasedTargetId = aliasedTargetId;
+          _aliasedTargetNode = aliasedTarget;
           _pageColor = page.color;
           _pageIcon = page.icon;
           _loadedPage = page;
@@ -1973,6 +2000,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             ),
           ),
         ),
+        if (_loadedPage?.isPage == true) ...[
+          const SizedBox(width: 8),
+          _buildAliasesAffordance(colors),
+        ],
         if (_pageIsPrivate) ...[
           const SizedBox(width: 8),
           Icon(
@@ -1983,6 +2014,109 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         ],
       ],
     );
+  }
+
+  /// The title-row aliases affordance (SCHEMA.md "Node aliases"): the count
+  /// of pages whose alias-terminal is this one, listed + added from the
+  /// ALIASED node's own title row (the sheet's ADD is the backward write —
+  /// the picked page's `aliasedNodeId` becomes this node).
+  Widget _buildAliasesAffordance(ColorScheme colors) {
+    return ActionChip(
+      avatar: Icon(
+        MdiIcons.repeat,
+        size: 16,
+        color: colors.onSurfaceVariant,
+      ),
+      label: Text(
+        'Aliases · ${_aliasNodes.length}',
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: colors.onSurfaceVariant,
+            ),
+      ),
+      backgroundColor: colors.onSurfaceVariant.withAlpha((0.08 * 255).round()),
+      side: BorderSide(
+        color: colors.onSurfaceVariant.withAlpha((0.25 * 255).round()),
+      ),
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      onPressed: _openAliasesSheet,
+    );
+  }
+
+  Future<void> _openAliasesSheet() async {
+    final openAlias = await AliasesSheet.show(
+      context,
+      nodeUuid: widget.nodeUuid,
+      onChanged: _refreshAliasState,
+    );
+    // The sheet's row tap returns the alias uuid: open the ALIAS page
+    // itself (no redirect seam exists, so the push lands on its own view).
+    if (openAlias != null && mounted) {
+      context.push('${Routes.editor}/$openAlias');
+    }
+  }
+
+  /// Re-reads the alias chrome after a write: the aliases listing (a
+  /// backward write adds one) and this page's own `aliasedNodeId` (a
+  /// change/clear from the pseudo-property row).
+  Future<void> _refreshAliasState() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null || !mounted) return;
+    try {
+      final repo = NodeRepository(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      );
+      final aliases = await repo.fetchAliasNodesOf(widget.nodeUuid);
+      final self =
+          (await repo.fetchNodesByUuids([widget.nodeUuid])).firstOrNull;
+      final targetId = self?.aliasedNodeId;
+      Node? target;
+      if (targetId != null) {
+        target = (await repo.fetchNodesByUuids([targetId])).firstOrNull;
+      }
+      if (!mounted) return;
+      setState(() {
+        _aliasNodes = aliases;
+        _aliasedTargetId = targetId;
+        _aliasedTargetNode = target;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _changeAliasedNode() async {
+    final picked = await NodePicker.show(context, mode: NodePickerMode.page);
+    if (picked == null || !mounted) return;
+    final guardError = aliasTargetError(picked, carrierUuid: widget.nodeUuid);
+    if (guardError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(guardError)),
+      );
+      return;
+    }
+    await _writeAliasedNodeId(picked.uuid);
+  }
+
+  Future<void> _clearAliasedNode() async {
+    await _writeAliasedNodeId(null);
+  }
+
+  Future<void> _writeAliasedNodeId(String? targetUuid) async {
+    final auth = context.read<AuthProvider>();
+    if (auth.dio == null || !mounted) return;
+    try {
+      final repo = NodeRepository(
+        dio: auth.dio!,
+        syncService: auth.syncService,
+      );
+      await repo.setAliasedNodeId(widget.nodeUuid, targetUuid);
+      await _refreshAliasState();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
   }
 
   void _onTitleTap() {
@@ -2225,7 +2359,12 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   }
 
   Widget _buildPropertiesSection(ColorScheme colors) {
-    if (_properties.isEmpty) return const SizedBox.shrink();
+    // The card also renders for the alias row alone (the pseudo-property
+    // over `aliasedNodeId` when the carrier is an alias — pages only, the
+    // document-chrome restriction).
+    final showAliasRow =
+        _aliasedTargetId != null && (_loadedPage?.isPage ?? false);
+    if (_properties.isEmpty && !showAliasRow) return const SizedBox.shrink();
 
     final visible = <NodePropertyValue>[];
     final hidden = <NodePropertyValue>[];
@@ -2240,6 +2379,16 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (showAliasRow)
+              AliasedNodeRow(
+                target: _aliasedTargetNode,
+                brokenTargetUuid:
+                    _aliasedTargetNode == null ? _aliasedTargetId : null,
+                onOpen: () =>
+                    context.push('${Routes.editor}/${_aliasedTargetId!}'),
+                onChange: _changeAliasedNode,
+                onClear: _clearAliasedNode,
+              ),
             InkWell(
               onTap: () => setState(() => _propertiesExpanded = !_propertiesExpanded),
               borderRadius: BorderRadius.circular(8),

@@ -8,6 +8,54 @@ lives in git history.
 
 ## 2026-10-07
 
+- **feat(editor): the node-alias chrome — the title-row aliases
+  affordance + the alias-side "Aliased node" row.** The minimal honest
+  set on the `aliasedNodeId` wire field (SCHEMA.md "Node aliases"),
+  composed from the client's own idioms (the properties card + the pages
+  node picker + a modal bottom sheet), not a literal port of the web
+  chrome. The title row gains an "Aliases · N" chip opening a sheet that
+  lists every page whose alias-terminal is this node (chains included —
+  the store's new recursive `aliasNodeIdsOf` read over
+  `aliased_node_id`) and authors new aliases through THE BACKWARD WRITE
+  (the picked page's `aliasedNodeId` becomes this node — one
+  `object.update` via the new `SyncV2Service.setAliasedNode`, applied
+  locally and pushed on the next flush); a sheet row returns the alias
+  uuid and the caller opens the ALIAS page itself (the app has no
+  redirect seam, so the plain push lands on the alias's own view). An
+  alias page's properties card gains ONE pseudo-property row naming the
+  main page — open / change (re-point: the carrier's OWN field) / clear
+  (present-null) through the same write, with a broken-reference state
+  when the target row is gone. The client-side pick guard (page-only, no
+  self-alias, never repointing a page that already is an alias — the
+  web's `aliasedNodeTargetError`) validates before writing; the applier's
+  write-time cycle check stays the final authority. Tests:
+  `alias_nodes_test.dart` (the guard, the write/listing round-trip, the
+  loud cycle rejection) + the recursive-read listing pins in the
+  fixture-replay alias-cycles group. Wire/fixtures untouched (the field
+  landed in the earlier alignment batch).
+
+- **feat(seed): the local seed authors display titles + the full events
+  family (seed convergence follow-up).** The local workspace seed's
+  class.create titles move from the raw keys (`tv_series`) to the display
+  wording (`TV series`): `workspace_features.dart`
+  `systemClassDisplayNames` grows from the #14 five to one entry per
+  seeded class (the seeds.ts `SYSTEM_CLASS_DISPLAY_NAMES` slice — the
+  server seed's exact shape, title-is-content) and the seed resolves
+  titles through it. The events family seeds as a UNIT — meeting + event
+  + birthday join trip (the server seed keeps the full family, so the
+  local subset mirrors it whole and the events/meetings toggles flip
+  real rows) — which restructures the emission into the server seed's
+  two-pass shape: every class.create lands before any class.setExtends,
+  so an edge may target a class declared later in the map (meeting
+  extends event). The property-schema axis stays the citations
+  revision's `authors` spec only — the documented divergence: the
+  meeting/event/birthday bindings (like the source family's bibliography
+  specs) are server-seeded and converge on attach. The emission count
+  moves 39 → 43 (33 class.create + 7 class.setExtends + the authors pair
+  + Inbox); the parity suites pin the display titles (wording + per-key
+  completeness, no raw keys), the meeting/birthday fixed ids + extends
+  edges + closures, and the class_cache display names end to end.
+
 - **feat(seed): port the #14 follow-up five — definition/idea/place/
   project/trip seeds, the trip→event cascade (seed convergence).**
   Mirrors the GTK lockstep commit fd50e5c and the monorepo's
