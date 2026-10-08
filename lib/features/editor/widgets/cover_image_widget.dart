@@ -7,8 +7,8 @@ import '../../../data/repositories/asset_repository.dart';
 import '../../../domain/services/local_asset_store.dart';
 
 /// Cover thumbnail shown at the top right of the page header, resolved from
-/// the page's `cover` system property (an asset node uuid). Mirrors the web
-/// client's CoverImage element in NodeView.
+/// the page's `coverAssetId` wire node field (an asset node uuid). Mirrors
+/// the web client's CoverImage element in NodeView.
 ///
 /// Resolution follows the same local-first path as [AssetBlockWidget]: blobs
 /// captured in local mode are read from the on-device [LocalAssetStore];

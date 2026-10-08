@@ -103,6 +103,29 @@ void main() {
       expect(roots.first.uuid, 'root-1');
     });
 
+    test('upsert/getByUuid round-trips the wire node fields', () async {
+      // The editor header reads the cover from node.coverAssetId — the
+      // derived projection of object.update's coverAssetId field (the
+      // cover_asset_id column rides the payload JSON).
+      await repo.upsert(Node(
+        id: 0,
+        uuid: 'p-cover',
+        name: 'Covered',
+        displayName: 'Covered',
+        isPage: true,
+        presentAsMain: true,
+        coverAssetId: 'asset-1',
+        bannerAssetId: 'asset-2',
+        aliasedNodeId: 'p-main',
+      ));
+
+      final node = await repo.getByUuid('p-cover');
+      expect(node, isNotNull);
+      expect(node!.coverAssetId, 'asset-1');
+      expect(node.bannerAssetId, 'asset-2');
+      expect(node.aliasedNodeId, 'p-main');
+    });
+
     test('getTasks filters by task class and open state', () async {
       await repo.upsert(makeTask(uuid: 't-1', name: 'Open', statusValue: 'Pending'));
       await repo.upsert(makeTask(uuid: 't-2', name: 'Done', statusValue: 'Done'));
