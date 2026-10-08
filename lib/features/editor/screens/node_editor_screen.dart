@@ -96,8 +96,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   bool _isFavorite = false;
   bool _propertiesExpanded = false;
 
-  /// Asset node uuid from the page's `cover` system property, rendered as a
-  /// header thumbnail instead of a property row (web parity with NodeView).
+  /// Asset node uuid from the page's `coverAssetId` wire node field,
+  /// rendered as a header thumbnail instead of a property row (web parity
+  /// with NodeView).
   String? _coverAssetUuid;
 
   /// Node-alias chrome (SCHEMA.md "Node aliases"): every page whose
@@ -284,7 +285,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           _isMonthly = page.isMonthly;
           _isYearly = page.isYearly;
           _pageClassUuids = page.classesUuid;
-          _coverAssetUuid = _extractCoverAssetUuid(properties);
+          _coverAssetUuid = page.coverAssetId;
           _breadcrumbs = breadcrumbs;
           _deletedBlockUuids.clear();
           _error = null;
@@ -1930,8 +1931,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     );
   }
 
-  /// Page header: the title block on the left and, when the page has a cover
-  /// property, a fixed-height cover thumbnail pinned to the top right.
+  /// Page header: the title block on the left and, when the page has a
+  /// cover asset, a fixed-height cover thumbnail pinned to the top right.
   Widget _buildHeaderWithCover() {
     final coverUuid = _coverAssetUuid;
     final auth = context.read<AuthProvider>();
@@ -2457,21 +2458,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   }
 
   /// Merges node property values with class-property bindings: drops internal
-  /// `_`-prefixed system props and the cover property (rendered as a header
-  /// thumbnail), and appends required/defaulted class props that have no value
-  /// yet so they render editable/empty (matches the web).
+  /// `_`-prefixed system props, and appends required/defaulted class props
+  /// that have no value yet so they render editable/empty (matches the web).
   List<NodePropertyValue> _buildDisplayProperties(
     List<NodePropertyValue> base,
     Map<String, ClassProperty> classProps,
     List<Property> available,
   ) {
-    final display = base
-        .where(
-          (p) =>
-              !p.property.isHiddenSystem &&
-              p.property.uuid != SystemPropertyUuids.cover,
-        )
-        .toList();
+    final display = base.where((p) => !p.property.isHiddenSystem).toList();
     final present = display.map((p) => p.property.uuid).toSet();
     final byUuid = {for (final p in available) p.uuid: p};
     for (final cp in classProps.values) {
@@ -2479,7 +2473,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       if (!(cp.required || cp.defaultValue != null)) continue;
       final def = byUuid[cp.propertyUuid];
       if (def == null || def.isHiddenSystem) continue;
-      if (def.uuid == SystemPropertyUuids.cover) continue;
       display.add(NodePropertyValue(property: def, values: const []));
     }
     return display;
@@ -2503,7 +2496,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           _availableProperties,
         );
         _propertyValueNames = refreshedNames;
-        _coverAssetUuid = _extractCoverAssetUuid(refreshed);
       });
     } on DioException catch (e) {
       if (!mounted) return;
@@ -2539,19 +2531,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       for (final node in nodes)
         if (node.uuid.isNotEmpty) node.uuid: resolveNodeDisplayName(node, dateFormat: dateFormat),
     };
-  }
-
-  /// Extracts the asset node uuid held by the page's `cover` system property
-  /// (mirrors the web's `coverImageId` derivation in NodeView).
-  String? _extractCoverAssetUuid(List<NodePropertyValue> properties) {
-    for (final p in properties) {
-      if (p.property.uuid != SystemPropertyUuids.cover) continue;
-      for (final v in p.values) {
-        final uuid = _extractPropertyTargetUuid(v);
-        if (uuid != null) return uuid;
-      }
-    }
-    return null;
   }
 
   String? _extractPropertyTargetUuid(dynamic value) {
