@@ -1,10 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The Margin Green mark (monochrome): the permanent rule + three
+     annotations, drawn from brand/assets/logo/master-symbol.svg. Themed by
+     the launcher; keep the geometry in sync with the brand repo. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
+    android:viewportWidth="100"
+    android:viewportHeight="100">
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M34,30L66,30C68.21,30 70,31.79 70,34L70,74C70,76.21 68.21,78 66,78L34,78C31.79,78 30,76.21 30,74L30,34C30,31.79 31.79,30 34,30ZM38,42L62,42L62,46L38,46L38,42ZM38,52L62,52L62,56L38,56L38,52ZM38,62L54,62L54,66L38,66L38,62Z"/>
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M47,14 L47,14 A5,5 0 0 1 52,19 L52,81 A5,5 0 0 1 47,86 L47,86 A5,5 0 0 1 42,81 L42,19 A5,5 0 0 1 47,14 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M64,21.5 L74,21.5 A5,5 0 0 1 79,26.5 L79,26.5 A5,5 0 0 1 74,31.5 L64,31.5 A5,5 0 0 1 59,26.5 A5,5 0 0 1 64,21.5 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M64,44.5 L69,44.5 A5,5 0 0 1 74,49.5 L74,49.5 A5,5 0 0 1 69,54.5 L64,54.5 A5,5 0 0 1 59,49.5 A5,5 0 0 1 64,44.5 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M59,73 a5.5,5.5 0 1 0 11,0 a5.5,5.5 0 1 0 -11,0 Z" />
 </vector>
