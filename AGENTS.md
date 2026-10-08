@@ -10,7 +10,7 @@ The mobile app is a **first-class native Flutter app** for Notees. It provides n
 
 - **Package**: `com.notees.notees` (Android)
 - **Display name**: `Notees`
-- **Functional accent**: sage green `#5B7D5B`
+- **Functional accent**: Advance Green `#2E5E46` (Margin Green brand identity)
 - **Architecture**: feature-first Flutter with Provider + ChangeNotifier, Dio, go_router, sqflite
 - **Native features**: biometric app lock, offline quick-capture queue, share receiver, native block editor with inline styles and node/class/tag links, native list/card/table views, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management, local task due-date reminders with snooze actions and boot reschedule, Android home-screen widgets (today's tasks, favorites, Inbox preview)
 
@@ -159,7 +159,7 @@ For major refactors, trigger a CI build via `./trigger-ci-build.sh` rather than 
 ## Design System
 
 - Monochrome base layer dominates 90%+ of the UI.
-- Accent is monochrome white by default; sage green `#5B7D5B`, cream `#F5F3EF`, and dynamic color are opt-in alternatives (Settings → Appearance). The accent is used only for selected states, badges, primary buttons, and status indicators.
+- Accent is monochrome white by default; Advance Green `#2E5E46`, paper `#F7F4EC`, and dynamic color are opt-in alternatives (Settings → Appearance). The accent is used only for selected states, badges, primary buttons, and status indicators.
 - Cards use `borderRadius: 20`, zero elevation, subtle outline at 10% opacity.
 - Bottom sheets use top radius of 28.
 - Dynamic color is supported via `dynamic_color` and can be enabled in Settings.
