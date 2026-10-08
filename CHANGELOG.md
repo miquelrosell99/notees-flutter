@@ -8,6 +8,17 @@ lives in git history.
 
 ## 2026-10-08
 
+- **feat(launcher): Android and iOS carry the Margin Green mark.** The
+  launcher rasters are regenerated from `brand/assets/logo/app-icon-512.png`
+  (PIL, LANCZOS): the Android legacy `mipmap-*` set (48–192), the adaptive
+  foregrounds (108–432, the white symbol extracted onto transparent at the
+  62% safe zone), the themed-icon monochrome drawable (the margin + three
+  annotations as vector path data), and every size in the iOS
+  `AppIcon.appiconset` per its Contents.json. The adaptive background and
+  the widget palette (`notees_sage`, `widget_paper`) move to the brand
+  tokens (Advance Green `#2e5e46`, paper `#f7f4ec`). Verification: rasters
+  re-opened and dimension-checked; `flutter analyze` + `flutter test`
+  green.
 - **fix(editor): the header cover reads the `coverAssetId` wire node
   field, not the retired cover property.** The wire-fields slice moved
   the cover off the image-typed `cover` system property (uuid …0005)
