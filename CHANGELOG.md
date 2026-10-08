@@ -6,6 +6,26 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-08
+
+- **fix(editor): the header cover reads the `coverAssetId` wire node
+  field, not the retired cover property.** The wire-fields slice moved
+  the cover off the image-typed `cover` system property (uuid …0005)
+  onto the `coverAssetId` node field (the migration rewrote stored
+  values), and the plumbing here already projected it (payload builder +
+  strict validator, applier, `node_cache` columns, the Node model) — but
+  the editor header still extracted the asset uuid from the retired
+  property rows, so migrated covers silently did not render. The screen
+  now takes `_coverAssetUuid` from `page.coverAssetId` (the cached Node
+  the load path already holds); the retired-property extraction helper
+  is gone, along with the now-dead cover filters in the display-property
+  merge (nothing authors cover property rows) and the stale
+  re-extraction after property writes (a property write cannot change
+  the field). Doc comments updated (`node_editor_screen.dart`,
+  `cover_image_widget.dart`). Test: `node_cache_repository_test.dart`
+  pins the upsert/getByUuid round-trip of coverAssetId/bannerAssetId/
+  aliasedNodeId — the cached-model contract the header reads.
+
 ## 2026-10-07
 
 - **feat(editor): the node-alias chrome — the title-row aliases
