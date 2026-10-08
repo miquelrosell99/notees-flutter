@@ -3,9 +3,9 @@
     "short_name": "notees",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#f7f4ec",
+    "theme_color": "#2e5e46",
+    "description": "First-class mobile app for Notees — your self-hosted notes, journals, and tasks.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
