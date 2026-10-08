@@ -26,6 +26,36 @@ lives in git history.
   pins the upsert/getByUuid round-trip of coverAssetId/bannerAssetId/
   aliasedNodeId — the cached-model contract the header reads.
 
+- **feat(ui): align the Flutter client to the Margin Green brand — theme
+  tokens, icons.** The brand repo (`notees-brand`, tag `v1.0.0`) is consumed
+  as a git submodule at `brand/` (pin it; never commit inside). Theme: the
+  color constants and both schemes are remapped to the brand tokens
+  (`brand/assets/tokens/tokens.css` is authoritative) — light ground is paper
+  `#f7f4ec` with ink text `#221a13` and border `#d8d3c7`; dark ground is the
+  `#161412` family (`surface` `#221a13`, alt `#312a22`, border `#483f37`,
+  text `#f4f3f1`, muted `#a6a09a`); the seed and the functional accent are
+  Advance Green `#2e5e46` (the old sage `#5B7D5B` and cream `#F5F3EF` are
+  retired); error keeps its semantic role on the brand danger scale
+  (`#b4312b` light / `#fe8477` dark); the pure-black OLED scale is untouched.
+  Web identity: `web/favicon.png`, `web/icons/*.png` are replaced with the
+  brand favicon/app-icon assets (the 512 is the brand `app-icon-512`, the
+  192 is a LANCZOS resize, the maskables pull the symbol into the 80% safe
+  zone on the icon's own `#2e5e46` ground) and `web/manifest.json` carries
+  the brand `theme_color`/`background_color` instead of the stock Flutter
+  blue. Pending, deliberately out of this slice: (1) Android/iOS launcher
+  icons — the repo has no `flutter_launcher_icons` (or equivalent) config and
+  hand-editing platform rasters would bypass the canonical generator, so the
+  `mipmap-*`/`AppIcon.appiconset` rasters still show the old mark; adopt the
+  generator pointed at `brand/assets/logo/app-icon-512.png` and regenerate.
+  (2) Brand typefaces — the app bundles no fonts (system Roboto/Georgia
+  stacks); bundle Instrument Sans (chrome), Newsreader (reading), and
+  JetBrains Mono (data) per `brand/guidelines/fonts.md` (OFL via
+  `google_fonts`) in a follow-up. Verification: `flutter analyze` reports no
+  issues and `flutter test` passes (612/612) on the host SDK; theme/web
+  changes are value-for-value against tokens.css; generated PNGs re-opened
+  and dimension-checked (16/192/512, maskable safe zone confirmed).
+
+
 ## 2026-10-07
 
 - **feat(editor): the node-alias chrome — the title-row aliases

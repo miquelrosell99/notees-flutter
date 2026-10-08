@@ -13,7 +13,7 @@ enum AppAccent { white, functional, cream, dynamicColor }
 /// Builds the fleet RosellRamos [ThemeData] for Notees.
 ///
 /// - Surfaces stay flat (elevation 0).
-/// - The functional accent is sage green.
+/// - The functional accent is the brand's Advance Green.
 /// - Dynamic color replaces the accent when requested and available.
 ThemeData buildNoteesTheme({
   required Brightness brightness,
@@ -22,19 +22,19 @@ ThemeData buildNoteesTheme({
 }) {
   final isDark = brightness == Brightness.dark;
 
-  // Monochrome base seed color. We derive the scheme from a neutral seed and
-  // then override the primary color with the chosen accent.
-  final seedColor = accent ?? (isDark ? Colors.grey.shade900 : Colors.white);
+  // Brand seed color (Advance Green). We derive the scheme from it and then
+  // override the primary color with the chosen accent.
+  final seedColor = accent ?? noteesAccent;
 
   final surfaceContainers = _surfaceContainers(isDark, pureBlack);
 
-  // Warm neutral palette mirrored from the web client (variables.css) so both
-  // clients render the same surfaces, text, and outlines.
+  // Warm paper palette from the brand tokens (`brand/assets/tokens/tokens.css`)
+  // so every client renders the same surfaces, text, and outlines.
   final scaffoldBackground = isDark
-      ? (pureBlack ? Colors.black : const Color(0xFF121211))
-      : const Color(0xFFF5F3EF);
+      ? (pureBlack ? Colors.black : const Color(0xFF161412))
+      : const Color(0xFFF7F4EC);
   final surfaceColor =
-      isDark ? (pureBlack ? Colors.black : const Color(0xFF1A1A18)) : Colors.white;
+      isDark ? (pureBlack ? Colors.black : const Color(0xFF221A13)) : Colors.white;
 
   final colorScheme = ColorScheme.fromSeed(
     seedColor: seedColor,
@@ -45,13 +45,13 @@ ThemeData buildNoteesTheme({
     onSecondary: isDark ? Colors.white : Colors.black,
   ).copyWith(
     surface: surfaceColor,
-    onSurface: isDark ? const Color(0xFFE8E6E1) : const Color(0xFF1A1A1A),
-    onSurfaceVariant: isDark ? const Color(0xFFA8A29E) : const Color(0xFF5C5C5C),
-    outline: isDark ? const Color(0xFF6B6962) : const Color(0xFFC4BFB6),
-    outlineVariant: isDark ? const Color(0xFF2A2926) : const Color(0xFFE3DED6),
-    error: isDark ? const Color(0xFFEF5550) : const Color(0xFFC0392B),
-    inverseSurface: isDark ? const Color(0xFFE8E6E1) : const Color(0xFF1A1A1A),
-    onInverseSurface: isDark ? const Color(0xFF121211) : const Color(0xFFF5F3EF),
+    onSurface: isDark ? const Color(0xFFF4F3F1) : const Color(0xFF221A13),
+    onSurfaceVariant: isDark ? const Color(0xFFA6A09A) : const Color(0xFF5C544C),
+    outline: isDark ? const Color(0xFF483F37) : const Color(0xFFD8D3C7),
+    outlineVariant: isDark ? const Color(0xFF312A22) : const Color(0xFFE8E6E3),
+    error: isDark ? const Color(0xFFFE8477) : const Color(0xFFB4312B),
+    inverseSurface: isDark ? const Color(0xFFF4F3F1) : const Color(0xFF221A13),
+    onInverseSurface: isDark ? const Color(0xFF161412) : const Color(0xFFF7F4EC),
     surfaceContainerLowest: surfaceContainers.$1,
     surfaceContainerLow: surfaceContainers.$2,
     surfaceContainer: surfaceContainers.$3,
@@ -68,8 +68,8 @@ ThemeData buildNoteesTheme({
         )
       : colorScheme.copyWith(
           // fromSeed derives a blue-tinted primaryContainer even from an
-          // achromatic seed; pin explicit warm neutrals for the white accent.
-          primaryContainer: isDark ? const Color(0xFF262623) : const Color(0xFFEAE6DF),
+          // achromatic seed; pin explicit brand neutrals for the white accent.
+          primaryContainer: isDark ? const Color(0xFF312A22) : const Color(0xFFEDEAE2),
           onPrimaryContainer: isDark ? Colors.white : Colors.black,
         );
 
@@ -275,33 +275,33 @@ Color _contrastFor(Color color) {
 }
 
 /// Returns explicit surface container values so dynamic or accent colors
-/// cannot tint surfaces. Values mirror the web client's warm neutral scale
-/// (`variables.css`); pure black keeps its own OLED scale.
+/// cannot tint surfaces. Values come from the brand tokens' neutral scale
+/// (`brand/assets/tokens/tokens.css`); pure black keeps its own OLED scale.
 (Color, Color, Color, Color, Color) _surfaceContainers(bool isDark, bool pureBlack) {
   if (isDark) {
     if (pureBlack) {
       return (
         const Color(0xFF000000),
         const Color(0xFF111111),
-        const Color(0xFF1A1A1A),
+        const Color(0xFF1A1A18),
         const Color(0xFF222222),
         const Color(0xFF2A2A2A),
       );
     }
     return (
-      const Color(0xFF121211),
-      const Color(0xFF121211),
-      const Color(0xFF1A1A18),
-      const Color(0xFF262623),
-      const Color(0xFF3D3D39),
+      const Color(0xFF161412),
+      const Color(0xFF161412),
+      const Color(0xFF221A13),
+      const Color(0xFF312A22),
+      const Color(0xFF483F37),
     );
   }
   return (
     const Color(0xFFFFFFFF),
-    const Color(0xFFF5F3EF),
-    const Color(0xFFFAF8F4),
-    const Color(0xFFEAE6DF),
-    const Color(0xFFDAD6CF),
+    const Color(0xFFF7F4EC),
+    const Color(0xFFEDEAE2),
+    const Color(0xFFE8E6E3),
+    const Color(0xFFD8D3C7),
   );
 }
 
