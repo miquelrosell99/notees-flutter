@@ -52,3 +52,6 @@ app.*.map.json
 
 # Screenshot artifacts (scripts/screenshots; review flow: run -> eyeball)
 docs/img/screenshots/
+
+# Agent worktrees (git worktree add .worktrees/<slug>)
+.worktrees/
