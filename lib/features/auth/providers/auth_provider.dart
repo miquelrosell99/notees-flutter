@@ -418,7 +418,7 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> login(String email, String password, {bool rememberMe = false}) async {
+  Future<void> login(String email, String password) async {
     _error = null;
     _twoFactorChallenge = null;
     _busy = true;
@@ -426,7 +426,8 @@ class AuthProvider extends ChangeNotifier {
     try {
       if (_dio == null) throw const AuthException('No server configured');
       final repo = AuthRepository(dio: _dio!, secureStorage: secureStorage);
-      // rememberMe was a legacy login field; the server rejects unknown keys.
+      // The server login body is strict {email, password}; session lifetime is
+      // server-owned (30-day sliding sessions) — no remember-me field exists.
       final result = await repo.login(email: email, password: password);
       switch (result) {
         case LoginSuccess(:final user):

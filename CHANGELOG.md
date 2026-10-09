@@ -8,6 +8,17 @@ lives in git history.
 
 ## 2026-10-09
 
+- **fix(auth): the strict server bodies ride clean — `register` drops the
+  retired `remember_me` key, and the connect prompt says "a Notees sync
+  server".** The login path already sent exactly `{email, password}` (the
+  server's strict schema 422s extra keys), but `register` still shipped the
+  legacy `remember_me` field and would have failed the same way; the param
+  and the key are gone (session lifetime is server-owned — 30-day sliding
+  sessions). The dead "Remember me" checkbox and the ignored `rememberMe`
+  login parameter retire with it. The server-setup prompt reads "Enter a
+  Notees sync server URL" (owner wording ruling — the GTK and web clients
+  ship the same wording). Verification: `flutter analyze` clean, `flutter
+  test` 621 passed.
 - **feat(protocol,store): the unified Datetime property type — the
   `date`/`date_range` retirement lockstep port.** Lockstep with the
   monorepo's TS reference (the d58aeb1c + dbfd6d29 batch): the
