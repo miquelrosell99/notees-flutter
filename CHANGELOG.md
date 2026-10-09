@@ -8,6 +8,19 @@ lives in git history.
 
 ## 2026-10-09
 
+- **feat(packaging): the repo ships an Arch Linux PKGBUILD for the Linux
+  desktop client.** `packaging/arch/PKGBUILD` builds the Linux GTK bundle
+  from the release-tag tarball and packages it for pacman (`/opt/notees`
+  bundle, `notees` on PATH, `.desktop` + icon, runtime `depends` from the
+  bundle's `DT_NEEDED`). The operations skill and `releases.md` claimed
+  "no PKGBUILD/AUR" — corrected: the pacman flow is documented, including
+  the per-release `pkgver` + tarball-sha256 bump (the tarball exists only
+  once the tag is pushed, so it lands in a follow-up commit). Built and
+  installed locally with `makepkg` — never CI (no runner has the Flutter
+  Linux toolchain), not submitted to AUR; needs a local Flutter SDK
+  (`~/flutter`, `FLUTTER_ROOT` override). Verification: `makepkg -s` from
+  `packaging/arch/` green; package installed via `pacman -U` and the app
+  smoke-launched on the fleet workstation.
 - **feat(protocol,store): the unified Datetime property type — the
   `date`/`date_range` retirement lockstep port.** Lockstep with the
   monorepo's TS reference (the d58aeb1c + dbfd6d29 batch): the

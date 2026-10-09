@@ -1,0 +1,64 @@
+# Maintainer: Miquel Rosell
+# Canonical Arch Linux packaging for the Notees Linux desktop client.
+# Lives in the app repo (packaging/arch/) — build from here, not from a copy.
+#
+#   Build:   cd packaging/arch && makepkg -s
+#   Install: sudo pacman -U notees-<pkgver>-1-x86_64.pkg.tar.zst
+#
+# Requires a locally installed Flutter SDK — Arch has no `flutter` package.
+# Override the SDK location with FLUTTER_ROOT if it does not live at ~/flutter.
+#
+# Release flow: after pushing a v* tag, bump pkgver and sha256sums here
+# (see .agents/skills/notees-flutter-operations/references/releases.md).
+
+pkgname=notees
+pkgver=4.0.0
+pkgrel=1
+pkgdesc="First-class Flutter client for Notees — self-hosted notes, journals, and tasks"
+arch=(x86_64)
+url="https://github.com/miquelrosell99/notees-flutter"
+license=('custom')  # upstream repo ships no LICENSE file
+depends=(atk cairo fontconfig gdk-pixbuf2 glib2 gtk3 harfbuzz libepoxy libsecret pango zlib)
+makedepends=(clang cmake ninja pkgconf python)
+options=(!debug)  # flutter release libs carry no debuginfo
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/miquelrosell99/notees-flutter/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('d3647144f25ada0bd6e3a3e162deec13f5e11e1e6d85caff1663b7352c029e26')
+
+build() {
+  cd "${srcdir}/notees-flutter-${pkgver}"
+
+  export PATH="${FLUTTER_ROOT:-${HOME}/flutter}/bin:${PATH}"
+
+  flutter pub get
+  # Idempotent pub-cache patches required by this repo (see its AGENTS.md);
+  # the MDI one keeps release-build icon tree-shaking working.
+  python3 scripts/patch_kgp_plugins.py
+  python3 scripts/patch_mdi_icons.py
+
+  flutter build linux --release
+}
+
+package() {
+  cd "${srcdir}/notees-flutter-${pkgver}"
+
+  install -d "${pkgdir}/opt/${pkgname}"
+  cp -a build/linux/x64/release/bundle/. "${pkgdir}/opt/${pkgname}/"
+
+  install -d "${pkgdir}/usr/bin"
+  ln -s "/opt/${pkgname}/notees" "${pkgdir}/usr/bin/notees"
+
+  install -d "${pkgdir}/usr/share/applications"
+  cat > "${pkgdir}/usr/share/applications/${pkgname}.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Notees
+Comment=Self-hosted notes, journals, and tasks
+Exec=notees
+Icon=notees
+Terminal=false
+Categories=Office;Utility;
+EOF
+
+  install -Dm644 android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png \
+    "${pkgdir}/usr/share/icons/hicolor/192x192/apps/${pkgname}.png"
+}
