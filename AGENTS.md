@@ -52,6 +52,7 @@ notees-flutter/
    └── android/.../PageWidgetProvider.kt   # Inbox preview home-screen widget
 ├── android/                  # Android platform project
 ├── ios/                      # iOS platform project
+├── packaging/                # Release packaging (arch/ = the Linux pacman PKGBUILD)
 ├── .github/workflows/        # Android CI
 ├── scripts/                  # Build helpers (KGP + MDI icon patches) + screenshots harness (scripts/screenshots)
 └── AGENTS.md                # This file
