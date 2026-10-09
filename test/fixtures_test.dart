@@ -47,6 +47,7 @@ void main() {
     'object-wire-fields.json',
     'property-asset-type.json',
     'property-date-qualifier.json',
+    'property-datetime.json',
     'property-set-lww.json',
     'property-value-elements.json',
     'typed-link-mark.json',

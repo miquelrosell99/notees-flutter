@@ -36,7 +36,7 @@
 ///    (UUID) — the OR-Set add/remove carrier for multi-value slots;
 ///  - `class.property.set` gains the optional PC4 `active` soft-unbind flag
 ///    (omitted = keep the stored flag);
-///  - `propertySchema.create`/`update` gain the SCHEMA.md "Dates" fields
+///  - `propertySchema.create`/`update` gain the SCHEMA.md "Datetime" fields
 ///    `datePrecision` (year|month|day) and `dateQualified` (PC6: values may
 ///    carry date-node qualifier refs in metadata startDate/endDate).
 ///
@@ -422,10 +422,10 @@ class OperationPayloads {
 
   /// [type] is the property-schema enum (op-types.ts); [targetClassFilter]
   /// constrains node-typed (m2o/m2m) schemas to those classes.
-  /// [datePrecision] (year|month|day) caps the granularity a date value may
-  /// claim (SCHEMA.md "Dates"; NULL = day at the read model) and
-  /// [dateQualified] (PC6) allows node-typed values to carry date qualifiers
-  /// (metadata startDate/endDate as date-node refs).
+  /// [datePrecision] (year|month|day) caps the granularity a datetime value
+  /// may claim (SCHEMA.md "Datetime"; NULL = day at the read model) and
+  /// [dateQualified] (PC6) allows datetime and node-typed values to carry
+  /// date qualifiers (metadata startDate/endDate as date-node refs).
   ///
   /// Owner review 2026-10-05: the render contracts are
   /// PROPERTY-level — [display] ('panel' | 'bullet' | 'inline'; where a
@@ -630,8 +630,13 @@ class OperationPayloads {
     'text',
     'number',
     'boolean',
-    'date',
-    'date_range',
+    // The unified date property type (2026-10-09): the retired `date` and
+    // `date_range` types rewrite to `datetime` in live logs; the strict
+    // schema rejects the retired values outright. A value is a point
+    // `{nodeId, time?}` or a range `{start: slot|null, end: slot|null}`
+    // (slot = `{nodeId, time?}`) anchored to the year/month/day node
+    // chain — see SCHEMA.md "Datetime".
+    'datetime',
     'url',
     'email',
     'select',
@@ -645,8 +650,8 @@ class OperationPayloads {
   };
   static const _propertySchemaScopes = {'global', 'class', 'object'};
 
-  /// SCHEMA.md "Dates" precision enum (the finest granularity a date value
-  /// may claim; NULL/absent = day at the read model).
+  /// SCHEMA.md "Datetime" precision enum (the finest granularity a datetime
+  /// value may claim; NULL/absent = day at the read model).
   static const _datePrecisions = {'year', 'month', 'day'};
   static const _numberRoundings = {'round', 'floor', 'ceil', 'truncate'};
 

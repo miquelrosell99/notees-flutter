@@ -182,6 +182,7 @@ class _PropertyValueCellState extends State<PropertyValueCell> {
       case 'image':
         return _buildNodePicker();
       case 'date':
+      case 'datetime':
         return _buildDatePicker();
       case 'date_range':
         return _buildDateRange();
@@ -336,6 +337,7 @@ class _PropertyValueCellState extends State<PropertyValueCell> {
         final id = _relationTargetId();
         return id == null ? '' : _resolveDisplayName(id);
       case 'date':
+      case 'datetime':
         final id = _relationTargetId();
         return id == null ? '' : _resolveDisplayName(id);
       case 'date_range':

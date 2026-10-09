@@ -298,7 +298,7 @@ class TaskFamilySeedEntry {
 
   final String schemaId;
   final String name;
-  final String type; // 'select' | 'date'
+  final String type; // 'select' | 'datetime'
   final int sequence;
   final List<Map<String, String>> options; // [{id, label, icon?, color?}]
   final String? display; // 'panel' | 'bullet' | 'inline'
@@ -357,13 +357,13 @@ const List<TaskFamilySeedEntry> taskFamilySeed = [
   TaskFamilySeedEntry(
     schemaId: SystemPropertyUuids.taskScheduled,
     name: 'Scheduled',
-    type: 'date',
+    type: 'datetime',
     sequence: 2,
   ),
   TaskFamilySeedEntry(
     schemaId: SystemPropertyUuids.taskDeadline,
     name: 'Deadline',
-    type: 'date',
+    type: 'datetime',
     sequence: 3,
   ),
   TaskFamilySeedEntry(
@@ -381,7 +381,7 @@ const List<TaskFamilySeedEntry> taskFamilySeed = [
   TaskFamilySeedEntry(
     schemaId: SystemPropertyUuids.taskClosedDate,
     name: 'Closed',
-    type: 'date',
+    type: 'datetime',
     sequence: 5,
   ),
   // migrated recurrence as a plain select (no engine executes it);

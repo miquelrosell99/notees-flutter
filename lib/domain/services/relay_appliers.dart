@@ -1018,7 +1018,7 @@ class RelayAppliers {
     r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
   );
 
-  /// PC6 normalize-on-write (SCHEMA.md "Dates"): for a dateQualified
+  /// PC6 normalize-on-write (SCHEMA.md "Datetime"): for a dateQualified
   /// schema, a well-formed `YYYY-MM-DD` string in the reserved qualifier
   /// keys (startDate/endDate) rewrites to the deterministic day-node ref
   /// `{"nodeId": <day chain node>}` — pure value rewriting, no graph side
@@ -1257,7 +1257,7 @@ class RelayAppliers {
       final defaultValue = payload['defaultValue'];
       if (schemaType != null && !isValidDefaultForType(schemaType, defaultValue)) {
         final expectation = switch (schemaType) {
-          'date' || 'date_range' || 'object' || 'asset' =>
+          'datetime' || 'object' || 'asset' =>
             'must be null — node-typed defaults are not supported',
           _ => 'must be typed $schemaType',
         };
@@ -1378,7 +1378,7 @@ class RelayAppliers {
                 ?.cast<Map<String, dynamic>>() ??
             const [],
         classFilterUuids: _readStringList(payload['targetClassFilter']),
-        // SCHEMA.md "Dates" (PC6): the applier stores the columns raw; the
+        // SCHEMA.md "Datetime" (PC6): the applier stores the columns raw; the
         // PC6 normalize-on-write consults dateQualified on property.set.
         datePrecision: payload['datePrecision'] as String?,
         dateQualified: payload['dateQualified'] as bool?,

@@ -100,10 +100,10 @@ class PropertySchemaRow {
   final List<String> classFilterUuids;
   final List<Map<String, dynamic>> options;
   final String? computed;
-  /// SCHEMA.md "Dates" (PC6): finest granularity a date value may
+  /// SCHEMA.md "Datetime" (PC6): finest granularity a datetime value may
   /// claim ("year"|"month"|"day"; null = day at the read model) and, for
-  /// node-typed schemas, whether values may carry date qualifiers
-  /// (metadata startDate/endDate as date-node refs).
+  /// datetime and node-typed schemas, whether values may carry date
+  /// qualifiers (metadata startDate/endDate as date-node refs).
   final String? datePrecision;
   final bool? dateQualified;
   /// SCHEMA.md "Number formats": display-only formatting
@@ -2064,7 +2064,7 @@ class NodeCacheRepository {
   /// Assert a node-typed ref's target honors the schema's graph constraints:
   /// row existence (any liveness — trash is a state, not an absence, so a
   /// trashed node still satisfies existence), the targetClassFilter via the
-  /// extends-aware walk, and the date precision ceiling for date refs.
+  /// extends-aware walk, and the date precision ceiling for datetime refs.
   /// Throws [PropertyValueShapeError] on breach.
   Future<void> assertPropertyValueRefTarget(
     PropertySchemaValidationRow schema,
@@ -2101,7 +2101,7 @@ class NodeCacheRepository {
         );
       }
     }
-    if (schema.type == 'date' || schema.type == 'date_range') {
+    if (schema.type == 'datetime') {
       final parsed = parseDateNodeId(ref);
       if (parsed != null) {
         final ceiling = datePrecisionRank(schema.datePrecision);
@@ -2130,14 +2130,20 @@ class NodeCacheRepository {
     final shaped = assertValueShapeForType(schema.type, value, opType);
     final typed = assertScalarShapeForType(schema.type, shaped, opType);
     if (typed == null) return typed;
-    if (schema.type == 'date' ||
-        schema.type == 'object' ||
-        schema.type == 'asset') {
+    if (schema.type == 'object' || schema.type == 'asset') {
       final ref = nodeRefOfValue(typed);
       if (ref != null) await assertPropertyValueRefTarget(schema, ref, opType);
-    } else if (schema.type == 'date_range') {
-      final range = typed as Map<String, dynamic>;
-      for (final side in [range['start'], range['end']]) {
+    } else if (schema.type == 'datetime') {
+      // The unified union: a point runs the existence/filter/precision
+      // checks on its ref; a range runs them on EACH non-null slot (the
+      // date_range parity — either end missing fails, open sides skip). A
+      // timed value on a coarser-than-day ceiling fails here too: its
+      // day-precision ref claims finer granularity than the schema's.
+      final record = typed as Map<String, dynamic>;
+      final sides = record.containsKey('start') || record.containsKey('end')
+          ? [record['start'], record['end']]
+          : [typed];
+      for (final side in sides) {
         final ref = nodeRefOfValue(side);
         if (ref != null) await assertPropertyValueRefTarget(schema, ref, opType);
       }
@@ -4208,14 +4214,14 @@ class NodeCacheRepository {
       id: 0,
       uuid: SystemPropertyUuids.taskDeadline,
       name: 'Deadline',
-      type: 'date',
+      type: 'datetime',
       isSystem: true,
     ),
     SystemPropertyUuids.taskScheduled: Property(
       id: 0,
       uuid: SystemPropertyUuids.taskScheduled,
       name: 'Scheduled',
-      type: 'date',
+      type: 'datetime',
       isSystem: true,
     ),
     SystemPropertyUuids.taskPriority: Property(
