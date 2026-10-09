@@ -222,38 +222,74 @@ void main() {
         expect(await appliers.apply(envelope), isTrue);
       }
 
-      Future<({String? cover, String? banner, String? alias})> fields() async {
+      Future<({String? cover, String? banner, String? alias, String? description})>
+      fields() async {
         final node = await cache.getByUuid(page);
         final rows = await raw(
-          'SELECT cover_asset_id, banner_asset_id, aliased_node_id '
+          'SELECT cover_asset_id, banner_asset_id, aliased_node_id, description '
           'FROM node_cache WHERE uuid = ?',
           [page],
         );
         expect(rows, hasLength(1));
         final row = rows.single;
-        // The Node payload and the derived v27 columns project the same
+        // The Node payload and the derived v27/v28 columns project the same
         // fields (the payload is the read authority; the columns serve SQL).
         expect(node!.coverAssetId, row['cover_asset_id']);
         expect(node.bannerAssetId, row['banner_asset_id']);
         expect(node.aliasedNodeId, row['aliased_node_id']);
+        expect(node.description, row['description']);
         return (
           cover: row['cover_asset_id'] as String?,
           banner: row['banner_asset_id'] as String?,
           alias: row['aliased_node_id'] as String?,
+          description: row['description'] as String?,
         );
       }
 
-      expect(await fields(), (cover: null, banner: null, alias: null));
+      expect(
+        await fields(),
+        (cover: null, banner: null, alias: null, description: null),
+      );
       expect(await appliers.apply(envelopes[3]), isTrue); // coverAssetId = ASSET
-      expect(await fields(), (cover: asset, banner: null, alias: null));
+      expect(
+        await fields(),
+        (cover: asset, banner: null, alias: null, description: null),
+      );
       expect(await appliers.apply(envelopes[4]), isTrue); // banner + alias
-      expect(await fields(), (cover: asset, banner: asset, alias: main));
+      expect(
+        await fields(),
+        (cover: asset, banner: asset, alias: main, description: null),
+      );
       expect(await appliers.apply(envelopes[5]), isTrue); // alias clear
-      expect(await fields(), (cover: asset, banner: asset, alias: null));
+      expect(
+        await fields(),
+        (cover: asset, banner: asset, alias: null, description: null),
+      );
       expect(await appliers.apply(envelopes[6]), isTrue); // cover clear
-      expect(await fields(), (cover: null, banner: asset, alias: null));
+      expect(
+        await fields(),
+        (cover: null, banner: asset, alias: null, description: null),
+      );
       expect(await appliers.apply(envelopes[7]), isTrue); // banner clear
-      expect(await fields(), (cover: null, banner: null, alias: null));
+      expect(
+        await fields(),
+        (cover: null, banner: null, alias: null, description: null),
+      );
+      expect(await appliers.apply(envelopes[8]), isTrue); // description = text
+      expect(
+        await fields(),
+        (
+          cover: null,
+          banner: null,
+          alias: null,
+          description: 'Subtitle text',
+        ),
+      );
+      expect(await appliers.apply(envelopes[9]), isTrue); // description clear
+      expect(
+        await fields(),
+        (cover: null, banner: null, alias: null, description: null),
+      );
     });
 
     test('wire fields: absence preserves, present-null clears, stale-HLC '

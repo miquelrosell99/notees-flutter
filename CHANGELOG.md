@@ -6,6 +6,26 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-09
+
+- **feat(protocol): `object.update` gains the `description` wire node field
+  (the page subtitle, max 512 chars).** Lockstep with the monorepo's TS
+  store schema v17→v18: the optional nullable plain-text field joins
+  `coverAssetId` / `bannerAssetId` / `aliasedNodeId` — presence writes,
+  present-null clears (SQL NULL), absence preserves; `object.create`
+  still carries none (the strict validator rejects it there). The payload
+  builder takes the `_undefined`-sentinel parameter like the other wire
+  node fields; the strict validator admits the key and enforces the 512
+  cap (the zod `z.string().max(512).nullish()` port). The applier maps it
+  into the Node model; `node_cache` gains the `description` derived
+  column at local schema v28 (idempotent additive migration, `_migrateV28`,
+  bumping the v27 cover/banner/alias batch). The canonical fixture
+  `object-wire-fields.json` is copied byte-identical from the monorepo
+  (two new trailing envelopes: set `"Subtitle text"`, clear `null`), and
+  the fixture replay test now asserts the description set + clear land in
+  both the Node payload and the derived column. Verification:
+  `flutter analyze` + `flutter test` green.
+
 ## 2026-10-08
 
 - **feat(launcher): Android and iOS carry the Margin Green mark.** The

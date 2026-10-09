@@ -44,7 +44,8 @@
 ///  - `object.update` gains the optional nullable wire node fields
 ///    `coverAssetId` / `bannerAssetId` / `aliasedNodeId` (presence writes,
 ///    present-null clears; `object.create` carries none — the strict
-///    validator rejects them there like any unknown key);
+///    validator rejects them there like any unknown key); `description`
+///    (the page subtitle, max 512 chars) joins them 2026-10-09;
 ///  - the `propertySchema.create` type enum gains `"asset"` (an asset-node
 ///    reference whose class filter is implicit in the type).
 library;
@@ -164,12 +165,14 @@ class OperationPayloads {
   ///
   /// Wire node fields (the icon/color precedent, 2026-10-07 lockstep):
   /// [coverAssetId] (an asset node for the page cover), [bannerAssetId]
-  /// (an asset node for the page banner) and [aliasedNodeId] (the main page
-  /// a node alias points at) are `object.update`-only — `object.create`
-  /// carries none. Presence writes, an explicit `null` CLEARS; the applier
-  /// maps them without validating the references, except the alias target:
-  /// an update that would close an alias cycle fails loud and is never
-  /// applied. Reference integrity beyond that is a read/client-layer concern.
+  /// (an asset node for the page banner), [aliasedNodeId] (the main page
+  /// a node alias points at) and [description] (the page subtitle in the
+  /// core page chrome, the Capacities header precedent, plain text max 512
+  /// chars) are `object.update`-only — `object.create` carries none.
+  /// Presence writes, an explicit `null` CLEARS; the applier maps them
+  /// without validating the references, except the alias target: an update
+  /// that would close an alias cycle fails loud and is never applied.
+  /// Reference integrity beyond that is a read/client-layer concern.
   static Map<String, dynamic> objectUpdate({
     required String objectId,
     bool? presentAsMain,
@@ -178,6 +181,7 @@ class OperationPayloads {
     Object? coverAssetId = _undefined,
     Object? bannerAssetId = _undefined,
     Object? aliasedNodeId = _undefined,
+    Object? description = _undefined,
     String? contentDeltaB64,
     List<Map<String, dynamic>>? contentAst,
   }) {
@@ -187,6 +191,7 @@ class OperationPayloads {
         identical(coverAssetId, _undefined) &&
         identical(bannerAssetId, _undefined) &&
         identical(aliasedNodeId, _undefined) &&
+        identical(description, _undefined) &&
         contentDeltaB64 == null &&
         contentAst == null) {
       throw ArgumentError('object.update requires at least one field');
@@ -208,6 +213,7 @@ class OperationPayloads {
         'bannerAssetId': bannerAssetId,
       if (!identical(aliasedNodeId, _undefined))
         'aliasedNodeId': aliasedNodeId,
+      if (!identical(description, _undefined)) 'description': description,
       'contentDeltaB64': ?contentDeltaB64,
       'contentAst': ?contentAst,
     });
@@ -691,6 +697,7 @@ class OperationPayloads {
           'coverAssetId',
           'bannerAssetId',
           'aliasedNodeId',
+          'description',
           'contentDeltaB64',
           'contentAst',
         });
@@ -704,6 +711,9 @@ class OperationPayloads {
         _uuid(payload, 'coverAssetId', required: false);
         _uuid(payload, 'bannerAssetId', required: false);
         _uuid(payload, 'aliasedNodeId', required: false);
+        // The page subtitle: plain text, max 512 (presence writes,
+        // present-null clears like the other wire node fields).
+        _string(payload, 'description', max: 512, required: false);
         _string(payload, 'contentDeltaB64', required: false);
         _list(payload, 'contentAst', required: false);
         if (payload.length == 1) {
