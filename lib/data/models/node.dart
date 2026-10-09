@@ -45,6 +45,7 @@ class Node {
     this.coverAssetId,
     this.bannerAssetId,
     this.aliasedNodeId,
+    this.description,
   });
 
   final int id;
@@ -118,12 +119,16 @@ class Node {
   /// Wire node fields (the icon/color precedent, 2026-10-07 lockstep):
   /// an asset node for the page cover, an asset node for the page banner,
   /// and the main page this node aliases at (many-to-one FROM the alias).
+  /// [description] (2026-10-09 lockstep) is the page subtitle in the core
+  /// page chrome (the Capacities header precedent, plain text max 512).
   /// `object.update` only — `object.create` carries none. Derived columns
-  /// (`cover_asset_id` / `banner_asset_id` / `aliased_node_id`) project
-  /// them for SQL reads; the payload JSON is the read authority.
+  /// (`cover_asset_id` / `banner_asset_id` / `aliased_node_id` /
+  /// `description`) project them for SQL reads; the payload JSON is the
+  /// read authority.
   final String? coverAssetId;
   final String? bannerAssetId;
   final String? aliasedNodeId;
+  final String? description;
 
   bool get isJournal => isDaily || isMonthly || isYearly;
 
@@ -221,6 +226,7 @@ class Node {
       coverAssetId: json['cover_asset_id'] as String?,
       bannerAssetId: json['banner_asset_id'] as String?,
       aliasedNodeId: json['aliased_node_id'] as String?,
+      description: json['description'] as String?,
     );
   }
 
@@ -274,6 +280,7 @@ class Node {
       coverAssetId: coverAssetId,
       bannerAssetId: bannerAssetId,
       aliasedNodeId: aliasedNodeId,
+      description: description,
     );
   }
 
@@ -322,6 +329,7 @@ class Node {
       coverAssetId: coverAssetId,
       bannerAssetId: bannerAssetId,
       aliasedNodeId: aliasedNodeId,
+      description: description,
     );
   }
 
@@ -368,5 +376,6 @@ class Node {
     'cover_asset_id': coverAssetId,
     'banner_asset_id': bannerAssetId,
     'aliased_node_id': aliasedNodeId,
+    'description': description,
   };
 }

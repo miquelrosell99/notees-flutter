@@ -423,6 +423,9 @@ class RelayAppliers {
         aliasedNodeId: payload.containsKey('aliasedNodeId')
             ? payload['aliasedNodeId'] as String?
             : node.aliasedNodeId,
+        description: payload.containsKey('description')
+            ? payload['description'] as String?
+            : node.description,
         writeDate: envelope.timestamp,
         hlcPhysical: incoming.physical,
         hlcLogical: incoming.logical,
@@ -1750,6 +1753,7 @@ Node _copyWith(
   Object? coverAssetId = _undefined,
   Object? bannerAssetId = _undefined,
   Object? aliasedNodeId = _undefined,
+  Object? description = _undefined,
   Object? parentUuid = _undefined,
   Object? position = _undefined,
   double? sequence,
@@ -1777,6 +1781,9 @@ Node _copyWith(
   aliasedNodeId: identical(aliasedNodeId, _undefined)
       ? node.aliasedNodeId
       : aliasedNodeId as String?,
+  description: identical(description, _undefined)
+      ? node.description
+      : description as String?,
   parentId: node.parentId,
   parentUuid: identical(parentUuid, _undefined)
       ? node.parentUuid

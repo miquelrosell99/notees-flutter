@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 27,
+          version: 28,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 27,
+      version: 28,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -121,6 +121,7 @@ class AppDatabase {
     await _migrateV24(db);
     await _migrateV26(db);
     await _migrateV27(db);
+    await _migrateV28(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -206,6 +207,20 @@ class AppDatabase {
     if (oldVersion < 27) {
       await _migrateV27(db);
     }
+    if (oldVersion < 28) {
+      await _migrateV28(db);
+    }
+  }
+
+  /// v28 — the page-subtitle wire node field (2026-10-09 lockstep with the
+  /// TS store schema v17→v18): `node_cache` gains `description` — the
+  /// direct projection of `object.update`'s description (the page subtitle
+  /// in the core page chrome, max 512 chars; presence writes,
+  /// present-null clears; NULL = unset). The column guard keeps the
+  /// migration idempotent for databases that already carry it (a fresh
+  /// v28 create).
+  Future<void> _migrateV28(Database db) async {
+    await _addColumnIfMissing(db, 'node_cache', 'description', 'TEXT');
   }
 
   /// v27 — the wire node fields (2026-10-07 lockstep with the TS store
@@ -1245,6 +1260,7 @@ class AppDatabase {
     await _migrateV24(db);
     await _migrateV26(db);
     await _migrateV27(db);
+    await _migrateV28(db);
   }
 
   Future<int> enqueue(String method, String payload) async {
