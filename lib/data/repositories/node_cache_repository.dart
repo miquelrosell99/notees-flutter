@@ -869,6 +869,7 @@ class NodeCacheRepository {
         coverAssetId: row['cover_asset_id'] as String?,
         bannerAssetId: row['banner_asset_id'] as String?,
         aliasedNodeId: row['aliased_node_id'] as String?,
+        description: row['description'] as String?,
       );
     }).toList();
   }
@@ -4025,10 +4026,11 @@ class NodeCacheRepository {
       'hlc_logical': node.hlcLogical,
       'actor_id': node.actorId,
       // Wire node fields (v27 — the direct projections of object.update's
-      // coverAssetId / bannerAssetId / aliasedNodeId).
+      // coverAssetId / bannerAssetId / aliasedNodeId; v28 adds description).
       'cover_asset_id': node.coverAssetId,
       'banner_asset_id': node.bannerAssetId,
       'aliased_node_id': node.aliasedNodeId,
+      'description': node.description,
     };
   }
 
