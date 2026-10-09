@@ -167,6 +167,32 @@ void main() {
       );
     });
 
+    test('propertySchema.create accepts datetime and rejects the retired '
+        'date/date_range types outright', () {
+      final payload = OperationPayloads.propertySchemaCreate(
+        propertySchemaId: classId,
+        name: 'When',
+        type: 'datetime',
+        datePrecision: 'day',
+      );
+      expect(payload['type'], 'datetime');
+      expect(() => OperationPayloads.validatePayload(
+          'propertySchema.create', payload), returnsNormally);
+      // The strict enum: the retired values are rejected outright (the
+      // live log rewrites them to datetime before pre-batch clients mix).
+      for (final retired in ['date', 'date_range']) {
+        expect(
+          () => OperationPayloads.validatePayload('propertySchema.create', {
+            'propertySchemaId': classId,
+            'name': 'Legacy',
+            'type': retired,
+          }),
+          throwsFormatException,
+          reason: 'retired type $retired must fail loud',
+        );
+      }
+    });
+
     test('class.create name convenience converts to contentAst', () {
       final payload = OperationPayloads.classCreate(
         classId: classId,

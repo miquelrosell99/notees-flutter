@@ -716,6 +716,96 @@ void main() {
       );
     });
 
+    test('property-datetime lands the unified union: datetime schemas, the '
+        'value writes, and the year-precision ceiling', () async {
+      final envelopes = fixtureEnvelopes('property-datetime.json');
+      for (final envelope in envelopes) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      const when = '0192a000-0000-7000-8000-000000000810';
+      const year = '0192a000-0000-7000-8000-000000000811';
+      const note = '0192a000-0000-7000-8000-000000000812';
+
+      final schemas = await raw(
+        'SELECT uuid, type, date_precision FROM property_schema ORDER BY uuid',
+      );
+      expect(schemas.map((r) => [r['uuid'], r['type']]), [
+        [when, 'datetime'],
+        [year, 'datetime'],
+      ]);
+      expect(schemas[1]['date_precision'], 'year');
+
+      // The last 'When' write wins the LWW slot: the timed range end.
+      final rows = await raw(
+        'SELECT value FROM property_value WHERE node_uuid = ? AND '
+        'property_schema_id = ? AND idx = 0',
+        [note, when],
+      );
+      expect(
+        jsonDecode(rows.single['value'] as String),
+        {
+          'start': {'nodeId': '00000000-0000-0000-00dd-202407260000'},
+          'end': {
+            'nodeId': '00000000-0000-0000-00dd-202408020000',
+            'time': '09:15',
+          },
+        },
+      );
+      final yearRows = await raw(
+        'SELECT value FROM property_value WHERE node_uuid = ? AND '
+        'property_schema_id = ? AND idx = 0',
+        [note, year],
+      );
+      expect(jsonDecode(yearRows.single['value'] as String), {
+        'nodeId': '00000000-0000-0000-00bb-202400000000',
+      });
+
+      // Fail-loud mirror of the applier checks (not carried by the
+      // fixture's happy path): a mixed-shape value, a malformed time, a
+      // timed value on a year ceiling, and a ghost slot ref all reject.
+      const dayNode = '00000000-0000-0000-00dd-202407260000';
+      const ghostDay = '00000000-0000-0000-00dd-203001010000';
+      OperationEnvelope set(
+        String schemaId,
+        dynamic value,
+        int physical,
+      ) =>
+          OperationEnvelope(
+            id: '0192a000-0000-7000-8000-0000000009$physical',
+            workspaceId: ws,
+            actorId: '0192a000-0000-7000-8000-000000000002',
+            deviceId: 'fixture-test-device',
+            hlc: Hlc(physical: physical, logical: 0),
+            affectedNodeIds: [note],
+            opType: 'property.set',
+            payload: {
+              'objectId': note,
+              'propertySchemaId': schemaId,
+              'value': value,
+              'idx': 0,
+            },
+            timestamp: '2026-09-24T12:00:35.000Z',
+          );
+
+      expect(
+        () => appliers.apply(set(when, {'nodeId': dayNode, 'end': null}, 9000)),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+      expect(
+        () => appliers.apply(set(when, {'nodeId': dayNode, 'time': '25:00'}, 9100)),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+      expect(
+        () => appliers.apply(set(year, {'nodeId': dayNode, 'time': '08:00'}, 9200)),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+      expect(
+        () => appliers.apply(
+            set(when, {'start': {'nodeId': ghostDay}, 'end': null}, 9300)),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+    });
+
     test('property-set-lww converges to the higher-HLC phone value both orders',
         () async {
       final laptop = fixtureEnvelopes('property-set-lww.json')[0];

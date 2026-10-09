@@ -8,6 +8,35 @@ lives in git history.
 
 ## 2026-10-09
 
+- **feat(protocol,store): the unified Datetime property type — the
+  `date`/`date_range` retirement lockstep port.** Lockstep with the
+  monorepo's TS reference (the d58aeb1c + dbfd6d29 batch): the
+  `propertySchema.create` type enum retires `date`/`date_range` and adds
+  `datetime` — the strict validator (payload builder + apply-time
+  `validatePayload`) rejects the retired values outright, matching the zod.
+  The value union is one shape per value: a POINT `{ "nodeId": …, "time"?:
+  "HH:MM" }` (a legacy bare-uuid string normalizes to `{nodeId}`, the
+  archived `date` encoding) or a RANGE `{ "start": slot|null, "end":
+  slot|null }` with either side open and both-open legal; a value carrying
+  BOTH `nodeId` and `start`/`end` fails loud, and a `time` must be 24h
+  minute-precision `HH:MM` riding a DAY-precision date-node ref (a
+  month/year anchor or a non-date id has no wall-clock time). The PG6
+  graph checks mirror the old `date_range` arms per non-null slot
+  (existence / targetClassFilter / the datePrecision ceiling — a timed
+  day ref on a coarser-than-day ceiling claims finer granularity and
+  throws). PC2 stays node-typed: a `datetime` schema accepts only a null
+  binding default. The task-family seed manifest (Scheduled / Deadline /
+  Closed) and the fallback task property constants retype to `datetime`
+  (the Flutter seed carries three of the TS six — eventDate, meetingDate
+  and publicationDate are not locally seeded, by design); the legacy
+  property value cell routes `datetime` through the date picker.
+  `test/fixtures/wire/` re-vendors the canonical corpus — sha256-match
+  the TS reference 25/25 (gate 24→25, `property-datetime.json`), and the
+  fixture replay test now asserts the union values land (the timed range
+  end wins the 'When' LWW slot, the year-precision point rides the 'Year'
+  schema) plus the four fail-loud mirrors (mixed shape, malformed time,
+  timed value over a year ceiling, ghost slot ref). Verification:
+  `flutter analyze` + `flutter test` green (621 tests).
 - **feat(protocol): `object.update` gains the `description` wire node field
   (the page subtitle, max 512 chars).** Lockstep with the monorepo's TS
   store schema v17→v18: the optional nullable plain-text field joins

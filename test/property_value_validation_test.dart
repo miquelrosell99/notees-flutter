@@ -158,12 +158,12 @@ void main() {
       expect(await storedRows(textSchema), isEmpty);
     });
 
-    test('date/object require a ref; legacy bare uuid normalizes; plain '
-        'strings rejected', () async {
+    test('datetime/object require a ref; legacy bare uuid normalizes; '
+        'plain strings rejected', () async {
       const dateSchema = '0192a000-0000-7000-8000-000000000202';
       await createNode(owner);
       await createNode(target);
-      await createSchema(dateSchema, 'date');
+      await createSchema(dateSchema, 'datetime');
       await setValue(dateSchema, {'nodeId': target});
       var rows = await storedRows(dateSchema);
       expect(jsonDecode(rows.single['value'] as String), {'nodeId': target});
@@ -183,7 +183,7 @@ void main() {
       );
     });
 
-    test('date/object refs must resolve to a node row', () async {
+    test('datetime/object refs must resolve to a node row', () async {
       const objectSchema = '0192a000-0000-7000-8000-000000000203';
       await createNode(owner);
       await createSchema(objectSchema, 'object');
@@ -199,11 +199,12 @@ void main() {
       );
     });
 
-    test('date_range takes both keys open/ref; garbage sides rejected', () async {
+    test('datetime ranges take both keys open/ref/slot; garbage sides '
+        'rejected', () async {
       const rangeSchema = '0192a000-0000-7000-8000-000000000204';
       await createNode(owner);
       await createNode(target);
-      await createSchema(rangeSchema, 'date_range');
+      await createSchema(rangeSchema, 'datetime');
       await setValue(rangeSchema, {
         'start': {'nodeId': target},
         'end': null,
@@ -211,6 +212,28 @@ void main() {
       var rows = await storedRows(rangeSchema);
       expect(jsonDecode(rows.single['value'] as String), {
         'start': {'nodeId': target},
+        'end': null,
+      });
+
+      // A legacy bare-uuid side normalizes to the slot shape.
+      await cache.deletePropertyValueById(
+        NodeCacheRepository.positionalPropertyValueId(owner, rangeSchema, 0),
+      );
+      await setValue(rangeSchema, {'start': target, 'end': target});
+      rows = await storedRows(rangeSchema);
+      expect(jsonDecode(rows.single['value'] as String), {
+        'start': {'nodeId': target},
+        'end': {'nodeId': target},
+      });
+
+      // A both-open range is a legal value.
+      await cache.deletePropertyValueById(
+        NodeCacheRepository.positionalPropertyValueId(owner, rangeSchema, 0),
+      );
+      await setValue(rangeSchema, {'start': null, 'end': null});
+      rows = await storedRows(rangeSchema);
+      expect(jsonDecode(rows.single['value'] as String), {
+        'start': null,
         'end': null,
       });
 
@@ -228,6 +251,137 @@ void main() {
         }),
         throwsA(isA<PropertyValueShapeError>()),
       );
+      // A non-uuid string side is not a reference.
+      expect(
+        () => setValue(rangeSchema, {'start': 'not-a-ref', 'end': null}),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+    });
+
+    test('datetime: a value carrying BOTH nodeId and start/end keys is '
+        'rejected outright', () async {
+      const pointSchema = '0192a000-0000-7000-8000-00000000020c';
+      await createNode(owner);
+      await createNode(target);
+      await createSchema(pointSchema, 'datetime');
+      for (final bad in [
+        {
+          'nodeId': target,
+          'start': {'nodeId': target},
+          'end': null,
+        },
+        {'nodeId': target, 'end': null},
+      ]) {
+        expect(
+          () => setValue(pointSchema, bad),
+          throwsA(isA<PropertyValueShapeError>()),
+        );
+      }
+      expect(await storedRows(pointSchema), isEmpty);
+    });
+
+    test('datetime: a malformed time is rejected (points and range slots '
+        'alike)', () async {
+      const pointSchema = '0192a000-0000-7000-8000-00000000020d';
+      const rangeSchema = '0192a000-0000-7000-8000-00000000020e';
+      await createNode(owner);
+      await createNode(target);
+      await createSchema(pointSchema, 'datetime');
+      await createSchema(rangeSchema, 'datetime');
+      const dayNode = '00000000-0000-7000-8000-000000000102';
+      for (final badTime in ['25:00', '9:30', '10:60', '14:30:00', 430, null]) {
+        expect(
+          () => setValue(pointSchema, {'nodeId': dayNode, 'time': badTime}),
+          throwsA(isA<PropertyValueShapeError>()),
+        );
+        expect(
+          () => setValue(rangeSchema, {
+            'start': null,
+            'end': {'nodeId': dayNode, 'time': badTime},
+          }),
+          throwsA(isA<PropertyValueShapeError>()),
+        );
+      }
+    });
+
+    test('datetime: time requires day precision on the slot\'s ref (a '
+        'month/year anchor — or a non-date id — has no wall-clock time)',
+        () async {
+      const pointSchema = '0192a000-0000-7000-8000-00000000020f';
+      const rangeSchema = '0192a000-0000-7000-8000-000000000210';
+      await createNode(owner);
+      await createSchema(pointSchema, 'datetime');
+      await createSchema(rangeSchema, 'datetime');
+      const monthNode = '00000000-0000-0000-00aa-202003000000';
+      const yearNode = '00000000-0000-0000-00bb-202000000000';
+      await createNode(monthNode);
+      await createNode(yearNode);
+      expect(
+        () => setValue(pointSchema, {'nodeId': monthNode, 'time': '10:00'}),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+      expect(
+        () => setValue(rangeSchema, {
+          'start': {'nodeId': yearNode, 'time': '10:00'},
+          'end': null,
+        }),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+      // A timed ref to a plain (non-date) node fails the day-anchor
+      // requirement too.
+      expect(
+        () => setValue(pointSchema, {'nodeId': owner, 'time': '10:00'}),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+    });
+
+    test('datetime: a well-formed timed point round-trips verbatim', () async {
+      const pointSchema = '0192a000-0000-7000-8000-000000000211';
+      await createNode(owner);
+      await createSchema(pointSchema, 'datetime');
+      const dayNode = '00000000-0000-0000-00dd-202407260000';
+      await createNode(dayNode);
+      await setValue(pointSchema, {'nodeId': dayNode, 'time': '14:30'});
+      final rows = await storedRows(pointSchema);
+      expect(jsonDecode(rows.single['value'] as String), {
+        'nodeId': dayNode,
+        'time': '14:30',
+      });
+    });
+
+    test('datetime: each non-null range slot ref gets the existence check '
+        '(a ghost slot fails loud, open sides skip)', () async {
+      const rangeSchema = '0192a000-0000-7000-8000-000000000212';
+      await createNode(owner);
+      await createNode(target);
+      await createSchema(rangeSchema, 'datetime');
+      // A valid day-node id with no node row (the date_range parity: either
+      // end missing fails, open sides skip).
+      const ghost = '00000000-0000-0000-00dd-202801150000';
+      expect(
+        () => setValue(rangeSchema, {'start': {'nodeId': ghost}, 'end': null}),
+        throwsA(
+          isA<PropertyValueShapeError>().having(
+            (e) => e.message,
+            'message',
+            contains('does not exist'),
+          ),
+        ),
+      );
+      expect(
+        () => setValue(rangeSchema, {
+          'start': null,
+          'end': {'nodeId': ghost, 'time': '12:00'},
+        }),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+      // Open sides store fine (no ref to check).
+      await setValue(rangeSchema, {'start': null, 'end': null});
+      final rows = await storedRows(rangeSchema);
+      expect(jsonDecode(rows.single['value'] as String), {
+        'start': null,
+        'end': null,
+      });
     });
 
     test('number accepts finite numbers and normalizes numeric strings '
@@ -306,7 +460,7 @@ void main() {
     test('a null value bypasses validation and stores JSON null', () async {
       const dateSchema = '0192a000-0000-7000-8000-00000000020b';
       await createNode(owner);
-      await createSchema(dateSchema, 'date');
+      await createSchema(dateSchema, 'datetime');
       await setValue(dateSchema, null);
       final rows = await storedRows(dateSchema);
       expect(jsonDecode(rows.single['value'] as String), isNull);
@@ -399,11 +553,11 @@ void main() {
       expect(jsonDecode(rows.single['value'] as String), {'nodeId': target});
     });
 
-    test('datePrecision ceiling: a date ref may not claim finer granularity '
-        'than the schema', () async {
+    test('datePrecision ceiling: a datetime ref may not claim finer '
+        'granularity than the schema', () async {
       const dateSchema = '0192a000-0000-7000-8000-000000000330';
       await createNode(owner);
-      await createSchema(dateSchema, 'date', multi: true, datePrecision: 'month');
+      await createSchema(dateSchema, 'datetime', multi: true, datePrecision: 'month');
       const dayNode = '00000000-0000-0000-00dd-202003040000';
       const monthNode = '00000000-0000-0000-00aa-202003000000';
       const yearNode = '00000000-0000-0000-00bb-202000000000';
@@ -426,7 +580,7 @@ void main() {
 
       // Null precision reads as day: a day ref is at the ceiling, not over.
       const daySchema = '0192a000-0000-7000-8000-000000000331';
-      await createSchema(daySchema, 'date');
+      await createSchema(daySchema, 'datetime');
       await setValue(daySchema, {'nodeId': dayNode});
     });
   });
@@ -467,7 +621,7 @@ void main() {
 
     test('node-typed schemas accept only a null default', () async {
       const dateSchema = '0192a000-0000-7000-8000-000000000403';
-      await createSchema(dateSchema, 'date');
+      await createSchema(dateSchema, 'datetime');
       expect(
         () => bindDefault(dateSchema, 'x'),
         throwsA(isA<PropertyValueShapeError>()),
