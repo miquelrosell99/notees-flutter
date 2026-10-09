@@ -75,7 +75,6 @@ class AuthRepository {
     required String password,
     String? name,
     String? surnames,
-    bool rememberMe = false,
     String? adminPassword,
   }) async {
     final response = await dio.post<Map<String, dynamic>>(
@@ -87,7 +86,6 @@ class AuthRepository {
         if (name != null) 'name': name,
         // ignore: use_null_aware_elements
         if (surnames != null) 'surnames': surnames,
-        'remember_me': rememberMe,
         // ignore: use_null_aware_elements
         if (adminPassword != null) 'admin_password': adminPassword,
       },
