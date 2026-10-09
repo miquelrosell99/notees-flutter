@@ -163,7 +163,7 @@ class _ServerSetupScreenState extends State<ServerSetupScreen> {
               padding: const EdgeInsets.all(20),
               children: [
             Text(
-              'Enter your self-hosted Notees server URL. Your data stays on your server.',
+              'Enter a Notees sync server URL. Your data stays on your server.',
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     color: colors.onSurfaceVariant,
                   ),

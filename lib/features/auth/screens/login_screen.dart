@@ -19,7 +19,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _codeController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _obscurePassword = true;
-  bool _rememberMe = false;
 
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
@@ -29,7 +28,6 @@ class _LoginScreenState extends State<LoginScreen> {
     await auth.login(
       _emailController.text.trim(),
       _passwordController.text,
-      rememberMe: _rememberMe,
     );
 
     if (!mounted) return;
@@ -150,16 +148,6 @@ class _LoginScreenState extends State<LoginScreen> {
           onFieldSubmitted: (_) => _login(),
         ),
         const SizedBox(height: 8),
-        CheckboxListTile(
-          value: _rememberMe,
-          onChanged: (value) {
-            HapticFeedback.lightImpact();
-            setState(() => _rememberMe = value ?? false);
-          },
-          title: const Text('Remember me'),
-          controlAffinity: ListTileControlAffinity.leading,
-          contentPadding: EdgeInsets.zero,
-        ),
         if (auth.error != null) ...[
           const SizedBox(height: 12),
           _ErrorText(message: auth.error!),
