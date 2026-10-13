@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/core/constants/system.dart';
 import 'package:notees/core/utils/ast_builder.dart';
 import 'package:notees/core/utils/ast_stringifier.dart';
+import 'package:notees/core/utils/date_uuid.dart';
 import 'package:notees/data/local/app_database.dart';
 import 'package:notees/data/repositories/node_cache_repository.dart';
 import 'package:notees/domain/models/relay/hlc.dart';
@@ -1638,6 +1639,348 @@ void main() {
         )),
         throwsA(isA<MoveGuardError>()),
       );
+    });
+
+    group('date-chain parent/class locks (SCHEMA.md "Datetime")', () {
+      final year = dateToYearUuid(DateTime(2026, 3, 14));
+      final month = dateToMonthUuid(DateTime(2026, 3, 14));
+      final day = dateToDayUuid(DateTime(2026, 3, 14));
+      final otherYear = dateToYearUuid(DateTime(2027, 7, 1));
+      const pageUuid = '00000000-0000-0000-0000-000000000901';
+
+      var seq = 0x400;
+      String envId() =>
+          '0192a000-0000-7000-8000-${(seq++).toRadixString(16).padLeft(12, '0')}';
+
+      Future<void> createPage() => appliers.apply(envelope(
+            id: envId(),
+            opType: 'object.create',
+            payload: OperationPayloads.objectCreate(objectId: pageUuid),
+          ));
+
+      Future<void> createChain() async {
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: year,
+            classIds: [SystemClassUuids.year],
+          ),
+          physical: 2,
+        ));
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: month,
+            parentId: year,
+            classIds: [SystemClassUuids.month],
+          ),
+          physical: 3,
+        ));
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: day,
+            parentId: month,
+            classIds: [SystemClassUuids.day],
+          ),
+          physical: 4,
+        ));
+      }
+
+      test('object.move rejects any non-chain parent and changes nothing',
+          () async {
+        await createPage();
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: otherYear,
+            classIds: [SystemClassUuids.year],
+          ),
+          physical: 2,
+        ));
+        await createChain();
+
+        // Day under an arbitrary page: reparenting attempt.
+        expect(
+          () async => appliers.apply(envelope(
+                id: envId(),
+                opType: 'object.move',
+                payload: OperationPayloads.objectMove(
+                  objectId: day,
+                  parentId: pageUuid,
+                ),
+                physical: 5,
+              )),
+          throwsA(isA<MoveGuardError>()),
+        );
+        // Day to the root: parentless is illegal for a day (its chain
+        // parent is its month) — the guard fires BEFORE the
+        // parentless-is-legal path.
+        expect(
+          () async => appliers.apply(envelope(
+                id: envId(),
+                opType: 'object.move',
+                payload: OperationPayloads.objectMove(
+                  objectId: day,
+                  parentId: null,
+                ),
+                physical: 6,
+              )),
+          throwsA(isA<MoveGuardError>()),
+        );
+        // Month under a DIFFERENT date's year.
+        expect(
+          () async => appliers.apply(envelope(
+                id: envId(),
+                opType: 'object.move',
+                payload: OperationPayloads.objectMove(
+                  objectId: month,
+                  parentId: otherYear,
+                ),
+                physical: 7,
+              )),
+          throwsA(isA<MoveGuardError>()),
+        );
+
+        final dayNode = await cache.getByUuid(day);
+        expect(dayNode!.parentUuid, month);
+        final monthNode = await cache.getByUuid(month);
+        expect(monthNode!.parentUuid, year);
+
+        // A non-date node still moves freely.
+        const blockUuid = '00000000-0000-0000-0000-000000000902';
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: blockUuid,
+            parentId: pageUuid,
+          ),
+          physical: 8,
+        ));
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.move',
+          payload: OperationPayloads.objectMove(
+            objectId: blockUuid,
+            parentId: null,
+          ),
+          physical: 9,
+        ));
+        expect((await cache.getByUuid(blockUuid))!.parentUuid, isNull);
+      });
+
+      test('object.move onto the chain-correct parent stays legal', () async {
+        // All three created parentless (the tolerated standalone shape), then
+        // healed onto the chain by exactly the moves the guard permits.
+        for (final entry in [
+          (year, SystemClassUuids.year),
+          (month, SystemClassUuids.month),
+          (day, SystemClassUuids.day),
+        ]) {
+          await appliers.apply(envelope(
+            id: envId(),
+            opType: 'object.create',
+            payload: OperationPayloads.objectCreate(
+              objectId: entry.$1,
+              classIds: [entry.$2],
+            ),
+          ));
+        }
+        var physical = 2;
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.move',
+          payload: OperationPayloads.objectMove(objectId: year, parentId: null),
+          physical: physical++,
+        ));
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.move',
+          payload: OperationPayloads.objectMove(objectId: month, parentId: year),
+          physical: physical++,
+        ));
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.move',
+          payload: OperationPayloads.objectMove(objectId: day, parentId: month),
+          physical: physical++,
+        ));
+
+        expect((await cache.getByUuid(year))!.parentUuid, isNull);
+        expect((await cache.getByUuid(month))!.parentUuid, year);
+        expect((await cache.getByUuid(day))!.parentUuid, month);
+      });
+
+      test('object.create placement: only the chain parent, or none',
+          () async {
+        await createPage();
+
+        // Claiming a non-chain parent fails loud.
+        expect(
+          () async => appliers.apply(envelope(
+                id: envId(),
+                opType: 'object.create',
+                payload: OperationPayloads.objectCreate(
+                  objectId: day,
+                  parentId: pageUuid,
+                  classIds: [SystemClassUuids.day],
+                ),
+                physical: 2,
+              )),
+          throwsA(isA<MoveGuardError>()),
+        );
+        expect(await cache.getByUuid(day), isNull);
+
+        // The full chain at its deterministic parents is legal.
+        await createChain();
+        final yearNode = await cache.getByUuid(year);
+        expect(yearNode!.parentUuid, isNull);
+        expect(yearNode.classesUuid, [SystemClassUuids.year]);
+        final monthNode = await cache.getByUuid(month);
+        expect(monthNode!.parentUuid, year);
+        expect(monthNode.classesUuid, [SystemClassUuids.month]);
+        final dayNode = await cache.getByUuid(day);
+        expect(dayNode!.parentUuid, month);
+        expect(dayNode.classesUuid, [SystemClassUuids.day]);
+
+        // A parentless create is the standalone shape the chain self-heal
+        // adopts — legal.
+        final standaloneDay = dateToDayUuid(DateTime(2026, 3, 15));
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: standaloneDay,
+            classIds: [SystemClassUuids.day],
+          ),
+          physical: 5,
+        ));
+        final standalone = await cache.getByUuid(standaloneDay);
+        expect(standalone, isNotNull);
+        expect(standalone!.parentUuid, isNull);
+        expect(standalone.classesUuid, [SystemClassUuids.day]);
+      });
+
+      test('object.create classIds: locked to the precision system class',
+          () async {
+        await createChain();
+
+        // A foreign classId on a fresh date id fails loud.
+        final otherDay = dateToDayUuid(DateTime(2026, 3, 15));
+        expect(
+          () async => appliers.apply(envelope(
+                id: envId(),
+                opType: 'object.create',
+                payload: OperationPayloads.objectCreate(
+                  objectId: otherDay,
+                  classIds: [SystemClassUuids.task],
+                ),
+                physical: 5,
+              )),
+          throwsA(isA<MoveGuardError>()),
+        );
+        expect(await cache.getByUuid(otherDay), isNull);
+
+        // A re-issued create on an EXISTING date node carrying a foreign
+        // class fails loud too — the guard runs before the OR-Set seeding
+        // and the first-create-wins early return (the class.assign carrier
+        // this client has no dedicated op for).
+        expect(
+          () async => appliers.apply(envelope(
+                id: envId(),
+                opType: 'object.create',
+                payload: OperationPayloads.objectCreate(
+                  objectId: day,
+                  parentId: month,
+                  classIds: [SystemClassUuids.task],
+                ),
+                physical: 6,
+              )),
+          throwsA(isA<MoveGuardError>()),
+        );
+        expect(
+          (await cache.getByUuid(day))!.classesUuid,
+          [SystemClassUuids.day],
+        );
+
+        // Re-adding its OWN system class rides the carrier legally.
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: day,
+            parentId: month,
+            classIds: [SystemClassUuids.day],
+          ),
+          physical: 7,
+        ));
+        expect(
+          (await cache.getByUuid(day))!.classesUuid,
+          contains(SystemClassUuids.day),
+        );
+      });
+
+      test('class.unassign: the precision system class never removes, '
+          'foreign cleanup stays legal', () async {
+        await createChain();
+
+        expect(
+          () async => appliers.apply(envelope(
+                id: envId(),
+                opType: 'class.unassign',
+                payload: OperationPayloads.classUnassign(
+                  objectId: day,
+                  classId: SystemClassUuids.day,
+                ),
+                physical: 5,
+              )),
+          throwsA(isA<MoveGuardError>()),
+        );
+        expect(
+          (await cache.getByUuid(day))!.classesUuid,
+          [SystemClassUuids.day],
+        );
+
+        // Unassigning a FOREIGN class is legacy cleanup — legal.
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'class.unassign',
+          payload: OperationPayloads.classUnassign(
+            objectId: day,
+            classId: SystemClassUuids.task,
+          ),
+          physical: 6,
+        ));
+        expect(
+          (await cache.getByUuid(day))!.classesUuid,
+          [SystemClassUuids.day],
+        );
+      });
+
+      test('class.create on a date id fails loud (fresh and conversion)',
+          () async {
+        await createChain();
+
+        expect(
+          () async => appliers.apply(envelope(
+                id: envId(),
+                opType: 'class.create',
+                payload: OperationPayloads.classCreate(
+                  classId: day,
+                  name: 'Not a class',
+                ),
+                physical: 5,
+              )),
+          throwsA(isA<MoveGuardError>()),
+        );
+        // The conversion flip never ran.
+        expect((await cache.getByUuid(day))!.isClass, isFalse);
+      });
     });
 
     test('moving an inline block to the workspace root is legal (parentless '

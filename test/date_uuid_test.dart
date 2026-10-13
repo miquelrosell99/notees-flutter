@@ -43,5 +43,40 @@ void main() {
       expect(journalDateFromUuid('00000000-0000-0000-0001-000000000001'), isNull);
       expect(journalDateFromUuid('not-a-uuid'), isNull);
     });
+
+    test('dateChainParentId round-trips with the encoders', () {
+      final day = dateToDayUuid(DateTime(2026, 8, 9));
+      final month = dateToMonthUuid(DateTime(2026, 8, 9));
+      final year = dateToYearUuid(DateTime(2026, 8, 9));
+      expect(dateChainParentId(day), month);
+      expect(dateChainParentId(month), year);
+      // The year node is locked to the workspace root.
+      expect(dateChainParentId(year), isNull);
+    });
+
+    test('dateChainClassId returns the precision system class', () {
+      expect(
+        dateChainClassId(dateToDayUuid(DateTime(2026, 8, 9))),
+        '00000000-0000-0000-0001-000000000005',
+      );
+      expect(
+        dateChainClassId(dateToMonthUuid(DateTime(2026, 8, 9))),
+        '00000000-0000-0000-0001-000000000004',
+      );
+      expect(
+        dateChainClassId(dateToYearUuid(DateTime(2026, 8, 9))),
+        '00000000-0000-0000-0001-000000000003',
+      );
+    });
+
+    test('dateChain helpers return null for non-date ids', () {
+      expect(
+        dateChainParentId('00000000-0000-0000-0001-000000000001'),
+        isNull,
+      );
+      expect(dateChainParentId('not-a-uuid'), isNull);
+      expect(dateChainClassId('00000000-0000-0000-0001-000000000001'), isNull);
+      expect(dateChainClassId('not-a-uuid'), isNull);
+    });
   });
 }
