@@ -4,6 +4,8 @@
 /// journals resolve to the same UUID on every client.
 library;
 
+import '../constants/system.dart';
+
 String _pad4(int value) => value.toString().padLeft(4, '0');
 
 String _pad2(int value) => value.toString().padLeft(2, '0');
@@ -116,6 +118,39 @@ class ParsedDateNodeId {
 
 const _dateUuidMinYear = 1900;
 const _dateUuidMaxYear = 2200;
+
+/// The parent a date-chain node is LOCKED to (SCHEMA.md "Datetime", owner
+/// 2026-10-13): year → null (workspace root), month → its year node,
+/// day → its month node; null for a non-date id.
+String? dateChainParentId(String id) {
+  final parsed = parseDateNodeId(id);
+  if (parsed == null) return null;
+  final date = DateTime(parsed.year, parsed.month, parsed.day);
+  switch (parsed.precision) {
+    case DateNodePrecision.year:
+      return null;
+    case DateNodePrecision.month:
+      return dateToYearUuid(date);
+    case DateNodePrecision.day:
+      return dateToMonthUuid(date);
+  }
+}
+
+/// The ONE system class a date-chain node may carry — its class set is
+/// locked: year/month/day by precision (SystemClassUuids); null for a
+/// non-date id.
+String? dateChainClassId(String id) {
+  final parsed = parseDateNodeId(id);
+  if (parsed == null) return null;
+  switch (parsed.precision) {
+    case DateNodePrecision.year:
+      return SystemClassUuids.year;
+    case DateNodePrecision.month:
+      return SystemClassUuids.month;
+    case DateNodePrecision.day:
+      return SystemClassUuids.day;
+  }
+}
 
 /// Legacy `parse_date_uuid` port (monorepo `packages/domain/src/dates.ts`
 /// `parseDateNodeId`): extract precision + date components from a date-node

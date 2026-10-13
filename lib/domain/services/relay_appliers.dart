@@ -205,6 +205,24 @@ class RelayAppliers {
     final parentId = payload['parentId'] as String?;
     final afterId = payload['afterId'] as String?;
     final beforeId = payload['beforeId'] as String?;
+    // Date-chain class lock (SCHEMA.md "Datetime", 2026-10-13 lockstep): a
+    // date node's class set is FIXED to its precision's system class. The
+    // re-issued object.create is the OR-Set add carrier (this client has no
+    // class.assign op; class.assign rides the create, also on an existing
+    // id), so the guard runs BEFORE the membership seeding and the
+    // first-create-wins early return below.
+    final lockedDateClass = dateChainClassId(objectId);
+    if (lockedDateClass != null) {
+      for (final classId in _readStringList(payload['classIds'])) {
+        if (classId != lockedDateClass) {
+          throw MoveGuardError(
+            '$opType: node $objectId is a date-chain node; it can only '
+            'carry the $lockedDateClass system class',
+            opType,
+          );
+        }
+      }
+    }
     // Render bit (Revision 11): the payload may carry presentAsMain; the
     // applier defaults it by placement — a parentless node presents as main
     // (document chrome by the second cascade branch), a parented one starts
@@ -227,6 +245,22 @@ class RelayAppliers {
           opType,
         );
       }
+    }
+
+    // Date-chain parenting lock (SCHEMA.md "Datetime", same rule as
+    // object.move, with one birth-time exception): a date id may only be
+    // created AT its deterministic chain parent (year → root, month → year,
+    // day → month). Claiming any other parent is establishing an illegal
+    // parented state and fails loud; a parentless create is the standalone
+    // shape the client chain self-heal adopts, so it stays legal.
+    if (parentId != null &&
+        parseDateNodeId(objectId) != null &&
+        parentId != dateChainParentId(objectId)) {
+      throw MoveGuardError(
+        '$opType: node $objectId is a date-chain node; it can only be '
+        'created at its deterministic chain parent',
+        opType,
+      );
     }
 
     // Seed OR-Set membership first: a re-issued create is the membership
@@ -576,8 +610,10 @@ class RelayAppliers {
 
     // Placement guards fail loud, mirroring object.create: the parent must
     // exist (a class parent is legal — classes are containers of non-class
-    // children, spec I4), and a node may never move under itself or its own
-    // descendant (parent_id cycle). A parentless non-class node is legal
+    // children, spec I4), a node may never move under itself or its own
+    // descendant (parent_id cycle), and a DATE-CHAIN node may only move
+    // under its deterministic chain parent (SCHEMA.md "Datetime" — the
+    // parenting lock). A parentless non-class node is legal
     // too: it renders with document chrome by the second cascade branch
     // regardless of present_as_main.
     if (parentId != null) {
@@ -602,6 +638,21 @@ class RelayAppliers {
           opType,
         );
       }
+    }
+
+    // Date-chain parenting lock (SCHEMA.md "Datetime", 2026-10-13 lockstep):
+    // a date node may ONLY live under its deterministic chain parent
+    // (year → root, month → year, day → month). The chain self-heal
+    // re-issues exactly this move, so the chain-correct parent stays legal;
+    // any other target — including parentless for month/day — is a
+    // reparenting attempt and fails loud.
+    if (parseDateNodeId(objectId) != null &&
+        parentId != dateChainParentId(objectId)) {
+      throw MoveGuardError(
+        '$opType: node $objectId is a date-chain node; its parent is '
+        'locked to the deterministic chain parent',
+        opType,
+      );
     }
 
     final incoming = _incoming(envelope);
@@ -1053,7 +1104,18 @@ class RelayAppliers {
     OperationEnvelope envelope,
     Map<String, dynamic> payload,
   ) async {
+    final opType = envelope.opType;
     final classId = payload['classId'] as String;
+    // Date-chain class lock (SCHEMA.md "Datetime", 2026-10-13 lockstep): a
+    // date node is a journal entry, never a class — declaring it one (fresh
+    // or the conversion flip) would sever its identity.
+    if (parseDateNodeId(classId) != null) {
+      throw MoveGuardError(
+        '$opType: node $classId is a date-chain node; it can never be '
+        'declared a class',
+        opType,
+      );
+    }
     final existing = await _cache.getClassByUuid(classId);
     // Registry `name` is a denormalized cache of the class node's title
     // text. Absent fields PRESERVE on re-declaration (the upsert used to
@@ -1306,6 +1368,18 @@ class RelayAppliers {
     final classId = payload['classId'] as String;
     if (await _cache.getByUuid(objectId) == null) {
       throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
+    }
+    // Date-chain class lock (SCHEMA.md "Datetime", 2026-10-13 lockstep): the
+    // precision's system class IS the date node's identity — removing it is
+    // illegal. Unassigning a FOREIGN class stays legal: it cleans up a
+    // legacy violation rather than freezing one.
+    final lockedDateClass = dateChainClassId(objectId);
+    if (lockedDateClass != null && classId == lockedDateClass) {
+      throw MoveGuardError(
+        '$opType: node $objectId is a date-chain node; its $classId '
+        'system class cannot be removed',
+        opType,
+      );
     }
     // OR-Set remove: the membership pair is tombstoned, gated strictly
     // greater on (hlc, logical, actor) — an exact-HLC add wins the tie in

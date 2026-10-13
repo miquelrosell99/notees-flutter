@@ -6,6 +6,39 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-13
+
+- **feat(store): date-chain parent+class locks — the Flutter port of the
+  monorepo's parent-lock/class-lock slice (TS a35bb7c5), clearing the
+  LOCKSTEP-PENDING marker in the main repo's `SCHEMA.md`.** A date node's
+  parent IS its deterministic chain parent (year at the workspace root,
+  month under its year, day under its month) and its class set IS its
+  precision's system class — nothing else, never declared a class itself.
+  The guards land in `RelayAppliers`, matching the TS appliers' semantics
+  and error wording exactly so all three clients reject alike: `object.move`
+  with any other parent (parentless included for month/day) fails loud
+  BEFORE the row-LWW gate; `object.create` claiming a non-chain parent fails
+  after the parent-existence check, while a parentless create stays legal
+  (the standalone shape the chain self-heal adopts); `object.create`'s
+  classIds guard runs at the top of the applier — BEFORE the OR-Set
+  membership seeding and the first-create-wins early return — so the
+  re-issued-create carrier (this client has no `class.assign` op) cannot
+  sneak a foreign class onto a date id; `class.unassign` of the precision's
+  system class fails loud (foreign-class unassign stays legal as legacy
+  cleanup); `class.create` on a date id fails loud before the conversion
+  flip. All five throw the existing `MoveGuardError`, so the sync service's
+  `on StoreError` quarantine/skip-and-continue paths apply unchanged. New
+  domain helpers `dateChainParentId` / `dateChainClassId` in
+  `lib/core/utils/date_uuid.dart` derive the locked parent/class from the
+  date id via the existing deterministic encoders (the 1900..2200-window
+  `parseDateNodeId`, not the legacy-prefix `journalDateFromUuid`). Tests:
+  date_uuid unit round-trips + a full guard matrix in
+  `test/relay_appliers_test.dart` (rejected moves create nothing, chain-
+  correct moves/creates stay legal, the re-issued-create foreign-class
+  rejection, foreign-class unassign legal). No wire change — the vendored
+  fixtures are untouched. Verification: `flutter analyze` clean, `flutter
+  test` green.
+
 ## 2026-10-09
 
 - **feat(packaging): the repo ships an Arch Linux PKGBUILD for the Linux
