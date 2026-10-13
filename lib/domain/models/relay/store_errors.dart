@@ -28,8 +28,11 @@ class CheckConstraintError extends StoreError {
   final String? constraint;
 }
 
-/// Cross-row tree guard: a class node can never be a parent, and a node may
-/// never move under itself or its own descendant.
+/// Structural guard: a class node can never be a parent, a date-chain
+/// node's structure is FIXED — its parent is the deterministic chain parent,
+/// its class set is its precision's system class (never declared a class
+/// itself, SCHEMA.md "Datetime") — and a node may never move under itself or
+/// its own descendant.
 class MoveGuardError extends StoreError {
   const MoveGuardError(super.message, [super.opType]);
 }
