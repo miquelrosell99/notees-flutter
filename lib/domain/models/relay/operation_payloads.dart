@@ -2,7 +2,7 @@
 /// Notees relay protocol v2.
 ///
 /// This is the Dart port of `packages/protocol/src/op-types.ts` — the
-/// op registry (18 op types). Factories return plain JSON maps for direct
+/// op registry. Factories return plain JSON maps for direct
 /// storage in an [OperationEnvelope.payload]; every factory validates its
 /// output through [validatePayload] before returning, so producers fail loud
 /// at build time instead of earning a 422 `validation_failed` at relay
@@ -68,6 +68,7 @@ class OperationPayloads {
     'object.delete',
     'object.restore',
     'object.move',
+    'trash.empty',
     'class.create',
     'class.update',
     'class.delete',
@@ -234,6 +235,12 @@ class OperationPayloads {
       _validated('object.restore', {
         'objectId': objectId,
       });
+
+  /// Empty-trash carrier (2026-10-14 lockstep): the payload is a strict
+  /// empty object — any key is rejected like the relay's 422 gate. The op
+  /// permanently deletes every soft-trashed root at apply time (the apply-
+  /// time trash set, not the payload, names the victims).
+  static Map<String, dynamic> trashEmpty() => _validated('trash.empty', {});
 
   /// [parentId] null means workspace root and is legal for any non-class
   /// node (a parentless node renders with document chrome by the second
@@ -743,6 +750,8 @@ class OperationPayloads {
         _uuid(payload, 'parentId', nullable: true);
         _uuid(payload, 'afterId', required: false);
         _uuid(payload, 'beforeId', required: false);
+      case 'trash.empty':
+        _strict(payload, <String>{});
       case 'class.create':
         _strict(payload, {'classId', 'contentAst', 'icon', 'color', 'description'});
         _uuid(payload, 'classId');

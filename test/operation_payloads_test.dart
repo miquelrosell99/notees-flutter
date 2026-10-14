@@ -249,6 +249,20 @@ void main() {
       expect(payload['permanent'], isFalse);
     });
 
+    test('trash.empty is a strict empty object: the factory emits {}, any '
+        'key is rejected', () {
+      final payload = OperationPayloads.trashEmpty();
+      expect(payload, isEmpty);
+      expect(() => OperationPayloads.validatePayload('trash.empty', payload),
+          returnsNormally);
+      expect(OperationPayloads.isKnownOpType('trash.empty'), isTrue);
+      expect(
+        () => OperationPayloads.validatePayload(
+            'trash.empty', {'objectId': objectId}),
+        throwsFormatException,
+      );
+    });
+
     test('object.move keeps a null parentId (workspace root; parentless '
         'non-class nodes render with document chrome)', () {
       final payload =

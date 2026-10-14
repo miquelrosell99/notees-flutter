@@ -44,6 +44,7 @@ void main() {
     'object-move-before.json',
     'object-move.json',
     'object-restore.json',
+    'trash-empty.json',
     'object-wire-fields.json',
     'property-asset-type.json',
     'property-date-qualifier.json',

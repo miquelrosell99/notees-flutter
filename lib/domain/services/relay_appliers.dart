@@ -64,6 +64,11 @@ import '../models/relay/workspace_features.dart';
 ///    five managed class families (F2 absent-row=ON, F3 keep-data, F4
 ///    class.delete-on-a-base routes to the toggle; the tasks enable authors
 ///    the task family at the fixed seed ids on every enable payload);
+///  - trash.empty (2026-10-14 lockstep) permanently deletes every node
+///    carrying a non-permanent trash_root row through the same hard-delete
+///    body as `object.delete {permanent: true}`; the root set is an
+///    apply-time snapshot (restore-before-empty survives, log order
+///    otherwise), a consumed or nodeless row is swept, never fatal;
 ///  - appliers fail loud with typed [StoreError]s and never swallow a write
 ///    silently. Envelope-id idempotency lives in the sync service
 ///    (relay_operations dedupe), mirroring applied_envelope in the TS store.
@@ -93,8 +98,12 @@ class RelayAppliers {
     // Ops without a target (e.g. `plugin.op`) have no local derived
     // representation and are intentionally ignored. `workspace.feature.set`
     // is the one target-less op WITH a derived representation (the
-    // workspace_feature row): it routes by op type below.
-    if (objectId.isEmpty && envelope.opType != 'workspace.feature.set') {
+    // workspace_feature row): it routes by op type below, as does
+    // `trash.empty` (its victims are the apply-time trash set, not a
+    // payload objectId).
+    if (objectId.isEmpty &&
+        envelope.opType != 'workspace.feature.set' &&
+        envelope.opType != 'trash.empty') {
       return false;
     }
 
@@ -123,6 +132,8 @@ class RelayAppliers {
         return _applyRestore(envelope, objectId, payload);
       case 'object.move':
         return _applyMove(envelope, objectId, payload);
+      case 'trash.empty':
+        return _applyTrashEmpty(envelope);
       case 'property.set':
         return _applyPropertySet(envelope, objectId, payload);
       case 'property.unset':
@@ -531,6 +542,34 @@ class RelayAppliers {
     // Permanent delete: hard-delete the subtree and its derived rows.
     await _cache.hardDelete(objectId);
     return true;
+  }
+
+  /// Empties the trash (the trash.empty op, 2026-10-14 lockstep):
+  /// permanently deletes every node carrying a non-permanent trash_root
+  /// row. The root set is SNAPSHOT at apply time, ordered by node_id for
+  /// determinism; each root goes through the SAME hard-delete body as
+  /// `object.delete {permanent: true}` (NodeCacheRepository.hardDelete —
+  /// this store's permanent delete purges trash_root rows instead of
+  /// recording the TS reference's is_permanent = 1 tombstone, and the
+  /// empty mirrors that established end state, tombstone bookkeeping
+  /// included). A root consumed by an earlier iteration's subtree (an
+  /// independently-trashed descendant inside another root's tree) has no
+  /// node row left and is skipped; a stale non-permanent row with no node
+  /// row (legacy dangling state) is swept instead of failing replay.
+  /// Replay is idempotent: an empty trash table no-ops. Concurrency is
+  /// plain log order, nothing special: an object.restore landing BEFORE
+  /// the empty removes the node from the apply-time set (it survives);
+  /// one landing AFTER is LWW against the delete.
+  Future<bool> _applyTrashEmpty(OperationEnvelope envelope) async {
+    final roots = await _cache.nonPermanentTrashRootIds();
+    for (final root in roots) {
+      if (await _cache.getByUuid(root) == null) {
+        await _cache.consumeTrashRoot(root);
+        continue;
+      }
+      await _cache.hardDelete(root);
+    }
+    return roots.isNotEmpty;
   }
 
   Future<bool> _applyRestore(
