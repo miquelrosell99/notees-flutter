@@ -729,6 +729,131 @@ void main() {
       );
     });
 
+    var idCounter = 0;
+
+    String nodeId(String rootSuffix, String suffix) =>
+        '00000000-0000-0000-0000-'
+        '${'$rootSuffix$suffix'.padLeft(12, '0')}';
+
+    String envId() =>
+        '0192a000-0000-7000-8000-${(++idCounter).toString().padLeft(12, '0')}';
+
+    Future<void> seedTree(
+      String rootSuffix,
+      List<(String, String?)> nodes,
+    ) async {
+      for (final (suffix, parent) in nodes) {
+        await appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: nodeId(rootSuffix, suffix),
+            parentId: parent == null ? null : nodeId(rootSuffix, parent),
+          ),
+        ));
+      }
+    }
+
+    Future<void> softDelete(String rootSuffix, String suffix, int physical) =>
+        appliers.apply(envelope(
+          id: envId(),
+          opType: 'object.delete',
+          payload: OperationPayloads.objectDelete(
+            objectId: nodeId(rootSuffix, suffix),
+          ),
+          physical: physical,
+        ));
+
+    Future<bool> trashEmpty(int physical) => appliers.apply(envelope(
+          id: envId(),
+          opType: 'trash.empty',
+          payload: OperationPayloads.trashEmpty(),
+          physical: physical,
+        ));
+
+    test('trash.empty hard-deletes every soft-trashed root, including an '
+        'independently-trashed descendant inside one root\'s subtree',
+        () async {
+      // Root page + child + a sibling subtree; the child is soft-deleted
+      // on its own BEFORE the root, so it carries its own trash_root row
+      // inside the root's subtree.
+      await seedTree('30', [
+        ('0', null), // root page
+        ('1', '0'), // child (independently trashed below)
+        ('2', '0'), // sibling subtree root
+        ('3', '2'), // sibling child
+      ]);
+      await softDelete('30', '1', 2);
+      await softDelete('30', '0', 3);
+      await softDelete('30', '2', 4);
+
+      expect(await trashEmpty(5), isTrue);
+
+      for (final suffix in ['0', '1', '2', '3']) {
+        expect(
+          await cache.getByUuid(nodeId('30', suffix)),
+          isNull,
+          reason: 'node $suffix',
+        );
+      }
+      expect(
+        await cache.trashRootIds([
+          nodeId('30', '0'),
+          nodeId('30', '1'),
+          nodeId('30', '2'),
+        ]),
+        isEmpty,
+      );
+    });
+
+    test('trash.empty keeps a restore-before-empty survivor; the second '
+        'apply is an idempotent no-op', () async {
+      await seedTree('31', [
+        ('0', null),
+        ('1', null),
+      ]);
+      await softDelete('31', '0', 2);
+      await softDelete('31', '1', 3);
+      // Restore node 0 BEFORE the empty: it leaves the apply-time set.
+      await appliers.apply(envelope(
+        id: envId(),
+        opType: 'object.restore',
+        payload: OperationPayloads.objectRestore(objectId: nodeId('31', '0')),
+        physical: 4,
+      ));
+
+      expect(await trashEmpty(5), isTrue);
+      expect((await cache.getByUuid(nodeId('31', '0')))!.isArchived, isFalse);
+      expect(await cache.getByUuid(nodeId('31', '1')), isNull);
+
+      // Second apply: the trash table is empty — nothing happens, and the
+      // survivor is untouched.
+      expect(await trashEmpty(6), isFalse);
+      expect((await cache.getByUuid(nodeId('31', '0')))!.isArchived, isFalse);
+      expect(await cache.getByUuid(nodeId('31', '1')), isNull);
+    });
+
+    test('trash.empty sweeps a stale trash row with no node row instead '
+        'of failing replay', () async {
+      await seedTree('32', [
+        ('0', null),
+        ('1', null),
+      ]);
+      await softDelete('32', '0', 2);
+      await softDelete('32', '1', 3);
+      // Legacy dangling state: node 0's row disappears while its
+      // trash_root row stays (node 1 is the real victim).
+      await cache.deleteByUuid(nodeId('32', '0'));
+
+      expect(await trashEmpty(4), isTrue);
+      expect(await cache.getByUuid(nodeId('32', '1')), isNull);
+      expect(
+        await cache.trashRootIds([nodeId('32', '0')]),
+        isEmpty,
+        reason: 'the dangling row was swept, not left behind',
+      );
+    });
+
     test('number formats round-trip; update keeps absent and clears explicit null', () async {
       const schemaUuid = '00000000-0000-0000-0000-0000000004f1';
       await appliers.apply(envelope(

@@ -854,6 +854,41 @@ void main() {
       );
     });
 
+    test('trash-empty hard-deletes every soft-trashed root; the restored '
+        'page survives with no trash row', () async {
+      // trash-empty.json: A (...f3) + child (...f4), B (...f5) + child
+      // (...f6), C (...f7). A, then independently A's child, then B and C
+      // are soft-deleted; C is restored; trash.empty lands last.
+      const a = '0192a000-0000-7000-8000-0000000000f3';
+      const aChild = '0192a000-0000-7000-8000-0000000000f4';
+      const b = '0192a000-0000-7000-8000-0000000000f5';
+      const bChild = '0192a000-0000-7000-8000-0000000000f6';
+      const c = '0192a000-0000-7000-8000-0000000000f7';
+      for (final envelope in fixtureEnvelopes('trash-empty.json')) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+
+      // A and B went with their whole subtrees — the independently-trashed
+      // child inside A's tree is consumed by A's purge, exactly the TS
+      // reference's end state.
+      for (final id in [a, aChild, b, bChild]) {
+        expect(await cache.getByUuid(id), isNull, reason: id);
+      }
+      // C was restored BEFORE the empty: it survives, active, with no
+      // trash_root row.
+      final restored = await cache.getByUuid(c);
+      expect(restored, isNotNull);
+      expect(restored!.isArchived, isFalse);
+      // No non-permanent trash rows remain for any fixture id (this store
+      // purges trash_root rows on a permanent delete instead of
+      // tombstoning — the documented tombstone-bookkeeping divergence).
+      final rows = await raw(
+        'SELECT node_id FROM trash_root WHERE node_id IN (?, ?, ?, ?, ?)',
+        [a, aChild, b, bChild, c],
+      );
+      expect(rows, isEmpty);
+    });
+
     test('typed-link mark then deleted lands the final content', () async {
       await seedBaseWithBlock();
       for (final name in ['typed-link-mark.json', 'typed-link-mark-deleted.json']) {
