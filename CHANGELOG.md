@@ -6,6 +6,30 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-14
+
+- **feat(protocol): `trash.empty` bulk op — the Flutter lockstep port of
+  the monorepo's additive wire change (envelope v3, no protocol bump).**
+  The payload is a strict empty object (any key rejects like the relay's
+  422 gate), the op joins the registry, and the applier permanently
+  deletes every node carrying a non-permanent `trash_root` row: the root
+  set is an apply-time snapshot ordered by node_id, each root goes
+  through the same `NodeCacheRepository.hardDelete` body as
+  `object.delete {permanent: true}`, a root consumed by an earlier
+  iteration's subtree (an independently-trashed descendant) or a stale
+  nodeless row is swept, never fatal, and a second apply over an empty
+  trash no-ops. Concurrency is plain log order: a restore landing before
+  the empty leaves the apply-time set (survivor), one landing after is
+  LWW against the delete. Tombstone bookkeeping stays this store's
+  established permanent-delete behavior — hard-delete PURGES `trash_root`
+  rows rather than recording the TS reference's `is_permanent = 1`
+  tombstone — per the pre-existing divergence, not a new retention
+  behavior. The `trash-empty.json` fixture is byte-identical to the
+  monorepo corpus (sha256-verified) and is covered by the parity gate,
+  a dedicated replay assertion (A/B and their children hard-deleted, the
+  restored C active with no trash row), per-op applier tests, and the
+  all-fixtures replay sweep.
+
 ## 2026-10-13
 
 - **feat(store): date-chain parent+class locks — the Flutter port of the

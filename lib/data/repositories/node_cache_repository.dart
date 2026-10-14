@@ -432,6 +432,19 @@ class NodeCacheRepository {
     await db.delete('trash_root', where: 'node_id = ?', whereArgs: [nodeId]);
   }
 
+  /// The apply-time victim set for `trash.empty`: every trash_root row
+  /// with is_permanent = 0 (a permanent delete never lands here — this
+  /// store's hard-delete PURGES trash_root rows instead of recording the
+  /// TS reference's is_permanent = 1 tombstone), ordered by node_id for
+  /// deterministic replay.
+  Future<List<String>> nonPermanentTrashRootIds() async {
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      'SELECT node_id FROM trash_root WHERE is_permanent = 0 ORDER BY node_id',
+    );
+    return rows.map((r) => r['node_id'] as String).toList();
+  }
+
   /// Restores the local node cache from a server-derived snapshot byte
   /// payload.
   ///
