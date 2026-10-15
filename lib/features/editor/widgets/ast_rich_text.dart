@@ -14,7 +14,7 @@ import '../../../core/utils/color_presets.dart';
 ///  - `mention`: [resolveName]'s current target name wins (auto-rename
 ///    free), then the raw target id — the captured `text` is
 ///    non-authoritative; `displayText` overrides both;
-///  - `class_chip`: render-only — `displayText` ?? resolved class name ??
+///  - `class_link`: render-only — `displayText` ?? resolved class name ??
 ///    raw class id; chips never mutate class assignments;
 ///  - `typed_link`: the marked word renders underlined with the verb (free
 ///    string or property-schema binding) carried in semantics;
@@ -143,7 +143,7 @@ class AstRichText extends StatelessWidget {
                 : colors.onPrimaryContainer,
           ),
         ];
-      case 'class_chip':
+      case 'class_link':
         final classId = token['classId'] as String? ?? '';
         final label = token['displayText'] as String? ?? _resolve(classId);
         return [

@@ -39,7 +39,7 @@ sealed class ContentToken {
       'text' => TextToken.fromJson(json),
       'typed_link' => TypedLinkToken.fromJson(json),
       'mention' => MentionToken.fromJson(json),
-      'class_chip' => ClassChipToken.fromJson(json),
+      'class_link' => ClassLinkToken.fromJson(json),
       'external_link' => ExternalLinkToken.fromJson(json),
       'math' => MathToken.fromJson(json),
       'hard_break' => const HardBreakToken(),
@@ -213,23 +213,23 @@ class MentionToken extends ContentToken {
 
 /// RENDER-ONLY reference to a class node: inserting or deleting a chip does
 /// NOT mutate the block's class ids (owner decision, 2026-09-25).
-class ClassChipToken extends ContentToken {
-  const ClassChipToken({required this.classId, this.displayText});
+class ClassLinkToken extends ContentToken {
+  const ClassLinkToken({required this.classId, this.displayText});
 
   final String classId;
   final String? displayText;
 
   @override
-  String get type => 'class_chip';
+  String get type => 'class_link';
 
   @override
   Map<String, dynamic> toJson() => {
-    'type': 'class_chip',
+    'type': 'class_link',
     'classId': classId,
     if (displayText != null) 'displayText': displayText,
   };
 
-  factory ClassChipToken.fromJson(Map<String, dynamic> json) => ClassChipToken(
+  factory ClassLinkToken.fromJson(Map<String, dynamic> json) => ClassLinkToken(
     classId: json['classId'] as String? ?? '',
     displayText: json['displayText'] as String?,
   );
