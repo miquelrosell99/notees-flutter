@@ -8,6 +8,22 @@ lives in git history.
 
 ## 2026-10-15
 
+- **feat(appliers): the no-divergence law — content-asserted membership,
+  the class.unassign content lock, and the class-delete membership sweep
+  (Flutter lockstep port of the monorepo's 2026-10-15 slice).** A
+  `class_link` token in a stored content stream IS a classing of its node:
+  the object create/update appliers OR-set-add the referenced classes (any
+  writer converges; document-chrome content still flattens, date-chain
+  nodes keep their fixed class). `class.unassign` refuses loud while the
+  stored content references the class (the removal gesture strips the links
+  first). Deleting a class node (trash or permanent, and trash.empty)
+  sweeps its memberships — trash tombstones the pairs, permanent purges
+  them — via the new `NodeCacheRepository.sweepClassMembership`. The
+  vendored wire corpus gains `class-link-assertion.json`. **Verification:**
+  `flutter test` — all 638 tests pass.
+
+## 2026-10-15
+
 - **refactor(protocol)!: `class_chip` → `class_link` — the Flutter lockstep
   port of the monorepo's 2026-10-15 rename.** The render-only inline class
   reference (a node link, class variant — wavy underline, no membership

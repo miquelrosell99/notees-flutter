@@ -1380,6 +1380,38 @@ class NodeCacheRepository {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// The no-divergence law's deletion arm (owner ruling 2026-10-15 lockstep):
+  /// a deleted class leaves every node's class list. [purge] deletes the
+  /// membership rows outright (permanent delete / trash.empty); otherwise
+  /// the pairs are tombstoned (trash — restore brings the class node back).
+  /// Returns the affected node ids so callers can recompute their lists.
+  Future<List<String>> sweepClassMembership(String classId,
+      {required bool purge}) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'class_member_set',
+      columns: ['node_uuid'],
+      where: 'class_id = ? AND present = 1',
+      whereArgs: [classId],
+    );
+    final members = rows.map((r) => r['node_uuid'] as String).toList();
+    if (purge) {
+      await db.delete(
+        'class_member_set',
+        where: 'class_id = ?',
+        whereArgs: [classId],
+      );
+    } else {
+      await db.update(
+        'class_member_set',
+        {'present': 0},
+        where: 'class_id = ?',
+        whereArgs: [classId],
+      );
+    }
+    return members;
+  }
+
   /// Recomputes [uuid]'s class list from the membership OR-Set's present
   /// rows and refreshes the class-derived flags. User order
   /// (node_cache.class_order, written by class.reorder) wins: ordered

@@ -207,6 +207,30 @@ class RelayAppliers {
 
   // --- objects ----------------------------------------------------------------
 
+
+/// Content-asserted membership (the no-divergence law, owner ruling
+/// 2026-10-15): every `class_link` token in a stored content stream IS a
+/// classing of its node — the object appliers apply the OR-set add, so any
+/// writer converges. Deep walk (tokens nest in quote/heading children).
+List<String> _contentClassLinkIds(dynamic tokens) {
+  final found = <String>[];
+  final seen = <String>{};
+  void walk(dynamic ts) {
+    if (ts is! List) return;
+    for (final token in ts) {
+      if (token is! Map) continue;
+      if (token['type'] == 'class_link') {
+        final classId = token['classId'];
+        if (classId is String && seen.add(classId)) found.add(classId);
+      }
+      walk(token['children']);
+    }
+  }
+
+  walk(tokens);
+  return found;
+}
+
   Future<bool> _applyCreate(
     OperationEnvelope envelope,
     String objectId,
@@ -222,9 +246,21 @@ class RelayAppliers {
     // class.assign op; class.assign rides the create, also on an existing
     // id), so the guard runs BEFORE the membership seeding and the
     // first-create-wins early return below.
+    final presentAsMainPre = payload.containsKey('presentAsMain')
+        ? payload['presentAsMain'] == true
+        : parentId == null;
+    // Content-asserted membership: an inline block keeps the rich stream, so
+    // its class_link tokens class the node; a document-chrome node's content
+    // flattens below (text-only — nothing to assert).
+    final linkClassIds = presentAsMainPre
+        ? <String>[]
+        : _contentClassLinkIds(payload['contentAst']);
     final lockedDateClass = dateChainClassId(objectId);
     if (lockedDateClass != null) {
-      for (final classId in _readStringList(payload['classIds'])) {
+      for (final classId in <String>[
+        ..._readStringList(payload['classIds']),
+        ...linkClassIds,
+      ]) {
         if (classId != lockedDateClass) {
           throw MoveGuardError(
             '$opType: node $objectId is a date-chain node; it can only '
@@ -280,7 +316,7 @@ class RelayAppliers {
     // beats a class.unassign remove in either delivery order); the tag add's
     // is strictly-greater, matching the TS store's tagMemberUpsert gating.
     final classIds = _readStringList(payload['classIds']);
-    for (final classId in classIds) {
+    for (final classId in <String>{...classIds, ...linkClassIds}) {
       final stored = await _cache.classMemberWinner(objectId, classId);
       if (stored == null || compareLww(incoming, stored) >= 0) {
         await _cache.upsertClassMember(objectId, classId, true, incoming);
@@ -298,7 +334,9 @@ class RelayAppliers {
     // existing id must not move the node or revert later edits (the legacy
     // dual-parent corruption class this op replaces).
     if (await _cache.getByUuid(objectId) != null) {
-      if (classIds.isNotEmpty) await _cache.recomputeClassIds(objectId);
+      if (classIds.isNotEmpty || linkClassIds.isNotEmpty) {
+        await _cache.recomputeClassIds(objectId);
+      }
       if (tagIds.isNotEmpty) await _cache.recomputeTagIds(objectId);
       return false;
     }
@@ -353,7 +391,9 @@ class RelayAppliers {
         actorId: incoming.actor,
       ),
     );
-    if (classIds.isNotEmpty) await _cache.recomputeClassIds(objectId);
+    if (classIds.isNotEmpty || linkClassIds.isNotEmpty) {
+      await _cache.recomputeClassIds(objectId);
+    }
     if (tagIds.isNotEmpty) await _cache.recomputeTagIds(objectId);
     return true;
   }
@@ -477,7 +517,30 @@ class RelayAppliers {
         actorId: incoming.actor,
       ),
     );
+    // Content-asserted membership: the class_link tokens about to be stored
+    // class the node (any writer converges). Class rows flatten (never carry
+    // links); date-chain nodes' class set is fixed — a foreign link there is
+    // the same illegal state as a foreign classId on create.
     if (contentAst is List<dynamic>) {
+      final asserted = node.isClass
+          ? <String>[]
+          : _contentClassLinkIds(contentAst);
+      final lockedDateClass = dateChainClassId(objectId);
+      if (lockedDateClass != null &&
+          asserted.any((id) => id != lockedDateClass)) {
+        throw MoveGuardError(
+          '$opType: node $objectId is a date-chain node; it can only '
+          'carry the $lockedDateClass system class',
+          opType,
+        );
+      }
+      for (final classId in asserted) {
+        final stored = await _cache.classMemberWinner(objectId, classId);
+        if (stored == null || compareLww(incoming, stored) >= 0) {
+          await _cache.upsertClassMember(objectId, classId, true, incoming);
+        }
+      }
+      if (asserted.isNotEmpty) await _cache.recomputeClassIds(objectId);
       await _cache.rebuildEdges(objectId, at: envelope.timestamp);
     }
     return true;
@@ -522,6 +585,10 @@ class RelayAppliers {
       throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
     }
     final permanent = payload['permanent'] == true;
+    // Class-node deletion sweeps memberships (the no-divergence law's
+    // deletion arm): the class leaves every node's class list.
+    final deletedRow = await _cache.getByUuid(objectId);
+    final deletedIsClass = deletedRow?.isClass ?? false;
     if (!permanent) {
       // Soft delete: trash the whole subtree (relay semantics — restore is
       // whole-tree). The trash/archive view reads is_archived; the
@@ -533,6 +600,13 @@ class RelayAppliers {
         final node = await _cache.getByUuid(id);
         if (node != null) await _cache.upsert(node.copyWithIsArchived(true));
       }
+      if (deletedIsClass) {
+        final members =
+            await _cache.sweepClassMembership(objectId, purge: false);
+        for (final member in members) {
+          await _cache.recomputeClassIds(member);
+        }
+      }
       await _cache.recordTrashRoot(
         objectId,
         deletedAt: DateTime.now().toUtc().toIso8601String(),
@@ -541,6 +615,12 @@ class RelayAppliers {
     }
     // Permanent delete: hard-delete the subtree and its derived rows.
     await _cache.hardDelete(objectId);
+    if (deletedIsClass) {
+      final members = await _cache.sweepClassMembership(objectId, purge: true);
+      for (final member in members) {
+        await _cache.recomputeClassIds(member);
+      }
+    }
     return true;
   }
 
@@ -563,11 +643,19 @@ class RelayAppliers {
   Future<bool> _applyTrashEmpty(OperationEnvelope envelope) async {
     final roots = await _cache.nonPermanentTrashRootIds();
     for (final root in roots) {
-      if (await _cache.getByUuid(root) == null) {
+      final rootRow = await _cache.getByUuid(root);
+      if (rootRow == null) {
         await _cache.consumeTrashRoot(root);
         continue;
       }
+      final rootWasClass = rootRow.isClass;
       await _cache.hardDelete(root);
+      if (rootWasClass) {
+        final members = await _cache.sweepClassMembership(root, purge: true);
+        for (final member in members) {
+          await _cache.recomputeClassIds(member);
+        }
+      }
     }
     return roots.isNotEmpty;
   }
@@ -1419,6 +1507,26 @@ class RelayAppliers {
         'system class cannot be removed',
         opType,
       );
+    }
+    // Content-reference lock (the no-divergence law): the stored content
+    // still carries an inline class_link to this class — unassigning would
+    // strand a live reference. The removal gesture strips the links FIRST;
+    // a raw class.unassign refuses rather than silently diverging.
+    final nodeRow = await _cache.getByUuid(objectId);
+    if (nodeRow != null && nodeRow.name.isNotEmpty) {
+      try {
+        final stored = jsonDecode(nodeRow.name);
+        if (stored is List<dynamic> &&
+            _contentClassLinkIds(normalizeContentAst(stored)).contains(classId)) {
+          throw MoveGuardError(
+            '$opType: node $objectId content references class $classId '
+            'inline — remove the inline links first',
+            opType,
+          );
+        }
+      } on FormatException {
+        // Not a JSON document (legacy plain text): no links to reference.
+      }
     }
     // OR-Set remove: the membership pair is tombstoned, gated strictly
     // greater on (hlc, logical, actor) — an exact-HLC add wins the tie in
