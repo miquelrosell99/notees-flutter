@@ -80,7 +80,7 @@ void main() {
       );
     });
 
-    test('mention/class_chip round-trip displayText and linkId', () {
+    test('mention/class_link round-trip displayText and linkId', () {
       final mention = ContentToken.fromJson({
         'type': 'mention',
         'targetNodeId': '0192a000-0000-7000-8000-000000000011',
@@ -91,11 +91,11 @@ void main() {
       expect(mention.linkId, '0192a000-0000-7000-8000-0000000000aa');
       expect(mention.toJson()['linkId'], '0192a000-0000-7000-8000-0000000000aa');
 
-      final chip = const ClassChipToken(
+      final chip = const ClassLinkToken(
         classId: '00000000-0000-0000-0001-000000000025',
         displayText: 'Book',
       );
-      expect(ContentToken.fromJson(chip.toJson()), isA<ClassChipToken>());
+      expect(ContentToken.fromJson(chip.toJson()), isA<ClassLinkToken>());
     });
 
     test('block-scale tokens round-trip (asset/embed/query/whiteboard)', () {
@@ -211,7 +211,7 @@ void main() {
       expect(mention['targetNodeId'],
           '0192a000-0000-7000-8000-000000000011');
       expect(mention['text'], 'Book');
-      final chip = tokens.firstWhere((t) => t['type'] == 'class_chip');
+      final chip = tokens.firstWhere((t) => t['type'] == 'class_link');
       expect(chip['classId'], '00000000-0000-0000-0001-000000000025');
       expect(chip.containsKey('displayText'), isFalse);
     });
@@ -305,7 +305,7 @@ void main() {
       expect(mention['targetNodeId'],
           '0192a000-0000-7000-8000-000000000011');
       expect(mention['text'], 'The Book');
-      final chip = tokens.firstWhere((t) => t['type'] == 'class_chip');
+      final chip = tokens.firstWhere((t) => t['type'] == 'class_link');
       expect(chip['classId'], '00000000-0000-0000-0001-000000000025');
       expect(chip['displayText'], 'Book');
     });
@@ -631,7 +631,7 @@ void main() {
       await tester.pumpWidget(wrap(AstRichText(
         source: jsonEncode([
           {
-            'type': 'class_chip',
+            'type': 'class_link',
             'classId': '00000000-0000-0000-0001-000000000025',
           },
         ]),

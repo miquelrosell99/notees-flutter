@@ -53,7 +53,7 @@ bool isFlatTokenStream(List<dynamic> ast) {
     'text',
     'typed_link',
     'mention',
-    'class_chip',
+    'class_link',
     'external_link',
     'math',
     'hard_break',
@@ -95,7 +95,7 @@ List<Map<String, dynamic>> normalizeContentAst(List<dynamic> ast) {
 ///    `marks` on text runs (underline → highlight: the mark set has no
 ///    underline); nested marks merge;
 ///  - node_link pills become `mention` tokens (target from the link_id's
-///    `target` prefix; ref_type class → `class_chip`);
+///    `target` prefix; ref_type class → `class_link`);
 ///  - code nodes become text runs with the `code` mark; math nodes, external
 ///    links, and hard breaks map one-to-one; user_mention degrades to a
 ///    plain '@label' text run (the grammar has no user token).
@@ -204,7 +204,7 @@ void _convertInline(
       final refType = node['ref_type'] as String? ?? 'node';
       if (refType == 'class') {
         out.add({
-          'type': 'class_chip',
+          'type': 'class_link',
           'classId': target,
           if (label.isNotEmpty) 'displayText': label,
         });

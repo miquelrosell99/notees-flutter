@@ -325,7 +325,7 @@ class _InboxCard extends StatelessWidget {
               if (block.classesUuid.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: _buildClassChips(fgColor),
+                  child: _buildClassLinks(fgColor),
                 ),
             ],
           ),
@@ -333,7 +333,7 @@ class _InboxCard extends StatelessWidget {
       );
   }
 
-  Widget _buildClassChips(Color fgColor) {
+  Widget _buildClassLinks(Color fgColor) {
     final classes = block.classesUuid
         .map((uuid) => classIndex[uuid])
         .whereType<Node>()

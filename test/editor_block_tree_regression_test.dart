@@ -87,7 +87,7 @@ void main() {
       '[{"type":"text","text":"plain "},'
       '{"type":"hard_break"},'
       '{"type":"mention","targetNodeId":"11111111-2222-3333-4444-555555555555","displayText":"Mention"},'
-      '{"type":"class_chip","classId":"11111111-2222-3333-4444-555555555555","displayText":"Chip"},'
+      '{"type":"class_link","classId":"11111111-2222-3333-4444-555555555555","displayText":"Chip"},'
       '{"type":"typed_link","text":"Typed"},'
       '{"type":"external_link","href":"https://example.com","text":"Link"},'
       '{"type":"math","expression":"e=mc^2"},'
