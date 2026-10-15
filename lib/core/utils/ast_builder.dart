@@ -20,7 +20,7 @@ import '../../domain/models/content/content_token.dart';
 /// - `==highlight==` → `highlight` mark
 /// - `` `code` `` → `code` mark
 /// - `[[nodeId]]` or `[[nodeId|label]]` → mention token
-/// - `{{classId}}` or `{{classId|label}}` → class_chip token
+/// - `{{classId}}` or `{{classId|label}}` → class_link token
 /// - newlines → hard_break tokens
 class AstBuilder {
   AstBuilder._();
@@ -54,7 +54,7 @@ class AstBuilder {
   }) {
     if (refType == 'class') {
       return {
-        'type': 'class_chip',
+        'type': 'class_link',
         'classId': targetId,
         if (label != null && label.isNotEmpty) 'displayText': label,
       };
@@ -98,7 +98,7 @@ class AstBuilder {
         final target = token['targetNodeId'] as String? ?? '';
         final text = token['text'] as String? ?? '';
         buffer.write(text.isNotEmpty ? '[[$target|$text]]' : '[[$target]]');
-      case 'class_chip':
+      case 'class_link':
         final classId = token['classId'] as String? ?? '';
         final display = token['displayText'] as String?;
         buffer.write(

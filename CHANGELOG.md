@@ -6,6 +6,20 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-15
+
+- **refactor(protocol)!: `class_chip` → `class_link` — the Flutter lockstep
+  port of the monorepo's 2026-10-15 rename.** The render-only inline class
+  reference (a node link, class variant — wavy underline, no membership
+  effect) is renamed across the token model (`ClassLinkToken`, the
+  `'class_link'` wire string), the AST builder (quick-capture template
+  substitution), the stringifier, the rich-text renderer, and the inbox
+  card view; the vendored wire corpus gains `class-link.json` (gate list
+  updated). Render-only semantics are untouched. The strict schema rejects
+  the retired `class_chip` key outright — the monorepo's stored-log
+  migration rewrites live envelopes before clients re-sync. **Verification:**
+  `flutter test` — all 637 tests pass.
+
 ## 2026-10-14
 
 - **feat(protocol): `trash.empty` bulk op — the Flutter lockstep port of
