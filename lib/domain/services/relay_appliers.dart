@@ -26,7 +26,7 @@ import '../models/relay/workspace_features.dart';
 ///    content excerpt (date labels formatted), derived at apply time;
 ///  - render-state model (Revision 11, 2026-10-02): `is_class` (identity;
 ///    classes are always roots, containers of non-class children) +
-///    `present_as_main` (render bit for parented non-class nodes) replace
+///    `is_embedded` (embedding flag for parented non-class nodes) replace
 ///    the retired page/block/class enumeration — document-chrome nodes
 ///    (main-presenting, or any parentless non-class node) carry text-only
 ///    content, inline blocks keep the rich stream; promotion stringifies,
@@ -245,13 +245,13 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // class.assign op; class.assign rides the create, also on an existing
     // id), so the guard runs BEFORE the membership seeding and the
     // first-create-wins early return below.
-    final presentAsMainPre = payload.containsKey('presentAsMain')
-        ? payload['presentAsMain'] == true
-        : parentId == null;
+    final isEmbeddedPre = payload.containsKey('isEmbedded')
+        ? payload['isEmbedded'] == true
+        : parentId != null;
     // Content-asserted membership: an inline block keeps the rich stream, so
     // its class_link tokens class the node; a document-chrome node's content
     // flattens below (text-only — nothing to assert).
-    final linkClassIds = presentAsMainPre
+    final linkClassIds = !isEmbeddedPre
         ? <String>[]
         : _contentClassLinkIds(payload['contentAst']);
     final lockedDateClass = dateChainClassId(objectId);
@@ -269,13 +269,15 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         }
       }
     }
-    // Render bit (Revision 11): the payload may carry presentAsMain; the
-    // applier defaults it by placement — a parentless node presents as main
-    // (document chrome by the second cascade branch), a parented one starts
-    // inline (block chrome; the "hide from body" gloss is the 0→1 toggle).
-    final presentAsMain = payload.containsKey('presentAsMain')
-        ? payload['presentAsMain'] == true
-        : parentId == null;
+    // Embedding flag (Revision 12): the payload may carry isEmbedded; the
+    // applier defaults it by placement — a parentless node is standalone
+    // (document chrome by the second cascade branch; the flag is stored but
+    // unread), a parented one starts embedded (its content belongs to the
+    // parent's body — block chrome; the promotion boundary is the 1→0
+    // toggle).
+    final isEmbedded = payload.containsKey('isEmbedded')
+        ? payload['isEmbedded'] == true
+        : parentId != null;
     final incoming = _incoming(envelope);
 
     // Placement guard: the parent must exist — either as a node row or as a
@@ -284,10 +286,23 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // declaration remains the class.create op, so the class-under-class
     // shape is unreachable here).
     if (parentId != null) {
-      if (await _cache.getByUuid(parentId) == null &&
-          !await _cache.isClassNode(parentId)) {
+      final parent = await _cache.getByUuid(parentId);
+      if (parent == null && !await _cache.isClassNode(parentId)) {
         throw NodeNotFoundError(
           '$opType: parent $parentId does not exist',
+          opType,
+        );
+      }
+      // Parent-page condition (Revision 12): the
+      // standalone role is only effective under a page parent — claiming it
+      // under a class or an embedded block establishes an illegal parented
+      // state and fails loud. (A parented default is embedded = true, so
+      // isEmbedded == false here is always an explicit claim.)
+      if (!isEmbedded && parent != null && !await _isPageRow(parent, _cache)) {
+        throw MoveGuardError(
+          '$opType: isEmbedded = false (standalone) requires the parent to '
+          'render with document chrome (the parent is a class or an '
+          'embedded block)',
           opType,
         );
       }
@@ -345,7 +360,7 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // stream (class rows never reach this op).
     final contentAst = payload['contentAst'];
     final flatAst = switch (contentAst) {
-      List<dynamic> list => presentAsMain
+      List<dynamic> list => !isEmbedded
           ? stringifyContentAst(normalizeContentAst(list))
           : normalizeContentAst(list),
       _ => const <Map<String, dynamic>>[],
@@ -373,7 +388,7 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         sequence: double.tryParse(position ?? '') ?? 0.0,
         classesUuid: classIds,
         tagsUuid: tagIds,
-        isPage: presentAsMain,
+        isPage: !isEmbedded,
         isTask: flags.isTask,
         isDaily: flags.isDaily,
         isMonthly: flags.isMonthly,
@@ -384,7 +399,7 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         properties: const {},
         writeDate: envelope.timestamp,
         isClass: false,
-        presentAsMain: presentAsMain,
+        isEmbedded: isEmbedded,
         hlcPhysical: incoming.physical,
         hlcLogical: incoming.logical,
         actorId: incoming.actor,
@@ -426,20 +441,45 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // Row-level last-write-wins: lower or equal (hlc, actor) writes drop.
     if (compareLww(incoming, rowWinner) <= 0) return false;
 
-    // Promotion/demotion (Revision 11) is the presentAsMain toggle: the bit
-    // joins the row-level LWW set; a false → true flip (promotion)
-    // stringifies the stored rich stream to text-only in the same op
-    // (content flatten invariant), while a true → false demotion leaves the
-    // (already flattened) content untouched — demotion never un-flattens.
-    // On a class row the bit is inert (classes render ClassView regardless);
-    // applying it harmlessly keeps the op uniform.
-    var resultingPresentAsMain = node.presentAsMain ?? false;
+    // Promotion/demotion (Revision 12) is the isEmbedded toggle: the flag
+    // joins the row-level LWW set; a true → false flip (promotion to the
+    // Page role) stringifies the stored rich stream to text-only in the
+    // same op (content flatten invariant), while a false → true demotion
+    // leaves the (already flattened) content untouched — demotion never
+    // un-flattens. On a class row the flag is inert (classes render
+    // ClassView regardless); applying it harmlessly keeps the op uniform.
+    // Promotion (the standalone claim) is gated by the parent-page
+    // condition; demotion of a parented page is gated on its standalone
+    // children being gone.
+    var resultingIsEmbedded = node.isEmbedded ?? true;
     String? newName = node.name;
     var newDisplay = node.displayName;
-    if (payload.containsKey('presentAsMain')) {
-      final bit = payload['presentAsMain'] == true;
-      resultingPresentAsMain = bit;
-      if (bit && node.presentAsMain != true && node.name.isNotEmpty) {
+    if (payload.containsKey('isEmbedded')) {
+      final bit = payload['isEmbedded'] == true;
+      if (!bit && node.parentUuid != null) {
+        final parent = await _cache.getByUuid(node.parentUuid!);
+        if (parent == null || !await _isPageRow(parent, _cache)) {
+          throw MoveGuardError(
+            '$opType: isEmbedded = false (standalone) requires the parent '
+            'to render with document chrome (the parent is a class or an '
+            'embedded block)',
+            opType,
+          );
+        }
+      }
+      if (bit && node.isEmbedded == false && node.parentUuid != null) {
+        final standaloneChild = await _cache.getChildren(node.uuid);
+        if (standaloneChild.any((c) => c.isEmbedded == false)) {
+          throw MoveGuardError(
+            '$opType: cannot demote node $objectId while it carries '
+            'standalone (isEmbedded = false) children (demote or move '
+            'them first)',
+            opType,
+          );
+        }
+      }
+      resultingIsEmbedded = bit;
+      if (!bit && node.isEmbedded == true && node.name.isNotEmpty) {
         try {
           final stored = jsonDecode(node.name);
           if (stored is List<dynamic>) {
@@ -487,11 +527,11 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         node,
         name: newName,
         displayName: newDisplay,
-        presentAsMain: resultingPresentAsMain,
-        // The is_page query flag follows the bit (document chrome ⇔
-        // parentless or main-presenting); class rows are tree-external and
-        // keep whatever they carried (they live in class_cache locally).
-        isPage: node.isClass ? node.isPage : resultingPresentAsMain,
+        isEmbedded: resultingIsEmbedded,
+        // The is_page query flag follows the flag (document chrome ⇔
+        // parentless or standalone); class rows are tree-external and keep
+        // whatever they carried (they live in class_cache locally).
+        isPage: node.isClass ? node.isPage : !resultingIsEmbedded,
         icon: payload['icon'] as String? ?? node.icon,
         // Color is presence-based (TS `if (p.color !== undefined)`): a
         // present null CLEARS the stored color instead of keeping it.
@@ -764,6 +804,23 @@ List<String> _contentClassLinkIds(dynamic tokens) {
           opType,
         );
       }
+      // Parent-page condition (Revision 12): a
+      // standalone node renders with document chrome only under a page
+      // parent, so moving one under a class or an embedded block
+      // establishes an illegal parented state and fails loud (moves never
+      // write the flag — silently clearing it would rewrite render state
+      // behind the user's back).
+      if (node.isEmbedded == false) {
+        final parent = await _cache.getByUuid(parentId);
+        if (parent == null || !await _isPageRow(parent, _cache)) {
+          throw MoveGuardError(
+            '$opType: node $objectId is standalone (isEmbedded = false); '
+            'it can only move under a parent that renders with document '
+            'chrome',
+            opType,
+          );
+        }
+      }
     }
 
     // Date-chain parenting lock (SCHEMA.md "Datetime", 2026-10-13 lockstep):
@@ -812,7 +869,7 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         sequence: double.tryParse(position ?? '') ?? node.sequence,
         // Document chrome ⇔ the landing is parentless or the stored bit is
         // set; moves never write the bit, so a parented landing follows it.
-        isPage: parentId == null || node.presentAsMain == true,
+        isPage: parentId == null || node.isEmbedded == false,
         writeDate: envelope.timestamp,
         hlcPhysical: incoming.physical,
         hlcLogical: incoming.logical,
@@ -1287,7 +1344,7 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         _copyWith(
           node,
           isClass: true,
-          presentAsMain: false,
+          isEmbedded: false,
           isPage: false,
           parentUuid: null,
           position: null,
@@ -1955,6 +2012,22 @@ List<String> _contentClassLinkIds(dynamic tokens) {
   }
 }
 
+/// True when the node renders with document chrome under the recursive
+/// parent-page rule (carried into Revision 12): a
+/// class never does (ClassView), a parentless non-class node always does
+/// (the flag is unread), and a parented node does exactly when it is NOT
+/// embedded (the standalone claim) AND its parent also renders with
+/// document chrome. Cycles are impossible (subtree moves are guarded); a
+/// missing parent row is a defensive "not a page".
+Future<bool> _isPageRow(Node node, NodeCacheRepository cache) async {
+  if (node.isClass) return false;
+  if (node.parentUuid == null) return true;
+  if (node.isEmbedded != false) return false;
+  final parent = await cache.getByUuid(node.parentUuid!);
+  if (parent == null) return false;
+  return _isPageRow(parent, cache);
+}
+
 /// Sentinel distinguishing "argument not given" from an explicit null
 /// (clearing `parentUuid`/`position` on a move to the workspace root, and
 /// clearing `color` on object.update — present-null semantics).
@@ -1966,7 +2039,7 @@ Node _copyWith(
   Node node, {
   String? name,
   String? displayName,
-  bool? presentAsMain,
+  bool? isEmbedded,
   String? icon,
   Object? color = _undefined,
   Object? coverAssetId = _undefined,
@@ -2033,7 +2106,7 @@ Node _copyWith(
   extendsUuid: node.extendsUuid,
   title: node.title,
   isClass: isClass ?? node.isClass,
-  presentAsMain: presentAsMain ?? node.presentAsMain,
+  isEmbedded: isEmbedded ?? node.isEmbedded,
   classOrder: node.classOrder,
   hlcPhysical: hlcPhysical ?? node.hlcPhysical,
   hlcLogical: hlcLogical ?? node.hlcLogical,

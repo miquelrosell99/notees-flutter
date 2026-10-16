@@ -149,7 +149,7 @@ void main() {
       expect(pushed.first['protocolVersion'], 3);
       expect(pushed.first['payload']['objectId'],
           '20000000-0000-4000-8000-000000000001');
-      expect(pushed.first['payload']['presentAsMain'], isTrue);
+      expect(pushed.first['payload']['isEmbedded'], isFalse);
       expect(pushed.first['deviceId'], '40000000-0000-4000-8000-000000000001');
       expect(pushed.first['client'], 'flutter');
 

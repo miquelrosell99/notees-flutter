@@ -74,7 +74,7 @@ void main() {
           'opType': 'object.create',
           'payload': {
             'objectId': objectId,
-            'presentAsMain': true,
+            'isEmbedded': false,
             'classIds': <String>[],
           },
           'timestamp': '2026-09-24T12:00:00.000Z',
@@ -339,11 +339,11 @@ void main() {
       final snapDb = await databaseFactoryFfi.openDatabase(snapPath);
       try {
         final nodes = await snapDb.rawQuery(
-            'SELECT id, is_class, present_as_main, name FROM node WHERE id = ?',
+            'SELECT id, is_class, is_embedded, name FROM node WHERE id = ?',
             [node1]);
         expect(nodes, hasLength(1));
         expect(nodes.single['is_class'], 0);
-        expect(nodes.single['present_as_main'], 1);
+        expect(nodes.single['is_embedded'], 0);
         final order = await snapDb.rawQuery(
           'SELECT COUNT(*) AS c FROM node_child_order',
         );

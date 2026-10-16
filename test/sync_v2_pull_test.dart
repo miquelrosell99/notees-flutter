@@ -158,7 +158,7 @@ void main() {
               opType: 'object.create',
               payload: {
                 'objectId': node1,
-                'presentAsMain': true,
+                'isEmbedded': false,
                 'classIds': const <String>[],
               },
             ),
@@ -198,7 +198,7 @@ void main() {
               opType: 'object.create',
               payload: {
                 'objectId': node1,
-                'presentAsMain': true,
+                'isEmbedded': false,
                 'classIds': const <String>[],
               },
             ),
@@ -207,7 +207,7 @@ void main() {
               opType: 'object.create',
               payload: {
                 'objectId': node2,
-                'presentAsMain': true,
+                'isEmbedded': false,
                 'classIds': const <String>[],
               },
               physical: 2,
@@ -310,7 +310,7 @@ void main() {
               opType: 'object.create',
               payload: {
                 'objectId': node1,
-                'presentAsMain': true,
+                'isEmbedded': false,
                 'classIds': const <String>[],
               },
             ),

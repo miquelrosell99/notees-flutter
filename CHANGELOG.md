@@ -6,6 +6,38 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-16
+
+- **feat(model): the Revision-12 embedding model — `isEmbedded` replaces
+  `presentAsMain` (polarity inverted), the parent-page condition guard, and
+  the fixture corpus re-vendor (main-repo lockstep).** The
+  node model's three concerns are named separately: classification
+  (`is_class`), parent relationship (`parent_id`), and embedding
+  (`is_embedded` — whether the node's content belongs to the parent's body;
+  true = the Block role and the DEFAULT for parented nodes, false = the
+  standalone Page role). Wire: `objectCreate`/`objectUpdate` carry optional
+  `isEmbedded`; the strict validators reject the retired `presentAsMain`
+  key; the seed/sync payload builders emit the explicit standalone claim
+  for roots and journals. Appliers: defaults parentless → standalone,
+  parented → embedded; promotion = the false claim and still stringifies
+  the content. **The parent-page condition ships with this slice** (the
+  2026-10-15 lockstep debt): a standalone claim under a non-page parent
+  fails loud on create, promotion, and move; demotion of a parented page
+  is gated on its standalone children being gone; the recursive
+  `_isPageRow` chain walk enforces it. Data layer: the local store bumps
+  to schema v29 — `node_cache` rebuilds, renaming `present_as_main` →
+  `is_embedded` with polarity inversion (class rows converge to 0) and
+  recomputing the derived `is_page` flag (`is_class OR parentless OR
+  is_embedded = 0`); the v2 snapshot schema (exchanged with the TS store)
+  carries the v21-shaped `is_embedded` column. UI: the render-state
+  helpers and editor screens read the renamed flag (a page = parentless
+  or not embedded). Fixtures: the corpus re-vendors from the main repo's
+  landed slice (31 files, sha256-identical — the
+  `present-as-main-parent-page.json` → `is-embedded-parent-page.json`
+  rename plus `object-is-embedded.json` and `heading-content.json`); the
+  parent-page fixture joins the replay-excluded set. **Verification:**
+  `flutter analyze` clean; `flutter test` green (641 tests).
+
 ## 2026-10-15
 
 - **feat(appliers): the no-divergence law — content-asserted membership,
