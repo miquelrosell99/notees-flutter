@@ -822,7 +822,7 @@ class NodeCacheRepository {
     return nodeRows.where((row) => row['is_class'] != 1).map((row) {
       final uuid = row['id'] as String;
       final isClass = (row['is_class'] as int? ?? 0) == 1;
-      final presentAsMain = (row['present_as_main'] as int? ?? 0) == 1;
+      final isEmbedded = (row['is_embedded'] as int? ?? 1) == 1;
       final parentId = row['parent_id'] as String?;
       final classIdsJson = row['class_ids'] as String?;
       final classIds = (jsonDecode(classIdsJson ?? '[]') as List<dynamic>)
@@ -856,7 +856,7 @@ class NodeCacheRepository {
         position: positionByNode[uuid],
         // Document chrome ⇔ class, parentless, or main-presenting (the
         // render cascade); the is_page query flag mirrors it.
-        isPage: isClass || parentId == null || presentAsMain,
+        isPage: isClass || parentId == null || !isEmbedded,
         isTask: classIds.contains(SystemClassUuids.task),
         isDaily: classIds.contains(SystemClassUuids.day),
         isMonthly: classIds.contains(SystemClassUuids.month),
@@ -873,7 +873,7 @@ class NodeCacheRepository {
         createDate: row['created_at'] as String?,
         writeDate: row['updated_at'] as String?,
         isClass: isClass,
-        presentAsMain: presentAsMain,
+        isEmbedded: isEmbedded,
         hlcPhysical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
         hlcLogical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
         actorId: row['actor_id'] as String?,
@@ -1027,7 +1027,7 @@ class NodeCacheRepository {
     final rows = await db.query(
       'node_cache',
       where:
-          'is_class = 0 AND (parent_uuid IS NULL OR present_as_main = 1) AND '
+          'is_class = 0 AND (parent_uuid IS NULL OR is_embedded = 0) AND '
           'is_deleted = 0 AND is_archived = 0 AND is_daily = 0 AND '
           'is_monthly = 0 AND is_yearly = 0',
       orderBy: "COALESCE(write_date, '') DESC, synced_at DESC",
@@ -1473,7 +1473,7 @@ class NodeCacheRepository {
         extendsUuid: node.extendsUuid,
         title: node.title,
         isClass: node.isClass,
-        presentAsMain: node.presentAsMain,
+        isEmbedded: node.isEmbedded,
         classOrder: order,
         hlcPhysical: node.hlcPhysical,
         hlcLogical: node.hlcLogical,
@@ -1602,7 +1602,7 @@ class NodeCacheRepository {
         extendsUuid: node.extendsUuid,
         title: node.title,
         isClass: node.isClass,
-        presentAsMain: node.presentAsMain,
+        isEmbedded: node.isEmbedded,
         classOrder: node.classOrder,
         hlcPhysical: node.hlcPhysical,
         hlcLogical: node.hlcLogical,
@@ -2302,7 +2302,7 @@ class NodeCacheRepository {
         extendsUuid: node.extendsUuid,
         title: node.title,
         isClass: node.isClass,
-        presentAsMain: node.presentAsMain,
+        isEmbedded: node.isEmbedded,
         classOrder: node.classOrder,
         hlcPhysical: node.hlcPhysical,
         hlcLogical: node.hlcLogical,
@@ -2559,7 +2559,7 @@ class NodeCacheRepository {
       createDate: node.createDate,
       writeDate: node.writeDate,
       isClass: node.isClass,
-      presentAsMain: node.presentAsMain,
+      isEmbedded: node.isEmbedded,
       classOrder: node.classOrder,
     );
     return PageContent(node: pageNode, linkedReferences: const []);
@@ -3180,7 +3180,7 @@ class NodeCacheRepository {
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL,
         is_class INTEGER NOT NULL DEFAULT 0,
-        present_as_main INTEGER NOT NULL DEFAULT 0,
+        is_embedded INTEGER NOT NULL DEFAULT 1,
         parent_id TEXT,
         class_ids TEXT NOT NULL DEFAULT '[]',
         name TEXT,
@@ -3315,7 +3315,7 @@ class NodeCacheRepository {
     // for them); title/position/is_class/present_as_main/hlc ride in the
     // v16/v20 columns.
     final nodeRows = await local.rawQuery(
-      'SELECT uuid, name, title, position, is_class, present_as_main, '
+      'SELECT uuid, name, title, position, is_class, is_embedded, '
       'parent_uuid, classes_uuid, is_deleted, is_archived, write_date, '
       'hlc_physical, hlc_logical, actor_id, payload FROM node_cache',
     );
@@ -3330,7 +3330,7 @@ class NodeCacheRepository {
         'id': row['uuid'],
         'workspace_id': workspaceId,
         'is_class': row['is_class'] ?? 0,
-        'present_as_main': row['present_as_main'] ?? 0,
+        'is_embedded': row['is_embedded'] ?? 1,
         'parent_id': row['parent_uuid'],
         'class_ids': row['classes_uuid'] ?? '[]',
         'name': row['title'],
@@ -4071,7 +4071,7 @@ class NodeCacheRepository {
       'title': node.title,
       'position': node.position,
       'is_class': node.isClass ? 1 : 0,
-      'present_as_main': node.presentAsMain == true ? 1 : 0,
+      'is_embedded': node.isEmbedded == true ? 1 : 0,
       'class_order': jsonEncode(node.classOrder),
       'hlc_physical': node.hlcPhysical,
       'hlc_logical': node.hlcLogical,

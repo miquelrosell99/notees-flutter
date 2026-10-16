@@ -225,7 +225,7 @@ class LocalWorkspaceSeed {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageId,
-          presentAsMain: true,
+          isEmbedded: false,
           contentAst: AstBuilder.parseInline(entry.key),
         ),
         affectedNodeIds: [pageId],

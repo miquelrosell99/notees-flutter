@@ -37,7 +37,7 @@ class Node {
     this.title,
     this.position,
     this.isClass = false,
-    this.presentAsMain,
+    this.isEmbedded,
     this.classOrder = const [],
     this.hlcPhysical = 0,
     this.hlcLogical = 0,
@@ -98,12 +98,14 @@ class Node {
   /// editor never sees class rows in node_cache.
   final bool isClass;
 
-  /// Render bit, read only by the third cascade branch: `is_class` → Class
-  /// view; parentless → document chrome (bit unread); else the bit → the
-  /// parent's main-children zone + document chrome when zoomed (true), or
-  /// inline body + block chrome (false). Null only for legacy rows that
-  /// predate the v20 column.
-  final bool? presentAsMain;
+  /// Embedding flag, read only by the third cascade branch: `is_class` →
+  /// Class view; parentless → document chrome (flag unread); else the flag
+  /// → the node is embedded in its parent's body (true, the Block role and
+  /// the DEFAULT for parented nodes), or a standalone structural element
+  /// under the parent (false, the Page role — main-children zone +
+  /// document chrome when zoomed). Null only for legacy rows that predate
+  /// the v29 column.
+  final bool? isEmbedded;
 
   /// User-defined class ORDER (class.reorder, LWW-by-arrival); the effective
   /// classes_uuid = ordered members first, then unlisted members sorted by
@@ -216,7 +218,7 @@ class Node {
       title: title,
       position: json['position'] as String?,
       isClass: json['is_class'] as bool? ?? false,
-      presentAsMain: json['present_as_main'] as bool?,
+      isEmbedded: json['is_embedded'] as bool?,
       classOrder:
           (json['class_order'] as List<dynamic>?)?.cast<String>() ??
           const [],
@@ -272,7 +274,7 @@ class Node {
       title: title,
       position: position,
       isClass: isClass,
-      presentAsMain: presentAsMain,
+      isEmbedded: isEmbedded,
       classOrder: classOrder,
       hlcPhysical: hlcPhysical,
       hlcLogical: hlcLogical,
@@ -321,7 +323,7 @@ class Node {
       title: title,
       position: position,
       isClass: isClass,
-      presentAsMain: presentAsMain,
+      isEmbedded: isEmbedded,
       classOrder: classOrder,
       hlcPhysical: hlcPhysical,
       hlcLogical: hlcLogical,
@@ -368,7 +370,7 @@ class Node {
     'title': title,
     'position': position,
     'is_class': isClass,
-    'present_as_main': presentAsMain,
+    'is_embedded': isEmbedded,
     'class_order': classOrder,
     'hlc_physical': hlcPhysical,
     'hlc_logical': hlcLogical,

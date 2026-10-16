@@ -318,7 +318,7 @@ class _JournalDayCard extends StatelessWidget {
     // (present_as_main = 0) children; main children render as child pages
     // when the day page is zoomed, not in the card.
     final children =
-        content.node.children.where((b) => b.presentAsMain != true).toList();
+        content.node.children.where((b) => b.isEmbedded != false).toList();
 
     return InkWell(
       onTap: () => onHeaderTap(content.node),

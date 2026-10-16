@@ -179,12 +179,12 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       // set, inline in the body otherwise (the bit is the one partition bit
       // for every parent type).
       _childPages = page.children
-          .where((b) => !b.isClass && b.presentAsMain == true)
+          .where((b) => !b.isClass && b.isEmbedded == false)
           .toList();
       _roots.addAll(
         _nodesToBlockTree(
           page.children
-              .where((b) => b.isClass || b.presentAsMain != true)
+              .where((b) => b.isClass || b.isEmbedded != false)
               .toList(),
         ),
       );
@@ -661,7 +661,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       createDate: node.createDate,
       writeDate: node.writeDate,
       isClass: node.isClass,
-      presentAsMain: node.presentAsMain,
+      isEmbedded: node.isEmbedded,
     );
   }
 
@@ -692,7 +692,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       createDate: node.createDate,
       writeDate: node.writeDate,
       isClass: node.isClass,
-      presentAsMain: node.presentAsMain,
+      isEmbedded: node.isEmbedded,
     );
   }
 
@@ -723,7 +723,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       createDate: node.createDate,
       writeDate: node.writeDate,
       isClass: node.isClass,
-      presentAsMain: node.presentAsMain,
+      isEmbedded: node.isEmbedded,
     );
   }
 
@@ -1436,7 +1436,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       createDate: node.createDate,
       writeDate: node.writeDate,
       isClass: node.isClass,
-      presentAsMain: node.presentAsMain,
+      isEmbedded: node.isEmbedded,
     );
   }
 
@@ -1470,7 +1470,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       createDate: node.createDate,
       writeDate: node.writeDate,
       isClass: node.isClass,
-      presentAsMain: node.presentAsMain,
+      isEmbedded: node.isEmbedded,
     );
   }
 

@@ -182,7 +182,7 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
                 // _view_helpers.dart).
                 node.isClass
                     ? 'Class'
-                    : (node.parentUuid == null || node.presentAsMain == true)
+                    : (node.parentUuid == null || node.isEmbedded == false)
                     ? 'Page'
                     : 'Block',
                 style: TextStyle(color: colors.onSurfaceVariant),

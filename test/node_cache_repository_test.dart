@@ -49,7 +49,7 @@ void main() {
         parentUuid: parentUuid,
         isPage: true,
         // Revision 11: page-ness is the render bit, not a node kind.
-        presentAsMain: true,
+        isEmbedded: false,
         writeDate: writeDate,
       );
     }
@@ -80,13 +80,14 @@ void main() {
     test('upsert stores page flags and getRecentPages returns them', () async {
       await repo.upsert(makePage(uuid: 'p-1', name: 'A', writeDate: '2026-01-02'));
       await repo.upsert(makePage(uuid: 'p-2', name: 'B', writeDate: '2026-01-03'));
-      // An inline child block: parented, bit unset — not a page.
+      // An inline child block: parented and embedded — not a page.
       await repo.upsert(Node(
         id: 0,
         uuid: 'b-1',
         name: 'Block',
         displayName: 'Block',
         parentUuid: 'p-1',
+        isEmbedded: true,
       ));
 
       final pages = await repo.getRecentPages(limit: 10);
@@ -113,7 +114,7 @@ void main() {
         name: 'Covered',
         displayName: 'Covered',
         isPage: true,
-        presentAsMain: true,
+        isEmbedded: false,
         coverAssetId: 'asset-1',
         bannerAssetId: 'asset-2',
         aliasedNodeId: 'p-main',
@@ -281,7 +282,7 @@ void main() {
           id TEXT PRIMARY KEY,
           workspace_id TEXT NOT NULL,
           is_class INTEGER NOT NULL DEFAULT 0,
-          present_as_main INTEGER NOT NULL DEFAULT 0,
+          is_embedded INTEGER NOT NULL DEFAULT 1,
           parent_id TEXT,
           class_ids TEXT NOT NULL DEFAULT '[]',
           name TEXT,
@@ -412,7 +413,7 @@ void main() {
         'id': 'page-1',
         'workspace_id': workspaceId,
         'is_class': 0,
-        'present_as_main': 1,
+        'is_embedded': 0,
         'class_ids': '[]',
         'name': 'Hello page',
         'parent_id': null,
@@ -429,7 +430,7 @@ void main() {
         'id': 'task-1',
         'workspace_id': workspaceId,
         'is_class': 0,
-        'present_as_main': 0,
+        'is_embedded': 1,
         'class_ids': '["${SystemClassUuids.task}"]',
         'parent_id': 'page-1',
         'content': '[{"type":"paragraph","children":[{"type":"text","text":"Buy milk"}]}]',
@@ -440,7 +441,7 @@ void main() {
         'id': 'archived-1',
         'workspace_id': workspaceId,
         'is_class': 0,
-        'present_as_main': 1,
+        'is_embedded': 0,
         'class_ids': '[]',
         'is_active': 0,
         'updated_at': '2026-01-01T00:00:00Z',
@@ -480,7 +481,7 @@ void main() {
       final page = nodes.firstWhere((n) => n.uuid == 'page-1');
       expect(page.isPage, isTrue);
       expect(page.isClass, isFalse);
-      expect(page.presentAsMain, isTrue);
+      expect(page.isEmbedded, isFalse);
       // Title-is-content: the retired node `name` column is ignored; the
       // display name derives from the content excerpt (legacy paragraph AST
       // normalizes to 'Hello').
@@ -492,7 +493,7 @@ void main() {
       final task = nodes.firstWhere((n) => n.uuid == 'task-1');
       expect(task.isTask, isTrue);
       expect(task.isClass, isFalse);
-      expect(task.presentAsMain, isFalse);
+      expect(task.isEmbedded, isTrue);
       expect(task.parentUuid, 'page-1');
       // Fractional positions stay strings.
       expect(task.position, 'a');
@@ -565,7 +566,7 @@ void main() {
       AppDatabase.reset();
     });
 
-    test('rebuilds node_type into is_class/present_as_main and drops it',
+    test('rebuilds node_type into is_class/is_embedded and drops it',
         () async {
       // Payload blobs embed the toJson shape; after the wipe every blob is
       // rewritten by the new code, so the blobs carry the new keys (the
@@ -573,7 +574,7 @@ void main() {
       String payload(String uuid, {bool page = false, bool cls = false}) =>
           '{"id": 0, "uuid": "$uuid", "name": "[]", "display_name": "", '
               '"is_page": $page, "is_class": $cls, '
-              '"present_as_main": ${page && !cls}}';
+              '"is_embedded": ${!cls && !page}}';
       await ffiDb.insert('node_cache', {
         'uuid': 'page-1',
         'name': '[]',
@@ -614,11 +615,11 @@ void main() {
           .rawQuery('PRAGMA table_info(node_cache)')
           .then((rows) => rows.map((r) => r['name'] as String).toList());
       expect(columns, contains('is_class'));
-      expect(columns, contains('present_as_main'));
+      expect(columns, contains('is_embedded'));
       expect(columns, isNot(contains('node_type')));
 
       final rows = await ffiDb.rawQuery(
-        'SELECT uuid, is_class, present_as_main FROM node_cache '
+        'SELECT uuid, is_class, is_embedded FROM node_cache '
         'ORDER BY uuid',
       );
       expect(
@@ -627,25 +628,25 @@ void main() {
               (r) => (
                 r['uuid'],
                 r['is_class'],
-                r['present_as_main'],
+                r['is_embedded'],
               ),
             )
             .toList(),
         [
-          ('block-1', 0, 0),
+          ('block-1', 0, 1),
           ('class-1', 1, 0),
-          ('page-1', 0, 1),
+          ('page-1', 0, 0),
         ],
       );
 
       // The repository reads the new columns back through the Node model.
       final repo = NodeCacheRepository(database);
       final page = await repo.getByUuid('page-1');
-      expect(page!.presentAsMain, isTrue);
+      expect(page!.isEmbedded, isFalse);
       expect(page.isClass, isFalse);
       final cls = await repo.getByUuid('class-1');
       expect(cls!.isClass, isTrue);
-      expect(cls.presentAsMain, isFalse);
+      expect(cls.isEmbedded, isFalse);
 
       // The v20 placement CHECK is live: a class with a parent, and any
       // is_class row under a parent, is rejected by SQLite.

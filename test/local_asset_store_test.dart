@@ -165,7 +165,7 @@ void main() {
       expect(create['objectId'], info.nodeId);
       // Parented asset block: the render bit is omitted (the applier
       // defaults a parented create to inline).
-      expect(create.containsKey('presentAsMain'), isFalse);
+      expect(create.containsKey('isEmbedded'), isFalse);
       expect(create['parentId'], '60000000-0000-4000-8000-000000000001');
       expect(create['classIds'], [SystemClassUuids.asset]);
       final contentAst = create['contentAst'] as List<dynamic>;

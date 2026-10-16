@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 28,
+          version: 29,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 28,
+      version: 29,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -122,6 +122,7 @@ class AppDatabase {
     await _migrateV26(db);
     await _migrateV27(db);
     await _migrateV28(db);
+    await _migrateNodeCacheV29(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -209,6 +210,9 @@ class AppDatabase {
     }
     if (oldVersion < 28) {
       await _migrateV28(db);
+    }
+    if (oldVersion < 29) {
+      await _migrateNodeCacheV29(db);
     }
   }
 
@@ -566,6 +570,96 @@ class AppDatabase {
     );
   }
 
+  /// v29 — the Revision-12 embedding model (owner 2026-10-16 protocol
+  /// lockstep; TS store schema v21 parity): `present_as_main` is renamed to
+  /// `is_embedded` WITH POLARITY INVERSION (is_embedded = 1 -
+  /// present_as_main: the old main-zone bit 1 becomes the standalone claim
+  /// 0, the old inline-body 0 becomes the embedded default 1; class rows
+  /// converge to 0). The derived `is_page` flag recomputes with the same
+  /// polarity as the repository read: is_class OR parentless OR
+  /// is_embedded = 0. Table rebuild (safe on stock SQLite builds); guarded
+  /// on the old column so the step is a no-op for databases already at the
+  /// v29 shape (fresh creates, idempotent re-runs).
+  Future<void> _migrateNodeCacheV29(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(node_cache)');
+    if (!columns.any((c) => c['name'] == 'present_as_main')) return;
+    await db.execute('''
+      CREATE TABLE node_cache_v29 (
+        uuid TEXT PRIMARY KEY,
+        name TEXT,
+        parent_uuid TEXT,
+        classes_uuid TEXT,
+        is_class INTEGER NOT NULL DEFAULT 0,
+        is_embedded INTEGER NOT NULL DEFAULT 1,
+        is_page INTEGER NOT NULL DEFAULT 0,
+        is_task INTEGER NOT NULL DEFAULT 0,
+        is_daily INTEGER NOT NULL DEFAULT 0,
+        is_monthly INTEGER NOT NULL DEFAULT 0,
+        is_yearly INTEGER NOT NULL DEFAULT 0,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        is_archived INTEGER NOT NULL DEFAULT 0,
+        sequence REAL NOT NULL DEFAULT 0,
+        version INTEGER NOT NULL DEFAULT 0,
+        write_date TEXT,
+        payload TEXT NOT NULL,
+        synced_at INTEGER NOT NULL,
+        title TEXT,
+        position TEXT,
+        class_order TEXT NOT NULL DEFAULT '[]',
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        cover_asset_id TEXT,
+        banner_asset_id TEXT,
+        aliased_node_id TEXT,
+        description TEXT,
+        CHECK (is_class = 0 OR parent_uuid IS NULL)
+      )
+    ''');
+    await db.execute('''
+      INSERT INTO node_cache_v29 (
+        uuid, name, parent_uuid, classes_uuid, is_class, is_embedded,
+        is_page, is_task, is_daily, is_monthly, is_yearly, is_deleted,
+        is_archived, sequence, version, write_date, payload, synced_at,
+        title, position, class_order,
+        hlc_physical, hlc_logical, actor_id,
+        cover_asset_id, banner_asset_id, aliased_node_id, description
+      )
+      SELECT
+        uuid, name, parent_uuid, classes_uuid, is_class,
+        CASE WHEN is_class = 1 THEN 0
+             WHEN present_as_main = 1 THEN 0
+             ELSE 1 END,
+        CASE WHEN is_class = 1 THEN 1
+             WHEN parent_uuid IS NULL THEN 1
+             WHEN present_as_main = 1 THEN 0
+             ELSE 1 END,
+        is_task, is_daily, is_monthly, is_yearly, is_deleted,
+        is_archived, sequence, version, write_date, payload, synced_at,
+        title, position, class_order,
+        hlc_physical, hlc_logical, actor_id,
+        cover_asset_id, banner_asset_id, aliased_node_id, description
+      FROM node_cache
+    ''');
+    await db.execute('DROP TABLE node_cache');
+    await db.execute('ALTER TABLE node_cache_v29 RENAME TO node_cache');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_node_cache_parent ON node_cache(parent_uuid)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_node_cache_deleted ON node_cache(is_deleted)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_node_cache_page ON node_cache(is_page)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_node_cache_task ON node_cache(is_task)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_node_cache_daily ON node_cache(is_daily)',
+    );
+  }
+
   Future<void> _createTagMemberSet(Database db) async {
     // OR-Set of tag assignments (add-wins, LWW per (node, tag) pair by
     // (hlc, actor)); the applier projects the present rows into
@@ -808,7 +902,7 @@ class AppDatabase {
         parent_uuid TEXT,
         classes_uuid TEXT,
         is_class INTEGER NOT NULL DEFAULT 0,
-        present_as_main INTEGER NOT NULL DEFAULT 0,
+        is_embedded INTEGER NOT NULL DEFAULT 1,
         is_page INTEGER NOT NULL DEFAULT 0,
         is_task INTEGER NOT NULL DEFAULT 0,
         is_daily INTEGER NOT NULL DEFAULT 0,
@@ -1261,6 +1355,7 @@ class AppDatabase {
     await _migrateV26(db);
     await _migrateV27(db);
     await _migrateV28(db);
+    await _migrateNodeCacheV29(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

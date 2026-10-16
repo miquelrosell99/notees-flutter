@@ -116,15 +116,17 @@ class OperationPayloads {
   /// the parent's fractional child order (see [objectMove]); omit both to
   /// append at the end.
   ///
-  /// Render bit (Revision 11): [presentAsMain] is read only when the node
-  /// has a parent — true renders it in the parent's main-children zone with
-  /// document chrome, false inline with block chrome. Omit it and the
-  /// applier defaults by placement: parentless ⇒ main (document chrome by
-  /// the second cascade branch), parented ⇒ inline. Class declaration is
-  /// the class.create op — object.create always makes a non-class node.
+  /// Embedding flag (Revision 12): [isEmbedded] is read only when the node
+  /// has a parent — true = the node's content belongs to the parent's body
+  /// (the Block role, the DEFAULT for parented nodes), false = a standalone
+  /// structural element under the parent (the Page role — the parent's
+  /// main-children zone with document chrome). Omit it and the applier
+  /// defaults by placement: parentless ⇒ standalone (document chrome by the
+  /// second cascade branch), parented ⇒ embedded. Class declaration is the
+  /// class.create op — object.create always makes a non-class node.
   static Map<String, dynamic> objectCreate({
     required String objectId,
-    bool? presentAsMain,
+    bool? isEmbedded,
     List<String>? classIds,
     List<String>? tagIds,
     String? name,
@@ -142,7 +144,7 @@ class OperationPayloads {
             : null);
     return _validated('object.create', {
       'objectId': objectId,
-      'presentAsMain': ?presentAsMain,
+      'isEmbedded': ?isEmbedded,
       'classIds': classIds ?? <String>[],
       'tagIds': tagIds ?? <String>[],
       'contentAst': ?effectiveContent,
@@ -157,9 +159,10 @@ class OperationPayloads {
   /// (`objectUpdatePayload.refine` in `op-types.ts`). There is no `name`
   /// field (title-is-content): a rename is a `contentAst` replacement.
   ///
-  /// Render-bit toggle (Revision 11): promotion/demotion flips are
-  /// [presentAsMain] true/false — identity is preserved, and promotion
-  /// (false → true) stringifies the content in the same op.
+  /// Embedding-flag toggle (Revision 12): promotion/demotion flips are
+  /// [isEmbedded] true/false — promotion is the FALSE claim (the Page role;
+  /// identity is preserved, and the 1→0 flip stringifies the content in
+  /// the same op).
   ///
   /// Color: [color] is a preset token or `#RRGGBB` hex; pass `null`
   /// explicitly to CLEAR the node's color (the wire carries `"color": null`).
@@ -176,7 +179,7 @@ class OperationPayloads {
   /// Reference integrity beyond that is a read/client-layer concern.
   static Map<String, dynamic> objectUpdate({
     required String objectId,
-    bool? presentAsMain,
+    bool? isEmbedded,
     String? icon,
     Object? color = _undefined,
     Object? coverAssetId = _undefined,
@@ -186,7 +189,7 @@ class OperationPayloads {
     String? contentDeltaB64,
     List<Map<String, dynamic>>? contentAst,
   }) {
-    if (presentAsMain == null &&
+    if (isEmbedded == null &&
         icon == null &&
         identical(color, _undefined) &&
         identical(coverAssetId, _undefined) &&
@@ -205,7 +208,7 @@ class OperationPayloads {
     }
     return _validated('object.update', {
       'objectId': objectId,
-      'presentAsMain': ?presentAsMain,
+      'isEmbedded': ?isEmbedded,
       'icon': ?icon,
       if (!identical(color, _undefined)) 'color': color,
       if (!identical(coverAssetId, _undefined))
@@ -684,7 +687,7 @@ class OperationPayloads {
       case 'object.create':
         _strict(payload, {
           'objectId',
-          'presentAsMain',
+          'isEmbedded',
           'classIds',
           'tagIds',
           'contentAst',
@@ -693,7 +696,7 @@ class OperationPayloads {
           'beforeId',
         });
         _uuid(payload, 'objectId');
-        _bool(payload, 'presentAsMain', required: false);
+        _bool(payload, 'isEmbedded', required: false);
         _uuidList(payload, 'classIds', required: false);
         _uuidList(payload, 'tagIds', required: false);
         _list(payload, 'contentAst', required: false);
@@ -703,7 +706,7 @@ class OperationPayloads {
       case 'object.update':
         _strict(payload, {
           'objectId',
-          'presentAsMain',
+          'isEmbedded',
           'icon',
           'color',
           'coverAssetId',
@@ -714,7 +717,7 @@ class OperationPayloads {
           'contentAst',
         });
         _uuid(payload, 'objectId');
-        _bool(payload, 'presentAsMain', required: false);
+        _bool(payload, 'isEmbedded', required: false);
         _string(payload, 'icon', max: 64, required: false);
         _color(payload, 'color');
         // Wire node fields: nullable uuids (absence = no write, present
