@@ -259,8 +259,9 @@ Future<void> _seedScreenshotData(AuthProvider auth) async {
       opType: 'object.create',
       payload: OperationPayloads.objectCreate(
         objectId: uuid,
-        // Root pages present as main; parented children stay inline.
-        presentAsMain: parentId == null ? true : null,
+        // Root pages are standalone (the Page role); parented children
+        // embed by default.
+        isEmbedded: parentId == null ? false : null,
         name: title,
         classIds: classIds.isEmpty ? null : classIds,
         parentId: parentId,

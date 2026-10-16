@@ -145,7 +145,7 @@ void main() {
             'opType': 'object.create',
             'payload': {
               'objectId': node1,
-              'presentAsMain': true,
+              'isEmbedded': false,
               'classIds': <String>[],
             },
             'timestamp': '2026-09-24T12:00:00.000Z',

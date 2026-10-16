@@ -683,7 +683,7 @@ void main() {
             opType: 'object.create',
             payload: {
               'objectId': owner,
-              'presentAsMain': true,
+              'isEmbedded': false,
               'contentAst': const [],
             },
             timestamp: '2026-09-24T12:00:00.000Z',

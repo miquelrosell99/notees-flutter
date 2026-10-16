@@ -82,7 +82,7 @@ void main() {
           opType: 'object.create',
           payload: OperationPayloads.objectCreate(
             objectId: entry.$1,
-            presentAsMain: true,
+            isEmbedded: false,
             contentAst: [
               {'type': 'text', 'text': entry.$2},
             ],

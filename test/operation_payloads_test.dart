@@ -11,7 +11,7 @@ void main() {
     test('object.create carries the wire field names', () {
       final payload = OperationPayloads.objectCreate(
         objectId: objectId,
-        presentAsMain: true,
+        isEmbedded: false,
         classIds: const [classId],
         tagIds: const ['0192a000-0000-7000-8000-0000000000aa'],
         contentAst: const [
@@ -21,7 +21,7 @@ void main() {
       );
 
       expect(payload['objectId'], objectId);
-      expect(payload['presentAsMain'], isTrue);
+      expect(payload['isEmbedded'], isFalse);
       expect(payload['classIds'], [classId]);
       expect(payload['tagIds'], ['0192a000-0000-7000-8000-0000000000aa']);
       expect(payload['contentAst'], hasLength(1));
@@ -35,16 +35,16 @@ void main() {
       final payload = OperationPayloads.objectCreate(objectId: objectId);
       expect(payload['classIds'], isEmpty);
       expect(payload['tagIds'], isEmpty);
-      expect(payload.containsKey('presentAsMain'), isFalse);
+      expect(payload.containsKey('isEmbedded'), isFalse);
     });
 
-    test('object.create emits the render bit when given', () {
+    test('object.create emits the embedding flag when given', () {
       final payload = OperationPayloads.objectCreate(
         objectId: objectId,
-        presentAsMain: false,
+        isEmbedded: true,
         parentId: classId,
       );
-      expect(payload['presentAsMain'], isFalse);
+      expect(payload['isEmbedded'], isTrue);
       expect(() => OperationPayloads.validatePayload('object.create', payload),
           returnsNormally);
     });
@@ -643,14 +643,14 @@ void main() {
         expect(
           () => OperationPayloads.validatePayload(opType, {
             'objectId': objectId,
-            'presentAsMain': true,
+            'isEmbedded': false,
           }),
           returnsNormally,
         );
         expect(
           () => OperationPayloads.validatePayload(opType, {
             'objectId': objectId,
-            'presentAsMain': 'yes',
+            'isEmbedded': 'yes',
           }),
           throwsFormatException,
         );

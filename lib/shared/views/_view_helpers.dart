@@ -134,6 +134,6 @@ String typeLabel(Node node) {
   if (node.isJournal) return 'Journal';
   if (node.isTask) return 'Task';
   if (node.isClass) return 'Class';
-  if (node.parentUuid == null || node.presentAsMain == true) return 'Page';
+  if (node.parentUuid == null || node.isEmbedded == false) return 'Page';
   return 'Block';
 }

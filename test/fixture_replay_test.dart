@@ -49,8 +49,16 @@ void main() {
   const cycleRoot = '0192a000-0000-7000-8000-0000000000d1';
   const cycleLeaf = '0192a000-0000-7000-8000-0000000000d2';
 
-  /// The cycle fixture must throw — never part of the replay set.
-  const replayExcluded = {'class-extends-cycle.json'};
+  /// Fixtures whose application must throw — never part of the replay set
+  /// (class-extends-cycle closes a cycle; is-embedded-parent-page claims the
+  /// standalone role under an embedded block, the parent-page condition).
+  /// Fixtures whose application must throw — never part of the replay set
+  /// (class-extends-cycle closes a cycle; is-embedded-parent-page claims the
+  /// standalone role under an embedded block, the parent-page condition).
+  const replayExcluded = {
+    'class-extends-cycle.json',
+    'is-embedded-parent-page.json',
+  };
 
   List<Map<String, dynamic>> loadFixture(String name) {
     final raw = jsonDecode(File('$fixturesDir/$name').readAsStringSync())
@@ -84,7 +92,7 @@ void main() {
         opType: 'object.create',
         payload: {
           'objectId': nodeId,
-          'presentAsMain': true,
+          'isEmbedded': false,
           'classIds': <String>[],
         },
         timestamp: '2026-09-24T12:00:00.000Z',
@@ -158,10 +166,10 @@ void main() {
       final page = await cache.getByUuid(nodePage);
       final book = await cache.getByUuid(nodeBook);
       expect(page, isNotNull);
-      expect(page!.presentAsMain, isTrue);
+      expect(page!.isEmbedded, isFalse);
       expect(page.isPage, isTrue);
       expect(book, isNotNull);
-      expect(book!.presentAsMain, isTrue);
+      expect(book!.isEmbedded, isFalse);
       expect(book.isPage, isTrue);
       // Title-is-content: the fixture's contentAst IS the title; there is
       // no scalar name slot on the wire.
@@ -510,7 +518,7 @@ void main() {
 
       final node = await cache.getByUuid(genre);
       expect(node!.isClass, isTrue);
-      expect(node.presentAsMain, isFalse);
+      expect(node.isEmbedded, isFalse); // classes converge to the standalone 0
       expect(node.parentUuid, isNull);
       // Title-is-content: the node's existing text content is the class
       // title (the conversion payload carried no contentAst).
@@ -645,7 +653,7 @@ void main() {
       await appliers.apply(basePage(page, 1000));
       await appliers.apply(op('object.create', {
         'objectId': assetNode,
-        'presentAsMain': true,
+        'isEmbedded': false,
         'classIds': [assetClass],
       }, 1100));
       await appliers.apply(basePage(plainNode, 1200));

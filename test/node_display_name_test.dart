@@ -118,7 +118,7 @@ void main() {
   group('typeLabel render-state cascade', () {
   Node node({
     bool isClass = false,
-    bool? presentAsMain,
+    bool? isEmbedded,
     String? parentUuid,
     bool isTask = false,
     bool isDaily = false,
@@ -129,7 +129,7 @@ void main() {
       name: '',
       displayName: '',
       isClass: isClass,
-      presentAsMain: presentAsMain,
+      isEmbedded: isEmbedded,
       parentUuid: parentUuid,
       isTask: isTask,
       isDaily: isDaily,
@@ -138,23 +138,23 @@ void main() {
 
   test('is_class wins over everything (identity marker)', () {
     expect(
-      typeLabel(node(isClass: true, presentAsMain: false, parentUuid: null)),
+      typeLabel(node(isClass: true, isEmbedded: true, parentUuid: null)),
       'Class',
     );
   });
 
   test('parentless non-class nodes are Pages (bit unread)', () {
-    expect(typeLabel(node(presentAsMain: false)), 'Page');
-    expect(typeLabel(node(presentAsMain: null)), 'Page');
+    expect(typeLabel(node(isEmbedded: true)), 'Page');
+    expect(typeLabel(node(isEmbedded: null)), 'Page');
   });
 
   test('parented nodes follow the render bit', () {
     const parent = '00000000-0000-0000-0000-0000000000aa';
     expect(
-      typeLabel(node(presentAsMain: true, parentUuid: parent)),
+      typeLabel(node(isEmbedded: false, parentUuid: parent)),
       'Page',
     );
-    expect(typeLabel(node(presentAsMain: false, parentUuid: parent)), 'Block');
+    expect(typeLabel(node(isEmbedded: true, parentUuid: parent)), 'Block');
     // A parented node without the bit set is an inline block.
     expect(typeLabel(node(parentUuid: parent)), 'Block');
   });

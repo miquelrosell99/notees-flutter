@@ -108,10 +108,10 @@ void main() {
 
       final root = await cache.getByUuid(rootUuid);
       expect(root!.isPage, isTrue);
-      expect(root.presentAsMain, isTrue);
+      expect(root.isEmbedded, isFalse);
       final child = await cache.getByUuid(childUuid);
       expect(child!.isPage, isFalse);
-      expect(child.presentAsMain, isFalse);
+      expect(child.isEmbedded, isTrue);
       expect(child.parentUuid, rootUuid);
     });
 
@@ -183,7 +183,7 @@ void main() {
     });
 
     test('promoting an inline block to main flattens its rich content '
-        '(presentAsMain toggle)', () async {
+        '(isEmbedded toggle)', () async {
       const pageUuid = '00000000-0000-0000-0000-000000000105';
       const blockUuid = '00000000-0000-0000-0000-000000000106';
 
@@ -217,13 +217,13 @@ void main() {
         opType: 'object.update',
         payload: OperationPayloads.objectUpdate(
           objectId: blockUuid,
-          presentAsMain: true,
+          isEmbedded: false,
         ),
         physical: 3,
       ));
 
       final node = await cache.getByUuid(blockUuid);
-      expect(node!.presentAsMain, isTrue);
+      expect(node!.isEmbedded, isFalse);
       expect(node.isPage, isTrue);
       // The rich stream flattened to a single text-only token (main-
       // presenting nodes carry text-only content) and the display name
@@ -243,7 +243,7 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: pageUuid,
-          presentAsMain: true,
+          isEmbedded: false,
         ),
       ));
       // The page title IS its content and may carry inline rich tokens
@@ -270,7 +270,7 @@ void main() {
       ));
 
       final node = await cache.getByUuid(pageUuid);
-      expect(node!.presentAsMain, isTrue);
+      expect(node!.isEmbedded, isFalse);
       expect(
         jsonDecode(node.name),
         [
@@ -1145,7 +1145,7 @@ void main() {
           payload: OperationPayloads.objectCreate(
             objectId: uuid,
             // Parented child that renders in the main-children zone.
-            presentAsMain: true,
+            isEmbedded: false,
             parentId: pageUuid,
           ),
         ));
@@ -1468,7 +1468,7 @@ void main() {
           payload: OperationPayloads.objectCreate(
             objectId: uuid,
             // Parented child that renders in the main-children zone.
-            presentAsMain: true,
+            isEmbedded: false,
             parentId: pageUuid,
           ),
         ));
@@ -1662,7 +1662,7 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: childUuid,
-          presentAsMain: true,
+          isEmbedded: false,
           parentId: pageUuid,
           contentAst: const [
             {'type': 'text', 'text': 'Notes: '},
@@ -1682,13 +1682,13 @@ void main() {
         opType: 'object.update',
         payload: OperationPayloads.objectUpdate(
           objectId: childUuid,
-          presentAsMain: false,
+          isEmbedded: true,
         ),
         physical: 3,
       ));
 
       final node = await cache.getByUuid(childUuid);
-      expect(node!.presentAsMain, isFalse);
+      expect(node!.isEmbedded, isTrue);
       expect(node.isPage, isFalse);
       // Demotion does NOT un-flatten: the stored text-only content survives.
       expect(jsonDecode(node.name), [
@@ -1726,7 +1726,7 @@ void main() {
       expect(child.isClass, isFalse);
       // Parented ⇒ inline by default (class children are ordinary body
       // blocks unless the bit says main).
-      expect(child.presentAsMain, isFalse);
+      expect(child.isEmbedded, isTrue);
     });
 
     test('moving a class under any parent fails loud (classes are always '
@@ -2145,7 +2145,7 @@ void main() {
       // The move never writes the render bit; the parentless landing
       // renders with document chrome by the second cascade branch.
       expect(node.isPage, isTrue);
-      expect(node.presentAsMain, isFalse);
+      expect(node.isEmbedded, isTrue);
       // Moving under a parent again keeps the stored bit (inline).
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-00000000019c',
@@ -2158,7 +2158,7 @@ void main() {
       ));
       final back = await cache.getByUuid(blockUuid);
       expect(back!.parentUuid, pageUuid);
-      expect(back.presentAsMain, isFalse);
+      expect(back.isEmbedded, isTrue);
       expect(back.isPage, isFalse);
     });
 
@@ -2178,7 +2178,7 @@ void main() {
         opType: 'object.create',
         payload: OperationPayloads.objectCreate(
           objectId: mainChild,
-          presentAsMain: true,
+          isEmbedded: false,
           parentId: pageUuid,
           contentAst: AstBuilder.parseInline('Main zone'),
         ),
@@ -2199,9 +2199,9 @@ void main() {
       expect(children.map((n) => n.uuid).toList(), [mainChild, inlineChild]);
       final main = children.firstWhere((n) => n.uuid == mainChild);
       final inline = children.firstWhere((n) => n.uuid == inlineChild);
-      expect(main.presentAsMain, isTrue);
+      expect(main.isEmbedded, isFalse);
       expect(main.isPage, isTrue);
-      expect(inline.presentAsMain, isFalse);
+      expect(inline.isEmbedded, isTrue);
       expect(inline.isPage, isFalse);
     });
 
