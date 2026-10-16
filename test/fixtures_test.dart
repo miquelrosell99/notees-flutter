@@ -44,6 +44,7 @@ void main() {
     'hr.json',
     'heading-content.json',
     'is-embedded-parent-page.json',
+    'link-embedded.json',
     'object-color.json',
     'object-is-embedded.json',
     'object-move-before.json',

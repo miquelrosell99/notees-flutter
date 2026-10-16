@@ -178,18 +178,25 @@ class TypedLinkToken extends ContentToken {
 /// A mention of another node. [text] is the captured surface form
 /// (non-authoritative; display resolves the target's current name).
 /// [linkId] is the optional stable per-link instance id (node_link key).
+/// [isEmbedded] is the manual per-link embedding flag: true = an embedded link — where the link is its block's
+/// sole content, the block presents the target's content in place.
+/// Absent/false = an ordinary inline link (the default; every pre-existing
+/// link reads false). Independent of the node's own is_embedded
+/// structural role.
 class MentionToken extends ContentToken {
   const MentionToken({
     required this.targetNodeId,
     required this.text,
     this.displayText,
     this.linkId,
+    this.isEmbedded,
   });
 
   final String targetNodeId;
   final String text;
   final String? displayText;
   final String? linkId;
+  final bool? isEmbedded;
 
   @override
   String get type => 'mention';
@@ -201,6 +208,7 @@ class MentionToken extends ContentToken {
     'text': text,
     if (displayText != null) 'displayText': displayText,
     if (linkId != null) 'linkId': linkId,
+    if (isEmbedded != null) 'isEmbedded': isEmbedded,
   };
 
   factory MentionToken.fromJson(Map<String, dynamic> json) => MentionToken(
@@ -208,6 +216,7 @@ class MentionToken extends ContentToken {
     text: json['text'] as String? ?? '',
     displayText: json['displayText'] as String?,
     linkId: json['linkId'] as String?,
+    isEmbedded: json['isEmbedded'] as bool?,
   );
 }
 
