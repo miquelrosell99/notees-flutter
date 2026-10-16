@@ -8,6 +8,22 @@ lives in git history.
 
 ## 2026-10-16
 
+- **feat(model): node links carry their own `isEmbedded` flag — manual,
+  default false (main-repo lockstep, owner ruling 2026-10-16).** The
+  `MentionToken` model accepts the optional `isEmbedded` boolean (absent/
+  false = an ordinary inline link); the local store bumps to schema v30 —
+  `edge` gains `is_embedded INTEGER NOT NULL DEFAULT 0` (TS store v22
+  parity, guarded additive ALTER). Embedding is a per-link USER choice:
+  only a link marked embedded — and sole in its block — presents the
+  target's content in place; every pre-existing link reads false. Also
+  lands the deferred merge of the Revision-12 embedding-model slice (this
+  repo's `main` now carries the rename, the parent-page guard, and local
+  schema v29). Fixtures: the corpus re-vendors from the main repo's slice
+  (32 files, sha256-identical, `link-embedded.json` added). **Verification:**
+  `flutter analyze` clean; `flutter test` green (642 tests).
+
+- **feat(model): the Revision-12 embedding model — `isEmbedded` replaces
+
 - **feat(model): the Revision-12 embedding model — `isEmbedded` replaces
   `presentAsMain` (polarity inverted), the parent-page condition guard, and
   the fixture corpus re-vendor (main-repo lockstep, owner 2026-10-16).** The

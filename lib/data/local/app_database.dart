@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 29,
+          version: 30,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 29,
+      version: 30,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -123,6 +123,7 @@ class AppDatabase {
     await _migrateV27(db);
     await _migrateV28(db);
     await _migrateNodeCacheV29(db);
+    await _migrateEdgeV30(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -213,6 +214,9 @@ class AppDatabase {
     }
     if (oldVersion < 29) {
       await _migrateNodeCacheV29(db);
+    }
+    if (oldVersion < 30) {
+      await _migrateEdgeV30(db);
     }
   }
 
@@ -580,6 +584,22 @@ class AppDatabase {
   /// is_embedded = 0. Table rebuild (safe on stock SQLite builds); guarded
   /// on the old column so the step is a no-op for databases already at the
   /// v29 shape (fresh creates, idempotent re-runs).
+  /// v30 — the link-embedding flag (owner ruling 2026-10-16, TS store
+  /// schema v22 parity): `edge` gains `is_embedded INTEGER NOT NULL
+  /// DEFAULT 0`, the derived projection of the mention token's manual
+  /// embedding flag. Purely additive — every pre-existing edge reads 0
+  /// (the default link is an ordinary inline link). Guarded ALTER (the
+  /// v27/v28 precedent); the mobile client mines mention edges per read,
+  /// so no backfill is required beyond the default.
+  Future<void> _migrateEdgeV30(Database db) async {
+    await _addColumnIfMissing(
+      db,
+      'edge',
+      'is_embedded',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+  }
+
   Future<void> _migrateNodeCacheV29(Database db) async {
     final columns = await db.rawQuery('PRAGMA table_info(node_cache)');
     if (!columns.any((c) => c['name'] == 'present_as_main')) return;
@@ -819,6 +839,7 @@ class AppDatabase {
         type TEXT NOT NULL,
         verb TEXT,
         metadata TEXT,
+        is_embedded INTEGER NOT NULL DEFAULT 0,
         created_at TEXT
       )
     ''');
@@ -1356,6 +1377,7 @@ class AppDatabase {
     await _migrateV27(db);
     await _migrateV28(db);
     await _migrateNodeCacheV29(db);
+    await _migrateEdgeV30(db);
   }
 
   Future<int> enqueue(String method, String payload) async {
