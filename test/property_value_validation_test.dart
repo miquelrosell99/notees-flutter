@@ -585,29 +585,31 @@ void main() {
     });
   });
 
-  group('PC2 default typing + the read-side drop', () {
+  group('PC2 default typing + the read-side drop (schema-level defaults)',
+       () {
     const numberSchema = '0192a000-0000-7000-8000-000000000401';
     const klass = '0192a000-0000-7000-8000-000000000402';
 
-    Future<void> bindDefault(
+    /// Writes the schema's GLOBAL default (the
+    /// default moved from the binding to the schema; keep/clear: absent
+    /// keeps, an explicit null clears).
+    Future<void> writeDefault(
       String schemaId,
       dynamic defaultValue,
     ) =>
         apply(env(
-          'class.property.set',
-          OperationPayloads.classPropertySet(
-            classId: klass,
+          'propertySchema.update',
+          OperationPayloads.propertySchemaUpdate(
             propertySchemaId: schemaId,
-            sequence: 0,
             defaultValue: defaultValue,
           ),
         ));
 
-    test('a wrong-typed defaultValue fails loud at class.property.set',
-        () async {
+    test('propertySchema.update fails loud on a wrong-typed default '
+        '(validated against the STORED type)', () async {
       await createSchema(numberSchema, 'number');
       expect(
-        () => bindDefault(numberSchema, 'abc'),
+        () => writeDefault(numberSchema, 'abc'),
         throwsA(
           isA<PropertyValueShapeError>().having(
             (e) => e.message,
@@ -616,37 +618,82 @@ void main() {
           ),
         ),
       );
-      await bindDefault(numberSchema, 7);
+      await writeDefault(numberSchema, 7);
+    });
+
+    test('a create-time default validates against the payload type', () async {
+      const textSchema = '0192a000-0000-7000-8000-000000000406';
+      expect(
+        () => apply(env(
+          'propertySchema.create',
+          OperationPayloads.propertySchemaCreate(
+            propertySchemaId: textSchema,
+            name: 'slot',
+            type: 'text',
+            defaultValue: 42,
+          ),
+        )),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+      await apply(env(
+        'propertySchema.create',
+        OperationPayloads.propertySchemaCreate(
+          propertySchemaId: textSchema,
+          name: 'slot',
+          type: 'text',
+          defaultValue: 'from-create',
+        ),
+      ));
+      final db = await database.database;
+      final rows = await db.rawQuery(
+        'SELECT default_value FROM property_schema WHERE uuid = ?',
+        [textSchema],
+      );
+      expect(jsonDecode(rows.single['default_value'] as String), 'from-create');
     });
 
     test('node-typed schemas accept only a null default', () async {
       const dateSchema = '0192a000-0000-7000-8000-000000000403';
       await createSchema(dateSchema, 'datetime');
       expect(
-        () => bindDefault(dateSchema, 'x'),
+        () => writeDefault(dateSchema, 'x'),
         throwsA(isA<PropertyValueShapeError>()),
       );
-      // An EXPLICIT null default rides the wire (the payload builder's
-      // null-aware key drop can't express it — hand-built, like the relay
-      // would deliver it) and passes the check.
-      await apply(env('class.property.set', {
-        'classId': klass,
-        'propertySchemaId': dateSchema,
-        'defaultValue': null,
-      }));
+      // An EXPLICIT null default CLEARS (the keep/clear contract — SQL
+      // NULL, the canonical "no default" spelling) and passes the check.
+      await writeDefault(dateSchema, null);
+      final db = await database.database;
+      final rows = await db.rawQuery(
+        'SELECT default_value FROM property_schema WHERE uuid = ?',
+        [dateSchema],
+      );
+      expect(rows.single['default_value'], isNull);
     });
 
-    test('an unknown schema id skips the default check', () async {
+    test('an unknown schema id stores the default unchecked', () async {
       const unknown = '0192a000-0000-7000-8000-000000000404';
-      await bindDefault(unknown, {'any': 'thing'});
+      await apply(env(
+        'propertySchema.update',
+        OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: unknown,
+          defaultValue: {'any': 'thing'},
+        ),
+      ));
     });
 
-    test('a stale class.property.set is dropped before the check', () async {
+    test('a stale class.property.set is dropped before any write', () async {
       await createSchema(numberSchema, 'number');
       // First binding at the seeded clock (~101); a stale retry (older
-      // HLC) with a bad default is LWW-dropped before validation, exactly
-      // like the TS reference (validation rides behind the stale guard).
-      await bindDefault(numberSchema, 1);
+      // HLC) is LWW-dropped, exactly like the TS reference (the binding
+      // carries no default anymore — nothing to validate).
+      await apply(env(
+        'class.property.set',
+        OperationPayloads.classPropertySet(
+          classId: klass,
+          propertySchemaId: numberSchema,
+          sequence: 0,
+        ),
+      ));
       final stale = OperationEnvelope(
         id: '0192a000-0000-7000-8000-000000000599',
         workspaceId: ws,
@@ -658,12 +705,11 @@ void main() {
         payload: OperationPayloads.classPropertySet(
           classId: klass,
           propertySchemaId: numberSchema,
-          sequence: 0,
-          defaultValue: 'bad',
+          sequence: 9,
         ),
         timestamp: '2026-10-04T12:00:00.000Z',
       );
-      await apply(stale); // dropped silently — no throw
+      expect(await appliers.apply(stale), isFalse); // dropped silently
     });
 
     test('the effective read drops a stored default whose schema type '
@@ -674,13 +720,23 @@ void main() {
         'class.create',
         OperationPayloads.classCreate(classId: klass, name: 'klass'),
       ));
-      await bindDefault(textSchema, 'not-a-number');
+      await apply(env(
+        'class.property.set',
+        OperationPayloads.classPropertySet(
+          classId: klass,
+          propertySchemaId: textSchema,
+        ),
+      ));
+      // The default is schema-level: a wrong-typed
+      // write fails loud at the schema, so the drift arm below is purely the
+      // delete+recreate path (the recreate carries no default → clears).
+      await writeDefault(textSchema, 'not-a-number');
       await createNode(owner, classIds: [klass]);
       var rows = await cache.getEffectiveProperties(owner);
       expect(rows.single.value, 'not-a-number');
 
       // Recreate the schema at the same id with a different type: the
-      // stored default no longer matches — the read yields no default.
+      // create replaces the row (default cleared), so nothing derives.
       await apply(env(
         'propertySchema.delete',
         OperationPayloads.propertySchemaDelete(propertySchemaId: textSchema),

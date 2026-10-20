@@ -722,15 +722,21 @@ void main() {
         throwsA(isA<PropertyValueShapeError>()),
       );
       // Node-typed defaults stay unsupported: a defaultValue on an asset
-      // schema fails loud at the binding.
+      // schema fails loud at the schema (the
+      // default moved from the binding to the schema; PC2 rejects a
+      // node-linking default).
       expect(
-        () => appliers.apply(op('class.property.set', {
-              'classId': bindingClass,
+        () => appliers.apply(op('propertySchema.update', {
               'propertySchemaId': schema,
               'defaultValue': {'nodeId': assetNode},
             }, 1900)),
         throwsA(isA<PropertyValueShapeError>()),
       );
+      // …while an explicit null CLEAR validates (the keep/clear contract).
+      await appliers.apply(op('propertySchema.update', {
+        'propertySchemaId': schema,
+        'defaultValue': null,
+      }, 1950));
     });
 
     test('property-datetime lands the unified union: datetime schemas, the '

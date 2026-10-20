@@ -8,6 +8,40 @@ lives in git history.
 
 ## 2026-10-20
 
+- **feat(protocol,store): the binding-default batch — `defaultValue` moves
+  to the property schema, `required` retires (Flutter lockstep port of the
+  monorepo's property-definition surfaces
+  batch).** `class.property.set` is now STRICTLY `{classId,
+  propertySchemaId, sequence?, active?}` — `required` and `defaultValue`
+  RETIRE from the binding and the strict payload validator rejects both like
+  any unknown key (the row carries ONLY the genuinely per-class mechanics).
+  `propertySchema.create`/`update` gain `defaultValue` (any JSON value,
+  optional; the property's ONE GLOBAL default — the Logseq shape): PC2
+  typing is enforced fail loud at apply — string for text/url/email/image/
+  select, finite number for number, boolean for boolean, string array for
+  multi_select, JSON null only for datetime/object/asset ("a default that
+  links a node is meaningless") — validated against the payload's type at
+  CREATE and the schema's STORED type at UPDATE (keep/clear: absent keeps,
+  explicit null clears; a schema-less write stores unchecked). Data layer:
+  local store bumps to schema v32 — `class_property` REBUILDS without
+  `required`/`default_value` (the v26 rebuild pattern; `property_schema.
+  default_value` is the legacy column reused verbatim as the moved default's
+  home, guarded additive). Effective-properties read: a derived default row
+  materializes when a winning ACTIVE binding brings the property into the
+  node's context AND the schema row carries a non-null default — the VALUE
+  is schema-sourced (per-class default conflicts no longer exist), the
+  winning binding still supplies boundBy/sequence; `required` drops from
+  the effective-row read model. The default-mirror sweep (class.unassign)
+  sources defaults from the schema rows now and compares decoded JSON texts
+  (the old decodeDefault re-encode quirk inverts: an authored number sweeps
+  a number default, a string survives). UI: the block-bullet value button's
+  "None" row always shows (`required` hiding was mild enforcement —
+  suggestion only, never enforcement). Fixtures: `class-property-defaults.
+  json`, `class-property-active.json`, `class-unassign.json` re-vendored
+  byte-identical from the monorepo (sha256-verified; the defaults fixture
+  gains the trailing second class.property.unset). **Verification:** `flutter
+  analyze` clean; `flutter test` green (668 tests).**
+
 - **feat(protocol,store): the property-scope batch + validationRules value
   enforcement + per-block listStyle (Flutter lockstep port of the
   monorepo's 2026-10-20 slices, TS `b8548e0e` + `19baac4b` + the

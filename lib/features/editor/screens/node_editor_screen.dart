@@ -1626,7 +1626,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             type: schemaType,
           ),
         );
-        group.required = group.required || row.required == true;
         final ids = schemaType == 'boolean'
             ? row.value == true
                   ? const ['true']
@@ -1651,7 +1650,6 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
             label: group.label,
             display: group.display,
             type: group.type,
-            required: group.required,
             options: [
               for (final raw in schema?.options ?? const <Map<String, dynamic>>[])
                 if (raw['id'] != null && raw['label'] is String)
@@ -2718,7 +2716,6 @@ class _BulletPropertyAccumulator {
   final String label;
   final String display;
   final String type;
-  bool required = false;
   final List<String> selectedIds = [];
   final List<BulletPropertyElement> elements = [];
 }

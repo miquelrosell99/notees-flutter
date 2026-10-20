@@ -10,8 +10,8 @@ import 'package:notees/features/editor/widgets/block_tree_editor.dart';
 /// PropertyIconButton port): the current option's MDI icon renders tinted
 /// (unset = the dimmed hollow circle), tapping opens the option sheet, a
 /// pick fires the resolved write through [BlockTreeEditor.onBulletPropertyWrite],
-/// the None row clears when the binding isn't required, and a null handler
-/// renders a read-only projection that never opens the sheet.
+/// the None row always clears a set value (`required` retired outright — hiding it was mild enforcement), and a null
+/// handler renders a read-only projection that never opens the sheet.
 void main() {
   const blockUuid = 'aaaaaaaa-0000-0000-0000-0000000000ff';
   const schemaId = 'bbbbbbbb-0000-0000-0000-000000000001';
@@ -28,7 +28,6 @@ void main() {
   BulletPropertyValue selectValue({
     List<String> selectedIds = const [],
     List<BulletPropertyElement> elements = const [],
-    bool required = false,
     String display = 'bullet',
   }) =>
       BulletPropertyValue(
@@ -36,7 +35,6 @@ void main() {
         label: 'Status',
         display: display,
         type: 'select',
-        required: required,
         options: [
           option('backlog', 'Backlog', icon: 'mdiCircleOutline', color: 'gray'),
           option('doing', 'Doing', icon: 'mdiCircleHalfFull', color: 'orange'),
@@ -131,7 +129,6 @@ void main() {
       label: 'Tags',
       display: 'bullet',
       type: 'multi_select',
-      required: false,
       options: [
         option('a', 'Alpha', icon: 'mdiCircle', color: 'yellow'),
         option('b', 'Beta', icon: 'mdiCircle', color: 'blue'),
@@ -170,7 +167,6 @@ void main() {
       label: 'Urgent',
       display: 'inline',
       type: 'boolean',
-      required: false,
       options: const [],
       selectedIds: const ['true'],
       elements: const [BulletPropertyElement(idx: 0, ids: ['true'])],
@@ -193,8 +189,8 @@ void main() {
     expect(writes.single.idx, 0);
   });
 
-  testWidgets('the None row clears a set value when the binding is not '
-      'required — and is hidden for required bindings', (tester) async {
+  testWidgets('the None row clears a set value — always, since `required` '
+      'retired', (tester) async {
     final writes = <BulletPropertyWrite>[];
     final root = block();
     await tester.pumpWidget(host(root, {
@@ -206,22 +202,24 @@ void main() {
     }));
     await tester.tap(find.byTooltip('Status: Doing'));
     await tester.pumpAndSettle();
+    // The None row shows (hiding it was the retired `required` behavior).
+    expect(find.text('None'), findsOneWidget);
     await tester.tap(find.text('None'));
     await tester.pumpAndSettle();
     expect(writes.single.unset, isTrue);
     expect(writes.single.propertySchemaId, schemaId);
 
-    // Required: no None row. The same root re-pumps with the required value.
+    // The same root re-pumps with the value still set: the None row still
+    // shows — there is no required gate anymore.
     await tester.pumpWidget(host(root, {
       blockUuid: [selectValue(
         selectedIds: ['doing'],
         elements: const [BulletPropertyElement(idx: 0, ids: ['doing'])],
-        required: true,
       )],
     }, (_, _) async {}));
     await tester.tap(find.byTooltip('Status: Doing'));
     await tester.pumpAndSettle();
-    expect(find.text('None'), findsNothing);
+    expect(find.text('None'), findsOneWidget);
   });
 
   testWidgets('read-only projection (no write handler) renders the icon but '

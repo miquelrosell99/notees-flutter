@@ -52,13 +52,17 @@ import '../models/relay/workspace_features.dart';
 ///    and numeric strings normalize to the canonical encoding), the
 ///    datePrecision ceiling, the targetClassFilter via the extends-aware
 ///    walk, and node-target existence — failing loud (image values stay
-///    deliberately unchecked); a single-value schema takes idx 0 only; a
-///    class.property.set defaultValue must be typed per the schema (PC2);
-///    the effective read model resolves bindings extends-aware (PG4: BFS
+///    deliberately unchecked); a single-value schema takes idx 0 only; the
+///    effective read model resolves bindings extends-aware (PG4: BFS
 ///    over class_extends, own binding at distance 0, shortest path then
 ///    earliest assignment HLC then class id — boundBy names the supplying
 ///    ancestor) and drops a stored default that no longer matches the
 ///    schema type;
+///  - the binding row (class.property.set) carries ONLY the genuinely
+///    per-class mechanics (sequence, active): `required` retired outright
+///    and `defaultValue` MOVED to the property schema (one global default per property, the Logseq shape),
+///    where PC2 validates it against the payload type at create and the
+///    stored type at update (a schema-less write stores unchecked);
 ///  - per-workspace feature toggles (workspace.feature.set) LWW by HLC on
 ///    (workspace, feature) derive the membership-preserving archival of the
 ///    five managed class families (F2 absent-row=ON, F3 keep-data, F4
@@ -1541,47 +1545,18 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       }
     }
 
-    // PC2: defaultValue is typed per the schema type — a
-    // wrong-typed default fails loud here instead of deriving silently on
-    // every read. Omitted defaultValue (patch keeps the stored one) skips
-    // the check; a stored default that drifts out of match (schema
-    // delete+recreate with a different type) is dropped defensively at the
-    // effective read instead.
-    if (payload.containsKey('defaultValue')) {
-      final opType = envelope.opType;
-      final schemaType = await _cache.propertySchemaTypeOf(schemaId);
-      final defaultValue = payload['defaultValue'];
-      if (schemaType != null && !isValidDefaultForType(schemaType, defaultValue)) {
-        final expectation = switch (schemaType) {
-          'datetime' || 'object' || 'asset' =>
-            'must be null — node-typed defaults are not supported',
-          _ => 'must be typed $schemaType',
-        };
-        throw PropertyValueShapeError(
-          '$opType: defaultValue for $schemaType schema $expectation '
-          '— got ${jsonEncodeForMessage(defaultValue)}',
-          opType,
-        );
-      }
-    }
+    // PC2 left the binding `defaultValue`
+    // MOVED to the property schema (one global default per property) and
+    // `required` retired outright — both reject at the strict payload gate
+    // before this applier runs. The row carries sequence + active only.
 
-    final hasDefault = payload.containsKey('defaultValue');
     await _cache.upsertClassPropertyBinding(
       classId: classId,
       schemaId: schemaId,
       incoming: incoming,
       sequence: (payload['sequence'] as num?)?.toInt(),
-      // The binding carries ONLY the per-class mechanics — required
-      // (the owner's exception) rides the row LWW; readonly/hideWhenEmpty/
-      // display are PROPERTY-level (propertySchema.create/update).
-      required: payload['required'] as bool?,
       // PC4: the soft-unbind flag rides the row LWW (absent = keep).
       active: payload['active'] as bool?,
-      defaultValueJson: hasDefault
-          ? jsonEncode(payload.containsKey('defaultValue')
-              ? payload['defaultValue']
-              : null)
-          : null,
     );
     return true;
   }
@@ -1692,6 +1667,28 @@ List<String> _contentClassLinkIds(dynamic tokens) {
 
   Future<void> _applyPropertySchemaCreate(Map<String, dynamic> payload) async {
     final propertySchemaId = payload['propertySchemaId'] as String;
+    const opType = 'propertySchema.create';
+    // PC2 (moved from the binding): the default is
+    // typed per the schema's (payload) type — a wrong-typed default fails
+    // loud here instead of deriving silently on every read. Node-typed
+    // schemas (datetime/object/asset) accept only JSON null — a default that
+    // links a node is meaningless. Absent = no default (NULL column).
+    if (payload.containsKey('defaultValue') && payload['defaultValue'] != null) {
+      final type = payload['type'] as String? ?? 'text';
+      final defaultValue = payload['defaultValue'];
+      if (!isValidDefaultForType(type, defaultValue)) {
+        final expectation = switch (type) {
+          'datetime' || 'object' || 'asset' =>
+            'must be null — node-typed defaults are not supported',
+          _ => 'must be typed $type',
+        };
+        throw PropertyValueShapeError(
+          '$opType: defaultValue for $type schema $expectation '
+          '— got ${jsonEncodeForMessage(defaultValue)}',
+          opType,
+        );
+      }
+    }
     await _cache.upsertPropertySchema(
       PropertySchemaRow(
         uuid: propertySchemaId,
@@ -1729,6 +1726,10 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         display: payload['display'] as String?,
         readonly: payload['readonly'] as bool? ?? false,
         hideWhenEmpty: payload['hideWhenEmpty'] as bool? ?? false,
+        // The ONE GLOBAL default: absent/null =
+        // no default (NULL column); the strict payload gate already vetted
+        // the JSON typing above.
+        defaultValue: payload['defaultValue'],
       ),
     );
   }
@@ -1755,6 +1756,26 @@ List<String> _contentClassLinkIds(dynamic tokens) {
           const ValidationRules();
       assertValidationRulesApplicable(existing.type, rules, 'propertySchema.update');
       assertValidationPatternCompilable(rules, 'propertySchema.update');
+    }
+    // PC2 (the default is schema-level): the
+    // keep/clear contract rides the same shape as the number formats
+    // (absent keeps, present-null clears); the type-check runs against the
+    // schema's STORED type, exactly like the validationRules applicability
+    // above (a schema-less write — unknown id — stores unchecked).
+    if (payload.containsKey('defaultValue') &&
+        payload['defaultValue'] != null &&
+        !isValidDefaultForType(existing.type, payload['defaultValue'])) {
+      final type = existing.type;
+      final expectation = switch (type) {
+        'datetime' || 'object' || 'asset' =>
+          'must be null — node-typed defaults are not supported',
+        _ => 'must be typed $type',
+      };
+      throw PropertyValueShapeError(
+        'propertySchema.update: defaultValue for $type schema $expectation '
+        '— got ${jsonEncodeForMessage(payload['defaultValue'])}',
+        'propertySchema.update',
+      );
     }
     await _cache.upsertPropertySchema(
       PropertySchemaRow(
@@ -1803,7 +1824,12 @@ List<String> _contentClassLinkIds(dynamic tokens) {
                   : (payload['validationRules'] as Map<String, dynamic>))
             : existing.validationRules,
         required: existing.required,
-        defaultValue: existing.defaultValue,
+        // The ONE GLOBAL default: absent keeps the
+        // stored value, an explicit null clears it (the keep/clear contract;
+        // the PC2 type-check ran above against the stored type).
+        defaultValue: payload.containsKey('defaultValue')
+            ? payload['defaultValue']
+            : existing.defaultValue,
         computed: existing.computed,
         datePrecision: payload.containsKey('datePrecision')
             ? payload['datePrecision'] as String?
@@ -1824,7 +1850,9 @@ List<String> _contentClassLinkIds(dynamic tokens) {
             : existing.numberRounding,
         // render contracts (PROPERTY-level): the same keep/clear
         // contract as the number formats (absent keeps, present null
-        // clears; `required` is NOT here — it stays on the class binding).
+        // clears; `required` retired outright and `defaultValue` lives
+        // on this schema row — both left the binding under the owner
+        // ruling 2026-10-20).
         display: payload.containsKey('display')
             ? payload['display'] as String?
             : existing.display,

@@ -53,19 +53,21 @@ batch (`workspace.feature.set` for the five class-family toggles, the
 `code_block` and `hr` content tokens, `embed_ref.view`), the
 property-wire batch (per-element property value ids, `class_property.active`,
 date-node-backed qualifiers), the number formats (pad / decimals /
-rounding), and the property-display batch — `propertySchema.create/
+rounding), the property-display batch — `propertySchema.create/
 update` gain the PROPERTY-level render contracts: the `display` position
 (`panel` | `bullet` | `inline`, nullable+optional — absent keeps, null clears;
 stored NULL = the `panel` default) plus `readonly` / `hideWhenEmpty` (same
-keep/clear contract). `class.property.set` keeps ONLY the genuinely per-class
-mechanics (`sequence`, `required` — the owner's deliberate exception, a
-property may be mandatory for one class and optional for another —
-`defaultValue`, `active`); its retired `readonly` / `hideWhenEmpty` and the
-never-released binding-level `display` reject there like any retired
-key. Select options keep the `icon` (MDI name, ≤ 64 chars, on a
+keep/clear contract) — and the binding-default batch: `class.property.set` keeps ONLY the genuinely per-class
+mechanics (`sequence`, `active`); its retired `readonly` / `hideWhenEmpty`,
+the never-released binding-level `display`, and the retired `required` /
+`defaultValue` keys reject there like any retired key. `defaultValue` MOVED
+to the property schema — one GLOBAL default per property (any JSON value,
+nullable+optional, the same keep/clear contract; PC2-typed at apply). Select options keep
+the `icon` (MDI name, ≤ 64 chars, on a
 deliberately non-strict option record so icon-carrying options sync through
-older parsers). The app DB carries the batch as **v26** (`property_schema.display` + the
-rebuilt `class_property` without the retired columns). The
+older parsers). The app DB carries the batches as **v32**
+(`property_schema.display` + `default_value` and the
+rebuilt `class_property` without every retired column). The
 block-bullet value button renders a select / multi_select / boolean value next
 to the bullet (or before the content, per the SCHEMA's display position — the
 same for every carrier, class-bound or not) as its option's MDI icon tinted

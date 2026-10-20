@@ -506,30 +506,43 @@ void main() {
 
     test('render contracts are PROPERTY-level (schema), not binding '
         '— option icon unchanged', () {
-      // class.property.set carries ONLY the per-class mechanics: the
-      // binding-level display experiment is gone, and readonly/hideWhenEmpty
-      // reject here like any retired key (the strict 5-key payload keeps
-      // `required` — the owner's per-class exception).
-      expect(
-        () => OperationPayloads.validatePayload('class.property.set', {
-          'classId': classId,
-          'propertySchemaId': objectId,
-          'required': true,
-          'active': false,
-        }),
-        returnsNormally,
-      );
-      for (final retired in ['display', 'readonly', 'hideWhenEmpty']) {
+      // class.property.set carries ONLY the genuinely per-class mechanics
+      // (sequence, active): the binding-level display experiment is gone,
+      // readonly/hideWhenEmpty reject here like any retired key, and
+      // `required`/`defaultValue` retired outright / moved to the schema
+      // — the strict 4-key payload rejects them
+      // exactly like the render contracts.
+      for (final retired in [
+        'display',
+        'readonly',
+        'hideWhenEmpty',
+        'required',
+        'defaultValue',
+      ]) {
         expect(
           () => OperationPayloads.validatePayload('class.property.set', {
             'classId': classId,
             'propertySchemaId': objectId,
-            retired: retired == 'display' ? 'bullet' : true,
+            retired: switch (retired) {
+              'display' => 'bullet',
+              'defaultValue' => 'high',
+              _ => true,
+            },
           }),
           throwsFormatException,
           reason: retired,
         );
       }
+      // The surviving keys validate.
+      expect(
+        () => OperationPayloads.validatePayload('class.property.set', {
+          'classId': classId,
+          'propertySchemaId': objectId,
+          'sequence': 1,
+          'active': false,
+        }),
+        returnsNormally,
+      );
 
       // propertySchema.create/update carry the three render contracts —
       // nullable+optional (absent keeps, null clears; the builders omit
@@ -597,8 +610,9 @@ void main() {
           reason: opType,
         );
       }
-      // `required` is NOT a schema-side render contract — it stays on the
-      // class binding and rejects on the schema ops.
+      // `required` retired outright — it rejects
+      // on the schema ops like any retired key. `defaultValue` MOVED here:
+      // any JSON value validates, absent/null included.
       for (final opType in ['propertySchema.create', 'propertySchema.update']) {
         expect(
           () => OperationPayloads.validatePayload(opType, {
@@ -607,6 +621,17 @@ void main() {
             'required': true,
           }),
           throwsFormatException,
+          reason: opType,
+        );
+      }
+      for (final opType in ['propertySchema.create', 'propertySchema.update']) {
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'propertySchemaId': classId,
+            if (opType == 'propertySchema.create') ...{'name': 'Status', 'type': 'select'},
+            'defaultValue': null,
+          }),
+          returnsNormally,
           reason: opType,
         );
       }
@@ -662,6 +687,7 @@ void main() {
         'targetClassFilter',
         'multi',
         'validationRules',
+        'defaultValue',
       ]) {
         expect(untouched.containsKey(key), isFalse, reason: key);
       }
@@ -673,11 +699,13 @@ void main() {
         targetClassFilter: const [classId],
         multi: true,
         validationRules: const {'min': 0, 'max': 10},
+        defaultValue: 'fallback',
       );
       expect(updated, containsPair('icon', null));
       expect(updated, containsPair('scopeClassIds', null));
       expect(updated, containsPair('targetClassFilter', [classId]));
       expect(updated, containsPair('multi', true));
+      expect(updated, containsPair('defaultValue', 'fallback'));
       expect(
         updated['validationRules'],
         {'min': 0, 'max': 10},
@@ -685,6 +713,14 @@ void main() {
       expect(
         () => OperationPayloads.validatePayload('propertySchema.update', updated),
         returnsNormally,
+      );
+      // The default's explicit-null clear rides too.
+      expect(
+        OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: classId,
+          defaultValue: null,
+        ),
+        containsPair('defaultValue', null),
       );
       // At least one field: an all-absent update rejects (zod refine parity).
       expect(
