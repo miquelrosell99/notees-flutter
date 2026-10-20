@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 31,
+          version: 32,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 31,
+      version: 32,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -125,6 +125,7 @@ class AppDatabase {
     await _migrateNodeCacheV29(db);
     await _migrateEdgeV30(db);
     await _migrateV31(db);
+    await _migrateV32(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -222,6 +223,9 @@ class AppDatabase {
     if (oldVersion < 31) {
       await _migrateV31(db);
     }
+    if (oldVersion < 32) {
+      await _migrateV32(db);
+    }
   }
 
   /// v31 — the property-scope + per-block list-style batch (2026-10-20
@@ -283,7 +287,8 @@ class AppDatabase {
   ///      (readonly/hide_when_empty from the original shape, display from the
   ///      v25 experiment — the v23 property_value rebuild precedent: same
   ///      surviving columns, rows copy verbatim, indexes recreated).
-  ///      `required` SURVIVES on the row — the owner's per-class exception.
+  ///      `required`/`default_value` SURVIVE this step — they retired/moved
+  ///      to the schema only later (owner ruling 2026-10-20, v32 below).
   Future<void> _migrateV26(Database db) async {
     await _addColumnIfMissing(db, 'property_schema', 'display', 'TEXT');
     final columns = await db.rawQuery('PRAGMA table_info(class_property)');
@@ -824,20 +829,20 @@ class AppDatabase {
   }
 
   /// Class → property-schema bindings (SCHEMA.md "Class properties"): the
-  /// genuinely per-class mechanics ONLY (sequence, required, defaultValue,
-  /// active) since the render contracts moved (readonly/
-  /// hideWhenEmpty/display) to the property schema. `required` is
-  /// the owner's deliberate exception — a property may be mandatory for one
-  /// class, optional for another. The legacy `class_property_edge` table
-  /// (the old UI read model) stays untouched.
+  /// genuinely per-class mechanics ONLY (sequence + active) — the render
+  /// contracts moved to the property schema (owner review 2026-10-05) and
+  /// `required`/`defaultValue` left the binding entirely (owner ruling
+  /// 2026-10-20): `required` retired outright, `defaultValue` moved to the
+  /// schema (one global default per property, the Logseq shape; the local
+  /// `property_schema` table carries the legacy `default_value` column
+  /// already). The legacy `class_property_edge` table (the old UI read
+  /// model) stays untouched.
   Future<void> _createClassProperty(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS class_property (
         class_id TEXT NOT NULL,
         property_schema_id TEXT NOT NULL,
         sequence INTEGER NOT NULL DEFAULT 0,
-        required INTEGER,
-        default_value TEXT,
         active INTEGER NOT NULL DEFAULT 1,
         hlc_physical INTEGER NOT NULL DEFAULT 0,
         hlc_logical INTEGER NOT NULL DEFAULT 0,
@@ -848,6 +853,50 @@ class AppDatabase {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_class_property_schema ON class_property(property_schema_id)',
     );
+  }
+
+  /// v32 — owner ruling 2026-10-20 (the property-definition surfaces batch,
+  /// lockstep with the TS store schema v24→v25 + the binding-flags v26
+  /// precedent): `class_property` REBUILDS without the retired
+  /// `required`/`default_value` columns (SQLite cannot drop a column on old
+  /// builds — same-table copy, the v26 rebuild pattern); the schema's
+  /// `default_value` column already exists locally (legacy column, reused
+  /// verbatim as the moved default's home — the guard keeps the step a no-op
+  /// for databases that lack it). The moved values arrive from the live log
+  /// rewrite (the monorepo's migrate-drop-binding-required.mts), so the
+  /// backfill is deliberately NULL.
+  Future<void> _migrateV32(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(class_property)');
+    final names = columns.map((c) => c['name'] as String).toSet();
+    if (names.contains('required') || names.contains('default_value')) {
+      await db.execute('''
+        CREATE TABLE class_property_v32 (
+          class_id TEXT NOT NULL,
+          property_schema_id TEXT NOT NULL,
+          sequence INTEGER NOT NULL DEFAULT 0,
+          active INTEGER NOT NULL DEFAULT 1,
+          hlc_physical INTEGER NOT NULL DEFAULT 0,
+          hlc_logical INTEGER NOT NULL DEFAULT 0,
+          actor_id TEXT,
+          PRIMARY KEY (class_id, property_schema_id)
+        )
+      ''');
+      await db.execute('''
+        INSERT INTO class_property_v32 (
+          class_id, property_schema_id, sequence, active,
+          hlc_physical, hlc_logical, actor_id
+        )
+        SELECT class_id, property_schema_id, sequence, active,
+               hlc_physical, hlc_logical, actor_id
+        FROM class_property
+      ''');
+      await db.execute('DROP TABLE class_property');
+      await db.execute('ALTER TABLE class_property_v32 RENAME TO class_property');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_class_property_schema ON class_property(property_schema_id)',
+      );
+    }
+    await _addColumnIfMissing(db, 'property_schema', 'default_value', 'TEXT');
   }
 
   /// Derived reference index (never authored): mention/typed_link edges
@@ -1403,6 +1452,7 @@ class AppDatabase {
     await _migrateNodeCacheV29(db);
     await _migrateEdgeV30(db);
     await _migrateV31(db);
+    await _migrateV32(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

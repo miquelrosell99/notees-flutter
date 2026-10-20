@@ -85,23 +85,38 @@ void main() {
         ),
       );
 
+  /// Binds [classId] to the schema (sequence-only row) and, when
+  /// [defaultValue] is non-null, writes the schema's GLOBAL default (owner
+  /// ruling 2026-10-20 — one default per property; the LAST default write
+  /// wins for every node, so the per-binding conflict these tests resolve
+  /// is the WINNING BINDING (boundBy/sequence), never the value).
   Future<void> bind(
     String classId,
     String defaultValue, {
     int hlc = 5,
     bool? active,
-  }) =>
-      appliers.apply(env(
-        'class.property.set',
-        {
-          'classId': classId,
-          'propertySchemaId': schema,
-          'sequence': 0,
-          'defaultValue': defaultValue,
-          'active': ?active,
-        },
-        hlc,
+  }) async {
+    await appliers.apply(env(
+      'class.property.set',
+      {
+        'classId': classId,
+        'propertySchemaId': schema,
+        'sequence': 0,
+        'active': ?active,
+      },
+      hlc,
+    ));
+    if (defaultValue.isNotEmpty) {
+      await appliers.apply(env(
+        'propertySchema.update',
+        OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: schema,
+          defaultValue: defaultValue,
+        ),
+        hlc + 1,
       ));
+    }
+  }
 
   Future<void> setExtends(String classId, List<String> parents) =>
       appliers.apply(env(
@@ -178,7 +193,7 @@ void main() {
     await assign([sub], [10]);
 
     final row = await effectiveRow();
-    expect(row.value, 'b');
+    expect(row.value, 'b'); // the last-written global default
     expect(row.boundBy, sub);
   });
 
@@ -220,11 +235,13 @@ void main() {
     await setExtends(first, [p1]);
     await setExtends(second, [p2]);
     await bind(p1, 'a');
-    await bind(p2, 'b');
+    await bind(p2, 'b'); // the LAST default write — 'b' is global now
     await assign([first, second], [10, 20]); // first carries the earlier HLC
 
     final row = await effectiveRow();
-    expect(row.value, 'a');
+    // The default is the schema's single global value ('b'); the conflict
+    // the tiebreak resolves is the WINNING BINDING.
+    expect(row.value, 'b');
     expect(row.boundBy, p1);
   });
 
@@ -241,12 +258,13 @@ void main() {
     await setExtends(classA, [pa]);
     await setExtends(classB, [pb]);
     await bind(pa, 'a');
-    await bind(pb, 'b');
+    await bind(pb, 'b'); // the LAST default write — 'b' is global now
     await assign([classB, classA], [10, 10]);
 
-    // classA sorts before classB on the id tiebreak — its ancestor wins.
+    // classA sorts before classB on the id tiebreak — its ancestor wins the
+    // BINDING; the VALUE stays the schema's last-written global default.
     final row = await effectiveRow();
-    expect(row.value, 'a');
+    expect(row.value, 'b');
     expect(row.boundBy, pa);
   });
 
@@ -260,7 +278,7 @@ void main() {
     await createClass(other);
     await setExtends(sub, [base]);
     await bind(base, 'a', active: false); // soft-unbound — contributes nothing
-    await bind(other, 'b');
+    await bind(other, 'b'); // the last default write — 'b' is global now
     await assign([sub, other], [10, 20]);
 
     final row = await effectiveRow();
@@ -297,11 +315,14 @@ void main() {
     await createClass(task);
     await createClass(project);
     await bind(task, 'a');
-    await bind(project, 'b');
+    await bind(project, 'b'); // the LAST default write — 'b' is global now
     await assign([task, project], [10, 20]);
 
     final row = await effectiveRow();
-    expect(row.value, 'a');
+    // The default is the schema's single global value: the last write
+    // ('b') wins for every node; first-class-applied-wins resolves the
+    // WINNING BINDING (boundBy), not the value.
+    expect(row.value, 'b');
     expect(row.boundBy, task);
   });
 
@@ -352,16 +373,26 @@ void main() {
           1,
         ));
 
-    Future<void> bindScoped(String classId) => appliers.apply(env(
-          'class.property.set',
-          {
-            'classId': classId,
-            'propertySchemaId': scoped,
-            'sequence': 0,
-            'defaultValue': 'a',
-          },
-          5,
-        ));
+    Future<void> bindScoped(String classId) async {
+      await appliers.apply(env(
+        'class.property.set',
+        {
+          'classId': classId,
+          'propertySchemaId': scoped,
+          'sequence': 0,
+        },
+        5,
+      ));
+      // The default is schema-level (owner ruling 2026-10-20).
+      await appliers.apply(env(
+        'propertySchema.update',
+        OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: scoped,
+          defaultValue: 'a',
+        ),
+        6,
+      ));
+    }
 
     Future<void> classNode(String id, String classId, int hlc) =>
         appliers.apply(env(

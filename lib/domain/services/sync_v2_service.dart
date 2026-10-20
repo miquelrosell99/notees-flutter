@@ -237,7 +237,8 @@ class SyncV2Service {
       favoriteNodeUuids: favoriteNodeUuids,
     );
     // Owner rule (web `unassignClass` parity): authored values that
-    // merely MIRROR the departing class's binding defaults carry no user
+    // merely MIRROR the schema's global default (schema-level since the
+    // owner ruling 2026-10-20) carry no user
     // data — the user never put anything in that property. Sweep them with
     // explicit property.unset envelopes (enqueued BEFORE the membership
     // remove so they apply first — every client converges); values that
@@ -252,11 +253,14 @@ class SyncV2Service {
     return op;
   }
 
-  /// The default-mirror sweep: for every binding of [classId] with a
-  /// stored default, unset the node's authored rows whose value JSON-text
-  /// equals the default's JSON-text (the web's decodeDefault string quirk —
-  /// see [NodeCacheRepository.classPropertyDefaultsOf]). PG5 rows unset by
-  /// element id (writer-minted uuid), positional rows by idx.
+  /// The default-mirror sweep: for every binding of [classId] whose SCHEMA
+  /// carries a non-null default (the default is SCHEMA-level since the owner
+  /// ruling 2026-10-20 — one global default per property, whatever class
+  /// binds it; see [NodeCacheRepository.classPropertyDefaultsOf]), unset the
+  /// node's authored rows whose value JSON-text equals the default's
+  /// JSON-text (web `unassignClass` parity — a non-string default compares
+  /// by its decoded JSON text, no decodeDefault re-encode quirk). PG5 rows
+  /// unset by element id (writer-minted uuid), positional rows by idx.
   Future<void> _sweepDefaultMirrors({
     required String nodeUuid,
     required String classId,

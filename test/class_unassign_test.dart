@@ -16,8 +16,9 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// fixture through the appliers with intermediate reads through the
 /// effective-properties model:
 ///
-///  - prefix 7 (node created with Task, bindings effort=xs / impact=xl,
-///    impact authored "authored"): effort derives "xs", impact reads
+///  - prefix 7 (node created with Task, both bindings sequence-only, the
+///    SCHEMAS' global defaults effort=xs / impact=xl, impact authored
+///    "authored"): effort derives "xs", impact reads
 ///    "authored" (shadows the "xl" default), both boundBy Task;
 ///  - prefix 8 (+ class.unassign): class_ids recomputed empty — the derived
 ///    "effort" default stops reading (nothing was ever stored), the authored

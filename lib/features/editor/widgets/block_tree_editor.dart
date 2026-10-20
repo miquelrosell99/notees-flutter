@@ -49,7 +49,6 @@ class BulletPropertyValue {
     required this.label,
     required this.display,
     required this.type,
-    required this.required,
     required this.options,
     required this.selectedIds,
     required this.elements,
@@ -65,9 +64,6 @@ class BulletPropertyValue {
 
   /// 'select' | 'multi_select' | 'boolean'.
   final String type;
-
-  /// The winning binding's required flag (hides the None clear row).
-  final bool required;
 
   /// The schema's select options (empty in boolean mode — the two synthetic
   /// true/false options replace them).
@@ -1339,9 +1335,8 @@ const BulletPropertyOption _booleanFalseOption = BulletPropertyOption(
 /// color — the at-a-glance state read; an unset value renders a dimmed
 /// hollow circle so a fresh value can be given in place. Tapping opens the
 /// option sheet (icon tinted + label + checkmark; booleans list True/False;
-/// a None row clears when the binding isn't required and a value is set).
-/// Read-only projections (no [onWrite]) render the icon but never open the
-/// sheet.
+/// a None row clears whenever a value is set). Read-only projections (no
+/// [onWrite]) render the icon but never open the sheet.
 class _BulletPropertyButton extends StatelessWidget {
   const _BulletPropertyButton({
     required this.node,
@@ -1495,7 +1490,11 @@ class _BulletPropertyButton extends StatelessWidget {
                   );
                 },
               ),
-            if (!value.required && value.selectedIds.isNotEmpty)
+            // The None row always clears when a value is set — `required`
+            // retired outright (owner ruling 2026-10-20): hiding it was
+            // mild enforcement, contradicting the render-contract law
+            // (suggestion only, never enforcement).
+            if (value.selectedIds.isNotEmpty)
               Builder(
                 builder: (itemCtx) => ListTile(
                   leading: _glyph(null, unset: true),

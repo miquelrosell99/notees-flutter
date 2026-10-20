@@ -362,35 +362,30 @@ class OperationPayloads {
 
   /// [type] is the property-schema enum (op-types.ts); [targetClassFilter]
   /// constrains node-typed (m2o/m2m) schemas to those classes.
-  /// Binding upsert: a configuration row on `class_property` (sequence,
-  /// required, defaultValue, active). Row-level LWW by envelope HLC; omitted
-  /// fields KEEP their existing values (partial patch, not a replace). A null
-  /// parameter is indistinguishable from "leave unset" through typed Dart
-  /// params, so clearing a flag means passing `false` (the applier maps
-  /// explicit null to false as well); send a raw map for JSON-null
-  /// defaultValue.
+  /// Binding upsert: a configuration row on `class_property` (sequence +
+  /// active ONLY). Row-level LWW by envelope HLC; omitted fields KEEP their
+  /// existing values (partial patch, not a replace).
   ///
-  /// Owner review 2026-10-05: the row carries ONLY the genuinely
-  /// per-class mechanics — the render contracts (readonly/hideWhenEmpty/
-  /// display) are PROPERTY-level and live on the property schema
-  /// (`propertySchema.create/update`); this strict payload rejects them like
-  /// any retired key. `required` is the owner's deliberate exception: a
-  /// property may be mandatory for one class, optional for another.
+  /// Owner ruling 2026-10-20: `required` and `defaultValue` RETIRE from the
+  /// binding — `required` is gone outright (its only render effect, hiding
+  /// the icon-button's "None" row, was mild enforcement, contradicting the
+  /// render-contract law: suggestion only, never enforcement) and
+  /// `defaultValue` MOVED to the property schema (one GLOBAL default per
+  /// property, the Logseq shape). This strict payload rejects both keys like
+  /// any retired key. A binding answers "does THIS class list the property,
+  /// in what order"; a schema answers "what the property is, how it behaves,
+  /// and what value it starts with everywhere".
   static Map<String, dynamic> classPropertySet({
     required String classId,
     required String propertySchemaId,
     int? sequence,
-    bool? required,
     bool? active,
-    dynamic defaultValue,
   }) =>
       _validated('class.property.set', {
         'classId': classId,
         'propertySchemaId': propertySchemaId,
         'sequence': ?sequence,
-        'required': ?required,
         'active': ?active,
-        'defaultValue': ?defaultValue,
       });
 
   /// Binding removal: deletes the `class_property` row. No tombstone — a
@@ -459,6 +454,16 @@ class OperationPayloads {
   /// max 64 chars — the same string shape as node/class/option icons);
   /// absent/null = no icon.
   ///
+  /// [defaultValue] is the property's ONE GLOBAL default (owner ruling
+  /// 2026-10-20 — moved from the class binding to the schema, the Logseq
+  /// shape): any JSON value, typed per the schema [type] (PC2, validated at
+  /// apply — text/url/email/image/select: string; number: finite number;
+  /// boolean: boolean; multi_select: array of strings; datetime/object/asset:
+  /// only JSON null, "a default that links a node is meaningless"). Absent =
+  /// no default; editing a default in the UI writes an authored property.set
+  /// on the node, which from then on shadows the default (the derived-read
+  /// law is unchanged).
+  ///
   /// [scopeClassIds] is the SOLE locality authority (owner ruling
   /// 2026-10-20): absent/null = GLOBAL (any node may carry the property); a
   /// non-empty class-id list = LOCAL to those classes AND their
@@ -487,6 +492,7 @@ class OperationPayloads {
     String? display,
     bool? readonly,
     bool? hideWhenEmpty,
+    dynamic defaultValue = _undefined,
   }) =>
       _validated('propertySchema.create', {
         'propertySchemaId': propertySchemaId,
@@ -505,17 +511,28 @@ class OperationPayloads {
         'display': ?display,
         'readonly': ?readonly,
         'hideWhenEmpty': ?hideWhenEmpty,
+        // The property's ONE GLOBAL default (owner ruling 2026-10-20 —
+        // moved from the class binding to the schema, the Logseq shape):
+        // any JSON value, typed per the schema type (PC2, validated at
+        // apply; node-typed schemas accept only JSON null). Absent = no
+        // default (the sentinel distinguishes absent from an explicit null,
+        // which stores JSON null = no default as well).
+        if (!identical(defaultValue, _undefined))
+          'defaultValue': defaultValue,
       });
 
   /// The keep/clear contract (owner ruling 2026-10-20): [icon],
-  /// [scopeClassIds], [targetClassFilter], [multi] and [validationRules] are
+  /// [scopeClassIds], [targetClassFilter], [multi], [validationRules] and
+  /// [defaultValue] are
   /// nullable+optional — absent KEEPS the stored value, an explicit null
   /// CLEARS (scope back to global, filter to none, multi to single, rules to
-  /// none; an empty targetClassFilter means "no filter"). [validationRules]
+  /// none, default to none; an empty targetClassFilter means "no filter").
+  /// [validationRules]
   /// is {min?, max?, pattern?} — min/max apply to number schemas only,
   /// pattern to text/url/email only, min <= max; applicability against the
   /// STORED type and pattern compilability are applier-side checks (the
-  /// update payload carries no type). Pass the sentinel-defaulted params
+  /// update payload carries no type), exactly like the defaultValue PC2
+  /// type-check. Pass the sentinel-defaulted params
   /// explicitly (a typed `null` rides as a JSON null clear).
   static Map<String, dynamic> propertySchemaUpdate({
     required String propertySchemaId,
@@ -534,6 +551,7 @@ class OperationPayloads {
     String? display,
     bool? readonly,
     bool? hideWhenEmpty,
+    Object? defaultValue = _undefined,
   }) {
     if (name == null &&
         identical(icon, _undefined) &&
@@ -549,7 +567,8 @@ class OperationPayloads {
         numberRounding == null &&
         display == null &&
         readonly == null &&
-        hideWhenEmpty == null) {
+        hideWhenEmpty == null &&
+        identical(defaultValue, _undefined)) {
       throw ArgumentError('propertySchema.update requires at least one field');
     }
     return _validated('propertySchema.update', {
@@ -571,6 +590,10 @@ class OperationPayloads {
       'display': ?display,
       'readonly': ?readonly,
       'hideWhenEmpty': ?hideWhenEmpty,
+      // The global default (create-side doc above): absent keeps the stored
+      // value, an explicit null clears it (the same keep/clear contract as
+      // the number formats — the sentinel distinguishes the two spellings).
+      if (!identical(defaultValue, _undefined)) 'defaultValue': defaultValue,
     });
   }
 
@@ -842,22 +865,20 @@ class OperationPayloads {
         _uuid(payload, 'classId');
         _uuidList(payload, 'parentClassIds');
       case 'class.property.set':
-        // The binding carries ONLY the per-class mechanics
-        // (sequence, required, defaultValue, active) — the render contracts
-        // (readonly/hideWhenEmpty/display) are PROPERTY-level
-        // (propertySchema.create/update) and reject here like retired keys.
+        // The binding carries ONLY the genuinely per-class mechanics
+        // (sequence, active) — `required` retired outright and
+        // `defaultValue` moved to the property schema (owner ruling
+        // 2026-10-20); both reject here like any retired key, as do the
+        // PROPERTY-level render contracts (readonly/hideWhenEmpty/display).
         _strict(payload, {
           'classId',
           'propertySchemaId',
           'sequence',
-          'required',
-          'defaultValue',
           'active',
         });
         _uuid(payload, 'classId');
         _uuid(payload, 'propertySchemaId');
         _int(payload, 'sequence', required: false);
-        _boolNullable(payload, 'required', required: false);
         _bool(payload, 'active', required: false);
       case 'class.property.unset':
         _strict(payload, {'classId', 'propertySchemaId'});
@@ -893,6 +914,7 @@ class OperationPayloads {
           'display',
           'readonly',
           'hideWhenEmpty',
+          'defaultValue',
         });
         _uuid(payload, 'propertySchemaId');
         _string(payload, 'name', min: 1, max: 256);
@@ -940,6 +962,7 @@ class OperationPayloads {
           'display',
           'readonly',
           'hideWhenEmpty',
+          'defaultValue',
         });
         _uuid(payload, 'propertySchemaId');
         _string(payload, 'name', min: 1, max: 256, required: false);

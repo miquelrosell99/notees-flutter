@@ -12,15 +12,21 @@ import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Acceptance for the class.property.* lockstep ops (SCHEMA.md "Class
-/// properties — bindings, defaults, aggregation", 2026-09-27), replaying the
-/// canonical `class-property-defaults.json` fixture through the appliers with
+/// properties — bindings, defaults, aggregation", 2026-09-27; the default
+/// moved to the schema, owner ruling 2026-10-20), replaying the canonical
+/// `class-property-defaults.json` fixture through the appliers with
 /// intermediate reads through the ported `getEffectiveProperties`:
 ///
-///  - prefix 5 (Task binds priority=medium) → the node of Task reads "medium";
-///  - prefix 7 (Project also binds "high" and is added second) → still
-///    "medium" — first-class-applied wins (Task's membership add carries the
-///    earlier HLC);
-///  - full 8 (Task's binding unset) → "high" (Project's binding supplies it).
+///  - prefix 5 (schema 'priority' with the GLOBAL default 'medium', the node
+///    of Task, Task's binding) → the node reads "medium", boundBy Task;
+///  - prefix 7 (Project binds too, added second) → still "medium" — the
+///    value is the schema's ONE GLOBAL default (per-class default conflicts
+///    no longer exist); Task still wins the binding (earliest assignment
+///    HLC), so boundBy stays Task;
+///  - envelope 7 (Task's binding unset) → "medium", boundBy Project
+///    (Project's binding supplies the metadata, the schema the value);
+///  - envelope 8 (Project's binding unset too) → no binding, no derived
+///    default: the property leaves the effective list entirely.
 ///
 /// Defaults are a DERIVED read model: no property_value rows are written.
 void main() {
@@ -64,7 +70,7 @@ void main() {
 
     Future<void> replayPrefix(int count) async {
       final envelopes = fixtureEnvelopes();
-      expect(envelopes, hasLength(9));
+      expect(envelopes, hasLength(10));
       for (var i = 0; i < count; i++) {
         await appliers.apply(envelopes[i]);
       }
@@ -92,8 +98,8 @@ void main() {
       expect(authored.single['c'], 0);
     });
 
-    test('prefix 7: multi-class conflict resolves first-applied-wins',
-        () async {
+    test('prefix 7: a second binding adds presence, not a competing '
+        'default — the schema default is global', () async {
       await replayPrefix(7);
       expect(await effectivePriority(), 'medium');
 
@@ -101,17 +107,38 @@ void main() {
       final row = rows.singleWhere((r) => r.propertySchemaId == schema);
       expect(row.source, 'default');
       expect(row.boundBy, taskClass); // Task was assigned at the earlier HLC
+      // The schema row carries the ONE GLOBAL default.
+      final db = await database.database;
+      final stored = await db.rawQuery(
+        'SELECT default_value FROM property_schema WHERE uuid = ?',
+        [schema],
+      );
+      expect(jsonDecode(stored.single['default_value'] as String), 'medium');
     });
 
-    test('full 8: unbinding Task flips the effective default to "high"',
-        () async {
+    test('envelope 7: unbinding Task flips boundBy to Project — the value '
+        'is still the schema default', () async {
       await replayPrefix(8);
-      expect(await effectivePriority(), 'high');
+      expect(await effectivePriority(), 'medium');
 
       final rows = await cache.getEffectiveProperties(nodeId);
       final row = rows.singleWhere((r) => r.propertySchemaId == schema);
       expect(row.source, 'default');
       expect(row.boundBy, projectClass);
+    });
+
+    test('envelope 8: unbinding Project too — no binding, no derived '
+        'default', () async {
+      await replayPrefix(9);
+      final rows = await cache.getEffectiveProperties(nodeId);
+      expect(rows.where((r) => r.propertySchemaId == schema), isEmpty);
+      // The schema still carries its default — only the bindings are gone.
+      final db = await database.database;
+      final stored = await db.rawQuery(
+        'SELECT default_value FROM property_schema WHERE uuid = ?',
+        [schema],
+      );
+      expect(jsonDecode(stored.single['default_value'] as String), 'medium');
     });
 
     test('authored value shadows the default and survives unbinding',
@@ -214,11 +241,12 @@ void main() {
       final rows = await cache.getEffectiveProperties(nodeId);
       final row = rows.singleWhere((r) => r.propertySchemaId == schema);
       expect(row.source, 'default');
-      expect(row.value, 'medium'); // falls back to the binding's default
+      expect(row.value, 'medium'); // falls back to the schema's global default
     });
 
-    test('partial binding update keeps omitted fields', () async {
-      await replayPrefix(5); // Task: sequence 0, default "medium"
+    test('partial binding update keeps omitted fields; the default lives '
+        'on the schema row', () async {
+      await replayPrefix(5); // Task: sequence 0, schema default "medium"
 
       await appliers.apply(OperationEnvelope(
         id: '0192a000-0000-7000-8000-000000000501',
@@ -231,31 +259,105 @@ void main() {
         payload: OperationPayloads.classPropertySet(
           classId: taskClass,
           propertySchemaId: schema,
-          required: true,
+          active: false,
         ),
         timestamp: '2026-09-24T12:00:13.000Z',
       ));
 
       final db = await database.database;
       final rows = await db.rawQuery(
-        'SELECT sequence, required, default_value, active '
-        'FROM class_property WHERE class_id = ? AND property_schema_id = ?',
+        'SELECT sequence, active FROM class_property '
+        'WHERE class_id = ? AND property_schema_id = ?',
         [taskClass, schema],
       );
       expect(rows.single['sequence'], 0); // kept
-      expect(rows.single['required'], 1); // patched
-      expect(jsonDecode(rows.single['default_value'] as String), 'medium');
-      expect(rows.single['active'], 1);
+      expect(rows.single['active'], 0); // patched
 
-      // The binding row carries ONLY the per-class mechanics — the
-      // retired readonly/hideWhenEmpty/display columns are gone from the
-      // table outright.
+      // The default survives on the SCHEMA row (the global-default move):
+      // patching the binding never touches it.
+      final stored = await db.rawQuery(
+        'SELECT default_value FROM property_schema WHERE uuid = ?',
+        [schema],
+      );
+      expect(jsonDecode(stored.single['default_value'] as String), 'medium');
+
+      // The binding row carries ONLY the genuinely per-class mechanics —
+      // every retired column is gone from the table outright.
       final columns = await db.rawQuery('PRAGMA table_info(class_property)');
       final names = columns.map((c) => c['name'] as String).toList();
-      expect(names, contains('required'));
+      expect(names, isNot(contains('required')));
+      expect(names, isNot(contains('default_value')));
       expect(names, isNot(contains('readonly')));
       expect(names, isNot(contains('hide_when_empty')));
       expect(names, isNot(contains('display')));
+    });
+
+    test('schema default keep/clear: propertySchema.update patches the '
+        'value, an explicit null clears it', () async {
+      await replayPrefix(5); // schema default "medium"
+
+      final db = await database.database;
+      Future<String?> storedDefault() async => (await db.rawQuery(
+            'SELECT default_value FROM property_schema WHERE uuid = ?',
+            [schema],
+          )).single['default_value'] as String?;
+
+      // Absent keeps.
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-000000000701',
+        workspaceId: '0192a000-0000-7000-8000-000000000001',
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'test-device',
+        hlc: const Hlc(physical: 1727200013000, logical: 0),
+        affectedNodeIds: const [schema],
+        opType: 'propertySchema.update',
+        payload: OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: schema,
+          name: 'Importance',
+        ),
+        timestamp: '2026-09-24T12:00:13.000Z',
+      ));
+      expect(jsonDecode((await storedDefault())!), 'medium');
+
+      // Present patches.
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-000000000702',
+        workspaceId: '0192a000-0000-7000-8000-000000000001',
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'test-device',
+        hlc: const Hlc(physical: 1727200013100, logical: 0),
+        affectedNodeIds: const [schema],
+        opType: 'propertySchema.update',
+        payload: OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: schema,
+          defaultValue: 'low',
+        ),
+        timestamp: '2026-09-24T12:00:13.100Z',
+      ));
+      expect(jsonDecode((await storedDefault())!), 'low');
+      expect(await effectivePriority(), 'low');
+
+      // Present-null clears.
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-000000000703',
+        workspaceId: '0192a000-0000-7000-8000-000000000001',
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'test-device',
+        hlc: const Hlc(physical: 1727200013200, logical: 0),
+        affectedNodeIds: const [schema],
+        opType: 'propertySchema.update',
+        payload: OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: schema,
+          defaultValue: null,
+        ),
+        timestamp: '2026-09-24T12:00:13.200Z',
+      ));
+      expect(await storedDefault(), isNull);
+      expect(
+        (await cache.getEffectiveProperties(nodeId))
+            .where((r) => r.propertySchemaId == schema),
+        isEmpty,
+      );
     });
 
     test('binding row LWW: a stale set is dropped', () async {
@@ -272,7 +374,7 @@ void main() {
         payload: OperationPayloads.classPropertySet(
           classId: taskClass,
           propertySchemaId: schema,
-          defaultValue: 'stale',
+          sequence: 9,
         ),
         timestamp: '2026-09-24T12:00:10.000Z',
       ));
@@ -405,9 +507,8 @@ void main() {
       );
     });
 
-    test('an unbound authored value CARRIES the schema display; required '
-        'stays binding-sourced (null when unbound); an inactive binding '
-        'contributes nothing', () async {
+    test('an unbound authored value CARRIES the schema display; an inactive '
+        'binding contributes nothing', () async {
       await replayFixturePrefix(appliers, 5);
       // Schema-side display, no authored value yet: the derived default
       // reads it.
@@ -453,11 +554,10 @@ void main() {
       expect(row.source, 'authored');
       expect(row.boundBy, isNull);
       expect(row.display, 'bullet'); // schema-sourced, rides unbound rows
-      expect(row.required, isNull); // binding-sourced: no current binding
 
-      // Re-bind (required + a default), then flip inactive: the inactive
-      // binding stops contributing metadata — the authored value reads
-      // unbound with required null — while the SCHEMA display still rides.
+      // Re-bind, then flip inactive: the inactive binding stops
+      // contributing metadata — the authored value reads unbound — while
+      // the SCHEMA display still rides.
       await appliers.apply(OperationEnvelope(
         id: '0192a000-0000-7000-8000-00000000820d',
         workspaceId: '0192a000-0000-7000-8000-000000000001',
@@ -469,15 +569,13 @@ void main() {
         payload: OperationPayloads.classPropertySet(
           classId: taskClass,
           propertySchemaId: schema,
-          required: true,
-          defaultValue: 'medium',
         ),
         timestamp: '2026-09-24T12:00:14.300Z',
       ));
       row = (await cache.getEffectiveProperties(nodeId))
           .singleWhere((r) => r.propertySchemaId == schema);
       expect(row.source, 'authored');
-      expect(row.required, isTrue); // the winning binding's per-class flag
+      expect(row.boundBy, taskClass); // the winning binding supplies metadata
       expect(row.display, 'bullet');
 
       await appliers.apply(OperationEnvelope(
@@ -499,7 +597,6 @@ void main() {
       row = effective.singleWhere((r) => r.propertySchemaId == schema);
       expect(row.source, 'authored');
       expect(row.boundBy, isNull);
-      expect(row.required, isNull); // the inactive binding contributes nothing
       expect(row.display, 'bullet'); // the schema display still rides
       // The derived default vanishes with the inactive binding.
       expect(effective.where((r) => r.source == 'default'), isEmpty);
@@ -510,24 +607,36 @@ void main() {
     const classId = '0192a000-0000-7000-8000-000000000302';
     const schemaId = '0192a000-0000-7000-8000-000000000301';
 
-    test('set validates and round-trips', () {
+    test('set validates and round-trips (sequence/active only)', () {
       final payload = OperationPayloads.classPropertySet(
         classId: classId,
         propertySchemaId: schemaId,
         sequence: 2,
-        required: true,
-        defaultValue: 'high',
+        active: false,
       );
       expect(payload['sequence'], 2);
-      expect(payload['required'], isTrue);
-      expect(payload['defaultValue'], 'high');
+      expect(payload['active'], isFalse);
       expect(
         () => OperationPayloads.validatePayload('class.property.set', payload),
         returnsNormally,
       );
     });
 
-    test('set rejects unknown keys and bad uuids', () {
+    test('set rejects retired and unknown keys', () {
+      // `required` retired outright and `defaultValue` moved to the schema
+      // (owner ruling 2026-10-20) — the strict 4-key payload rejects both
+      // like any retired key.
+      for (final retired in ['required', 'defaultValue']) {
+        expect(
+          () => OperationPayloads.validatePayload('class.property.set', {
+            'classId': classId,
+            'propertySchemaId': schemaId,
+            retired: retired == 'required' ? true : 'high',
+          }),
+          throwsFormatException,
+          reason: retired,
+        );
+      }
       expect(
         () => OperationPayloads.validatePayload('class.property.set', {
           'classId': classId,
@@ -559,9 +668,9 @@ void main() {
       expect(OperationPayloads.isKnownOpType('class.property.unset'), isTrue);
     });
 
-    test('flags accept explicit null (clear) in raw maps', () {
-      // The binding keeps ONLY required (the owner's per-class
-      // exception) — explicit null validates; readonly is retired here.
+    test('the binding keeps ONLY sequence/active — required/defaultValue '
+        'retired', () {
+      // The retired keys reject on the binding op; `active` stays legal.
       expect(
         () => OperationPayloads.validatePayload('class.property.set', {
           'classId': classId,
@@ -569,7 +678,7 @@ void main() {
           'required': null,
           'active': false,
         }),
-        returnsNormally,
+        throwsFormatException,
       );
       expect(
         () => OperationPayloads.validatePayload('class.property.set', {
@@ -587,6 +696,45 @@ void main() {
         }),
         throwsFormatException,
       );
+    });
+
+    test('defaultValue rides the schema ops (any JSON value, nullable)', () {
+      // Create: any JSON value validates, absent is fine too.
+      final created = OperationPayloads.propertySchemaCreate(
+        propertySchemaId: schemaId,
+        name: 'Status',
+        type: 'select',
+        defaultValue: 'opt-a',
+      );
+      expect(created['defaultValue'], 'opt-a');
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', created),
+        returnsNormally,
+      );
+      for (final value in [null, 7, true, ['a', 'b'], {'any': 'thing'}]) {
+        expect(
+          () => OperationPayloads.validatePayload('propertySchema.create', {
+            'propertySchemaId': schemaId,
+            'name': 'Status',
+            'type': 'select',
+            'defaultValue': value,
+          }),
+          returnsNormally,
+          reason: 'defaultValue: $value',
+        );
+      }
+      // Update: absent keeps (the sentinel drops the key), an explicit null
+      // rides as a JSON clear.
+      final untouched = OperationPayloads.propertySchemaUpdate(
+        propertySchemaId: schemaId,
+        name: 'x',
+      );
+      expect(untouched.containsKey('defaultValue'), isFalse);
+      final cleared = OperationPayloads.propertySchemaUpdate(
+        propertySchemaId: schemaId,
+        defaultValue: null,
+      );
+      expect(cleared, containsPair('defaultValue', null));
     });
   });
 
@@ -647,7 +795,7 @@ Future<void> replayFixturePrefix(RelayAppliers appliers, int count) async {
       .cast<Map<String, dynamic>>()
       .map(OperationEnvelope.fromJson)
       .toList();
-  expect(envelopes, hasLength(9));
+  expect(envelopes, hasLength(10));
   for (var i = 0; i < count; i++) {
     await appliers.apply(envelopes[i]);
   }

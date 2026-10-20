@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/core/constants/system.dart';
 import 'package:notees/data/local/app_database.dart';
@@ -705,8 +707,8 @@ void main() {
     });
 
     test('rebuilds class_property without the retired columns (rows copy '
-        'verbatim, required + LWW survive) and adds property_schema.display; '
-        'schema display rides the effective read', () async {
+        'verbatim, LWW survives) and keeps property_schema.default_value; '
+        'schema display + default ride the effective read', () async {
       // A pre-v26 binding row already lives in the table.
       await ffiDb.insert('class_property', {
         'class_id': '0192a000-0000-7000-8000-000000000900',
@@ -725,41 +727,48 @@ void main() {
       final database = AppDatabase.fromDatabase(ffiDb);
       await database.initializeSchema();
 
-      // class_property: rebuilt to the per-class mechanics ONLY.
+      // class_property: rebuilt to the per-class mechanics ONLY — the
+      // v26 step drops the render contracts, v32 (owner ruling
+      // 2026-10-20) drops required/default_value (retired/moved to the
+      // schema) — every retired column is gone.
       final columns = await ffiDb.rawQuery('PRAGMA table_info(class_property)');
       final names = columns.map((c) => c['name'] as String).toList();
-      expect(names, contains('required'));
-      expect(names, contains('default_value'));
+      expect(names, contains('sequence'));
       expect(names, contains('active'));
       expect(names, contains('hlc_physical'));
+      expect(names, isNot(contains('required')));
+      expect(names, isNot(contains('default_value')));
       expect(names, isNot(contains('readonly')));
       expect(names, isNot(contains('hide_when_empty')));
       expect(names, isNot(contains('display')));
       // The surviving row copies verbatim (retired values dropped, LWW kept).
       final migrated = await ffiDb.rawQuery(
-        'SELECT sequence, required, default_value, active, hlc_physical, '
-        'hlc_logical, actor_id FROM class_property WHERE class_id = ?',
+        'SELECT sequence, active, hlc_physical, hlc_logical, actor_id '
+        'FROM class_property WHERE class_id = ?',
         ['0192a000-0000-7000-8000-000000000900'],
       );
       expect(migrated.single['sequence'], 7);
-      expect(migrated.single['required'], 1);
-      expect(migrated.single['default_value'], '"legacy"');
       expect(migrated.single['active'], 1);
       expect(migrated.single['hlc_physical'], 42);
       expect(migrated.single['hlc_logical'], 1);
       expect(migrated.single['actor_id'], 'legacy-actor');
 
       // property_schema: created by the chain at its current shape — the
-      // display column is present for the schema-side write below.
+      // display + default_value columns are present for the schema-side
+      // writes below.
       final schemaColumns =
           await ffiDb.rawQuery('PRAGMA table_info(property_schema)');
       expect(
         schemaColumns.map((c) => c['name'] as String),
         contains('display'),
       );
+      expect(
+        schemaColumns.map((c) => c['name'] as String),
+        contains('default_value'),
+      );
 
-      // A schema-side display write lands through the applier on the
-      // migrated tables and reads back on the effective row.
+      // Schema-side display + default writes land through the applier on
+      // the migrated tables and read back on the effective row.
       const classId = '0192a000-0000-7000-8000-000000000901';
       const schemaId = '0192a000-0000-7000-8000-000000000902';
       const nodeId = '0192a000-0000-7000-8000-000000000903';
@@ -778,6 +787,7 @@ void main() {
           name: 'Stage',
           type: 'select',
           display: 'bullet',
+          defaultValue: 'x',
         ),
         timestamp: '2026-09-24T12:00:00.000Z',
       ));
@@ -792,7 +802,6 @@ void main() {
         payload: OperationPayloads.classPropertySet(
           classId: classId,
           propertySchemaId: schemaId,
-          defaultValue: 'x',
         ),
         timestamp: '2026-09-24T12:00:01.000Z',
       ));
@@ -811,11 +820,17 @@ void main() {
         timestamp: '2026-09-24T12:00:02.000Z',
       ));
       final rows = await ffiDb.rawQuery(
-        'SELECT display FROM property_schema WHERE uuid = ?',
+        'SELECT display, default_value FROM property_schema WHERE uuid = ?',
         [schemaId],
       );
       expect(rows.single['display'], 'bullet');
+      expect(jsonDecode(rows.single['default_value'] as String), 'x');
       final effective = await cache.getEffectiveProperties(nodeId);
+      // The derived default row (schema-sourced value, binding-sourced
+      // metadata) carries the schema display.
+      expect(effective.single.source, 'default');
+      expect(effective.single.value, 'x');
+      expect(effective.single.boundBy, classId);
       expect(effective.single.display, 'bullet');
     });
   });

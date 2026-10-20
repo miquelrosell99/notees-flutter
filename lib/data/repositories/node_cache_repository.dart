@@ -995,16 +995,21 @@ class NodeCacheRepository {
   /// Reads class-property binding rows from a server-derived snapshot
   /// database (the `class_property` table; empty by default).
   /// The table carries ONLY the per-class mechanics — the
-  /// retired readonly/hide_when_empty columns are gone from the source, so
-  /// the legacy row model reads them as unset.
+  /// retired readonly/hide_when_empty columns are gone from the source (and
+  /// `required`/`default_value` retired/moved to the schema with the owner
+  /// ruling 2026-10-20), so the legacy row model reads them as unset; the
+  /// column guard keeps pre-v25 snapshots readable.
   Future<List<ClassPropertyEdgeRow>>
   _readClassPropertyEdgesFromSnapshotDatabase(
     Database db,
     String workspaceId,
   ) async {
+    final info = await db.rawQuery('PRAGMA table_info(class_property)');
+    final names = info.map((c) => c['name'] as String).toSet();
+    final hasLegacy = names.contains('default_value') && names.contains('required');
     final rows = await db.rawQuery(
-      'SELECT cp.class_id, cp.property_schema_id, cp.sequence, cp.default_value, '
-      'cp.required '
+      'SELECT cp.class_id, cp.property_schema_id, cp.sequence'
+      '${hasLegacy ? ', cp.default_value, cp.required' : ''} '
       'FROM class_property cp '
       'JOIN class c ON c.id = cp.class_id '
       'WHERE c.workspace_id = ? AND c.active = 1',
@@ -1012,11 +1017,13 @@ class NodeCacheRepository {
     );
     return rows.map((row) {
       dynamic defaultValue;
-      try {
-        final raw = row['default_value'] as String?;
-        defaultValue = raw == null ? null : jsonDecode(raw);
-      } catch (_) {
-        defaultValue = row['default_value'];
+      if (hasLegacy) {
+        try {
+          final raw = row['default_value'] as String?;
+          defaultValue = raw == null ? null : jsonDecode(raw);
+        } catch (_) {
+          defaultValue = row['default_value'];
+        }
       }
       return ClassPropertyEdgeRow(
         classUuid: row['class_id'] as String,
@@ -1024,9 +1031,11 @@ class NodeCacheRepository {
         sequence: row['sequence'] as int? ?? 0,
         defaultValue: defaultValue,
         hidden: false,
-        required: row['required'] == null
-            ? null
-            : (row['required'] as int) == 1,
+        required: hasLegacy
+            ? row['required'] == null
+                  ? null
+                  : (row['required'] as int) == 1
+            : null,
         readonly: null,
         hideWhenEmpty: null,
       );
@@ -3542,21 +3551,17 @@ class NodeCacheRepository {
   }
 
   /// Upserts a binding row. Omitted fields KEEP their stored values (partial
-  /// patch, port of the SQL COALESCE); [defaultValueJson] is the JSON-encoded
-  /// default (null = leave untouched — JSON-null defaults ride raw maps).
-  /// [active] (PC4) is the soft-unbind flag: omitted keeps the stored flag;
-  /// a NEW row defaults to active. The row carries ONLY the
-  /// per-class mechanics (sequence, required, defaultValue, active) — the
-  /// render contracts (readonly/hideWhenEmpty/display) are PROPERTY-level
-  /// and live on the property schema.
+  /// patch, port of the SQL COALESCE). [active] (PC4) is the soft-unbind
+  /// flag: omitted keeps the stored flag; a NEW row defaults to active. The
+  /// row carries ONLY the genuinely per-class mechanics (sequence, active) —
+  /// `required` retired outright and `defaultValue` moved to the property
+  /// schema (owner ruling 2026-10-20).
   Future<void> upsertClassPropertyBinding({
     required String classId,
     required String schemaId,
     required LwwWinner incoming,
     int? sequence,
-    bool? required,
     bool? active,
-    String? defaultValueJson,
   }) async {
     final db = await _database.database;
     final existing = await db.query(
@@ -3572,9 +3577,6 @@ class NodeCacheRepository {
         'class_id': classId,
         'property_schema_id': schemaId,
         'sequence': sequence ?? (stored['sequence'] as num?)?.toInt() ?? 0,
-        'required':
-            required == null ? stored['required'] : (required ? 1 : 0),
-        'default_value': defaultValueJson ?? stored['default_value'],
         'active': active == null
             ? (stored['active'] as num?) ?? 1
             : (active ? 1 : 0),
@@ -3599,40 +3601,34 @@ class NodeCacheRepository {
     );
   }
 
-  /// All binding rows of [classId] that carry a stored default, with the
-  /// default decoded per the web client's `getClassBindings` decodeDefault:
-  /// a JSON string rides as the string itself; any other JSON value
-  /// RE-ENCODES to its JSON text (the default-mirror sweep compares JSON texts, so
-  /// a non-string default only sweeps an authored value whose own JSON text
-  /// equals the quoted string — web parity, quirk included). Rows ride
-  /// regardless of the PC4 active flag, matching the web sweep.
-  Future<List<({String propertySchemaId, String defaultValue})>>
+  /// The default-mirror sweep's source rows (web `unassignClass` parity):
+  /// every schema [classId] binds (through the class_property rows, active
+  /// or not — the web sweep lists `getClassBindings` regardless of the PC4
+  /// flag) whose SCHEMA row carries a non-null `default_value` — the default
+  /// is SCHEMA-level since the owner ruling 2026-10-20 (one global default
+  /// per property, whatever class binds it), decoded from its JSON text.
+  Future<List<({String propertySchemaId, dynamic defaultValue})>>
   classPropertyDefaultsOf(String classId) async {
     final db = await _database.database;
-    final rows = await db.query(
-      'class_property',
-      columns: ['property_schema_id', 'default_value'],
-      where: 'class_id = ? AND default_value IS NOT NULL',
-      whereArgs: [classId],
+    final rows = await db.rawQuery(
+      'SELECT cp.property_schema_id AS sid, ps.default_value AS dv '
+      'FROM class_property cp '
+      'JOIN property_schema ps ON ps.uuid = cp.property_schema_id '
+      'WHERE cp.class_id = ? AND ps.default_value IS NOT NULL',
+      [classId],
     );
     return rows.map((row) {
-      final raw = row['default_value'] as String;
-      String decoded;
-      try {
-        final parsed = jsonDecode(raw);
-        decoded = parsed is String ? parsed : jsonEncode(parsed);
-      } catch (_) {
-        decoded = raw;
-      }
+      final raw = row['dv'] as String;
       return (
-        propertySchemaId: row['property_schema_id'] as String,
-        defaultValue: decoded,
+        propertySchemaId: row['sid'] as String,
+        defaultValue: _decodeJsonOrRaw(raw),
       );
     }).toList();
   }
 
   /// Effective (schema, idx) rows for [nodeId]
-  /// (`effective(node, schema, idx) = authored ?? winning binding's default`).
+  /// (`effective(node, schema, idx) = authored ?? the schema's global default
+  /// brought in by the winning ACTIVE binding`).
   Future<List<EffectiveProperty>> getEffectiveProperties(String nodeId) async {
     final db = await _database.database;
 
@@ -3744,7 +3740,7 @@ class NodeCacheRepository {
       final placeholders = schemaIds.map((_) => '?').join(',');
       final rows = await db.rawQuery(
         'SELECT uuid, name, type, multi, display, readonly, hide_when_empty, '
-        'scope_class_ids FROM property_schema WHERE uuid IN ($placeholders)',
+        'scope_class_ids, default_value FROM property_schema WHERE uuid IN ($placeholders)',
         schemaIds.toList(),
       );
       for (final row in rows) {
@@ -3769,6 +3765,12 @@ class NodeCacheRepository {
           hideWhenEmpty: flag(row['hide_when_empty']),
           // R3: the SOLE locality authority (null = global).
           scopeClassIds: scopeClassIds,
+          // The ONE GLOBAL default (owner ruling 2026-10-20 — the value
+          // moved from the class binding to the schema; a binding row
+          // carries sequence/active only).
+          defaultValue: row['default_value'] == null
+              ? null
+              : _decodeJsonOrRaw(row['default_value'] as String),
         );
       }
     }
@@ -3798,11 +3800,12 @@ class NodeCacheRepository {
 
     // 5. Merge: authored wins per (schema, idx, ELEMENT — PG5: rows at the
     //    same idx are distinct elements and all surface); a winning ACTIVE
-    //    binding with a default and no authored value at idx 0 derives a
-    //    default row. Sourcing: `required` is per-CLASS (the winning
-    //    binding — null when no current class binds the schema); readonly /
-    //    hideWhenEmpty / display are per-PROPERTY (the schema row) and ride
-    //    authored AND derived rows, INCLUDING unbound authored values.
+    //    binding whose SCHEMA row carries a non-null default derives a
+    //    default row when nothing authored shadows idx 0. Sourcing: readonly
+    //    / hideWhenEmpty / display are per-PROPERTY (the schema row) and
+    //    ride authored AND derived rows, INCLUDING unbound authored values;
+    //    the default VALUE is schema-level (owner ruling 2026-10-20) while
+    //    the winning binding still supplies boundBy/sequence.
     final rows = <String, EffectiveProperty>{};
     for (final authored in authoredRows) {
       final schemaId = authored['property_schema_id'] as String;
@@ -3820,7 +3823,6 @@ class NodeCacheRepository {
         metadata: metadata == null ? null : _decodeJsonOrRaw(metadata),
         source: 'authored',
         boundBy: winner?.classId,
-        required: winner == null ? null : flag(winner.binding['required']),
         readonly: schema?.readonly,
         hideWhenEmpty: schema?.hideWhenEmpty,
         sequence: winner == null
@@ -3835,8 +3837,14 @@ class NodeCacheRepository {
     for (final entry in winnerBySchema.entries) {
       final schemaId = entry.key;
       final winner = entry.value;
-      final defaultRaw = winner.binding['default_value'];
-      if (defaultRaw == null) continue; // bound without a default
+      // The default is the SCHEMA's single global value (owner ruling
+      // 2026-10-20): a winning ACTIVE binding brings the property into the
+      // node's context, the schema row supplies the value — there is no
+      // per-class default conflict anymore (a deleted schema row means no
+      // default, exactly like the reference read).
+      final schema = schemas[schemaId];
+      final defaultValue = schema?.defaultValue;
+      if (defaultValue == null) continue; // schema without a default
       // R4 (owner ruling 2026-10-20): an ineligible node shows NEITHER the
       // property NOR a derived default from an out-of-scope binding — a
       // stray binding must not render a value for a property the node
@@ -3846,12 +3854,7 @@ class NodeCacheRepository {
       // PC2 read-side: a stored default that no longer matches the schema
       // type (written before validation, or after a delete+recreate changed
       // the type) yields no default rather than a wrong-typed value.
-      final schema = schemas[schemaId];
-      if (schema != null &&
-          !isValidDefaultForType(
-            schema.type,
-            _decodeJsonOrRaw(defaultRaw as String),
-          )) {
+      if (schema != null && !isValidDefaultForType(schema.type, defaultValue)) {
         continue;
       }
       final key = '$schemaId:0';
@@ -3863,11 +3866,10 @@ class NodeCacheRepository {
         idx: 0,
         elementId: 'default:$schemaId:0',
         schema: schemas[schemaId],
-        value: _decodeJsonOrRaw(defaultRaw as String),
+        value: defaultValue,
         metadata: null,
         source: 'default',
         boundBy: winner.classId,
-        required: flag(winner.binding['required']),
         readonly: schema?.readonly,
         hideWhenEmpty: schema?.hideWhenEmpty,
         sequence: (winner.binding['sequence'] as num?)?.toInt(),
@@ -4876,6 +4878,7 @@ class EffectivePropertySchema {
     this.readonly,
     this.hideWhenEmpty,
     this.scopeClassIds,
+    this.defaultValue,
   });
 
   final String id;
@@ -4894,6 +4897,14 @@ class EffectivePropertySchema {
   /// class list (null = global). Eligibility walks the node's class closure
   /// against this list — extends-aware, the binding-resolution closure.
   final List<String>? scopeClassIds;
+
+  /// The property's ONE GLOBAL default (owner ruling 2026-10-20 — moved
+  /// from the class binding to the schema, the Logseq shape), decoded from
+  /// the stored JSON text; null = no default. The effective read derives a
+  /// default row from it when a winning ACTIVE binding brings the property
+  /// into the node's context — the winning binding still supplies
+  /// boundBy/sequence, never the value.
+  final dynamic defaultValue;
 }
 
 /// One effective (schema, idx) row for a node (port of the TS store's
@@ -4910,7 +4921,6 @@ class EffectiveProperty {
     required this.metadata,
     required this.source,
     required this.boundBy,
-    required this.required,
     required this.readonly,
     required this.hideWhenEmpty,
     required this.sequence,
@@ -4930,7 +4940,6 @@ class EffectiveProperty {
   final dynamic metadata;
   final String source; // 'authored' | 'default'
   final String? boundBy;
-  final bool? required;
   final bool? readonly;
   final bool? hideWhenEmpty;
   final int? sequence;

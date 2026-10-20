@@ -13,10 +13,11 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Acceptance for the default-mirror sweep port (web
 /// `unassignClass` parity): removing a class sweeps the node's authored
-/// values that merely MIRROR the departing class's binding defaults —
+/// values that merely MIRROR the schema's global default (schema-level
+/// since the owner ruling 2026-10-20, whatever class binds it) —
 /// explicit property.unset envelopes enqueued BEFORE the class.unassign so
 /// every client converges; values differing from a default survive, marked
-/// unbound; bindings without a default never sweep.
+/// unbound; schemas without a default never sweep.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -53,11 +54,12 @@ void main() {
 
   Future<void> apply(OperationEnvelope envelope) => appliers.apply(envelope);
 
-  /// Seeds: the status schema (select, multi) bound by [klass] with
-  /// default "opt-pending"; the notes schema (text) bound WITHOUT a
-  /// default; [node] carrying [klass] with three authored values — the
-  /// mirror at the positional slot, the mirror as a PG5 element add, and a
-  /// differing notes value.
+  /// Seeds: the status schema (select, multi) with the GLOBAL default
+  /// "opt-pending" (schema-level since the owner ruling 2026-10-20), bound
+  /// by [klass]; the notes schema (text) bound WITHOUT a default; [node]
+  /// carrying [klass] with three authored values — the mirror at the
+  /// positional slot, the mirror as a PG5 element add, and a differing
+  /// notes value.
   Future<void> seed() async {
     await apply(env(
       'propertySchema.create',
@@ -66,6 +68,7 @@ void main() {
         name: 'status',
         type: 'select',
         multi: true,
+        defaultValue: 'opt-pending',
         options: const [
           {'id': 'opt-pending', 'label': 'Pending'},
           {'id': 'opt-done', 'label': 'Done'},
@@ -90,7 +93,6 @@ void main() {
         classId: klass,
         propertySchemaId: statusSchema,
         sequence: 0,
-        defaultValue: 'opt-pending',
       ),
     ));
     await apply(env(
@@ -247,9 +249,9 @@ void main() {
     expect(status.boundBy, isNull);
   });
 
-  test('bindings without a defaultValue never sweep', () async {
+  test('schemas without a default never sweep', () async {
     await seed();
-    // A class whose binding carries NO default, with an authored value.
+    // A class binding whose SCHEMA carries NO default, with an authored value.
     const plainClass = '20000000-0000-4000-8000-000000000040';
     await apply(env(
       'class.create',
@@ -300,8 +302,8 @@ void main() {
     expect(envelope['opType'], 'class.unassign');
   });
 
-  test('a stored non-string default sweeps only the authored row whose '
-      'JSON text equals the quoted string (web decodeDefault parity)', () async {
+  test('a non-string default sweeps the authored row with the equal JSON '
+      'text (web schema-level parity)', () async {
     const countSchema = '20000000-0000-4000-8000-000000000060';
     const counter = '20000000-0000-4000-8000-000000000061';
     await apply(env(
@@ -311,23 +313,19 @@ void main() {
         name: 'count',
         type: 'number',
         multi: true,
+        defaultValue: 5,
       ),
     ));
     await apply(env(
       'class.create',
       OperationPayloads.classCreate(classId: counter, name: 'counter'),
     ));
-    // A number default (5). Web decodeDefault re-encodes it to the STRING
-    // "5", and the sweep compares JSON.stringify(value) to '"5"' — the
-    // quoted string — so an authored NUMBER 5 does NOT sweep, while an
-    // authored STRING "5" does. Quirk recorded in the port.
     await apply(env(
       'class.property.set',
       OperationPayloads.classPropertySet(
         classId: counter,
         propertySchemaId: countSchema,
         sequence: 0,
-        defaultValue: 5,
       ),
     ));
     await apply(env(
@@ -338,17 +336,20 @@ void main() {
         contentAst: const [],
       ),
     ));
+    // The default is schema-level (owner ruling 2026-10-20): the sweep
+    // compares decoded JSON texts, so an authored NUMBER 5 (JSON text '5')
+    // sweeps, while an authored STRING "5" (JSON text '"5"') survives.
     await apply(env(
       'property.set',
       OperationPayloads.propertySet(
         objectId: node,
         propertySchemaId: countSchema,
-        value: 5, // authored number — JSON text '5' ≠ '"5"' — survives
+        value: 5, // authored number — JSON text '5' === the default's — sweeps
       ),
     ));
     // A legacy pre-PG6 row stored as the raw STRING '5' (the migrated log
-    // can carry it): PG6 normalization never rewrote it, so its JSON text
-    // still equals the quoted default string — the quirk branch fires.
+    // can carry it): its JSON text '"5"' differs from the default's '5' —
+    // it survives.
     final db = await database.database;
     await db.insert('property_value', {
       'id': '20000000-0000-4000-8000-0000000000e3',
@@ -373,7 +374,12 @@ void main() {
     final unset = jsonDecode(pending.first['envelope_json'] as String)
         as Map<String, dynamic>;
     expect(unset['opType'], 'property.unset');
-    expect(unset['payload']['elementId'],
-        '20000000-0000-4000-8000-0000000000e3');
+    // The positional idx-0 number row is the mirror — the legacy string
+    // row survives.
+    expect(unset['payload'], {
+      'objectId': node,
+      'propertySchemaId': countSchema,
+      'idx': 0,
+    });
   });
 }
