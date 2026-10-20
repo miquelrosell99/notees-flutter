@@ -243,3 +243,144 @@ int datePrecisionRank(String? precision) => switch (precision) {
       'month' => 2,
       _ => 3,
     };
+
+/// The parsed validationRules column (the R2 value enforcement, owner
+/// 2026-10-20 — SCHEMA.md "Properties"): number schemas bound values with
+/// inclusive min/max; text/url/email schemas full-string-test scalar values
+/// against an authored pattern (the HTML pattern semantics — the value check
+/// adds the anchors around the stored source). A null map = no rules.
+class ValidationRules {
+  const ValidationRules({this.min, this.max, this.pattern});
+
+  final num? min;
+  final num? max;
+  final String? pattern;
+
+  bool get isEmpty => min == null && max == null && pattern == null;
+}
+
+/// The stored validation_rules column parsed to the rule object (a null
+/// column, a non-map, or malformed entries read as "no rules" — corrupt
+/// config never crashes a read; only the finite-number / string entries
+/// survive, the TS validationRulesOfRow leniency).
+ValidationRules? validationRulesOfRaw(dynamic raw) {
+  if (raw is! Map<String, dynamic>) return null;
+  num? min = raw['min'] is num ? raw['min'] as num : null;
+  num? max = raw['max'] is num ? raw['max'] as num : null;
+  if (min != null && !min.isFinite) min = null;
+  if (max != null && !max.isFinite) max = null;
+  final pattern = raw['pattern'] is String ? raw['pattern'] as String : null;
+  final rules = ValidationRules(min: min, max: max, pattern: pattern);
+  return rules.isEmpty ? null : rules;
+}
+
+/// R2 applicability: the update payload is a patch
+/// carrying no type, so validationRules applicability is enforced against
+/// the schema's STORED type — min/max only on `number` schemas, pattern only
+/// on `text`/`url`/`email` (min <= max is a parse-time rule). Fail loud —
+/// the rules would be provably inert or wrong-typed.
+void assertValidationRulesApplicable(
+  String schemaType,
+  ValidationRules rules,
+  String opType,
+) {
+  if ((rules.min != null || rules.max != null) && schemaType != 'number') {
+    throw PropertyValueShapeError(
+      '$opType: validationRules min/max apply to number schemas only — '
+      'schema type is $schemaType',
+      opType,
+    );
+  }
+  if (rules.pattern != null &&
+      schemaType != 'text' &&
+      schemaType != 'url' &&
+      schemaType != 'email') {
+    throw PropertyValueShapeError(
+      '$opType: validationRules pattern applies to text/url/email schemas '
+      'only — schema type is $schemaType',
+      opType,
+    );
+  }
+}
+
+/// A pattern that does not compile would throw at value-check time (an
+/// applier crash is never acceptable) — the rule write itself fails loud
+/// instead. The pattern is stored as authored (no anchoring rewrite: the
+/// value check adds the full-string anchors around the source).
+void assertValidationPatternCompilable(
+  ValidationRules rules,
+  String opType,
+) {
+  final pattern = rules.pattern;
+  if (pattern == null) return;
+  try {
+    RegExp(pattern);
+  } catch (_) {
+    throw PropertyValueShapeError(
+      '$opType: validationRules pattern is not a compilable regex — got '
+      '${jsonEncodeForMessage(pattern)}',
+      opType,
+    );
+  }
+}
+
+/// The stored validationRules applied to a NORMALIZED value (the R2 value
+/// enforcement): min/max bound a number schema's value (the legacy numeric
+/// string already normalized to a finite number upstream), pattern
+/// full-string-tests a text/url/email schema's SCALAR strings (a text
+/// carrier ref {nodeId} is not a string and rides unchecked — the shape
+/// family owns refs). A multi batch is a property.set per element (PG5), so
+/// every element is validated at its own write. Types outside applicability
+/// never reach here — rule writes on them are rejected at the schema-update
+/// path. A stored pattern that does not compile is corrupt config: fail
+/// loud, never an applier crash.
+void assertValidationRulesForValue(
+  String schemaId,
+  String schemaType,
+  ValidationRules? rules,
+  dynamic typed,
+  String opType,
+) {
+  if (rules == null) return;
+  if (schemaType == 'number') {
+    if (typed is! num) return; // shape check owns non-numbers
+    if (rules.min != null && typed < rules.min!) {
+      throw PropertyValueShapeError(
+        '$opType: value ${jsonEncodeForMessage(typed)} is below the '
+        "schema's validationRules min ${rules.min}",
+        opType,
+      );
+    }
+    if (rules.max != null && typed > rules.max!) {
+      throw PropertyValueShapeError(
+        '$opType: value ${jsonEncodeForMessage(typed)} is above the '
+        "schema's validationRules max ${rules.max}",
+        opType,
+      );
+    }
+    return;
+  }
+  if (schemaType == 'text' || schemaType == 'url' || schemaType == 'email') {
+    final pattern = rules.pattern;
+    if (pattern == null || typed is! String) return;
+    RegExp re;
+    try {
+      re = RegExp('^(?:$pattern)\$');
+    } catch (_) {
+      throw PropertyValueShapeError(
+        '$opType: schema $schemaId carries a validationRules pattern that '
+        'is not a compilable regex — stored config is corrupt (rewrite the '
+        "schema's rules via propertySchema.update)",
+        opType,
+      );
+    }
+    if (!re.hasMatch(typed)) {
+      throw PropertyValueShapeError(
+        '$opType: value ${jsonEncodeForMessage(typed)} does not match the '
+        "schema's validationRules pattern ${jsonEncodeForMessage(pattern)} "
+        '(full-string match)',
+        opType,
+      );
+    }
+  }
+}

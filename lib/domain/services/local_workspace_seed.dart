@@ -199,6 +199,10 @@ class LocalWorkspaceSeed {
           name: spec.name,
           type: spec.type,
           multi: spec.multi,
+          // A bound spec seeds its schema LOCAL to bindTo (scopeClassIds [bindClass] — the binding row still
+          // lands on bindTo; bindings are per-class config, zero
+          // availability semantics). TS `seedSystemProperties` parity.
+          scopeClassIds: [systemClassNames[spec.bindTo]!],
           targetClassFilter: spec.targetClassFilter,
         ),
         affectedNodeIds: [spec.propertySchemaId],

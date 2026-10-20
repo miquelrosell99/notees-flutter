@@ -690,4 +690,117 @@ void main() {
       expect(rows, isEmpty);
     });
   });
+
+  group('R2 validationRules value enforcement', () {
+    const numberSchema = '0192a000-0000-7000-8000-000000000301';
+    const textSchema = '0192a000-0000-7000-8000-000000000302';
+    const urlSchema = '0192a000-0000-7000-8000-000000000303';
+    const keywordsSchema = '0192a000-0000-7000-8000-000000000304';
+
+    Future<void> setRules(String schemaId, Map<String, dynamic> rules) => apply(
+          env(
+            'propertySchema.update',
+            OperationPayloads.propertySchemaUpdate(
+              propertySchemaId: schemaId,
+              validationRules: rules,
+            ),
+          ),
+        );
+
+    test('number min/max bound the value inclusively, after the '
+        'numeric-string normalization', () async {
+      await createNode(owner);
+      await createSchema(numberSchema, 'number');
+      await setRules(numberSchema, {'min': 1, 'max': 5});
+      // Inclusive bounds: exactly min / exactly max ride (the single-value
+      // slot is LWW at idx 0 — each write replaces the previous one).
+      await setValue(numberSchema, 1);
+      await setValue(numberSchema, 5);
+      // A legacy numeric string normalizes BEFORE the rule check, so "4"
+      // (the string) passes and stores as a number.
+      await setValue(numberSchema, '4');
+      var rows = await storedRows(numberSchema);
+      expect(rows, hasLength(1));
+      expect(jsonDecode(rows.single['value'] as String), 4);
+      // Out of bounds fails loud and stores nothing.
+      expect(() => setValue(numberSchema, 0),
+          throwsA(isA<PropertyValueShapeError>()));
+      expect(() => setValue(numberSchema, 6),
+          throwsA(isA<PropertyValueShapeError>()));
+      expect(jsonDecode((await storedRows(numberSchema)).single['value'] as String),
+          4);
+      // Clearing the rules (present-null) restores the unchecked write.
+      await apply(env(
+        'propertySchema.update',
+        {
+          'propertySchemaId': numberSchema,
+          'validationRules': null,
+        },
+      ));
+      await setValue(numberSchema, 100);
+      rows = await storedRows(numberSchema);
+      expect(jsonDecode(rows.single['value'] as String), 100);
+    });
+
+    test('text/url/email full-string-test scalars against the pattern; '
+        'carrier refs and rule-free schemas ride unchecked', () async {
+      await createNode(owner);
+      await createNode(target);
+      await createSchema(textSchema, 'text');
+      await createSchema(urlSchema, 'url');
+      await setRules(textSchema, {'pattern': '[a-z0-9-]+'});
+      await setRules(urlSchema, {'pattern': 'https://.+'});
+      await setValue(textSchema, 'hello-world');
+      await setValue(urlSchema, 'https://example.com');
+      // A substring match is NOT a full-string match (implicit anchors).
+      expect(() => setValue(textSchema, 'Hello World'),
+          throwsA(isA<PropertyValueShapeError>()));
+      expect(() => setValue(urlSchema, 'ftp://example.com'),
+          throwsA(isA<PropertyValueShapeError>()));
+      // A text carrier ref {nodeId} is not a scalar string — the shape
+      // family owns refs; the rule check skips it.
+      await setValue(textSchema, {'nodeId': target});
+      // A rule-free schema stays unchecked.
+      await createSchema(keywordsSchema, 'text', multi: true);
+      await setValue(keywordsSchema, 'ANYTHING at all! 123', idx: 0);
+    });
+
+    test('a multi batch validates each element at its own add — one bad '
+        'element rejects its op while the survivors stay', () async {
+      await createNode(owner);
+      await createSchema(keywordsSchema, 'text', multi: true);
+      await setRules(keywordsSchema, {'pattern': '[a-z]+'});
+      await setValue(keywordsSchema, 'good',
+          idx: 0, elementId: '0192a000-0000-7000-8000-000000000311');
+      expect(
+        () => setValue(keywordsSchema, 'BAD1',
+            idx: 1, elementId: '0192a000-0000-7000-8000-000000000312'),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+      final rows = await storedRows(keywordsSchema);
+      expect(rows, hasLength(1));
+      expect(jsonDecode(rows.single['value'] as String), 'good');
+    });
+
+    test('a non-compilable stored pattern fails loud at value-check time '
+        '(corrupt config is never an applier crash)', () async {
+      await createNode(owner);
+      await createSchema(textSchema, 'text');
+      // Seed a corrupt column directly — the rule WRITE path refuses to
+      // store a non-compilable pattern, so this is only reachable from a
+      // hand-edited/legacy store.
+      final db = await database.database;
+      await db.update(
+        'property_schema',
+        {'validation_rules': jsonEncode({'pattern': '([a-z'})},
+        where: 'uuid = ?',
+        whereArgs: [textSchema],
+      );
+      expect(() => setValue(textSchema, 'anything'),
+          throwsA(isA<PropertyValueShapeError>()));
+      // ...and the rule write itself fails loud before storing.
+      expect(() => setRules(textSchema, {'pattern': '([a-z'}),
+          throwsA(isA<PropertyValueShapeError>()));
+    });
+  });
 }

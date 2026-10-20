@@ -124,6 +124,9 @@ class OperationPayloads {
   /// defaults by placement: parentless ⇒ standalone (document chrome by the
   /// second cascade branch), parented ⇒ embedded. Class declaration is the
   /// class.create op — object.create always makes a non-class node.
+  /// [listStyle] is the initial list style ('numbered' | 'alpha' | 'roman';
+  /// absent/null = the bullet default — per-block, the marker number is
+  /// derived at render time from the sibling run, never stored).
   static Map<String, dynamic> objectCreate({
     required String objectId,
     bool? isEmbedded,
@@ -134,6 +137,7 @@ class OperationPayloads {
     String? parentId,
     String? afterId,
     String? beforeId,
+    String? listStyle,
   }) {
     final effectiveContent =
         contentAst ??
@@ -151,6 +155,7 @@ class OperationPayloads {
       'parentId': ?parentId,
       'afterId': ?afterId,
       'beforeId': ?beforeId,
+      'listStyle': ?listStyle,
     });
   }
 
@@ -177,6 +182,9 @@ class OperationPayloads {
   /// without validating the references, except the alias target: an update
   /// that would close an alias cycle fails loud and is never applied.
   /// Reference integrity beyond that is a read/client-layer concern.
+  /// [listStyle]: pass a style to SET it, `null` explicitly to CLEAR back to
+  /// the bullet default (the wire carries `"listStyle": null`, exactly like
+  /// `color`).
   static Map<String, dynamic> objectUpdate({
     required String objectId,
     bool? isEmbedded,
@@ -186,6 +194,7 @@ class OperationPayloads {
     Object? bannerAssetId = _undefined,
     Object? aliasedNodeId = _undefined,
     Object? description = _undefined,
+    Object? listStyle = _undefined,
     String? contentDeltaB64,
     List<Map<String, dynamic>>? contentAst,
   }) {
@@ -196,6 +205,7 @@ class OperationPayloads {
         identical(bannerAssetId, _undefined) &&
         identical(aliasedNodeId, _undefined) &&
         identical(description, _undefined) &&
+        identical(listStyle, _undefined) &&
         contentDeltaB64 == null &&
         contentAst == null) {
       throw ArgumentError('object.update requires at least one field');
@@ -218,6 +228,7 @@ class OperationPayloads {
       if (!identical(aliasedNodeId, _undefined))
         'aliasedNodeId': aliasedNodeId,
       if (!identical(description, _undefined)) 'description': description,
+      if (!identical(listStyle, _undefined)) 'listStyle': listStyle,
       'contentDeltaB64': ?contentDeltaB64,
       'contentAst': ?contentAst,
     });
@@ -444,12 +455,27 @@ class OperationPayloads {
   /// property is readonly / hidden-when-empty everywhere it appears, whatever
   /// class binds it — or none). Nullable+optional like the number formats:
   /// the builders omit nulls, so an explicit null clear rides a raw map.
+  /// [icon] is an OPTIONAL MDI icon name (camelCase @mdi/js convention,
+  /// max 64 chars — the same string shape as node/class/option icons);
+  /// absent/null = no icon.
+  ///
+  /// [scopeClassIds] is the SOLE locality authority: absent/null = GLOBAL (any node may carry the property); a
+  /// non-empty class-id list = LOCAL to those classes AND their
+  /// extends-ancestors (eligibility walks class_hierarchy the same way
+  /// binding resolution does). The EMPTY list is rejected — exactly one
+  /// spelling of "global". This field RETIRES the display-only
+  /// `scope: "global"|"class"|"object"` enum (rejected outright like any
+  /// retired key; live logs rewrite in place via the monorepo's
+  /// migrate-property-scope.mts). Bindings (`class_property` rows) carry
+  /// ZERO availability semantics — scope says who MAY carry the property;
+  /// a binding says what a class DOES WITH it.
   static Map<String, dynamic> propertySchemaCreate({
     required String propertySchemaId,
     required String name,
     required String type,
     bool? multi,
-    String? scope,
+    String? icon,
+    List<String>? scopeClassIds,
     List<Map<String, dynamic>>? options,
     List<String>? targetClassFilter,
     String? datePrecision,
@@ -466,7 +492,8 @@ class OperationPayloads {
         'name': name,
         'type': type,
         'multi': ?multi,
-        'scope': ?scope,
+        'icon': ?icon,
+        'scopeClassIds': ?scopeClassIds,
         'options': ?options,
         'targetClassFilter': ?targetClassFilter,
         'datePrecision': ?datePrecision,
@@ -479,9 +506,24 @@ class OperationPayloads {
         'hideWhenEmpty': ?hideWhenEmpty,
       });
 
+  /// The keep/clear contract: [icon],
+  /// [scopeClassIds], [targetClassFilter], [multi] and [validationRules] are
+  /// nullable+optional — absent KEEPS the stored value, an explicit null
+  /// CLEARS (scope back to global, filter to none, multi to single, rules to
+  /// none; an empty targetClassFilter means "no filter"). [validationRules]
+  /// is {min?, max?, pattern?} — min/max apply to number schemas only,
+  /// pattern to text/url/email only, min <= max; applicability against the
+  /// STORED type and pattern compilability are applier-side checks (the
+  /// update payload carries no type). Pass the sentinel-defaulted params
+  /// explicitly (a typed `null` rides as a JSON null clear).
   static Map<String, dynamic> propertySchemaUpdate({
     required String propertySchemaId,
     String? name,
+    Object? icon = _undefined,
+    Object? scopeClassIds = _undefined,
+    Object? targetClassFilter = _undefined,
+    Object? multi = _undefined,
+    Object? validationRules = _undefined,
     List<Map<String, dynamic>>? options,
     String? datePrecision,
     bool? dateQualified,
@@ -493,6 +535,11 @@ class OperationPayloads {
     bool? hideWhenEmpty,
   }) {
     if (name == null &&
+        identical(icon, _undefined) &&
+        identical(scopeClassIds, _undefined) &&
+        identical(targetClassFilter, _undefined) &&
+        identical(multi, _undefined) &&
+        identical(validationRules, _undefined) &&
         options == null &&
         datePrecision == null &&
         dateQualified == null &&
@@ -507,6 +554,13 @@ class OperationPayloads {
     return _validated('propertySchema.update', {
       'propertySchemaId': propertySchemaId,
       'name': ?name,
+      if (!identical(icon, _undefined)) 'icon': icon,
+      if (!identical(scopeClassIds, _undefined)) 'scopeClassIds': scopeClassIds,
+      if (!identical(targetClassFilter, _undefined))
+        'targetClassFilter': targetClassFilter,
+      if (!identical(multi, _undefined)) 'multi': multi,
+      if (!identical(validationRules, _undefined))
+        'validationRules': validationRules,
       'options': ?options,
       'datePrecision': ?datePrecision,
       'dateQualified': ?dateQualified,
@@ -658,7 +712,9 @@ class OperationPayloads {
     // targetClassFilter is redundant on an asset schema).
     'asset',
   };
-  static const _propertySchemaScopes = {'global', 'class', 'object'};
+  /// Per-block list styles (object.create/update's listStyle; absent/null =
+  /// the bullet default).
+  static const _listStyles = {'numbered', 'alpha', 'roman'};
 
   /// SCHEMA.md "Datetime" precision enum (the finest granularity a datetime
   /// value may claim; NULL/absent = day at the read model).
@@ -694,6 +750,7 @@ class OperationPayloads {
           'parentId',
           'afterId',
           'beforeId',
+          'listStyle',
         });
         _uuid(payload, 'objectId');
         _bool(payload, 'isEmbedded', required: false);
@@ -703,6 +760,9 @@ class OperationPayloads {
         _uuid(payload, 'parentId', required: false, nullable: true);
         _uuid(payload, 'afterId', required: false);
         _uuid(payload, 'beforeId', required: false);
+        // The per-block list style ('numbered' | 'alpha' | 'roman';
+        // absent/null = the bullet default).
+        _enum(payload, 'listStyle', _listStyles, required: false);
       case 'object.update':
         _strict(payload, {
           'objectId',
@@ -713,6 +773,7 @@ class OperationPayloads {
           'bannerAssetId',
           'aliasedNodeId',
           'description',
+          'listStyle',
           'contentDeltaB64',
           'contentAst',
         });
@@ -729,6 +790,9 @@ class OperationPayloads {
         // The page subtitle: plain text, max 512 (presence writes,
         // present-null clears like the other wire node fields).
         _string(payload, 'description', max: 512, required: false);
+        // List style: presence writes, present-null clears back to the
+        // bullet default (like `color`).
+        _enum(payload, 'listStyle', _listStyles, required: false);
         _string(payload, 'contentDeltaB64', required: false);
         _list(payload, 'contentAst', required: false);
         if (payload.length == 1) {
@@ -816,7 +880,8 @@ class OperationPayloads {
           'name',
           'type',
           'multi',
-          'scope',
+          'icon',
+          'scopeClassIds',
           'options',
           'targetClassFilter',
           'datePrecision',
@@ -832,7 +897,15 @@ class OperationPayloads {
         _string(payload, 'name', min: 1, max: 256);
         _enum(payload, 'type', _propertySchemaTypes);
         _bool(payload, 'multi', required: false);
-        _enum(payload, 'scope', _propertySchemaScopes, required: false);
+        // The schema's icon (the option-icon string shape; absent/null =
+        // no icon).
+        _string(payload, 'icon', max: 64, required: false);
+        // The SOLE locality authority: absent/null = global; a non-empty
+        // uuid list = local to those classes + extends-ancestors. The
+        // EMPTY list is rejected — exactly one spelling of "global". The
+        // retired `scope` enum key is rejected by `_strict` like any
+        // retired key.
+        _uuidListNonEmpty(payload, 'scopeClassIds');
         _options(payload, required: false);
         _uuidList(payload, 'targetClassFilter', required: false);
         _enum(payload, 'datePrecision', _datePrecisions, required: false);
@@ -852,6 +925,11 @@ class OperationPayloads {
         _strict(payload, {
           'propertySchemaId',
           'name',
+          'icon',
+          'scopeClassIds',
+          'targetClassFilter',
+          'multi',
+          'validationRules',
           'options',
           'datePrecision',
           'dateQualified',
@@ -864,6 +942,14 @@ class OperationPayloads {
         });
         _uuid(payload, 'propertySchemaId');
         _string(payload, 'name', min: 1, max: 256, required: false);
+        // icon / scope / validation rules: the keep/clear contract (absent
+        // keeps, present-null clears back to NULL/global/none) — the same
+        // shape as the number formats below.
+        _string(payload, 'icon', max: 64, required: false);
+        _uuidListNonEmpty(payload, 'scopeClassIds');
+        _uuidList(payload, 'targetClassFilter', required: false);
+        _boolNullable(payload, 'multi', required: false);
+        _validationRules(payload, required: false);
         _options(payload, required: false);
         _enum(payload, 'datePrecision', _datePrecisions, required: false);
         _bool(payload, 'dateQualified', required: false);
@@ -987,6 +1073,26 @@ class OperationPayloads {
     }
   }
 
+  /// A nullable scope list (propertySchema.create/update's scopeClassIds):
+  /// absent/null = global (create) / clear-to-global (update); a present
+  /// list must be non-empty (exactly one spelling of "global") and carry
+  /// only uuids.
+  static void _uuidListNonEmpty(Map<String, dynamic> payload, String key) {
+    final value = payload[key];
+    if (value == null) return;
+    if (value is! List<dynamic> || value.isEmpty) {
+      throw FormatException(
+        'Field $key must be a non-empty list of uuids (empty = rejected — '
+        'absent/null is the global spelling)',
+      );
+    }
+    for (final item in value) {
+      if (item is! String || !_uuidPattern.hasMatch(item)) {
+        throw FormatException('Field $key must be a list of uuids');
+      }
+    }
+  }
+
   static void _string(
     Map<String, dynamic> payload,
     String key, {
@@ -1084,6 +1190,61 @@ class OperationPayloads {
     }
     if (value is! bool) {
       throw FormatException('Field $key must be a bool or null');
+    }
+  }
+
+  /// The validationRules object (propertySchema.update): {min?, max?,
+  /// pattern?} — strict keys, min/max numeric, pattern a string, min <= max
+  /// when both ride (a parse-time rule). Nullable with the keep/clear
+  /// contract (absent keeps, present-null clears). Applicability against the
+  /// schema's stored type and pattern compilability are APPLIER-side checks
+  /// (the update payload carries no type) — this is the shape gate only.
+  static void _validationRules(Map<String, dynamic> payload,
+      {bool required = true}) {
+    final value = payload['validationRules'];
+    if (value == null) {
+      if (required) {
+        throw FormatException('Missing required validationRules field');
+      }
+      return;
+    }
+    if (value is! Map<String, dynamic>) {
+      throw FormatException(
+        'Field validationRules must be an object {min?, max?, pattern?}',
+      );
+    }
+    for (final key in value.keys) {
+      if (key != 'min' && key != 'max' && key != 'pattern') {
+        throw FormatException('Unknown validationRules key: $key');
+      }
+    }
+    final min = value['min'];
+    final max = value['max'];
+    final pattern = value['pattern'];
+    // zod `.optional()` parity: an explicit null entry is a shape reject
+    // (absent is the only "not set" spelling).
+    if (value.containsKey('min') && min == null) {
+      throw FormatException('Field validationRules.min must be a number');
+    }
+    if (value.containsKey('max') && max == null) {
+      throw FormatException('Field validationRules.max must be a number');
+    }
+    if (value.containsKey('pattern') && pattern == null) {
+      throw FormatException('Field validationRules.pattern must be a string');
+    }
+    if (min != null && min is! num) {
+      throw FormatException('Field validationRules.min must be a number');
+    }
+    if (max != null && max is! num) {
+      throw FormatException('Field validationRules.max must be a number');
+    }
+    if (pattern != null && pattern is! String) {
+      throw FormatException('Field validationRules.pattern must be a string');
+    }
+    if (min is num && max is num && min > max) {
+      throw FormatException(
+        'validationRules: min must be <= max when both are present',
+      );
     }
   }
 

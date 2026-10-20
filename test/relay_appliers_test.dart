@@ -2241,5 +2241,293 @@ void main() {
       );
       expect(await cache.getByUuid(nodeUuid), isNull);
     });
+
+    group('property scope (R3/R5 + listStyle)', () {
+      const classA = '0192a000-0000-7000-8000-000000000801';
+      const classB = '0192a000-0000-7000-8000-000000000802';
+      const classC = '0192a000-0000-7000-8000-000000000803';
+      const scopedSchema = '0192a000-0000-7000-8000-000000000810';
+      const globalSchema = '0192a000-0000-7000-8000-000000000811';
+      const aNode = '0192a000-0000-7000-8000-000000000820';
+      const cNode = '0192a000-0000-7000-8000-000000000821';
+
+      Future<void> seedScopeFixture() async {
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000831',
+          opType: 'class.create',
+          payload: OperationPayloads.classCreate(classId: classA, name: 'A'),
+          physical: 10,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000832',
+          opType: 'class.create',
+          payload: OperationPayloads.classCreate(classId: classB, name: 'B'),
+          physical: 11,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000833',
+          opType: 'class.setExtends',
+          payload: OperationPayloads.classSetExtends(
+            classId: classB,
+            parentClassIds: [classA],
+          ),
+          physical: 12,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000834',
+          opType: 'propertySchema.create',
+          payload: OperationPayloads.propertySchemaCreate(
+            propertySchemaId: scopedSchema,
+            name: 'Scoped',
+            type: 'text',
+            scopeClassIds: const [classA],
+          ),
+          physical: 13,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000835',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: aNode,
+            classIds: const [classA],
+          ),
+          physical: 14,
+        ));
+      }
+
+      test('R3: property.set fails loud when the node\'s class closure misses '
+          'the schema scope; extends-aware closure passes; schema-less '
+          'writes stay unchecked', () async {
+        await seedScopeFixture();
+        // classB (extends A) node is eligible through the ancestor.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000836',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: cNode,
+            classIds: const [classB],
+          ),
+          physical: 15,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000837',
+          opType: 'property.set',
+          payload: OperationPayloads.propertySet(
+            objectId: cNode,
+            propertySchemaId: scopedSchema,
+            value: 'via ancestor',
+          ),
+          physical: 16,
+        ));
+        expect(
+          (await cache.propertyValuesFor(cNode)).single.value,
+          'via ancestor',
+        );
+
+        // A classless node misses the scope: the write fails loud.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000838',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: '0192a000-0000-7000-8000-000000000822',
+          ),
+          physical: 17,
+        ));
+        expect(
+          () async => appliers.apply(envelope(
+            id: '0192a000-0000-7000-8000-000000000839',
+            opType: 'property.set',
+            payload: OperationPayloads.propertySet(
+              objectId: '0192a000-0000-7000-8000-000000000822',
+              propertySchemaId: scopedSchema,
+              value: 'nope',
+            ),
+            physical: 18,
+          )),
+          throwsA(isA<MoveGuardError>()),
+        );
+        expect(
+          await cache.propertyValuesFor('0192a000-0000-7000-8000-000000000822'),
+          isEmpty,
+        );
+
+        // A node carrying an unrelated class misses too.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-00000000083a',
+          opType: 'class.create',
+          payload: OperationPayloads.classCreate(classId: classC, name: 'C'),
+          physical: 19,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-00000000083b',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: '0192a000-0000-7000-8000-000000000823',
+            classIds: const [classC],
+          ),
+          physical: 20,
+        ));
+        expect(
+          () async => appliers.apply(envelope(
+            id: '0192a000-0000-7000-8000-00000000083c',
+            opType: 'property.set',
+            payload: OperationPayloads.propertySet(
+              objectId: '0192a000-0000-7000-8000-000000000823',
+              propertySchemaId: scopedSchema,
+              value: 'nope',
+            ),
+            physical: 21,
+          )),
+          throwsA(isA<MoveGuardError>()),
+        );
+
+        // Schema-less (unknown schema id) writes stay unchecked.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-00000000083d',
+          opType: 'property.set',
+          payload: OperationPayloads.propertySet(
+            objectId: '0192a000-0000-7000-8000-000000000823',
+            propertySchemaId: '0192a000-0000-7000-8000-000000000899',
+            value: 'anything',
+          ),
+          physical: 22,
+        ));
+      });
+
+      test('R5: class.property.set on an out-of-scope binding fails loud; '
+          'the extends closure and global schemas bind', () async {
+        await seedScopeFixture();
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000841',
+          opType: 'propertySchema.create',
+          payload: OperationPayloads.propertySchemaCreate(
+            propertySchemaId: globalSchema,
+            name: 'Global',
+            type: 'text',
+          ),
+          physical: 15,
+        ));
+
+        // Binding A → scoped schema: in scope, lands.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000842',
+          opType: 'class.property.set',
+          payload: OperationPayloads.classPropertySet(
+            classId: classA,
+            propertySchemaId: scopedSchema,
+            sequence: 0,
+          ),
+          physical: 16,
+        ));
+        // Binding B (extends A): the ancestor is in scope, lands.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000843',
+          opType: 'class.property.set',
+          payload: OperationPayloads.classPropertySet(
+            classId: classB,
+            propertySchemaId: scopedSchema,
+            sequence: 0,
+          ),
+          physical: 17,
+        ));
+        // A class outside the scope: dead config, fails loud.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000844',
+          opType: 'class.create',
+          payload: OperationPayloads.classCreate(classId: classC, name: 'C'),
+          physical: 18,
+        ));
+        expect(
+          () async => appliers.apply(envelope(
+            id: '0192a000-0000-7000-8000-000000000845',
+            opType: 'class.property.set',
+            payload: OperationPayloads.classPropertySet(
+              classId: classC,
+              propertySchemaId: scopedSchema,
+              sequence: 0,
+            ),
+            physical: 19,
+          )),
+          throwsA(isA<MoveGuardError>()),
+        );
+        final db = await database.database;
+        final rows = await db.query(
+          'class_property',
+          where: 'property_schema_id = ?',
+          whereArgs: [scopedSchema],
+        );
+        expect(rows, hasLength(2));
+
+        // A global schema binds any class.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000846',
+          opType: 'class.property.set',
+          payload: OperationPayloads.classPropertySet(
+            classId: classC,
+            propertySchemaId: globalSchema,
+            sequence: 0,
+          ),
+          physical: 20,
+        ));
+      });
+
+      test('listStyle lands on create, re-styles and clears on update, and '
+          'projects to the list_style column', () async {
+        const page = '0192a000-0000-7000-8000-000000000850';
+        const block = '0192a000-0000-7000-8000-000000000851';
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000852',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(objectId: page),
+          physical: 10,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000853',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: block,
+            parentId: page,
+            listStyle: 'numbered',
+          ),
+          physical: 11,
+        ));
+        expect((await cache.getByUuid(block))!.listStyle, 'numbered');
+
+        // Re-style and clear through object.update.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000854',
+          opType: 'object.update',
+          payload: OperationPayloads.objectUpdate(
+            objectId: block,
+            listStyle: 'roman',
+          ),
+          physical: 12,
+        ));
+        expect((await cache.getByUuid(block))!.listStyle, 'roman');
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000855',
+          opType: 'object.update',
+          payload: OperationPayloads.objectUpdate(
+            objectId: block,
+            listStyle: null,
+          ),
+          physical: 13,
+        ));
+        final node = await cache.getByUuid(block);
+        expect(node!.listStyle, isNull);
+
+        // The payload and the derived v31 column agree.
+        final db = await database.database;
+        final row = (await db.query(
+          'node_cache',
+          columns: ['list_style'],
+          where: 'uuid = ?',
+          whereArgs: [block],
+        ))
+            .single;
+        expect(row['list_style'], isNull);
+        expect(jsonDecode(node.name), []);
+      });
+    });
   });
 }

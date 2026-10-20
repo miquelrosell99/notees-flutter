@@ -61,6 +61,7 @@ class PropertySchemaRow {
     this.multi = false,
     this.isSystem = false,
     this.scope = 'global',
+    this.scopeClassIds,
     this.nodeUuid,
     this.iconVisibility,
     this.validationRules,
@@ -90,6 +91,11 @@ class PropertySchemaRow {
   final bool multi;
   final bool isSystem;
   final String scope;
+  /// The SOLE locality authority: the scope class
+  /// list (null = global); eligibility walks the node's class closure
+  /// against this list. Separate from the legacy v1-era [scope] enum column
+  /// above (display-only legacy, zero availability semantics).
+  final List<String>? scopeClassIds;
   final String? nodeUuid;
   final String? iconVisibility;
   final Map<String, dynamic>? validationRules;
@@ -135,6 +141,8 @@ class PropertySchemaValidationRow {
     this.targetClassFilterRaw,
     this.datePrecision,
     this.dateQualified,
+    this.scopeClassIds,
+    this.validationRules,
   });
 
   final String id;
@@ -147,6 +155,15 @@ class PropertySchemaValidationRow {
   final List<dynamic>? targetClassFilterRaw;
   final String? datePrecision;
   final bool? dateQualified;
+
+  /// R3: the parsed `scope_class_ids` column (null = global — anyone may
+  /// carry the property; non-empty = local to those classes +
+  /// extends-ancestors).
+  final List<String>? scopeClassIds;
+
+  /// R2: the parsed `validation_rules` column (null = no rules); the value
+  /// write path enforces them before the store.
+  final ValidationRules? validationRules;
 }
 
 /// Lightweight in-memory representation of a row from the server's
@@ -2056,6 +2073,8 @@ class NodeCacheRepository {
         'class_filter_uuids',
         'date_precision',
         'date_qualified',
+        'scope_class_ids',
+        'validation_rules',
       ],
       where: 'uuid = ?',
       whereArgs: [schemaId],
@@ -2070,6 +2089,22 @@ class NodeCacheRepository {
     } catch (_) {
       filterRaw = null;
     }
+    List<String>? scopeClassIds;
+    try {
+      final parsed = jsonDecode(row['scope_class_ids'] as String? ?? 'null');
+      if (parsed is List) {
+        scopeClassIds = parsed.whereType<String>().toList();
+      }
+    } catch (_) {
+      scopeClassIds = null;
+    }
+    Map<String, dynamic>? rulesRaw;
+    try {
+      final parsed = jsonDecode(row['validation_rules'] as String? ?? 'null');
+      if (parsed is Map<String, dynamic>) rulesRaw = parsed;
+    } catch (_) {
+      rulesRaw = null;
+    }
     final dq = row['date_qualified'];
     return PropertySchemaValidationRow(
       id: row['uuid'] as String,
@@ -2078,6 +2113,8 @@ class NodeCacheRepository {
       targetClassFilterRaw: filterRaw,
       datePrecision: row['date_precision'] as String?,
       dateQualified: dq == null ? null : (dq as num?)?.toInt() == 1,
+      scopeClassIds: scopeClassIds,
+      validationRules: rulesRaw == null ? null : validationRulesOfRaw(rulesRaw),
     );
   }
 
@@ -2104,6 +2141,24 @@ class NodeCacheRepository {
       ids,
     );
     return rows.map((r) => r['ancestor_id'] as String).toList();
+  }
+
+  /// R3/R5 eligibility: the scope list vs a
+  /// candidate class set's EXTENDS-AWARE closure — carried classes plus
+  /// their class_hierarchy ancestors (the same closure walk
+  /// [assertPropertyValueRefTarget] uses for targetClassFilter, and the
+  /// effective read's binding walk). A null (or empty, defensively) scope
+  /// list never rejects — global means anyone may carry it.
+  Future<bool> classClosureIntersectsScope(
+    List<String> carriedClassIds,
+    List<String>? scopeClassIds,
+  ) async {
+    if (scopeClassIds == null || scopeClassIds.isEmpty) return true;
+    final allowed = {...carriedClassIds};
+    if (carriedClassIds.isNotEmpty) {
+      allowed.addAll(await classHierarchyAncestorsOf(carriedClassIds));
+    }
+    return scopeClassIds.any(allowed.contains);
   }
 
   /// Assert a node-typed ref's target honors the schema's graph constraints:
@@ -2163,10 +2218,10 @@ class NodeCacheRepository {
   }
 
   /// PG6: the full apply-time validation for a property.set against a KNOWN
-  /// schema row — shape/scalar typing, then the graph checks (existence /
-  /// class filter / date precision) for the node-typed link family. `null`
-  /// means "no value" and bypasses everything. Returns the normalized value
-  /// to store.
+  /// schema row — shape/scalar typing, the stored validationRules (R2 value
+  /// enforcement), then the graph checks (existence / class filter / date
+  /// precision) for the node-typed link family. `null` means "no value" and
+  /// bypasses everything. Returns the normalized value to store.
   Future<dynamic> assertPropertyValueForSchema(
     PropertySchemaValidationRow schema,
     dynamic value,
@@ -2175,6 +2230,18 @@ class NodeCacheRepository {
     final shaped = assertValueShapeForType(schema.type, value, opType);
     final typed = assertScalarShapeForType(schema.type, shaped, opType);
     if (typed == null) return typed;
+    // R2: the schema's stored validationRules
+    // validate the value before the write — min/max bound numbers (after
+    // the numeric-string normalization above), pattern full-string-tests
+    // text/url/email scalars (a text carrier ref rides unchecked — the
+    // shape family owns refs); each multi element validates at its own add.
+    assertValidationRulesForValue(
+      schema.id,
+      schema.type,
+      schema.validationRules,
+      typed,
+      opType,
+    );
     if (schema.type == 'object' || schema.type == 'asset') {
       final ref = nodeRefOfValue(typed);
       if (ref != null) await assertPropertyValueRefTarget(schema, ref, opType);
@@ -2307,6 +2374,7 @@ class NodeCacheRepository {
         hlcPhysical: node.hlcPhysical,
         hlcLogical: node.hlcLogical,
         actorId: node.actorId,
+        listStyle: node.listStyle,
       ),
     );
   }
@@ -3675,11 +3743,20 @@ class NodeCacheRepository {
     if (schemaIds.isNotEmpty) {
       final placeholders = schemaIds.map((_) => '?').join(',');
       final rows = await db.rawQuery(
-        'SELECT uuid, name, type, multi, display, readonly, hide_when_empty '
-        'FROM property_schema WHERE uuid IN ($placeholders)',
+        'SELECT uuid, name, type, multi, display, readonly, hide_when_empty, '
+        'scope_class_ids FROM property_schema WHERE uuid IN ($placeholders)',
         schemaIds.toList(),
       );
       for (final row in rows) {
+        List<String>? scopeClassIds;
+        try {
+          final parsed = jsonDecode(row['scope_class_ids'] as String? ?? 'null');
+          if (parsed is List) {
+            scopeClassIds = parsed.whereType<String>().toList();
+          }
+        } catch (_) {
+          scopeClassIds = null;
+        }
         schemas[row['uuid'] as String] = EffectivePropertySchema(
           id: row['uuid'] as String,
           name: row['name'] as String,
@@ -3690,9 +3767,34 @@ class NodeCacheRepository {
           display: displayOf(row['display']),
           readonly: flag(row['readonly']),
           hideWhenEmpty: flag(row['hide_when_empty']),
+          // R3: the SOLE locality authority (null = global).
+          scopeClassIds: scopeClassIds,
         );
       }
     }
+
+    // 4b. R3 eligibility: the node's EXTENDS-AWARE
+    //     class closure (its classes + all ancestors via the same BFS
+    //     binding resolution uses) against each schema's scopeClassIds. A
+    //     schema is eligible for the node when global (null list) or the
+    //     closure intersects the list. The closure set is computed once.
+    final nodeClassClosure = <String>{};
+    for (final cls in memberRows) {
+      for (final reach in await _extendsReachOf(
+        cls['class_id'] as String,
+        reachCache,
+      )) {
+        nodeClassClosure.add(reach.ancestorId);
+      }
+    }
+    final eligibleBySchema = <String, bool>{};
+    for (final entry in schemas.entries) {
+      final scope = entry.value.scopeClassIds;
+      eligibleBySchema[entry.key] =
+          scope == null || scope.any(nodeClassClosure.contains);
+    }
+    bool eligibleOf(String schemaId, EffectivePropertySchema? schema) =>
+        schema == null ? true : (eligibleBySchema[schemaId] ?? true);
 
     // 5. Merge: authored wins per (schema, idx, ELEMENT — PG5: rows at the
     //    same idx are distinct elements and all surface); a winning ACTIVE
@@ -3725,6 +3827,9 @@ class NodeCacheRepository {
             ? null
             : (winner.binding['sequence'] as num?)?.toInt(),
         display: schema?.display,
+        // Authored rows SURVIVE scope narrowing (never retroactive) — the
+        // read tags them; callers decide how an ineligible row renders.
+        eligible: eligibleOf(schemaId, schema),
       );
     }
     for (final entry in winnerBySchema.entries) {
@@ -3732,6 +3837,12 @@ class NodeCacheRepository {
       final winner = entry.value;
       final defaultRaw = winner.binding['default_value'];
       if (defaultRaw == null) continue; // bound without a default
+      // R4: an ineligible node shows NEITHER the
+      // property NOR a derived default from an out-of-scope binding — a
+      // stray binding must not render a value for a property the node
+      // can't have.
+      final schemaForEligibility = schemas[schemaId];
+      if (!eligibleOf(schemaId, schemaForEligibility)) continue;
       // PC2 read-side: a stored default that no longer matches the schema
       // type (written before validation, or after a delete+recreate changed
       // the type) yields no default rather than a wrong-typed value.
@@ -3761,6 +3872,9 @@ class NodeCacheRepository {
         hideWhenEmpty: schema?.hideWhenEmpty,
         sequence: (winner.binding['sequence'] as num?)?.toInt(),
         display: schema?.display,
+        // A derived default only exists for an eligible node (the R4 gate
+        // above), so default rows always read true.
+        eligible: true,
       );
     }
 
@@ -4077,11 +4191,13 @@ class NodeCacheRepository {
       'hlc_logical': node.hlcLogical,
       'actor_id': node.actorId,
       // Wire node fields (v27 — the direct projections of object.update's
-      // coverAssetId / bannerAssetId / aliasedNodeId; v28 adds description).
+      // coverAssetId / bannerAssetId / aliasedNodeId; v28 adds description;
+      // v31 adds list_style — the per-block list style, object.update only).
       'cover_asset_id': node.coverAssetId,
       'banner_asset_id': node.bannerAssetId,
       'aliased_node_id': node.aliasedNodeId,
       'description': node.description,
+      'list_style': node.listStyle,
     };
   }
 
@@ -4364,6 +4480,7 @@ class NodeCacheRepository {
   PropertySchemaRow _propertySchemaRowFromDb(Map<String, dynamic> row) {
     List<String> classFilterUuids;
     List<Map<String, dynamic>> options;
+    List<String>? scopeClassIds;
     Map<String, dynamic>? validationRules;
     dynamic defaultValue;
     try {
@@ -4379,6 +4496,14 @@ class NodeCacheRepository {
           .cast<Map<String, dynamic>>();
     } catch (_) {
       options = const [];
+    }
+    try {
+      final parsed = jsonDecode(row['scope_class_ids'] as String? ?? 'null');
+      if (parsed is List) {
+        scopeClassIds = parsed.whereType<String>().toList();
+      }
+    } catch (_) {
+      scopeClassIds = null;
     }
     try {
       final raw = row['validation_rules'] as String?;
@@ -4403,6 +4528,7 @@ class NodeCacheRepository {
       multi: (row['multi'] as int? ?? 0) == 1,
       isSystem: (row['is_system'] as int? ?? 0) == 1,
       scope: row['scope'] as String? ?? 'global',
+      scopeClassIds: scopeClassIds,
       nodeUuid: row['node_uuid'] as String?,
       iconVisibility: row['icon_visibility'] as String?,
       validationRules: validationRules,
@@ -4437,6 +4563,8 @@ class NodeCacheRepository {
       'multi': schema.multi ? 1 : 0,
       'is_system': schema.isSystem ? 1 : 0,
       'scope': schema.scope,
+      'scope_class_ids':
+          schema.scopeClassIds == null ? null : jsonEncode(schema.scopeClassIds),
       'node_uuid': schema.nodeUuid,
       'icon_visibility': schema.iconVisibility,
       'validation_rules': schema.validationRules == null
@@ -4747,6 +4875,7 @@ class EffectivePropertySchema {
     this.display,
     this.readonly,
     this.hideWhenEmpty,
+    this.scopeClassIds,
   });
 
   final String id;
@@ -4760,6 +4889,11 @@ class EffectivePropertySchema {
   final String? display;
   final bool? readonly;
   final bool? hideWhenEmpty;
+
+  /// The SOLE locality authority (R1): the scope
+  /// class list (null = global). Eligibility walks the node's class closure
+  /// against this list — extends-aware, the binding-resolution closure.
+  final List<String>? scopeClassIds;
 }
 
 /// One effective (schema, idx) row for a node (port of the TS store's
@@ -4781,6 +4915,7 @@ class EffectiveProperty {
     required this.hideWhenEmpty,
     required this.sequence,
     required this.display,
+    this.eligible = true,
   });
 
   final String propertySchemaId;
@@ -4806,6 +4941,15 @@ class EffectiveProperty {
   /// authored AND derived rows, INCLUDING unbound authored values. Sanitized
   /// at the read: only 'bullet'/'inline' surface.
   final String? display;
+
+  /// R3 eligibility: false when the schema's
+  /// scopeClassIds excludes the node (its class closure misses the list) —
+  /// the row survives (authored values always survive; narrowing a scope is
+  /// never retroactive) but callers know it is out of scope; derived
+  /// defaults never materialize for ineligible nodes (R4), so only authored
+  /// rows can carry eligible=false. Schema-less rows (schema deleted) read
+  /// true.
+  final bool eligible;
 }
 
 dynamic _decodeJsonOrRaw(String raw) {
