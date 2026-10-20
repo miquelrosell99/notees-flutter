@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 30,
+          version: 31,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 30,
+      version: 31,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -124,6 +124,7 @@ class AppDatabase {
     await _migrateV28(db);
     await _migrateNodeCacheV29(db);
     await _migrateEdgeV30(db);
+    await _migrateV31(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -218,6 +219,29 @@ class AppDatabase {
     if (oldVersion < 30) {
       await _migrateEdgeV30(db);
     }
+    if (oldVersion < 31) {
+      await _migrateV31(db);
+    }
+  }
+
+  /// v31 — the property-scope + per-block list-style batch (2026-10-20
+  /// lockstep with the TS store schema v23→v24 + the listStyle node
+  /// column):
+  ///  - `property_schema.scope_class_ids`: the JSON scope list (NULL =
+  ///    global) — the SOLE locality authority (owner ruling 2026-10-20);
+  ///    the retired display-only `scope` enum column stays in place (legacy
+  ///    rows round-trip it) but carries zero availability semantics, and
+  ///    the `icon` / `validation_rules` columns the wire surface needs
+  ///    already exist (v11-era legacy columns — same names, same JSON map
+  ///    shape, reused verbatim).
+  ///  - `node_cache.list_style`: the direct projection of object.create /
+  ///    object.update's listStyle ('numbered' | 'alpha' | 'roman'; NULL =
+  ///    the bullet default).
+  /// The column guards keep the migration idempotent for databases that
+  /// already carry them (a fresh v31 create).
+  Future<void> _migrateV31(Database db) async {
+    await _addColumnIfMissing(db, 'property_schema', 'scope_class_ids', 'TEXT');
+    await _addColumnIfMissing(db, 'node_cache', 'list_style', 'TEXT');
   }
 
   /// v28 — the page-subtitle wire node field (2026-10-09 lockstep with the
@@ -1378,6 +1402,7 @@ class AppDatabase {
     await _migrateV28(db);
     await _migrateNodeCacheV29(db);
     await _migrateEdgeV30(db);
+    await _migrateV31(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

@@ -51,13 +51,15 @@ void main() {
 
   /// Fixtures whose application must throw — never part of the replay set
   /// (class-extends-cycle closes a cycle; is-embedded-parent-page claims the
-  /// standalone role under an embedded block, the parent-page condition).
-  /// Fixtures whose application must throw — never part of the replay set
-  /// (class-extends-cycle closes a cycle; is-embedded-parent-page claims the
-  /// standalone role under an embedded block, the parent-page condition).
+  /// standalone role under an embedded block, the parent-page condition;
+  /// property-validation-rules' rejecting tail — below-min/above-max number,
+  /// pattern rejects, a bad multi element, an uncompilable pattern — throws
+  /// on apply by design, each reject pinned deliberately in the replay
+  /// suite).
   const replayExcluded = {
     'class-extends-cycle.json',
     'is-embedded-parent-page.json',
+    'property-validation-rules.json',
   };
 
   List<Map<String, dynamic>> loadFixture(String name) {
@@ -595,19 +597,27 @@ void main() {
         expect(await appliers.apply(envelope), isTrue);
       }
       final rows = await raw(
-        'SELECT uuid, type, multi, scope, name FROM property_schema '
-        'ORDER BY uuid',
+        'SELECT uuid, type, multi, scope, scope_class_ids, name '
+        'FROM property_schema ORDER BY uuid',
       );
       expect(rows, hasLength(2));
       expect(rows[0]['uuid'], '0192a000-0000-7000-8000-000000000541');
       expect(rows[0]['type'], 'asset');
       expect(rows[0]['multi'], 1);
-      expect(rows[0]['scope'], 'class');
+      // The retired `scope` enum is gone from the wire — the create carries
+      // scopeClassIds (local to the source class + its extends-ancestors);
+      // the legacy display-only column keeps its 'global' default.
+      expect(rows[0]['scope'], 'global');
+      expect(
+        jsonDecode(rows[0]['scope_class_ids'] as String),
+        ['00000000-0000-0000-0001-000000000023'],
+      );
       expect(rows[0]['name'], 'Attachment');
       expect(rows[1]['uuid'], '0192a000-0000-7000-8000-000000000542');
       expect(rows[1]['type'], 'asset');
       expect(rows[1]['multi'], 0);
-      expect(rows[1]['scope'], 'object');
+      expect(rows[1]['scope'], 'global');
+      expect(rows[1]['scope_class_ids'], isNull);
       expect(rows[1]['name'], 'Cover file (renamed)');
     });
 
@@ -662,7 +672,6 @@ void main() {
         'name': 'Attachment',
         'type': 'asset',
         'multi': true,
-        'scope': 'class',
       }, 1300));
       await appliers.apply(op('class.property.set', {
         'classId': bindingClass,
@@ -1067,6 +1076,334 @@ void main() {
       final edgeCount =
           await raw('SELECT COUNT(*) AS c FROM class_extends');
       expect(edgeCount.single['c'], 1);
+    });
+
+    test('object-list-style lands numbered → alpha → clear, and styles the '
+        'page itself', () async {
+      const page = '0192a000-0000-7000-8000-00000000056a';
+      const block = '0192a000-0000-7000-8000-00000000056b';
+      final envelopes = fixtureEnvelopes('object-list-style.json');
+
+      // create: the page starts bullet (null); the block seeds 'numbered'.
+      expect(await appliers.apply(envelopes[0]), isTrue);
+      expect(await appliers.apply(envelopes[1]), isTrue);
+      expect((await cache.getByUuid(page))!.listStyle, isNull);
+      expect((await cache.getByUuid(block))!.listStyle, 'numbered');
+
+      // The payload and the v31 derived column project the same field.
+      Future<String?> columnOf(String id) async => (await raw(
+            'SELECT list_style FROM node_cache WHERE uuid = ?',
+            [id],
+          ))
+              .single['list_style'] as String?;
+      expect(await columnOf(block), 'numbered');
+
+      // update re-styles ('alpha'), then present-null CLEARS to the bullet.
+      expect(await appliers.apply(envelopes[2]), isTrue);
+      expect((await cache.getByUuid(block))!.listStyle, 'alpha');
+      expect(await appliers.apply(envelopes[3]), isTrue);
+      expect((await cache.getByUuid(block))!.listStyle, isNull);
+      expect(await columnOf(block), isNull);
+
+      // The field is per-node and applier-unrestricted: the page styles too.
+      expect(await appliers.apply(envelopes[4]), isTrue);
+      expect((await cache.getByUuid(page))!.listStyle, 'roman');
+      expect(await columnOf(page), 'roman');
+    });
+
+    test('property-schema-scope: extends-aware eligibility (R3), the R5 '
+        'binding gate, widen/narrow keep-clear, and the eligible=false '
+        'read', () async {
+      const classA = '0192a000-0000-7000-8000-000000000901';
+      const genre = '0192a000-0000-7000-8000-000000000910';
+      const aNode = '0192a000-0000-7000-8000-000000000921';
+      const bNode = '0192a000-0000-7000-8000-000000000922';
+      const unclassed = '0192a000-0000-7000-8000-000000000923';
+      final envelopes = fixtureEnvelopes('property-schema-scope.json');
+
+      // Classes A, B (B extends A), the Genre schema scoped to A (with its
+      // icon), the A-binding (R5 accept — the binding class is in scope).
+      for (final envelope in envelopes.take(5)) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      final schemaRow = (await raw(
+        'SELECT icon, scope_class_ids FROM property_schema WHERE uuid = ?',
+        [genre],
+      ))
+          .single;
+      expect(schemaRow['icon'], 'mdiTagOutline');
+      expect(jsonDecode(schemaRow['scope_class_ids'] as String), [classA]);
+
+      // R3: an A-classed node carries the scoped property...
+      expect(await appliers.apply(envelopes[5]), isTrue); // create aNode
+      // ...and so does a B-classed node — EXTENDS-AWARE eligibility (B's
+      // closure carries the ancestor A).
+      expect(await appliers.apply(envelopes[6]), isTrue); // create bNode
+      expect(await appliers.apply(envelopes[7]), isTrue); // set aNode
+      expect(await appliers.apply(envelopes[8]), isTrue); // set bNode
+      expect(
+        (await cache.propertyValuesFor(aNode)).map((v) => v.value).toList(),
+        ['science fiction'],
+      );
+      expect(
+        (await cache.propertyValuesFor(bNode)).map((v) => v.value).toList(),
+        ['hard sci-fi'],
+      );
+
+      // R5 reject: binding a class OUTSIDE the scope is dead config and
+      // fails loud (never applied).
+      final foreignClass = '0192a000-0000-7000-8000-000000000930';
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-000000000931',
+        workspaceId: ws,
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'fixture-test-device',
+        hlc: Hlc(physical: 1727200040350, logical: 0),
+        affectedNodeIds: [foreignClass],
+        opType: 'class.create',
+        payload: {
+          'classId': foreignClass,
+          'contentAst': [
+            {'type': 'text', 'text': 'Foreign'},
+          ],
+        },
+        timestamp: '2026-09-24T12:00:40.350Z',
+      ));
+      expect(
+        () => appliers.apply(OperationEnvelope(
+          id: '0192a000-0000-7000-8000-000000000932',
+          workspaceId: ws,
+          actorId: '0192a000-0000-7000-8000-000000000002',
+          deviceId: 'fixture-test-device',
+          hlc: Hlc(physical: 1727200040360, logical: 0),
+          affectedNodeIds: [foreignClass],
+          opType: 'class.property.set',
+          payload: {
+            'classId': foreignClass,
+            'propertySchemaId': genre,
+            'sequence': 0,
+          },
+          timestamp: '2026-09-24T12:00:40.360Z',
+        )),
+        throwsA(isA<MoveGuardError>()),
+      );
+
+      // The unclassed page; the scope WIDENS to global (present-null
+      // clears); its property.set rides while global.
+      expect(await appliers.apply(envelopes[9]), isTrue); // create unclassed
+      expect(await appliers.apply(envelopes[10]), isTrue); // scopeClassIds: null
+      expect(
+        (await raw(
+          'SELECT scope_class_ids FROM property_schema WHERE uuid = ?',
+          [genre],
+        ))
+            .single['scope_class_ids'],
+        isNull,
+      );
+      expect(await appliers.apply(envelopes[11]), isTrue); // set unclassed
+      expect(
+        (await cache.propertyValuesFor(unclassed)).map((v) => v.value).toList(),
+        ['authored while global'],
+      );
+
+      // The scope NARROWS back to A: narrowing is never retroactive — the
+      // authored row survives in the log...
+      expect(await appliers.apply(envelopes[12]), isTrue); // scopeClassIds: [A]
+      expect(
+        (await cache.propertyValuesFor(unclassed)).map((v) => v.value).toList(),
+        ['authored while global'],
+      );
+      // ...and the effective read tags it eligible=false (the store suite
+      // pins the same read in the TS reference).
+      final effective = await cache.getEffectiveProperties(unclassed);
+      expect(effective, hasLength(1));
+      expect(effective.single.eligible, isFalse);
+      expect(effective.single.source, 'authored');
+      // The eligible nodes still read true.
+      final aEffective = await cache.getEffectiveProperties(aNode);
+      expect(aEffective.single.eligible, isTrue);
+    });
+
+    test('property-schema-update-fields: icon/multi/validationRules and '
+        'targetClassFilter/scopeClassIds keep + clear through the '
+        'lifecycle', () async {
+      const score = '0192a000-0000-7000-8000-000000000960';
+      const related = '0192a000-0000-7000-8000-000000000961';
+      const filterClass = '0192a000-0000-7000-8000-000000000951';
+      final envelopes = fixtureEnvelopes('property-schema-update-fields.json');
+
+      Future<Map<String, dynamic>> rowOf(String id) async => (await raw(
+            'SELECT icon, multi, validation_rules, class_filter_uuids, '
+            'scope_class_ids FROM property_schema WHERE uuid = ?',
+            [id],
+          ))
+          .single;
+
+      expect(await appliers.apply(envelopes[0]), isTrue); // class
+      expect(await appliers.apply(envelopes[1]), isTrue); // Score create
+      expect(await rowOf(score), {
+        'icon': null,
+        'multi': 0,
+        'validation_rules': null,
+        'class_filter_uuids': '[]',
+        'scope_class_ids': null,
+      });
+
+      // Set icon + multi + {min: 0, max: 10} rules.
+      expect(await appliers.apply(envelopes[2]), isTrue);
+      var scoreRow = await rowOf(score);
+      expect(scoreRow['icon'], 'mdiStar');
+      expect(scoreRow['multi'], 1);
+      expect(
+        jsonDecode(scoreRow['validation_rules'] as String),
+        {'min': 0, 'max': 10},
+      );
+
+      // An absent-field update keeps them (name only).
+      expect(await appliers.apply(envelopes[3]), isTrue);
+      scoreRow = await rowOf(score);
+      expect(scoreRow['icon'], 'mdiStar');
+      expect(scoreRow['multi'], 1);
+      expect(scoreRow['validation_rules'], isNotNull);
+      expect(
+        (await raw(
+          'SELECT name FROM property_schema WHERE uuid = ?',
+          [score],
+        ))
+            .single['name'],
+        'Score (kept fields ride)',
+      );
+
+      // Present-null clears all three back to defaults.
+      expect(await appliers.apply(envelopes[4]), isTrue);
+      scoreRow = await rowOf(score);
+      expect(scoreRow['icon'], isNull);
+      expect(scoreRow['multi'], 0);
+      expect(scoreRow['validation_rules'], isNull);
+
+      // Related gains a targetClassFilter + scopeClassIds, then clears both.
+      expect(await appliers.apply(envelopes[5]), isTrue);
+      expect(await appliers.apply(envelopes[6]), isTrue);
+      var relatedRow = await rowOf(related);
+      expect(
+        jsonDecode(relatedRow['class_filter_uuids'] as String),
+        [filterClass],
+      );
+      expect(jsonDecode(relatedRow['scope_class_ids'] as String), [filterClass]);
+      expect(await appliers.apply(envelopes[7]), isTrue);
+      relatedRow = await rowOf(related);
+      expect(relatedRow['class_filter_uuids'], '[]');
+      expect(relatedRow['scope_class_ids'], isNull);
+
+      // R2 applicability against the STORED type: min/max on a text schema
+      // and a pattern on a number schema fail loud at the rule write.
+      final textSchema = '0192a000-0000-7000-8000-000000000970';
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-000000000971',
+        workspaceId: ws,
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'fixture-test-device',
+        hlc: Hlc(physical: 1727200042800, logical: 0),
+        affectedNodeIds: [textSchema],
+        opType: 'propertySchema.create',
+        payload: {
+          'propertySchemaId': textSchema,
+          'name': 'Label',
+          'type': 'text',
+          'multi': false,
+        },
+        timestamp: '2026-09-24T12:00:42.800Z',
+      ));
+      expect(
+        () => appliers.apply(OperationEnvelope(
+          id: '0192a000-0000-7000-8000-000000000972',
+          workspaceId: ws,
+          actorId: '0192a000-0000-7000-8000-000000000002',
+          deviceId: 'fixture-test-device',
+          hlc: Hlc(physical: 1727200042810, logical: 0),
+          affectedNodeIds: [],
+          opType: 'propertySchema.update',
+          payload: {
+            'propertySchemaId': textSchema,
+            'validationRules': {'min': 1},
+          },
+          timestamp: '2026-09-24T12:00:42.810Z',
+        )),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+      expect(
+        () => appliers.apply(OperationEnvelope(
+          id: '0192a000-0000-7000-8000-000000000973',
+          workspaceId: ws,
+          actorId: '0192a000-0000-7000-8000-000000000002',
+          deviceId: 'fixture-test-device',
+          hlc: Hlc(physical: 1727200042820, logical: 0),
+          affectedNodeIds: [],
+          opType: 'propertySchema.update',
+          payload: {
+            'propertySchemaId': score,
+            'validationRules': {'pattern': '[a-z]+'},
+          },
+          timestamp: '2026-09-24T12:00:42.820Z',
+        )),
+        throwsA(isA<PropertyValueShapeError>()),
+      );
+    });
+
+    test('property-validation-rules: the accepting prefix lands; each '
+        'rejecting envelope throws on apply', () async {
+      const owner = '0192a000-0000-7000-8000-000000001001';
+      final envelopes = fixtureEnvelopes('property-validation-rules.json');
+      // The rejecting tail: below-min/above-max number, two pattern rejects,
+      // one bad multi element, one uncompilable pattern rule write.
+      final accepting = envelopes.sublist(0, envelopes.length - 6);
+      final rejecting = envelopes.sublist(envelopes.length - 6);
+      for (final envelope in accepting) {
+        expect(await appliers.apply(envelope), isTrue,
+            reason: envelope.id);
+      }
+
+      final values = await cache.propertyValuesFor(owner);
+      const rating = '0192a000-0000-7000-8000-000000001010';
+      const slug = '0192a000-0000-7000-8000-000000001011';
+      const homepage = '0192a000-0000-7000-8000-000000001012';
+      const keywords = '0192a000-0000-7000-8000-000000001013';
+      const note = '0192a000-0000-7000-8000-000000001014';
+      const floor = '0192a000-0000-7000-8000-000000001015';
+      const cap = '0192a000-0000-7000-8000-000000001016';
+      const schemaLess = '0192a000-0000-7000-8000-00000000109f';
+      expect(values.singleWhere((v) => v.schemaId == rating).value, 4);
+      expect(values.singleWhere((v) => v.schemaId == slug).value, 'hello-world');
+      expect(
+        values.singleWhere((v) => v.schemaId == homepage).value,
+        'https://example.com',
+      );
+      expect(
+        values.singleWhere((v) => v.schemaId == keywords).value,
+        'good',
+      );
+      expect(
+        values.singleWhere((v) => v.schemaId == note).value,
+        'ANYTHING at all! 123',
+      );
+      // Inclusive bounds: exactly min / exactly max ride.
+      expect(values.singleWhere((v) => v.schemaId == floor).value, 0);
+      expect(values.singleWhere((v) => v.schemaId == cap).value, 100);
+      // Schema-less writes stay unchecked — any shape at any idx.
+      expect(
+        values.singleWhere((v) => v.schemaId == schemaLess).value,
+        {'anything': true},
+      );
+
+      // Each rejecting envelope fails loud and is never applied.
+      for (final envelope in rejecting) {
+        expect(() => appliers.apply(envelope), throwsA(isA<PropertyValueShapeError>()),
+            reason: '${envelope.id} (${envelope.opType}) must fail loud');
+      }
+      // The surviving state is untouched by the rejects.
+      final after = await cache.propertyValuesFor(owner);
+      expect(after.map((v) => v.schemaId).toSet(),
+          values.map((v) => v.schemaId).toSet());
     });
 
     test('re-applying the whole fixture set is state-idempotent', () async {

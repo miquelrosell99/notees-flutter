@@ -6,6 +6,54 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-20
+
+- **feat(protocol,store): the property-scope batch + validationRules value
+  enforcement + per-block listStyle (Flutter lockstep port of the
+  monorepo's 2026-10-20 slices, TS `b8548e0e` + `19baac4b` + the
+  list-style field).** `propertySchema.create` RETIRES the display-only
+  `scope` enum (rejected outright like any retired key — hand-rolled strict
+  validators pin the unknown-key reject) and gains `icon` (nullable MDI
+  name) + `scopeClassIds` (nullable non-empty uuid list — absent/null =
+  global, exactly one spelling of "global"); `propertySchema.update` gains
+  `icon`, `scopeClassIds`, `targetClassFilter`, `multi`, and
+  `validationRules` ({min?, max?, pattern?} — strict keys, numeric bounds,
+  min ≤ max at parse time; absent keeps / present-null clears throughout).
+  Wire semantics now enforced at apply time, fail loud, mirroring the TS
+  reference: **R3** — `property.set` fails loud (`MoveGuardError`) when the
+  node's class closure (its classes + extends ancestors) misses the schema's
+  scopeClassIds; **R5** — `class.property.set` on an out-of-scope binding is
+  rejected as dead config (the binding class's own extends closure counts);
+  **R2** — a schema carrying stored validationRules validates every
+  `property.set` value BEFORE the write (inclusive min/max on numbers after
+  the numeric-string normalization, full-string `^(?:…)$` pattern on
+  text/url/email scalars only — carrier {nodeId} refs and schema-less
+  writes ride unchecked, each multi element at its own add), and a
+  `propertySchema.update` carrying rules checks applicability against the
+  schema's STORED type plus pattern compilability at the rule write.
+  **R4** — the effective-properties read tags ineligible authored rows
+  `eligible: false` (narrowing is never retroactive) and never derives a
+  default for an ineligible node. `object.create`/`object.update` carry the
+  optional nullable `listStyle` ('numbered' | 'alpha' | 'roman'; absent/null
+  = the bullet default, present-null clears — the icon/color precedent); the
+  derived store projects it as `node_cache.list_style` (the marker number
+  stays render-time, never stored). Data layer: local store bumps to schema
+  v31 — `property_schema.scope_class_ids` (the v11-era `icon` /
+  `validation_rules` columns already carry the wire shape and are reused
+  verbatim) + `node_cache.list_style`, both guarded additive ALTERs; the
+  legacy display-only `scope` column stays (round-tripped, zero availability
+  semantics). Seeds: the tasks-enable task-family schemas seed at GLOBAL
+  scope (owner ruling 2026-10-20, the seed-scope audit — the whole family is
+  reusable), and the local workspace seed's `authors` spec now seeds
+  `scopeClassIds: [source]` per the TS manifest. Fixtures: the corpus
+  re-vendors from the main repo (36 files, sha256-identical —
+  `object-list-style.json`, `property-schema-scope.json`,
+  `property-schema-update-fields.json`, `property-validation-rules.json`
+  added; `property-validation-rules.json` joins the replay-excluded set — its
+  rejecting tail throws on apply by design, each reject pinned in the replay
+  suite). **Verification:** `flutter analyze` clean; `flutter test` green
+  (664 tests).
+
 ## 2026-10-16
 
 - **feat(model): node links carry their own `isEmbedded` flag — manual,

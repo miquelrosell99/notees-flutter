@@ -46,6 +46,7 @@ class Node {
     this.bannerAssetId,
     this.aliasedNodeId,
     this.description,
+    this.listStyle,
   });
 
   final int id;
@@ -131,6 +132,14 @@ class Node {
   final String? bannerAssetId;
   final String? aliasedNodeId;
   final String? description;
+
+  /// Per-block list style ('numbered' | 'alpha' | 'roman'; the per-block
+  /// listStyle wire node field, 2026-10-16 lockstep): null = the bullet
+  /// default. The marker NUMBER is never stored — clients derive it at
+  /// render time from the contiguous run of same-style siblings. Rides
+  /// object.create (initial style) and object.update (present-null clears);
+  /// projected as the `list_style` derived column for SQL reads.
+  final String? listStyle;
 
   bool get isJournal => isDaily || isMonthly || isYearly;
 
@@ -229,6 +238,7 @@ class Node {
       bannerAssetId: json['banner_asset_id'] as String?,
       aliasedNodeId: json['aliased_node_id'] as String?,
       description: json['description'] as String?,
+      listStyle: json['list_style'] as String?,
     );
   }
 
@@ -283,6 +293,7 @@ class Node {
       bannerAssetId: bannerAssetId,
       aliasedNodeId: aliasedNodeId,
       description: description,
+      listStyle: listStyle,
     );
   }
 
@@ -332,6 +343,7 @@ class Node {
       bannerAssetId: bannerAssetId,
       aliasedNodeId: aliasedNodeId,
       description: description,
+      listStyle: listStyle,
     );
   }
 
@@ -379,5 +391,6 @@ class Node {
     'banner_asset_id': bannerAssetId,
     'aliased_node_id': aliasedNodeId,
     'description': description,
+    'list_style': listStyle,
   };
 }

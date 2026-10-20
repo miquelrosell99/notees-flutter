@@ -330,4 +330,128 @@ void main() {
     expect(rows.single.value, 'b');
     expect(rows.single.boundBy, base); // authored + bound → the ancestor
   });
+
+  group('R3/R4 scope eligibility (owner ruling 2026-10-20)', () {
+    const scoped = '0192a000-0000-7000-8000-000000000190';
+    const nodeA = '0192a000-0000-7000-8000-000000000191';
+    const nodeB = '0192a000-0000-7000-8000-000000000192';
+    const nodeC = '0192a000-0000-7000-8000-000000000193';
+
+    Future<void> createScopedSchema(List<String> scopeClassIds) => appliers
+        .apply(env(
+          'propertySchema.create',
+          OperationPayloads.propertySchemaCreate(
+            propertySchemaId: scoped,
+            name: 'scoped',
+            type: 'select',
+            options: const [
+              {'id': 'a', 'label': 'A'},
+            ],
+            scopeClassIds: scopeClassIds,
+          ),
+          1,
+        ));
+
+    Future<void> bindScoped(String classId) => appliers.apply(env(
+          'class.property.set',
+          {
+            'classId': classId,
+            'propertySchemaId': scoped,
+            'sequence': 0,
+            'defaultValue': 'a',
+          },
+          5,
+        ));
+
+    Future<void> classNode(String id, String classId, int hlc) =>
+        appliers.apply(env(
+          'object.create',
+          OperationPayloads.objectCreate(
+            objectId: id,
+            classIds: [classId],
+            contentAst: const [],
+          ),
+          hlc,
+        ));
+
+    test('an out-of-scope node derives NEITHER the property NOR a default '
+        '(R4), while the closure-intersecting node derives it', () async {
+      const inClass = '0192a000-0000-7000-8000-0000000001a0';
+      const subClass = '0192a000-0000-7000-8000-0000000001a1';
+      const outClass = '0192a000-0000-7000-8000-0000000001a2';
+      await createScopedSchema([inClass]);
+      await createClass(inClass);
+      await createClass(subClass);
+      await createClass(outClass);
+      await setExtends(subClass, [inClass]);
+      await bindScoped(inClass);
+
+      // The in-scope node derives the default...
+      await classNode(nodeA, inClass, 10);
+      var rows = await cache.getEffectiveProperties(nodeA);
+      expect(rows, hasLength(1));
+      expect(rows.single.value, 'a');
+      expect(rows.single.source, 'default');
+      expect(rows.single.eligible, isTrue);
+
+      // ...and so does the extends-descendant (closure intersection: the
+      // carried subclass reaches the scoped ancestor).
+      await classNode(nodeB, subClass, 10);
+      rows = await cache.getEffectiveProperties(nodeB);
+      expect(rows.single.value, 'a');
+      expect(rows.single.eligible, isTrue);
+
+      // The out-of-scope node: nothing derives — R4 suppresses the stray
+      // binding's default entirely.
+      await classNode(nodeC, outClass, 10);
+      expect(await cache.getEffectiveProperties(nodeC), isEmpty);
+    });
+
+    test('narrowing a scope is never retroactive: the authored row survives '
+        'tagged eligible=false', () async {
+      const holder = '0192a000-0000-7000-8000-0000000001b0';
+      const other = '0192a000-0000-7000-8000-0000000001c0';
+      await createSchema(); // the global 'schema'
+      await createClass(holder);
+      await assign([holder], [10]);
+      await appliers.apply(env(
+        'property.set',
+        OperationPayloads.propertySet(
+          objectId: node,
+          propertySchemaId: schema,
+          value: 'b',
+        ),
+        20,
+      ));
+      var rows = await cache.getEffectiveProperties(node);
+      expect(rows.single.eligible, isTrue);
+
+      // Narrow the scope to a class the node does not carry.
+      await appliers.apply(env(
+        'propertySchema.update',
+        OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: schema,
+          scopeClassIds: [other],
+        ),
+        30,
+      ));
+      rows = await cache.getEffectiveProperties(node);
+      expect(rows, hasLength(1)); // the authored row SURVIVES
+      expect(rows.single.source, 'authored');
+      expect(rows.single.eligible, isFalse);
+      expect(rows.single.value, 'b');
+
+      // Widening back to global restores eligibility.
+      await appliers.apply(env(
+        'propertySchema.update',
+        OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: schema,
+          scopeClassIds: null,
+        ),
+        40,
+      ));
+      rows = await cache.getEffectiveProperties(node);
+      expect(rows.single.eligible, isTrue);
+    });
+  });
 }

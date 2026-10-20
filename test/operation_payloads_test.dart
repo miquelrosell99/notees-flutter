@@ -152,9 +152,10 @@ void main() {
         name: 'Attachment',
         type: 'asset',
         multi: true,
-        scope: 'class',
+        scopeClassIds: const [classId],
       );
       expect(payload['type'], 'asset');
+      expect(payload['scopeClassIds'], [classId]);
       expect(() => OperationPayloads.validatePayload(
           'propertySchema.create', payload), returnsNormally);
       expect(
@@ -162,6 +163,89 @@ void main() {
           'propertySchemaId': classId,
           'name': 'Bogus',
           'type': 'asset_payload',
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('propertySchema.create: scopeClassIds is the sole locality '
+        'authority — the retired `scope` enum is rejected like any '
+        'retired key, an empty list is rejected, null/absent is global',
+        () {
+      // The retired enum key fails the strict schema (unknown-key reject)
+      // for BOTH its legacy values — the parse-level pin.
+      for (final legacy in ['global', 'class', 'object']) {
+        expect(
+          () => OperationPayloads.validatePayload('propertySchema.create', {
+            'propertySchemaId': classId,
+            'name': 'Legacy scope',
+            'type': 'text',
+            'scope': legacy,
+          }),
+          throwsFormatException,
+          reason: 'retired scope enum value "$legacy" must fail loud',
+        );
+      }
+      // Exactly one spelling of "global": the EMPTY list is rejected.
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', {
+          'propertySchemaId': classId,
+          'name': 'Empty scope',
+          'type': 'text',
+          'scopeClassIds': <String>[],
+        }),
+        throwsFormatException,
+      );
+      // Absent and explicit null both read global.
+      for (final scope in [null, const [classId]]) {
+        expect(
+          () => OperationPayloads.validatePayload('propertySchema.create', {
+            'propertySchemaId': classId,
+            'name': 'Scoped',
+            'type': 'text',
+            'scopeClassIds': scope,
+          }),
+          returnsNormally,
+        );
+      }
+      // Non-uuid entries fail the uuid-list gate.
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', {
+          'propertySchemaId': classId,
+          'name': 'Bad scope',
+          'type': 'text',
+          'scopeClassIds': const ['not-a-uuid'],
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('propertySchema.create carries an optional nullable icon', () {
+      final payload = OperationPayloads.propertySchemaCreate(
+        propertySchemaId: classId,
+        name: 'Genre',
+        type: 'text',
+        icon: 'mdiTagOutline',
+      );
+      expect(payload['icon'], 'mdiTagOutline');
+      expect(() => OperationPayloads.validatePayload(
+          'propertySchema.create', payload), returnsNormally);
+      // Present null = no icon; overlong strings fail.
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', {
+          'propertySchemaId': classId,
+          'name': 'No icon',
+          'type': 'text',
+          'icon': null,
+        }),
+        returnsNormally,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', {
+          'propertySchemaId': classId,
+          'name': 'Long icon',
+          'type': 'text',
+          'icon': 'x' * 65,
         }),
         throwsFormatException,
       );
@@ -561,6 +645,174 @@ void main() {
             {'id': 'a', 'label': 'Open', 'icon': 'mdiCircle'},
           ],
         }),
+        returnsNormally,
+      );
+    });
+
+    test('propertySchema.update carries icon/scopeClassIds/targetClassFilter/'
+        'multi/validationRules — the keep/clear contract', () {
+      // The builder's sentinel defaults: absent keeps (the key never rides).
+      final untouched = OperationPayloads.propertySchemaUpdate(
+        propertySchemaId: classId,
+        name: 'x',
+      );
+      for (final key in [
+        'icon',
+        'scopeClassIds',
+        'targetClassFilter',
+        'multi',
+        'validationRules',
+      ]) {
+        expect(untouched.containsKey(key), isFalse, reason: key);
+      }
+      // Present values ride; explicit nulls ride as JSON clears.
+      final updated = OperationPayloads.propertySchemaUpdate(
+        propertySchemaId: classId,
+        icon: null,
+        scopeClassIds: null,
+        targetClassFilter: const [classId],
+        multi: true,
+        validationRules: const {'min': 0, 'max': 10},
+      );
+      expect(updated, containsPair('icon', null));
+      expect(updated, containsPair('scopeClassIds', null));
+      expect(updated, containsPair('targetClassFilter', [classId]));
+      expect(updated, containsPair('multi', true));
+      expect(
+        updated['validationRules'],
+        {'min': 0, 'max': 10},
+      );
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.update', updated),
+        returnsNormally,
+      );
+      // At least one field: an all-absent update rejects (zod refine parity).
+      expect(
+        () => OperationPayloads.propertySchemaUpdate(propertySchemaId: classId),
+        throwsArgumentError,
+      );
+    });
+
+    test('validationRules parse gate: strict {min?, max?, pattern?} keys, '
+        'numeric bounds, min <= max; compilability is NOT parse-level', () {
+      // Well-formed shapes validate (each alone and combined).
+      for (final rules in [
+        {'min': 1},
+        {'max': 5.5},
+        {'min': 0, 'max': 10},
+        {'pattern': '[a-z0-9-]+'},
+        <String, dynamic>{},
+      ]) {
+        expect(
+          () => OperationPayloads.validatePayload('propertySchema.update', {
+            'propertySchemaId': classId,
+            'validationRules': rules,
+          }),
+          returnsNormally,
+          reason: '$rules',
+        );
+      }
+      // min > max rejects at parse time.
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.update', {
+          'propertySchemaId': classId,
+          'validationRules': {'min': 10, 'max': 1},
+        }),
+        throwsFormatException,
+      );
+      // Strict keys, wrong types, and explicit nulls (zod .optional()
+      // rejects null) all fail the shape gate.
+      for (final rules in [
+        {'minimum': 1},
+        {'min': '1'},
+        {'max': true},
+        {'pattern': 3},
+        {'min': null},
+      ]) {
+        expect(
+          () => OperationPayloads.validatePayload('propertySchema.update', {
+            'propertySchemaId': classId,
+            'validationRules': rules,
+          }),
+          throwsFormatException,
+          reason: '$rules',
+        );
+      }
+      // A non-compilable pattern is a PARSE-LEVEL PASS — the applier fails
+      // it at the rule write (R2), not the shape gate.
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.update', {
+          'propertySchemaId': classId,
+          'validationRules': {'pattern': '([a-z'},
+        }),
+        returnsNormally,
+      );
+      // Present-null clears the rules (the keep/clear contract).
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.update', {
+          'propertySchemaId': classId,
+          'validationRules': null,
+        }),
+        returnsNormally,
+      );
+    });
+
+    test('object listStyle: the strict three-style enum, nullable on '
+        'create and update', () {
+      for (final style in ['numbered', 'alpha', 'roman']) {
+        final created = OperationPayloads.objectCreate(
+          objectId: objectId,
+          listStyle: style,
+        );
+        expect(created['listStyle'], style);
+        expect(
+          () => OperationPayloads.validatePayload('object.create', created),
+          returnsNormally,
+          reason: style,
+        );
+        expect(
+          () => OperationPayloads.validatePayload('object.update', {
+            'objectId': objectId,
+            'listStyle': style,
+          }),
+          returnsNormally,
+          reason: style,
+        );
+      }
+      // Absent and present-null both validate (null = the bullet default /
+      // clear); a bogus style fails the enum.
+      expect(
+        () => OperationPayloads.validatePayload('object.create', {
+          'objectId': objectId,
+          'listStyle': null,
+        }),
+        returnsNormally,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('object.update', {
+          'objectId': objectId,
+          'listStyle': null,
+        }),
+        returnsNormally,
+      );
+      for (final opType in ['object.create', 'object.update']) {
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'objectId': objectId,
+            'listStyle': 'bullets',
+          }),
+          throwsFormatException,
+          reason: opType,
+        );
+      }
+      // object.update counts listStyle toward its at-least-one-field rule.
+      final cleared = OperationPayloads.objectUpdate(
+        objectId: objectId,
+        listStyle: null,
+      );
+      expect(cleared, containsPair('listStyle', null));
+      expect(
+        () => OperationPayloads.validatePayload('object.update', cleared),
         returnsNormally,
       );
     });

@@ -401,6 +401,7 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         writeDate: envelope.timestamp,
         isClass: false,
         isEmbedded: isEmbedded,
+        listStyle: payload['listStyle'] as String?,
         hlcPhysical: incoming.physical,
         hlcLogical: incoming.logical,
         actorId: incoming.actor,
@@ -551,6 +552,11 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         description: payload.containsKey('description')
             ? payload['description'] as String?
             : node.description,
+        // List style: presence writes, present-null clears back to the
+        // bullet default (the color precedent).
+        listStyle: payload.containsKey('listStyle')
+            ? payload['listStyle'] as String?
+            : node.listStyle,
         writeDate: envelope.timestamp,
         hlcPhysical: incoming.physical,
         hlcLogical: incoming.logical,
@@ -910,7 +916,30 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // ref to a nonexistent node all fail loud; a legacy bare-uuid reference
     // or a numeric string normalizes to the canonical encoding. The
     // NORMALIZED value is what gets stored.
+    // R3 (owner ruling 2026-10-20): the write fails loud when the target
+    // node is INELIGIBLE for the schema — scopeClassIds set and the node's
+    // class closure (its classes + extends ancestors) misses the list.
+    // Schema-less writes (unknown schema id) stay unchecked, exactly like
+    // the shape checks below. Narrowing a scope later never orphans
+    // history: pre-existing authored rows survive in the log and the
+    // effective read returns them tagged eligible=false — enforcement is
+    // never retroactive.
     final schema = await _cache.propertySchemaValidationRow(schemaId);
+    if (schema != null && schema.scopeClassIds != null) {
+      final carried = await _cache.nodeClassIdsOf(objectId);
+      final eligible = await _cache.classClosureIntersectsScope(
+        carried ?? const <String>[],
+        schema.scopeClassIds,
+      );
+      if (!eligible) {
+        throw MoveGuardError(
+          '$opType: node $objectId is not eligible for schema $schemaId '
+          "(its classes — extends-aware — do not intersect the schema's "
+          'scopeClassIds)',
+          opType,
+        );
+      }
+    }
     final payloadValue = payload.containsKey('value') ? payload['value'] : null;
     final value = schema != null
         ? await _cache.assertPropertyValueForSchema(
@@ -1491,6 +1520,29 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       return false;
     }
 
+    // R5 (owner ruling 2026-10-20): dead config is rejected — a binding on
+    // a schema whose scope EXCLUDES the class is provably inert (the
+    // effective read suppresses its default under R4), so the write fails
+    // loud. The class's own extends closure counts: a class scoped to an
+    // ANCESTOR of the binding class still binds (subclass instances are
+    // eligible via the ancestor). Schema-less writes (unknown schema id)
+    // stay unchecked.
+    final schemaRow = await _cache.propertySchemaValidationRow(schemaId);
+    if (schemaRow != null && schemaRow.scopeClassIds != null) {
+      final binds = await _cache.classClosureIntersectsScope(
+        [classId],
+        schemaRow.scopeClassIds,
+      );
+      if (!binds) {
+        throw MoveGuardError(
+          '${envelope.opType}: schema $schemaId is scoped to classes that '
+          'exclude $classId — the binding would be inert (scope is the '
+          'sole locality authority)',
+          envelope.opType,
+        );
+      }
+    }
+
     // PC2: defaultValue is typed per the schema type — a
     // wrong-typed default fails loud here instead of deriving silently on
     // every read. Omitted defaultValue (patch keeps the stored one) skips
@@ -1650,7 +1702,15 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         type: payload['type'] as String? ?? 'text',
         multi: payload['multi'] == true,
         isSystem: false,
-        scope: payload['scope'] as String? ?? 'global',
+        // The schema's icon (absent/null = none) and the SOLE locality
+        // authority (owner ruling 2026-10-20): scopeClassIds absent/null =
+        // global, a non-empty list = local to those classes +
+        // extends-ancestors. The retired display-only `scope` enum is
+        // rejected outright by the strict validator like any retired key.
+        icon: payload['icon'] as String?,
+        scopeClassIds: payload.containsKey('scopeClassIds')
+            ? _readStringList(payload['scopeClassIds'])
+            : null,
         options:
             (payload['options'] as List<dynamic>?)
                 ?.cast<Map<String, dynamic>>() ??
@@ -1685,6 +1745,19 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       // throwing (the class-property-active fixture replays both orders).
       return false;
     }
+    // R2 (owner ruling 2026-10-20): the update payload is a patch carrying
+    // no type, so validationRules applicability is enforced HERE against
+    // the schema's STORED type (min/max only on number schemas, pattern
+    // only on text/url/email), and a non-compilable pattern fails at the
+    // rule write — a stored pattern that throws at value-check time would
+    // be an applier crash. A present-null clear skips both checks.
+    if (payload.containsKey('validationRules') &&
+        payload['validationRules'] != null) {
+      final rules = validationRulesOfRaw(payload['validationRules']) ??
+          const ValidationRules();
+      assertValidationRulesApplicable(existing.type, rules, 'propertySchema.update');
+      assertValidationPatternCompilable(rules, 'propertySchema.update');
+    }
     await _cache.upsertPropertySchema(
       PropertySchemaRow(
         uuid: propertySchemaId,
@@ -1698,18 +1771,41 @@ List<String> _contentClassLinkIds(dynamic tokens) {
                   const []
             : existing.options,
         // propertySchema.update carries name/options/datePrecision/
-        // dateQualified/number formats/render contracts; everything
-        // else is preserved from the stored row.
+        // dateQualified/number formats/render contracts PLUS icon /
+        // scopeClassIds / targetClassFilter / multi / validationRules (the
+        // keep/clear contract — absent keeps the stored value, present-null
+        // clears); everything else is preserved from the stored row.
         type: existing.type,
-        multi: existing.multi,
+        // The multi column is NOT NULL — a present-null "clear" is the
+        // single-value default (false), not a SQL NULL.
+        multi: payload.containsKey('multi')
+            ? payload['multi'] == true
+            : existing.multi,
         isSystem: existing.isSystem,
-        scope: existing.scope,
+        icon: payload.containsKey('icon')
+            ? payload['icon'] as String?
+            : existing.icon,
+        scopeClassIds: payload.containsKey('scopeClassIds')
+            ? (payload['scopeClassIds'] == null
+                  ? null
+                  : _readStringList(payload['scopeClassIds']))
+            : existing.scopeClassIds,
+        classFilterUuids: payload.containsKey('targetClassFilter')
+            ? (payload['targetClassFilter'] == null
+                  ? const <String>[]
+                  : _readStringList(payload['targetClassFilter']))
+            : existing.classFilterUuids,
         nodeUuid: existing.nodeUuid,
         iconVisibility: existing.iconVisibility,
-        validationRules: existing.validationRules,
+        // R2 applicability + compilability are checked below before the
+        // row write; the stored map is the payload's verbatim rules.
+        validationRules: payload.containsKey('validationRules')
+            ? (payload['validationRules'] == null
+                  ? null
+                  : (payload['validationRules'] as Map<String, dynamic>))
+            : existing.validationRules,
         required: existing.required,
         defaultValue: existing.defaultValue,
-        classFilterUuids: existing.classFilterUuids,
         computed: existing.computed,
         datePrecision: payload.containsKey('datePrecision')
             ? payload['datePrecision'] as String?
@@ -1860,7 +1956,12 @@ List<String> _contentClassLinkIds(dynamic tokens) {
           type: entry.type,
           multi: false,
           isSystem: true,
-          scope: 'class',
+          // The SIX SCHEMAS seed at GLOBAL scope (owner ruling 2026-10-20,
+          // the seed-scope audit — the whole family is reusable, Status
+          // explicitly so): null scopeClassIds; the task-class BINDING
+          // ROWS below are untouched (bindings are per-class config, zero
+          // availability semantics — TS `ensureTaskFamilyRows` parity).
+          scope: 'global',
           // The designed status options carry the circle-family MDI
           // glyphs + color tokens (owner-mandated set); priority and
           // the date schemas stay plain {id, label}.
@@ -2048,6 +2149,7 @@ Node _copyWith(
   Object? bannerAssetId = _undefined,
   Object? aliasedNodeId = _undefined,
   Object? description = _undefined,
+  Object? listStyle = _undefined,
   Object? parentUuid = _undefined,
   Object? position = _undefined,
   double? sequence,
@@ -2078,6 +2180,9 @@ Node _copyWith(
   description: identical(description, _undefined)
       ? node.description
       : description as String?,
+  listStyle: identical(listStyle, _undefined)
+      ? node.listStyle
+      : listStyle as String?,
   parentId: node.parentId,
   parentUuid: identical(parentUuid, _undefined)
       ? node.parentUuid
