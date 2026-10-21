@@ -151,6 +151,23 @@ void main() {
       expect(results.first.uuid, 'p-1');
     });
 
+    test('searchNodes folds diacritics — unaccented query finds accented names', () async {
+      // The web store's foldSearchText mirror: tokenize() strips diacritics
+      // at index build AND at query time (one mirror pair), so "video"
+      // finds the "Vídeo" class (the reported bug) and the accent
+      // direction folds too.
+      await repo.upsert(makePage(uuid: 'p-video', name: 'Vídeo'));
+      await repo.upsert(makePage(uuid: 'p-poesia', name: 'Poesía'));
+
+      final unaccented = await repo.searchNodes('video');
+      expect(unaccented.map((n) => n.uuid), ['p-video']);
+      final accented = await repo.searchNodes('poesia');
+      expect(accented.map((n) => n.uuid), ['p-poesia']);
+      // The accented side of the index no longer carries accent terms.
+      final accentedQuery = await repo.searchNodes('poesía');
+      expect(accentedQuery.map((n) => n.uuid), ['p-poesia']);
+    });
+
     test('searchWithFilters filters by node type', () async {
       await repo.upsert(makePage(uuid: 'p-1', name: 'Page'));
       await repo.upsert(makeTask(uuid: 't-1', name: 'Task'));

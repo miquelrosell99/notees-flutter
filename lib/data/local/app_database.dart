@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 34,
+          version: 35,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 34,
+      version: 35,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -128,6 +128,7 @@ class AppDatabase {
     await _migrateV32(db);
     await _migrateV33(db);
     await _migrateV34(db);
+    await _migrateV35(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -233,6 +234,9 @@ class AppDatabase {
     }
     if (oldVersion < 34) {
       await _migrateV34(db);
+    }
+    if (oldVersion < 35) {
+      await _migrateV35(db);
     }
   }
 
@@ -1013,6 +1017,16 @@ class AppDatabase {
         'CREATE INDEX IF NOT EXISTS idx_property_schema_active ON property_schema(active)',
       );
     }
+  }
+
+  /// v35 — diacritic folding in the local search index (2026-10-21, the web
+  /// store's `foldSearchText` mirror): `tokenize()` now strips diacritics,
+  /// so every pre-v35 row holds unfolded terms that an unaccented query can
+  /// never hit. The index is derived state — clear it; the sync service's
+  /// `shouldReindexSearch()` sees an empty index and `reindexAll()`
+  /// backfills with folded terms on the next boot path.
+  Future<void> _migrateV35(Database db) async {
+    await db.delete('search_index');
   }
 
   /// Derived reference index (never authored): mention/typed_link edges

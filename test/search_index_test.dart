@@ -28,7 +28,27 @@ void main() {
     });
 
     test('handles unicode letters', () {
-      expect(tokenize('Café résumé naïve'), {'café', 'résumé', 'naïve'});
+      expect(tokenize('Café résumé naïve'), {'cafe', 'resume', 'naive'});
+    });
+
+    test('folds diacritics so unaccented and accented text tokenize alike', () {
+      expect(tokenize('video'), tokenize('Vídeo'));
+      expect(tokenize('poesia'), tokenize('Poesía'));
+      expect(tokenize('reunion'), tokenize('Reunión'));
+    });
+
+    test('an unaccented query token matches the accented index term', () {
+      // The mirror pair: the index build and the query both ride tokenize,
+      // so "video" hits the "Vídeo" row — the reported class-search bug.
+      final rows = buildSearchIndexRows(Node(
+        id: 1,
+        uuid: 'uuid-video',
+        name: 'Vídeo',
+        displayName: 'Vídeo',
+      ));
+      expect(rows.map((r) => r.term), contains('video'));
+      expect(rankSearchResults(rows, 'video'), ['uuid-video']);
+      expect(rankSearchResults(rows, 'vídeo'), ['uuid-video']);
     });
   });
 
