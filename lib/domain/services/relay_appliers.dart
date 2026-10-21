@@ -1728,10 +1728,11 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         numberDecimals: payload['numberDecimals'] as int?,
         numberRounding: payload['numberRounding'] as String?,
         // Owner review 2026-10-05: the render contracts are
-        // PROPERTY-level — the display position + readonly/hideWhenEmpty
-        // ride the schema row (absent = the 'panel'/unset defaults).
+        // PROPERTY-level — the display position + hideWhenEmpty ride the
+        // schema row (absent = the 'panel'/unset defaults). `readonly`
+        // retired outright (owner ruling 2026-10-21 — derived from the
+        // system property list, not stored).
         display: payload['display'] as String?,
-        readonly: payload['readonly'] as bool? ?? false,
         hideWhenEmpty: payload['hideWhenEmpty'] as bool? ?? false,
         // The ONE GLOBAL default (owner ruling 2026-10-20): absent/null =
         // no default (NULL column); the strict payload gate already vetted
@@ -1859,13 +1860,11 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         // contract as the number formats (absent keeps, present null
         // clears; `required` retired outright and `defaultValue` lives
         // on this schema row — both left the binding under the owner
-        // ruling 2026-10-20).
+        // ruling 2026-10-20). `readonly` retired outright 2026-10-21
+        // (derived, not stored).
         display: payload.containsKey('display')
             ? payload['display'] as String?
             : existing.display,
-        readonly: payload.containsKey('readonly')
-            ? (payload['readonly'] as bool?) ?? false
-            : existing.readonly,
         hideWhenEmpty: payload.containsKey('hideWhenEmpty')
             ? (payload['hideWhenEmpty'] as bool?) ?? false
             : existing.hideWhenEmpty,

@@ -8,6 +8,30 @@ lives in git history.
 
 ## 2026-10-21
 
+- **feat(protocol,store): the readonly retirement — `readonly` derives from
+  the system list, not stored (Flutter lockstep port of the monorepo's owner
+  ruling 2026-10-21, a continuation of the property-definition surfaces
+  batch).** The `readonly` render contract RETIRES from
+  `propertySchema.create/update` — an enumeration of the seeds finds ZERO
+  system properties that ever carried the flag, so it was never user
+  configuration. The strict payload validator rejects the retired key on
+  both schema payloads like any unknown key; `hideWhenEmpty`/`display` stay.
+  Readonly-ness now DERIVES from the system property list —
+  `isReadonlyProperty(schemaId)` in `core/constants` (fixed seed UUIDs,
+  precise) covering the platform-provenance schemas `generatedFrom`
+  (…000000000027) + `alias` (…000000000028), mirroring the monorepo's
+  `isReadonlyProperty` in packages/domain. Data layer: local store bumps to
+  schema **v34** — the legacy NOT NULL `readonly` column on the local
+  `property_schema` cache table rebuilds away (same-table copy, the v26/v32
+  rebuild pattern; no data backfill); `PropertySchemaRow` and the
+  `EffectivePropertySchema`/`EffectiveProperty` read models drop the field.
+  **Verification:** `flutter analyze` clean; `flutter test` green (668
+  tests). No fixture bytes change (no fixture ever carried the flag). The
+  live log rewrite (`migrate-drop-schema-readonly.mts`) runs in the
+  monorepo after this port (the fixture gate law).
+
+## 2026-10-21
+
 - **feat(protocol,store): the binding-sequence retirement —
   `class.property.set` is active-only (Flutter lockstep port of the
   monorepo's owner ruling 2026-10-21, a continuation of the

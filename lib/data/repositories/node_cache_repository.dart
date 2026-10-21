@@ -66,7 +66,6 @@ class PropertySchemaRow {
     this.iconVisibility,
     this.validationRules,
     this.required = false,
-    this.readonly = false,
     this.hideWhenEmpty = false,
     this.defaultValue,
     this.classFilterUuids = const [],
@@ -100,7 +99,6 @@ class PropertySchemaRow {
   final String? iconVisibility;
   final Map<String, dynamic>? validationRules;
   final bool required;
-  final bool readonly;
   final bool hideWhenEmpty;
   final dynamic defaultValue;
   final List<String> classFilterUuids;
@@ -120,9 +118,11 @@ class PropertySchemaRow {
   /// Owner review 2026-10-05: the render contracts are
   /// PROPERTY-level — the value-display position ('panel' | 'bullet' |
   /// 'inline'; NULL = the 'panel' default; sanitized at the effective read).
-  /// `readonly`/`hideWhenEmpty` ride the legacy NOT NULL columns above
-  /// (0 = unset). `required` is deliberately NOT here — it stays on the
-  /// class binding (per-class mechanics).
+  /// `hideWhenEmpty` rides the legacy NOT NULL column above (0 = unset);
+  /// `readonly` retired outright (owner ruling 2026-10-21 — derived from
+  /// the system property list, `isReadonlyProperty` in core/constants).
+  /// `required` is deliberately NOT here — it stays on the class binding
+  /// (per-class mechanics).
   final String? display;
   final bool active;
   final String? createdAt;
@@ -979,7 +979,6 @@ class NodeCacheRepository {
         iconVisibility: null,
         validationRules: null,
         required: false,
-        readonly: false,
         hideWhenEmpty: false,
         defaultValue: null,
         classFilterUuids: classFilterUuids,
@@ -3740,7 +3739,7 @@ class NodeCacheRepository {
     if (schemaIds.isNotEmpty) {
       final placeholders = schemaIds.map((_) => '?').join(',');
       final rows = await db.rawQuery(
-        'SELECT uuid, name, type, multi, display, readonly, hide_when_empty, '
+        'SELECT uuid, name, type, multi, display, hide_when_empty, '
         'scope_class_ids, default_value FROM property_schema WHERE uuid IN ($placeholders)',
         schemaIds.toList(),
       );
@@ -3762,7 +3761,6 @@ class NodeCacheRepository {
           // The PROPERTY-level render contracts — schema-sourced,
           // the same for every carrier, class-bound or not.
           display: displayOf(row['display']),
-          readonly: flag(row['readonly']),
           hideWhenEmpty: flag(row['hide_when_empty']),
           // R3: the SOLE locality authority (null = global).
           scopeClassIds: scopeClassIds,
@@ -3803,11 +3801,12 @@ class NodeCacheRepository {
     // 5. Merge: authored wins per (schema, idx, ELEMENT — PG5: rows at the
     //    same idx are distinct elements and all surface); a winning ACTIVE
     //    binding whose SCHEMA row carries a non-null default derives a
-    //    default row when nothing authored shadows idx 0. Sourcing: readonly
-    //    / hideWhenEmpty / display are per-PROPERTY (the schema row) and
+    //    default row when nothing authored shadows idx 0. Sourcing:
+    //    hideWhenEmpty / display are per-PROPERTY (the schema row) and
     //    ride authored AND derived rows, INCLUDING unbound authored values;
     //    the default VALUE is schema-level (owner ruling 2026-10-20) while
-    //    the winning binding still supplies boundBy.
+    //    the winning binding still supplies boundBy. (readonly retired
+    //    outright, owner ruling 2026-10-21 — derived, not stored.)
     final rows = <String, EffectiveProperty>{};
     for (final authored in authoredRows) {
       final schemaId = authored['property_schema_id'] as String;
@@ -3825,7 +3824,6 @@ class NodeCacheRepository {
         metadata: metadata == null ? null : _decodeJsonOrRaw(metadata),
         source: 'authored',
         boundBy: winner?.classId,
-        readonly: schema?.readonly,
         hideWhenEmpty: schema?.hideWhenEmpty,
         display: schema?.display,
         // Authored rows SURVIVE scope narrowing (never retroactive) — the
@@ -3869,7 +3867,6 @@ class NodeCacheRepository {
         metadata: null,
         source: 'default',
         boundBy: winner.classId,
-        readonly: schema?.readonly,
         hideWhenEmpty: schema?.hideWhenEmpty,
         display: schema?.display,
         // A derived default only exists for an eligible node (the R4 gate
@@ -4531,7 +4528,6 @@ class NodeCacheRepository {
       iconVisibility: row['icon_visibility'] as String?,
       validationRules: validationRules,
       required: (row['required'] as int? ?? 0) == 1,
-      readonly: (row['readonly'] as int? ?? 0) == 1,
       hideWhenEmpty: (row['hide_when_empty'] as int? ?? 0) == 1,
       defaultValue: defaultValue,
       classFilterUuids: classFilterUuids,
@@ -4569,7 +4565,6 @@ class NodeCacheRepository {
           ? null
           : jsonEncode(schema.validationRules),
       'required': schema.required ? 1 : 0,
-      'readonly': schema.readonly ? 1 : 0,
       'hide_when_empty': schema.hideWhenEmpty ? 1 : 0,
       'default_value': schema.defaultValue == null
           ? null
@@ -4871,7 +4866,6 @@ class EffectivePropertySchema {
     required this.type,
     required this.multi,
     this.display,
-    this.readonly,
     this.hideWhenEmpty,
     this.scopeClassIds,
     this.defaultValue,
@@ -4884,9 +4878,10 @@ class EffectivePropertySchema {
 
   /// The PROPERTY-level render contracts — schema-sourced, the same
   /// for every carrier, class-bound or not. [display] is sanitized (only
-  /// 'bullet'/'inline' surface; NULL = the 'panel' default).
+  /// 'bullet'/'inline' surface; NULL = the 'panel' default). `readonly`
+  /// retired outright (owner ruling 2026-10-21 — derived from the system
+  /// property list, `isReadonlyProperty` in core/constants).
   final String? display;
-  final bool? readonly;
   final bool? hideWhenEmpty;
 
   /// The SOLE locality authority (owner ruling 2026-10-20, R1): the scope
@@ -4917,7 +4912,6 @@ class EffectiveProperty {
     required this.metadata,
     required this.source,
     required this.boundBy,
-    required this.readonly,
     required this.hideWhenEmpty,
     required this.display,
     this.eligible = true,
@@ -4935,7 +4929,6 @@ class EffectiveProperty {
   final dynamic metadata;
   final String source; // 'authored' | 'default'
   final String? boundBy;
-  final bool? readonly;
   final bool? hideWhenEmpty;
 
   /// The PROPERTY-level render contracts — 'bullet' rides the block

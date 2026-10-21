@@ -150,3 +150,23 @@ class SystemPageUuids {
   // the page as an ordinary node.
   static const String inbox = '00000000-0000-0000-0002-000000000002';
 }
+
+/// The READONLY derivation list (owner ruling 2026-10-21): the retired
+/// `readonly` render contract was never user configuration (ZERO seeds ever
+/// carried the flag), so clients DERIVE readonly-ness from the system list
+/// instead of storing it (the binding-`sequence` philosophy). The list is
+/// the platform-PROVENANCE properties — values authored by platform flows,
+/// not user data: `generatedFrom` (…0027, templates provenance) and `alias`
+/// (…0028, name-equivalence metadata). Mirrors `READONLY_SYSTEM_PROPERTY_IDS`
+/// in the monorepo's packages/domain. Correcting the list is a one-line
+/// change here (fixed seed UUIDs, precise).
+const List<String> readonlySystemPropertyIds = [
+  '00000000-0000-0000-0000-000000000027', // generatedFrom
+  '00000000-0000-0000-0000-000000000028', // alias
+];
+
+/// True when the schema id is a system property whose editors render
+/// readonly (the retired render contract, now derived — never blocks a
+/// write, PC1).
+bool isReadonlyProperty(String schemaId) =>
+    readonlySystemPropertyIds.contains(schemaId);

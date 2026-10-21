@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 33,
+          version: 34,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 33,
+      version: 34,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -127,6 +127,7 @@ class AppDatabase {
     await _migrateV31(db);
     await _migrateV32(db);
     await _migrateV33(db);
+    await _migrateV34(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -229,6 +230,9 @@ class AppDatabase {
     }
     if (oldVersion < 33) {
       await _migrateV33(db);
+    }
+    if (oldVersion < 34) {
+      await _migrateV34(db);
     }
   }
 
@@ -944,6 +948,73 @@ class AppDatabase {
     }
   }
 
+  /// v34 — the readonly retirement (owner ruling 2026-10-21, lockstep
+  /// with the TS store schema v26→v27): the `readonly` render contract
+  /// retires — never user configuration (no seed ever carried the flag), so
+  /// clients derive readonly-ness from the system property list
+  /// (`isReadonlyProperty`, core/constants) instead of storing it. The
+  /// legacy NOT NULL column on the local `property_schema` cache table
+  /// rebuilds away (same-table copy, the v26/v32 rebuild pattern); there is
+  /// NO data backfill (derived, not stored). The column guard keeps the
+  /// step a no-op for databases already carrying the new shape (idempotent).
+  Future<void> _migrateV34(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(property_schema)');
+    final names = columns.map((c) => c['name'] as String).toSet();
+    if (names.contains('readonly')) {
+      await db.execute(
+        'CREATE TABLE property_schema_v34 (\n'
+        '  uuid TEXT PRIMARY KEY,\n'
+        '  workspace_id TEXT NOT NULL,\n'
+        '  name TEXT NOT NULL,\n'
+        '  icon TEXT,\n'
+        "  type TEXT NOT NULL DEFAULT 'text',\n"
+        '  multi INTEGER NOT NULL DEFAULT 0,\n'
+        '  is_system INTEGER NOT NULL DEFAULT 0,\n'
+        "  scope TEXT NOT NULL DEFAULT 'global',\n"
+        '  node_uuid TEXT,\n'
+        '  icon_visibility TEXT,\n'
+        '  validation_rules TEXT,\n'
+        '  required INTEGER NOT NULL DEFAULT 0,\n'
+        '  hide_when_empty INTEGER NOT NULL DEFAULT 0,\n'
+        '  display TEXT,\n'
+        '  default_value TEXT,\n'
+        "  class_filter_uuids TEXT NOT NULL DEFAULT '[]',\n"
+        "  options TEXT NOT NULL DEFAULT '[]',\n"
+        '  computed TEXT,\n'
+        '  active INTEGER NOT NULL DEFAULT 1,\n'
+        '  created_at TEXT,\n'
+        '  updated_at TEXT\n'
+        ')',
+      );
+      await db.execute(
+        'INSERT INTO property_schema_v34 (\n'
+        '  uuid, workspace_id, name, icon, type, multi, is_system, scope,\n'
+        '  node_uuid, icon_visibility, validation_rules, required,\n'
+        '  hide_when_empty, display, default_value, class_filter_uuids,\n'
+        '  options, computed, active, created_at, updated_at\n'
+        ')\n'
+        'SELECT uuid, workspace_id, name, icon, type, multi, is_system, scope,\n'
+        '       node_uuid, icon_visibility, validation_rules, required,\n'
+        '       hide_when_empty, display, default_value, class_filter_uuids,\n'
+        '       options, computed, active, created_at, updated_at\n'
+        'FROM property_schema',
+      );
+      await db.execute('DROP TABLE property_schema');
+      await db.execute(
+        'ALTER TABLE property_schema_v34 RENAME TO property_schema',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_property_schema_workspace ON property_schema(workspace_id)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_property_schema_node ON property_schema(node_uuid)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_property_schema_active ON property_schema(active)',
+      );
+    }
+  }
+
   /// Derived reference index (never authored): mention/typed_link edges
   /// projected from content tokens plus node-typed property values. Mirrors
   /// the TS store `edge` table.
@@ -1415,11 +1486,13 @@ class AppDatabase {
         icon_visibility TEXT,
         validation_rules TEXT,
         required INTEGER NOT NULL DEFAULT 0,
-        readonly INTEGER NOT NULL DEFAULT 0,
         hide_when_empty INTEGER NOT NULL DEFAULT 0,
         -- the value-display position (panel|bullet|inline; NULL =
-        -- the 'panel' default) — PROPERTY-level, like the readonly/
-        -- hide-when-empty flags above (legacy NOT NULL columns; 0 = unset).
+        -- the 'panel' default) — PROPERTY-level, like the hide-when-empty
+        -- flag above (legacy NOT NULL column; 0 = unset). `readonly`
+        -- retired outright at v34 (owner ruling 2026-10-21 — derived from
+        -- the system property list, `isReadonlyProperty` in
+        -- core/constants, not stored).
         display TEXT,
         default_value TEXT,
         class_filter_uuids TEXT NOT NULL DEFAULT '[]',

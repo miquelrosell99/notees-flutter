@@ -908,6 +908,18 @@ void main() {
 
     test('schema-side render contracts round-trip; update keep/clear',
         () async {
+      // `readonly` retired outright (owner ruling 2026-10-21 — derived
+      // from the system list, not stored): the strict gate rejects it on
+      // both schema payloads.
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', {
+          'propertySchemaId': '00000000-0000-7000-8000-0000000004e0',
+          'name': 'Gate',
+          'type': 'select',
+          'readonly': true,
+        }),
+        throwsFormatException,
+      );
       const schemaUuid = '00000000-0000-0000-0000-0000000004e1';
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-0000000004e1',
@@ -917,13 +929,11 @@ void main() {
           name: 'Status',
           type: 'select',
           display: 'bullet',
-          readonly: true,
           hideWhenEmpty: true,
         ),
       ));
       var row = await cache.getPropertySchemaRow(schemaUuid);
       expect(row!.display, 'bullet');
-      expect(row.readonly, isTrue);
       expect(row.hideWhenEmpty, isTrue);
 
       // Absent keeps (the builders omit nulls — name-only update).
@@ -938,7 +948,6 @@ void main() {
       ));
       row = await cache.getPropertySchemaRow(schemaUuid);
       expect(row!.display, 'bullet');
-      expect(row.readonly, isTrue);
       expect(row.hideWhenEmpty, isTrue);
 
       // Present values replace; explicit null clears (raw maps — the
@@ -949,14 +958,12 @@ void main() {
         payload: {
           'propertySchemaId': schemaUuid,
           'display': 'inline',
-          'readonly': null,
           'hideWhenEmpty': null,
         },
         physical: 3,
       ));
       row = await cache.getPropertySchemaRow(schemaUuid);
       expect(row!.display, 'inline');
-      expect(row.readonly, isFalse); // null clear lands on the NOT NULL 0
       expect(row.hideWhenEmpty, isFalse);
     });
 
