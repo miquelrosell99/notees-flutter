@@ -543,19 +543,26 @@ void main() {
         returnsNormally,
       );
 
-      // propertySchema.create/update carry the three render contracts —
+      // propertySchema.create/update carry the render contracts —
       // nullable+optional (absent keeps, null clears; the builders omit
-      // nulls, so explicit clears ride raw maps).
+      // nulls, so explicit clears ride raw maps). `readonly` retired
+      // outright: the strict validator rejects
+      // it on both schema payloads.
       final created = OperationPayloads.propertySchemaCreate(
         propertySchemaId: classId,
         name: 'Status',
         type: 'select',
         display: 'bullet',
-        readonly: true,
         hideWhenEmpty: false,
       );
       expect(created['display'], 'bullet');
-      expect(created['readonly'], isTrue);
+      expect(
+        () => OperationPayloads.validatePayload('propertySchema.create', {
+          ...created,
+          'readonly': true,
+        }),
+        throwsFormatException,
+      );
       expect(
         () => OperationPayloads.validatePayload('propertySchema.create', created),
         returnsNormally,
@@ -591,7 +598,7 @@ void main() {
           () => OperationPayloads.validatePayload(opType, {
             'propertySchemaId': classId,
             if (opType == 'propertySchema.create') ...{'name': 'Status', 'type': 'select'},
-            'readonly': 'yes',
+            'hideWhenEmpty': 'yes',
           }),
           throwsFormatException,
           reason: opType,
@@ -602,10 +609,21 @@ void main() {
             'propertySchemaId': classId,
             if (opType == 'propertySchema.create') ...{'name': 'Status', 'type': 'select'},
             'display': null,
-            'readonly': null,
             'hideWhenEmpty': null,
           }),
           returnsNormally,
+          reason: opType,
+        );
+        // `readonly` retired outright (derived
+        // from the system list, not stored): it rejects on both schema
+        // payloads like any retired key.
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'propertySchemaId': classId,
+            if (opType == 'propertySchema.create') ...{'name': 'Status', 'type': 'select'},
+            'readonly': true,
+          }),
+          throwsFormatException,
           reason: opType,
         );
       }

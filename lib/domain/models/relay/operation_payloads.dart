@@ -447,8 +447,8 @@ class OperationPayloads {
   /// Owner review 2026-10-05: the render contracts are
   /// PROPERTY-level — [display] ('panel' | 'bullet' | 'inline'; where a
   /// select/multi_select/boolean value renders on a block row; NULL/'panel'
-  /// = the properties section only) and [readonly] / [hideWhenEmpty] (a
-  /// property is readonly / hidden-when-empty everywhere it appears, whatever
+  /// = the properties section only) and [hideWhenEmpty] (a property is
+  /// hidden-when-empty everywhere it appears, whatever
   /// class binds it — or none). Nullable+optional like the number formats:
   /// the builders omit nulls, so an explicit null clear rides a raw map.
   /// [icon] is an OPTIONAL MDI icon name (camelCase @mdi/js convention,
@@ -489,7 +489,6 @@ class OperationPayloads {
     int? numberDecimals,
     String? numberRounding,
     String? display,
-    bool? readonly,
     bool? hideWhenEmpty,
     dynamic defaultValue = _undefined,
   }) =>
@@ -508,7 +507,6 @@ class OperationPayloads {
         'numberDecimals': ?numberDecimals,
         'numberRounding': ?numberRounding,
         'display': ?display,
-        'readonly': ?readonly,
         'hideWhenEmpty': ?hideWhenEmpty,
         // The property's ONE GLOBAL default (
         // moved from the class binding to the schema, the Logseq shape):
@@ -548,7 +546,6 @@ class OperationPayloads {
     int? numberDecimals,
     String? numberRounding,
     String? display,
-    bool? readonly,
     bool? hideWhenEmpty,
     Object? defaultValue = _undefined,
   }) {
@@ -565,7 +562,6 @@ class OperationPayloads {
         numberDecimals == null &&
         numberRounding == null &&
         display == null &&
-        readonly == null &&
         hideWhenEmpty == null &&
         identical(defaultValue, _undefined)) {
       throw ArgumentError('propertySchema.update requires at least one field');
@@ -587,7 +583,6 @@ class OperationPayloads {
       'numberDecimals': ?numberDecimals,
       'numberRounding': ?numberRounding,
       'display': ?display,
-      'readonly': ?readonly,
       'hideWhenEmpty': ?hideWhenEmpty,
       // The global default (create-side doc above): absent keeps the stored
       // value, an explicit null clears it (the same keep/clear contract as
@@ -870,7 +865,8 @@ class OperationPayloads {
         // retired outright (class panels render
         // alphabetically by property name); all reject here like any
         // retired key, as do the PROPERTY-level render contracts
-        // (readonly/hideWhenEmpty/display).
+        // (hideWhenEmpty/display; `readonly` retired outright 2026-10-21 —
+        // derived from the system list, not stored).
         _strict(payload, {
           'classId',
           'propertySchemaId',
@@ -911,7 +907,6 @@ class OperationPayloads {
           'numberDecimals',
           'numberRounding',
           'display',
-          'readonly',
           'hideWhenEmpty',
           'defaultValue',
         });
@@ -941,7 +936,6 @@ class OperationPayloads {
         // (absent keeps, null clears; stored NULL = 'panel' / unset).
         // `required` is deliberately NOT here: it stays on the class binding.
         _enum(payload, 'display', {'panel', 'bullet', 'inline'}, required: false);
-        _boolNullable(payload, 'readonly', required: false);
         _boolNullable(payload, 'hideWhenEmpty', required: false);
       case 'propertySchema.update':
         _strict(payload, {
@@ -959,7 +953,6 @@ class OperationPayloads {
           'numberDecimals',
           'numberRounding',
           'display',
-          'readonly',
           'hideWhenEmpty',
           'defaultValue',
         });
@@ -982,7 +975,6 @@ class OperationPayloads {
         // render contracts — the same keep/clear contract as the
         // number formats (absent keeps, present null clears).
         _enum(payload, 'display', {'panel', 'bullet', 'inline'}, required: false);
-        _boolNullable(payload, 'readonly', required: false);
         _boolNullable(payload, 'hideWhenEmpty', required: false);
       case 'propertySchema.delete':
         _strict(payload, {'propertySchemaId'});
