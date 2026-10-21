@@ -8,6 +8,24 @@ lives in git history.
 
 ## 2026-10-21
 
+- **fix(search,picker): diacritic folding — `video` finds the class
+  "Vídeo" (the web store's `foldSearchText` mirror).** The local search
+  index and the class-mode node picker compared raw lowercased text, so an
+  unaccented query missed accented names everywhere: the search screen, the
+  node picker (all modes — page/any ride the term index, class mode filtered
+  raw display names), and every `searchLocal` consumer. `tokenize()` now
+  strips diacritics (`diacritic` package — pure Dart; the SDK has no
+  Unicode normalization), folding BOTH the index build and every query in
+  one place (the index/query mirror pair by construction, same rule as the
+  web store's `foldSearchText`); the node picker's class mode folds both
+  sides of its substring match. Local DB schema v35 clears `search_index` —
+  the sync service's `shouldReindexSearch()` backfills with folded terms on
+  the next boot. Verification: `flutter analyze` clean; `flutter test`
+  green — new tokenize folding units (both directions), an index+query
+  mirror test, and a repository-level `searchNodes` test over the real
+  sqflite schema (unaccented query, accented query). Shipped via CI APK on
+  push to main.
+
 - **feat(protocol,render): the `external_link` retirement — links are
   markdown spans inside `text` tokens, parsed at render time (Flutter
   lockstep port of the monorepo ruling 2026-10-21, SCHEMA.md "Content

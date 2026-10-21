@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:diacritic/diacritic.dart';
 
 import '../../core/utils/node_display_name.dart';
 import '../../data/models/node.dart';
@@ -74,9 +75,13 @@ class _NodePickerState extends State<NodePicker> {
         case NodePickerMode.classNode:
           results = await repo.fetchClasses();
           if (query.isNotEmpty) {
-            final lower = query.toLowerCase();
+            // Diacritics fold on both sides (the search index's tokenize
+            // mirror): "video" finds the class "Vídeo".
+            final lower = removeDiacritics(query.toLowerCase());
             results = results
-                .where((n) => resolveNodeDisplayName(n).toLowerCase().contains(lower))
+                .where((n) =>
+                    removeDiacritics(resolveNodeDisplayName(n).toLowerCase())
+                        .contains(lower))
                 .toList();
           }
         case NodePickerMode.tag:

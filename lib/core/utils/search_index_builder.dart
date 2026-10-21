@@ -1,14 +1,19 @@
+import 'package:diacritic/diacritic.dart';
+
 import '../../data/models/node.dart';
 import './ast_stringifier.dart';
 
 /// Splits text into normalized lowercase search terms.
 ///
-/// Terms are split on whitespace and punctuation, lowercased, and filtered to
-/// remove tokens shorter than [minLength]. The result is a set so each term is
-/// indexed at most once per node/field.
+/// Terms are diacritic-folded (the web store's `foldSearchText` mirror:
+/// `video` and "Vídeo" tokenize to the same term — folding rides INSIDE
+/// tokenize so the index build and every query path fold by construction,
+/// the one mirror pair), lowercased, split on whitespace and punctuation,
+/// and filtered to remove tokens shorter than [minLength]. The result is a
+/// set so each term is indexed at most once per node/field.
 Set<String> tokenize(String text, {int minLength = 2}) {
   if (text.isEmpty) return const {};
-  return text
+  return removeDiacritics(text)
       .toLowerCase()
       .split(_wordBoundary)
       .where((term) => term.length >= minLength)
