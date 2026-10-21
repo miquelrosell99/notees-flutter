@@ -108,8 +108,6 @@ class AstBuilder {
         );
       case 'typed_link':
         buffer.write(token['text'] as String? ?? '');
-      case 'external_link':
-        buffer.write('[${token['text'] ?? ''}](${token['href'] ?? ''})');
       case 'math':
         buffer.write('\$${token['expression'] ?? ''}\$');
       case 'quote':

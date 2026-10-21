@@ -65,13 +65,15 @@ void main() {
       expect(astToPlainText(ast), 'not json at all');
     });
 
-    test('external links contribute nothing to the excerpt', () {
+    test('legacy external links contribute their markdown shape to the excerpt', () {
       // plainTextExcerpt (packages/domain/src/node.ts) only takes
-      // text/typed_link/mention/math/quote/hard_break.
+      // text/typed_link/mention/math/quote/hard_break; the retired
+      // external_link token now converts to a text run carrying the
+      // markdown `[text](href)` shape, so its raw span is excerpted.
       const ast = '[{"type":"paragraph","children":['
           '{"type":"external_link","url":"https://example.com","children":[{"type":"text","text":"Example"}]}'
           ']}]';
-      expect(astToPlainText(ast), '');
+      expect(astToPlainText(ast), '[Example](https://example.com)');
     });
 
     test('renders node_link label when present', () {
