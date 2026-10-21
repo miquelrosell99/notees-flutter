@@ -676,7 +676,6 @@ void main() {
       await appliers.apply(op('class.property.set', {
         'classId': bindingClass,
         'propertySchemaId': schema,
-        'sequence': 0,
       }, 1400));
 
       // A legacy bare-uuid carrier normalizes to {nodeId}.
@@ -1187,7 +1186,6 @@ void main() {
           payload: {
             'classId': foreignClass,
             'propertySchemaId': genre,
-            'sequence': 0,
           },
           timestamp: '2026-09-24T12:00:40.360Z',
         )),

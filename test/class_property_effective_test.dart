@@ -90,7 +90,6 @@ void main() {
       expect(row.value, 'medium');
       expect(row.source, 'default');
       expect(row.boundBy, taskClass);
-      expect(row.sequence, 0);
       // Derived only: no authored property_value rows exist.
       final db = await database.database;
       final authored = await db
@@ -246,7 +245,7 @@ void main() {
 
     test('partial binding update keeps omitted fields; the default lives '
         'on the schema row', () async {
-      await replayPrefix(5); // Task: sequence 0, schema default "medium"
+      await replayPrefix(5); // Task bound, schema default "medium"
 
       await appliers.apply(OperationEnvelope(
         id: '0192a000-0000-7000-8000-000000000501',
@@ -266,11 +265,10 @@ void main() {
 
       final db = await database.database;
       final rows = await db.rawQuery(
-        'SELECT sequence, active FROM class_property '
+        'SELECT active FROM class_property '
         'WHERE class_id = ? AND property_schema_id = ?',
         [taskClass, schema],
       );
-      expect(rows.single['sequence'], 0); // kept
       expect(rows.single['active'], 0); // patched
 
       // The default survives on the SCHEMA row (the global-default move):
@@ -287,6 +285,7 @@ void main() {
       final names = columns.map((c) => c['name'] as String).toList();
       expect(names, isNot(contains('required')));
       expect(names, isNot(contains('default_value')));
+      expect(names, isNot(contains('sequence')));
       expect(names, isNot(contains('readonly')));
       expect(names, isNot(contains('hide_when_empty')));
       expect(names, isNot(contains('display')));
@@ -374,7 +373,7 @@ void main() {
         payload: OperationPayloads.classPropertySet(
           classId: taskClass,
           propertySchemaId: schema,
-          sequence: 9,
+          active: true,
         ),
         timestamp: '2026-09-24T12:00:10.000Z',
       ));
@@ -607,14 +606,12 @@ void main() {
     const classId = '0192a000-0000-7000-8000-000000000302';
     const schemaId = '0192a000-0000-7000-8000-000000000301';
 
-    test('set validates and round-trips (sequence/active only)', () {
+    test('set validates and round-trips (active only)', () {
       final payload = OperationPayloads.classPropertySet(
         classId: classId,
         propertySchemaId: schemaId,
-        sequence: 2,
         active: false,
       );
-      expect(payload['sequence'], 2);
       expect(payload['active'], isFalse);
       expect(
         () => OperationPayloads.validatePayload('class.property.set', payload),
@@ -624,9 +621,9 @@ void main() {
 
     test('set rejects retired and unknown keys', () {
       // `required` retired outright and `defaultValue` moved to the schema
-      // — the strict 4-key payload rejects both
-      // like any retired key.
-      for (final retired in ['required', 'defaultValue']) {
+      // `sequence` retired outright — the strict 3-key payload rejects all three like any
+      // retired key.
+      for (final retired in ['required', 'defaultValue', 'sequence']) {
         expect(
           () => OperationPayloads.validatePayload('class.property.set', {
             'classId': classId,
@@ -641,7 +638,6 @@ void main() {
         () => OperationPayloads.validatePayload('class.property.set', {
           'classId': classId,
           'propertySchemaId': schemaId,
-          'sequence': 0,
           'nope': 1,
         }),
         throwsFormatException,
@@ -668,7 +664,7 @@ void main() {
       expect(OperationPayloads.isKnownOpType('class.property.unset'), isTrue);
     });
 
-    test('the binding keeps ONLY sequence/active — required/defaultValue '
+    test('the binding keeps ONLY active — required/defaultValue/sequence '
         'retired', () {
       // The retired keys reject on the binding op; `active` stays legal.
       expect(

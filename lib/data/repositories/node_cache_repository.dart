@@ -997,8 +997,9 @@ class NodeCacheRepository {
   /// The table carries ONLY the per-class mechanics — the
   /// retired readonly/hide_when_empty columns are gone from the source (and
   /// `required`/`default_value` retired/moved to the schema with the owner
-  /// ruling 2026-10-20), so the legacy row model reads them as unset; the
-  /// column guard keeps pre-v25 snapshots readable.
+  /// ruling 2026-10-20, `sequence` retired outright with 2026-10-21), so the
+  /// legacy row model reads them as unset; the column guards keep pre-v25 /
+  /// pre-v26 snapshots readable.
   Future<List<ClassPropertyEdgeRow>>
   _readClassPropertyEdgesFromSnapshotDatabase(
     Database db,
@@ -1007,8 +1008,10 @@ class NodeCacheRepository {
     final info = await db.rawQuery('PRAGMA table_info(class_property)');
     final names = info.map((c) => c['name'] as String).toSet();
     final hasLegacy = names.contains('default_value') && names.contains('required');
+    final hasSequence = names.contains('sequence');
     final rows = await db.rawQuery(
-      'SELECT cp.class_id, cp.property_schema_id, cp.sequence'
+      'SELECT cp.class_id, cp.property_schema_id'
+      '${hasSequence ? ', cp.sequence' : ''}'
       '${hasLegacy ? ', cp.default_value, cp.required' : ''} '
       'FROM class_property cp '
       'JOIN class c ON c.id = cp.class_id '
@@ -1028,7 +1031,7 @@ class NodeCacheRepository {
       return ClassPropertyEdgeRow(
         classUuid: row['class_id'] as String,
         propertyUuid: row['property_schema_id'] as String,
-        sequence: row['sequence'] as int? ?? 0,
+        sequence: hasSequence ? (row['sequence'] as int? ?? 0) : 0,
         defaultValue: defaultValue,
         hidden: false,
         required: hasLegacy
@@ -2553,18 +2556,17 @@ class NodeCacheRepository {
   /// seed-ensure). Authored with zero HLC columns — the row is a
   /// deterministic seed artifact, not a content write; a user flip on the
   /// same row later wins by HLC without clobbering (the "(Own row wins over
-  /// seeds)" contract). The row carries ONLY the per-class mechanics
-  /// (sequence) — the render contracts live on the property schema.
+  /// seeds)" contract). The row carries no order (
+  /// binding `sequence` retired; class panels render alphabetically by
+  /// property name); the render contracts live on the property schema.
   Future<void> insertClassPropertyBindingIfAbsent({
     required String classId,
     required String schemaId,
-    required int sequence,
   }) async {
     final db = await _database.database;
     await db.insert('class_property', {
       'class_id': classId,
       'property_schema_id': schemaId,
-      'sequence': sequence,
       'hlc_physical': 0,
       'hlc_logical': 0,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
@@ -3553,14 +3555,13 @@ class NodeCacheRepository {
   /// Upserts a binding row. Omitted fields KEEP their stored values (partial
   /// patch, port of the SQL COALESCE). [active] (PC4) is the soft-unbind
   /// flag: omitted keeps the stored flag; a NEW row defaults to active. The
-  /// row carries ONLY the genuinely per-class mechanics (sequence, active) —
-  /// `required` retired outright and `defaultValue` moved to the property
-  /// schema.
+  /// row carries ONLY the per-class mechanic (active) — `required` retired
+  /// outright and `defaultValue` moved to the property schema, `sequence` retired outright (
+  /// class panels render alphabetically by property name).
   Future<void> upsertClassPropertyBinding({
     required String classId,
     required String schemaId,
     required LwwWinner incoming,
-    int? sequence,
     bool? active,
   }) async {
     final db = await _database.database;
@@ -3576,7 +3577,6 @@ class NodeCacheRepository {
       {
         'class_id': classId,
         'property_schema_id': schemaId,
-        'sequence': sequence ?? (stored['sequence'] as num?)?.toInt() ?? 0,
         'active': active == null
             ? (stored['active'] as num?) ?? 1
             : (active ? 1 : 0),
@@ -3767,7 +3767,8 @@ class NodeCacheRepository {
           scopeClassIds: scopeClassIds,
           // The ONE GLOBAL default (the value
           // moved from the class binding to the schema; a binding row
-          // carries sequence/active only).
+          // carries the active soft-unbind flag only, `sequence` retired
+          // outright ).
           defaultValue: row['default_value'] == null
               ? null
               : _decodeJsonOrRaw(row['default_value'] as String),
@@ -3805,7 +3806,7 @@ class NodeCacheRepository {
     //    / hideWhenEmpty / display are per-PROPERTY (the schema row) and
     //    ride authored AND derived rows, INCLUDING unbound authored values;
     //    the default VALUE is schema-level while
-    //    the winning binding still supplies boundBy/sequence.
+    //    the winning binding still supplies boundBy.
     final rows = <String, EffectiveProperty>{};
     for (final authored in authoredRows) {
       final schemaId = authored['property_schema_id'] as String;
@@ -3825,9 +3826,6 @@ class NodeCacheRepository {
         boundBy: winner?.classId,
         readonly: schema?.readonly,
         hideWhenEmpty: schema?.hideWhenEmpty,
-        sequence: winner == null
-            ? null
-            : (winner.binding['sequence'] as num?)?.toInt(),
         display: schema?.display,
         // Authored rows SURVIVE scope narrowing (never retroactive) — the
         // read tags them; callers decide how an ineligible row renders.
@@ -3871,7 +3869,6 @@ class NodeCacheRepository {
         boundBy: winner.classId,
         readonly: schema?.readonly,
         hideWhenEmpty: schema?.hideWhenEmpty,
-        sequence: (winner.binding['sequence'] as num?)?.toInt(),
         display: schema?.display,
         // A derived default only exists for an eligible node (the R4 gate
         // above), so default rows always read true.
@@ -3879,10 +3876,11 @@ class NodeCacheRepository {
       );
     }
 
-    // 6. Deterministic presentation order: bound rows by binding sequence,
-    //    unbound authored rows last; schema name then (idx, element id) as
-    //    the tiebreak (PG5: concurrent adds may share an idx — the element
-    //    id orders them identically on every replica).
+    // 6. Deterministic presentation order: PURE ALPHABETICAL by property
+    //    name (binding `sequence` retired; class
+    //    panels have no configurable order), unbound authored rows last;
+    //    (idx, element id) as the tiebreak (PG5: concurrent adds may share
+    //    an idx — the element id orders them identically on every replica).
     final result = rows.values.toList();
     String nameOf(EffectiveProperty row) =>
         row.schema?.name ?? row.propertySchemaId;
@@ -3890,9 +3888,6 @@ class NodeCacheRepository {
       final boundDelta =
           (a.boundBy == null ? 1 : 0) - (b.boundBy == null ? 1 : 0);
       if (boundDelta != 0) return boundDelta;
-      final seqA = a.sequence ?? 0x7fffffffffffffff;
-      final seqB = b.sequence ?? 0x7fffffffffffffff;
-      if (seqA != seqB) return seqA - seqB;
       final nameDelta = nameOf(a).compareTo(nameOf(b));
       if (nameDelta != 0) return nameDelta;
       final idxDelta = a.idx - b.idx;
@@ -4922,7 +4917,6 @@ class EffectiveProperty {
     required this.boundBy,
     required this.readonly,
     required this.hideWhenEmpty,
-    required this.sequence,
     required this.display,
     this.eligible = true,
   });
@@ -4941,7 +4935,6 @@ class EffectiveProperty {
   final String? boundBy;
   final bool? readonly;
   final bool? hideWhenEmpty;
-  final int? sequence;
 
   /// The PROPERTY-level render contracts — 'bullet' rides the block
   /// bullet as an icon button, 'inline' renders before the block content,

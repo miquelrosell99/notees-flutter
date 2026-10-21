@@ -268,15 +268,17 @@ void main() {
         null, // Closed
         null, // Recurrence
       ]);
+      // The six binding rows carry no order (sequence retired 2026-10-21);
+      // the id order asserts the full family is bound.
       final bindings = await raw(
         'SELECT property_schema_id FROM class_property '
-        'WHERE class_id = ? ORDER BY sequence',
+        'WHERE class_id = ? ORDER BY property_schema_id',
         [SystemClassUuids.task],
       );
       expect(bindings.map((b) => b['property_schema_id']), [
         SystemPropertyUuids.taskStatus,
-        SystemPropertyUuids.taskScheduled,
         SystemPropertyUuids.taskDeadline,
+        SystemPropertyUuids.taskScheduled,
         SystemPropertyUuids.taskPriority,
         SystemPropertyUuids.taskClosedDate,
         SystemPropertyUuids.taskRecurrence,

@@ -691,7 +691,6 @@ void main() {
         OperationPayloads.classPropertySet(
           classId: klass,
           propertySchemaId: numberSchema,
-          sequence: 0,
         ),
       ));
       final stale = OperationEnvelope(
@@ -705,7 +704,7 @@ void main() {
         payload: OperationPayloads.classPropertySet(
           classId: klass,
           propertySchemaId: numberSchema,
-          sequence: 9,
+          active: true,
         ),
         timestamp: '2026-10-04T12:00:00.000Z',
       );

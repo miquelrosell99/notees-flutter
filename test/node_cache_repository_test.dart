@@ -729,10 +729,11 @@ void main() {
 
       // class_property: rebuilt to the per-class mechanics ONLY — the
       // v26 step drops the render contracts, v32 drops required/default_value (retired/moved to the
-      // schema) — every retired column is gone.
+      // schema), v33 drops sequence (retired
+      // outright) — every retired column is gone.
       final columns = await ffiDb.rawQuery('PRAGMA table_info(class_property)');
       final names = columns.map((c) => c['name'] as String).toList();
-      expect(names, contains('sequence'));
+      expect(names, isNot(contains('sequence')));
       expect(names, contains('active'));
       expect(names, contains('hlc_physical'));
       expect(names, isNot(contains('required')));
@@ -742,11 +743,10 @@ void main() {
       expect(names, isNot(contains('display')));
       // The surviving row copies verbatim (retired values dropped, LWW kept).
       final migrated = await ffiDb.rawQuery(
-        'SELECT sequence, active, hlc_physical, hlc_logical, actor_id '
+        'SELECT active, hlc_physical, hlc_logical, actor_id '
         'FROM class_property WHERE class_id = ?',
         ['0192a000-0000-7000-8000-000000000900'],
       );
-      expect(migrated.single['sequence'], 7);
       expect(migrated.single['active'], 1);
       expect(migrated.single['hlc_physical'], 42);
       expect(migrated.single['hlc_logical'], 1);

@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 32,
+          version: 33,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 32,
+      version: 33,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -126,6 +126,7 @@ class AppDatabase {
     await _migrateEdgeV30(db);
     await _migrateV31(db);
     await _migrateV32(db);
+    await _migrateV33(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -226,6 +227,9 @@ class AppDatabase {
     if (oldVersion < 32) {
       await _migrateV32(db);
     }
+    if (oldVersion < 33) {
+      await _migrateV33(db);
+    }
   }
 
   /// v31 — the property-scope + per-block list-style batch (2026-10-20
@@ -300,7 +304,6 @@ class AppDatabase {
         CREATE TABLE class_property_v26 (
           class_id TEXT NOT NULL,
           property_schema_id TEXT NOT NULL,
-          sequence INTEGER NOT NULL DEFAULT 0,
           required INTEGER,
           default_value TEXT,
           active INTEGER NOT NULL DEFAULT 1,
@@ -312,10 +315,10 @@ class AppDatabase {
       ''');
       await db.execute('''
         INSERT INTO class_property_v26 (
-          class_id, property_schema_id, sequence, required, default_value, active,
+          class_id, property_schema_id, required, default_value, active,
           hlc_physical, hlc_logical, actor_id
         )
-        SELECT class_id, property_schema_id, sequence, required, default_value, active,
+        SELECT class_id, property_schema_id, required, default_value, active,
                hlc_physical, hlc_logical, actor_id
         FROM class_property
       ''');
@@ -829,19 +832,22 @@ class AppDatabase {
   }
 
   /// Class → property-schema bindings (SCHEMA.md "Class properties"): the
-  /// genuinely per-class mechanics ONLY (sequence + active) — the render
-  /// contracts moved to the property schema (owner review 2026-10-05) and
-  /// `required`/`defaultValue` left the binding entirely: `required` retired outright, `defaultValue` moved to the
-  /// schema (one global default per property, the Logseq shape; the local
-  /// `property_schema` table carries the legacy `default_value` column
-  /// already). The legacy `class_property_edge` table (the old UI read
-  /// model) stays untouched.
+  /// genuinely per-class mechanic ONLY — `active`, the soft-unbind flag.
+  /// The render contracts moved to the property schema (owner review
+  /// 2026-10-05); `required`/`defaultValue` left the binding entirely
+  /// (`required` retired outright, `defaultValue`
+  /// moved to the schema — one global default per property, the Logseq
+  /// shape; the local `property_schema` table carries the legacy
+  /// `default_value` column already) and `sequence` retired outright
+  /// (class panels render alphabetically by
+  /// property name, a read-time derivation; no order is stored or
+  /// configurable). The legacy `class_property_edge` table (the old UI
+  /// read model) stays untouched.
   Future<void> _createClassProperty(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS class_property (
         class_id TEXT NOT NULL,
         property_schema_id TEXT NOT NULL,
-        sequence INTEGER NOT NULL DEFAULT 0,
         active INTEGER NOT NULL DEFAULT 1,
         hlc_physical INTEGER NOT NULL DEFAULT 0,
         hlc_logical INTEGER NOT NULL DEFAULT 0,
@@ -872,7 +878,6 @@ class AppDatabase {
         CREATE TABLE class_property_v32 (
           class_id TEXT NOT NULL,
           property_schema_id TEXT NOT NULL,
-          sequence INTEGER NOT NULL DEFAULT 0,
           active INTEGER NOT NULL DEFAULT 1,
           hlc_physical INTEGER NOT NULL DEFAULT 0,
           hlc_logical INTEGER NOT NULL DEFAULT 0,
@@ -882,10 +887,10 @@ class AppDatabase {
       ''');
       await db.execute('''
         INSERT INTO class_property_v32 (
-          class_id, property_schema_id, sequence, active,
+          class_id, property_schema_id, active,
           hlc_physical, hlc_logical, actor_id
         )
-        SELECT class_id, property_schema_id, sequence, active,
+        SELECT class_id, property_schema_id, active,
                hlc_physical, hlc_logical, actor_id
         FROM class_property
       ''');
@@ -896,6 +901,47 @@ class AppDatabase {
       );
     }
     await _addColumnIfMissing(db, 'property_schema', 'default_value', 'TEXT');
+  }
+
+  /// v33 — the binding-sequence retirement (
+  /// lockstep with the TS store schema v25→v26): `sequence` retires from
+  /// the binding — class panels render alphabetically by property name (a
+  /// read-time derivation), so panel order no longer exists to configure.
+  /// `class_property` REBUILDS without the column (SQLite cannot drop a
+  /// column on old builds — same-table copy, the v26/v32 rebuild pattern);
+  /// there is NO data backfill (order metadata is discarded). The column
+  /// guard keeps the step a no-op for databases already carrying the new
+  /// shape (idempotent).
+  Future<void> _migrateV33(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(class_property)');
+    final names = columns.map((c) => c['name'] as String).toSet();
+    if (names.contains('sequence')) {
+      await db.execute('''
+        CREATE TABLE class_property_v33 (
+          class_id TEXT NOT NULL,
+          property_schema_id TEXT NOT NULL,
+          active INTEGER NOT NULL DEFAULT 1,
+          hlc_physical INTEGER NOT NULL DEFAULT 0,
+          hlc_logical INTEGER NOT NULL DEFAULT 0,
+          actor_id TEXT,
+          PRIMARY KEY (class_id, property_schema_id)
+        )
+      ''');
+      await db.execute('''
+        INSERT INTO class_property_v33 (
+          class_id, property_schema_id, active,
+          hlc_physical, hlc_logical, actor_id
+        )
+        SELECT class_id, property_schema_id, active,
+               hlc_physical, hlc_logical, actor_id
+        FROM class_property
+      ''');
+      await db.execute('DROP TABLE class_property');
+      await db.execute('ALTER TABLE class_property_v33 RENAME TO class_property');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_class_property_schema ON class_property(property_schema_id)',
+      );
+    }
   }
 
   /// Derived reference index (never authored): mention/typed_link edges

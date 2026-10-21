@@ -2415,8 +2415,7 @@ void main() {
           payload: OperationPayloads.classPropertySet(
             classId: classA,
             propertySchemaId: scopedSchema,
-            sequence: 0,
-          ),
+                      ),
           physical: 16,
         ));
         // Binding B (extends A): the ancestor is in scope, lands.
@@ -2426,8 +2425,7 @@ void main() {
           payload: OperationPayloads.classPropertySet(
             classId: classB,
             propertySchemaId: scopedSchema,
-            sequence: 0,
-          ),
+                      ),
           physical: 17,
         ));
         // A class outside the scope: dead config, fails loud.
@@ -2444,8 +2442,7 @@ void main() {
             payload: OperationPayloads.classPropertySet(
               classId: classC,
               propertySchemaId: scopedSchema,
-              sequence: 0,
-            ),
+                          ),
             physical: 19,
           )),
           throwsA(isA<MoveGuardError>()),
@@ -2465,8 +2462,7 @@ void main() {
           payload: OperationPayloads.classPropertySet(
             classId: classC,
             propertySchemaId: globalSchema,
-            sequence: 0,
-          ),
+                      ),
           physical: 20,
         ));
       });

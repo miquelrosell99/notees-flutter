@@ -58,16 +58,21 @@ update` gain the PROPERTY-level render contracts: the `display` position
 (`panel` | `bullet` | `inline`, nullable+optional — absent keeps, null clears;
 stored NULL = the `panel` default) plus `readonly` / `hideWhenEmpty` (same
 keep/clear contract) — and the binding-default batch: `class.property.set` keeps ONLY the genuinely per-class
-mechanics (`sequence`, `active`); its retired `readonly` / `hideWhenEmpty`,
+mechanic (`active`); its retired `readonly` / `hideWhenEmpty`,
 the never-released binding-level `display`, and the retired `required` /
-`defaultValue` keys reject there like any retired key. `defaultValue` MOVED
-to the property schema — one GLOBAL default per property (any JSON value,
-nullable+optional, the same keep/clear contract; PC2-typed at apply). Select options keep
+`defaultValue` keys reject there like any retired key — and the
+binding-sequence retirement: the retired
+`sequence` key joins them (class panels render alphabetically by property
+name, a read-time derivation; the binding is `{classId, propertySchemaId,
+active?}`). `defaultValue` MOVED to the property schema — one GLOBAL default
+per property (any JSON value, nullable+optional, the same keep/clear
+contract; PC2-typed at apply). Select options keep
 the `icon` (MDI name, ≤ 64 chars, on a
 deliberately non-strict option record so icon-carrying options sync through
-older parsers). The app DB carries the batches as **v32**
+older parsers). The app DB carries the batches as **v33**
 (`property_schema.display` + `default_value` and the
-rebuilt `class_property` without every retired column). The
+rebuilt `class_property` without every retired column, `sequence`
+included). The
 block-bullet value button renders a select / multi_select / boolean value next
 to the bullet (or before the content, per the SCHEMA's display position — the
 same for every carrier, class-bound or not) as its option's MDI icon tinted

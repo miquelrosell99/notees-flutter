@@ -187,8 +187,7 @@ class LocalWorkspaceSeed {
     }
 
     // Property schemas + their class bindings (citations revision).
-    for (var i = 0; i < systemPropertySpecs.length; i++) {
-      final spec = systemPropertySpecs[i];
+    for (final spec in systemPropertySpecs) {
       if (await _sync.cache.getPropertySchemaRow(spec.propertySchemaId) != null) {
         continue;
       }
@@ -212,7 +211,6 @@ class LocalWorkspaceSeed {
         payload: OperationPayloads.classPropertySet(
           classId: systemClassNames[spec.bindTo]!,
           propertySchemaId: spec.propertySchemaId,
-          sequence: i,
         ),
         affectedNodeIds: [systemClassNames[spec.bindTo]!],
       );
