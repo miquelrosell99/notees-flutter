@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/utils/ast_stringifier.dart';
 import '../../../core/utils/color_presets.dart';
+import '../../../domain/models/content/markdown_links.dart';
 
 /// Renders a Notees block content document (the flat token stream,
 /// serialized to JSON in the node `name` slot) as styled rich text.
@@ -18,6 +19,10 @@ import '../../../core/utils/color_presets.dart';
 ///    raw class id; chips never mutate class assignments;
 ///  - `typed_link`: the marked word renders underlined with the verb (free
 ///    string or property-schema binding) carried in semantics;
+///  - `text` runs split markdown `[label](href)` spans at render time (the
+///    retired `external_link` token's replacement, SCHEMA.md render
+///    grammar): http/https/mailto hrefs render underlined and tappable via
+///    [onExternalLinkTap]; anything else stays literal text;
 ///  - block-scale tokens (`asset_ref`/`embed_ref`/`query`/`whiteboard`)
 ///    render as labeled placeholders until the mobile client grows real
 ///    views.
@@ -103,15 +108,34 @@ class AstRichText extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     switch (token['type']) {
       case 'text':
+        final text = token['text'] as String? ?? '';
+        // Markdown links live INSIDE text runs (the retired external_link
+        // token's replacement — SCHEMA.md render grammar): split at render
+        // time, linkable hrefs become tappable anchors, anything else stays
+        // literal text.
+        final markedBase = _applyMarks(
+          base,
+          ((token['marks'] as List<dynamic>?) ?? const []).cast<String>(),
+          colors,
+        );
         return [
-          TextSpan(
-            text: token['text'] as String? ?? '',
-            style: _applyMarks(
-              base,
-              ((token['marks'] as List<dynamic>?) ?? const []).cast<String>(),
-              colors,
-            ),
-          ),
+          for (final segment in splitMarkdownLinks(text))
+            if (segment is MarkdownLink)
+              TextSpan(
+                text: segment.text,
+                style: markedBase.copyWith(
+                  color: colors.primary,
+                  decoration: TextDecoration.underline,
+                ),
+                recognizer: TapGestureRecognizer()
+                  ..onTap = () {
+                    if (segment.href.isNotEmpty) {
+                      onExternalLinkTap?.call(segment.href);
+                    }
+                  },
+              )
+            else
+              TextSpan(text: segment.text, style: markedBase),
         ];
       case 'hard_break':
         // Shift+enter line jump flushes the rendered line.
@@ -156,22 +180,6 @@ class AstRichText extends StatelessWidget {
             foreground: linkColors?[classId] != null
                 ? ColorPresets.foregroundFor(linkColors![classId]!)
                 : colors.onSecondaryContainer,
-          ),
-        ];
-      case 'external_link':
-        final href = token['href'] as String? ?? '';
-        final text = token['text'] as String? ?? href;
-        return [
-          TextSpan(
-            text: text,
-            style: base.copyWith(
-              color: colors.primary,
-              decoration: TextDecoration.underline,
-            ),
-            recognizer: TapGestureRecognizer()
-              ..onTap = () {
-                if (href.isNotEmpty) onExternalLinkTap?.call(href);
-              },
           ),
         ];
       case 'math':

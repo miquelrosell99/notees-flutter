@@ -8,6 +8,33 @@ lives in git history.
 
 ## 2026-10-21
 
+- **feat(protocol,render): the `external_link` retirement — links are
+  markdown spans inside `text` tokens, parsed at render time (Flutter
+  lockstep port of the monorepo ruling 2026-10-21, SCHEMA.md "Content
+  grammar").** The `external_link` token RETIRES: links live as markdown
+  `[label](href)` spans inside ordinary `text` tokens, parsed at render
+  time. `ExternalLinkToken` and its `fromJson` dispatch arm are gone —
+  unknown wire types already degrade to `UnsupportedToken`. Render grammar
+  (normative, ported 1:1 from `splitMarkdownLinks` in
+  `packages/domain/src/markdownLinks.ts` into
+  `domain/models/content/markdown_links.dart`): match
+  `\[([^\]\n]+)\]\(([^()\s]+)\)`; only `http:`/`https:`/`mailto:` hrefs
+  render as anchors (underlined, accent-colored, tappable via the existing
+  `onExternalLinkTap` handler); unclosed brackets, other schemes
+  (`javascript:`, relative paths) stay literal text. `AstRichText`'s text
+  span builder splits each run through the parser — link segments get the
+  same underline/accent look the old token arm had, and plain segments keep
+  their marks. Legacy conversion (`ast_stringifier.dart`): the `{url,
+  children}` pill now converts to a text token carrying `[text](href)`
+  (marks ride along), which `AstBuilder.toMarkdown` writes verbatim and
+  `parseInline` reads back as plain text — the editor text form
+  round-trips the shape; the retired type leaves `isFlatTokenStream`'s
+  vocabulary and `ast_builder.dart`'s dead serializer arm. **Verification:**
+  `flutter analyze` clean; `flutter test` green (674 tests). No fixture
+  bytes change (no fixture ever carried the token).
+
+## 2026-10-21
+
 - **feat(protocol,store): the readonly retirement — `readonly` derives from
   the system list, not stored (Flutter lockstep port of the monorepo's owner
   ruling 2026-10-21, a continuation of the property-definition surfaces

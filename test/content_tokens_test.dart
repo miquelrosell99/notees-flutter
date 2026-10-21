@@ -7,6 +7,7 @@ import 'package:notees/core/utils/ast_stringifier.dart';
 import 'package:notees/data/local/app_database.dart';
 import 'package:notees/data/repositories/node_cache_repository.dart';
 import 'package:notees/domain/models/content/content_token.dart';
+import 'package:notees/domain/models/content/markdown_links.dart';
 import 'package:notees/domain/models/relay/hlc.dart';
 import 'package:notees/domain/models/relay/operation_envelope.dart';
 import 'package:notees/domain/models/relay/operation_payloads.dart';
@@ -106,7 +107,6 @@ void main() {
         const WhiteboardToken(layout: {'shapes': []}),
         const HardBreakToken(),
         const MathToken(expression: 'e = mc^2'),
-        const ExternalLinkToken(href: 'https://x.example', text: 'x'),
       ]) {
         final restored = ContentToken.fromJson(token.toJson());
         expect(restored.runtimeType, token.runtimeType, reason: token.type);
@@ -178,6 +178,60 @@ void main() {
         {'type': 'text', 'text': 'line   two'},
       ]));
       expect(excerpt, 'line one line two');
+    });
+  });
+
+  group('splitMarkdownLinks (render grammar)', () {
+    test('linkless text is a single plain segment', () {
+      final segments = splitMarkdownLinks('no links here');
+      expect(segments, hasLength(1));
+      expect(segments.single, isA<MarkdownPlainText>());
+      expect(segments.single.text, 'no links here');
+    });
+
+    test('http/https/mailto hrefs become link segments', () {
+      final segments = splitMarkdownLinks(
+          'see [the docs](https://example.com/docs) and [mail](mailto:a@b.c) now');
+      expect(segments, hasLength(5));
+      expect(segments[0], isA<MarkdownPlainText>());
+      expect(segments[0].text, 'see ');
+      final link = segments[1] as MarkdownLink;
+      expect(link.text, 'the docs');
+      expect(link.href, 'https://example.com/docs');
+      expect(segments[2].text, ' and ');
+      final mail = segments[3] as MarkdownLink;
+      expect(mail.text, 'mail');
+      expect(mail.href, 'mailto:a@b.c');
+      expect(segments[4].text, ' now');
+    });
+
+    test('non-linkable hrefs stay literal text', () {
+      for (final raw in [
+        '[click](javascript:alert(1))',
+        '[relative](docs/page)',
+        '[ftp](ftp://example.com/file)',
+      ]) {
+        final segments = splitMarkdownLinks(raw);
+        expect(segments, hasLength(1), reason: raw);
+        expect(segments.single, isA<MarkdownPlainText>(), reason: raw);
+        expect(segments.single.text, raw, reason: raw);
+      }
+    });
+
+    test('unclosed brackets and label newlines stay literal text', () {
+      final segments = splitMarkdownLinks('[unclosed](https://a.example');
+      expect(segments.single.text, '[unclosed](https://a.example');
+      // A newline inside the label is not a link either.
+      final broken = splitMarkdownLinks('[two\nlines](https://a.example)');
+      expect(broken.single.text, '[two\nlines](https://a.example)');
+    });
+
+    test('adjacent and multiple links split correctly', () {
+      final segments = splitMarkdownLinks(
+          '[a](https://a.example)[b](https://b.example)');
+      expect(segments, hasLength(2));
+      expect((segments[0] as MarkdownLink).text, 'a');
+      expect((segments[1] as MarkdownLink).text, 'b');
     });
   });
 
@@ -310,7 +364,7 @@ void main() {
       expect(chip['displayText'], 'Book');
     });
 
-    test('code/math/external_link/hard_break map one-to-one', () {
+    test('code/math/hard_break map one-to-one; external_link becomes markdown text', () {
       final tokens = legacyAstToTokens([
         {
           'type': 'paragraph',
@@ -334,7 +388,14 @@ void main() {
         'marks': ['code'],
       });
       expect(tokens[1]['type'], 'math');
-      expect(tokens[2]['type'], 'external_link');
+      // The retired token degrades to a text run carrying the markdown
+      // `[text](href)` shape (SCHEMA.md render grammar) — the same shape
+      // AstBuilder.toMarkdown writes verbatim, so the editor text form
+      // round-trips it.
+      expect(tokens[2], {
+        'type': 'text',
+        'text': '[A](https://a.example)',
+      });
       expect(tokens[3]['type'], 'hard_break');
     });
 

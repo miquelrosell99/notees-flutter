@@ -54,7 +54,6 @@ bool isFlatTokenStream(List<dynamic> ast) {
     'typed_link',
     'mention',
     'class_link',
-    'external_link',
     'math',
     'hard_break',
     'asset_ref',
@@ -96,9 +95,11 @@ List<Map<String, dynamic>> normalizeContentAst(List<dynamic> ast) {
 ///    underline); nested marks merge;
 ///  - node_link pills become `mention` tokens (target from the link_id's
 ///    `target` prefix; ref_type class → `class_link`);
-///  - code nodes become text runs with the `code` mark; math nodes, external
-///    links, and hard breaks map one-to-one; user_mention degrades to a
-///    plain '@label' text run (the grammar has no user token).
+///  - code nodes become text runs with the `code` mark; math nodes and hard
+///    breaks map one-to-one; external links become a text run carrying the
+///    markdown `[text](href)` shape (the token retired into text runs);
+///    user_mention degrades to a plain '@label' text run (the grammar has
+///    no user token).
 List<Map<String, dynamic>> legacyAstToTokens(List<dynamic> ast) {
   final out = <Map<String, dynamic>>[];
   for (final block in ast) {
@@ -191,12 +192,17 @@ void _convertInline(
         'expression': expression is String ? expression : '',
       });
     case 'external_link':
+      // Retired token: links live as markdown `[label](href)` spans inside
+      // text tokens (SCHEMA.md render grammar), so the legacy pill becomes
+      // a text run carrying that shape — AstBuilder.toMarkdown writes text
+      // runs verbatim, so the editor text form round-trips it.
       final url = node['url'];
-      out.add({
-        'type': 'external_link',
-        'href': url is String ? url : '',
-        'text': _collectPlain(node),
-      });
+      out.add(
+        _textToken(
+          '[${_collectPlain(node)}](${url is String ? url : ''})',
+          inheritedMarks,
+        ),
+      );
     case 'node_link':
       final linkId = node['link_id'] as String? ?? '';
       final target = linkId.split(':').first;

@@ -40,7 +40,6 @@ sealed class ContentToken {
       'typed_link' => TypedLinkToken.fromJson(json),
       'mention' => MentionToken.fromJson(json),
       'class_link' => ClassLinkToken.fromJson(json),
-      'external_link' => ExternalLinkToken.fromJson(json),
       'math' => MathToken.fromJson(json),
       'hard_break' => const HardBreakToken(),
       'asset_ref' => AssetRefToken.fromJson(json),
@@ -242,29 +241,6 @@ class ClassLinkToken extends ContentToken {
     classId: json['classId'] as String? ?? '',
     displayText: json['displayText'] as String?,
   );
-}
-
-class ExternalLinkToken extends ContentToken {
-  const ExternalLinkToken({required this.href, required this.text});
-
-  final String href;
-  final String text;
-
-  @override
-  String get type => 'external_link';
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'type': 'external_link',
-    'href': href,
-    'text': text,
-  };
-
-  factory ExternalLinkToken.fromJson(Map<String, dynamic> json) =>
-      ExternalLinkToken(
-        href: json['href'] as String? ?? '',
-        text: json['text'] as String? ?? '',
-      );
 }
 
 class MathToken extends ContentToken {

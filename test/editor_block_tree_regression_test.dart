@@ -89,7 +89,7 @@ void main() {
       '{"type":"mention","targetNodeId":"11111111-2222-3333-4444-555555555555","displayText":"Mention"},'
       '{"type":"class_link","classId":"11111111-2222-3333-4444-555555555555","displayText":"Chip"},'
       '{"type":"typed_link","text":"Typed"},'
-      '{"type":"external_link","href":"https://example.com","text":"Link"},'
+      '{"type":"text","text":"see [Link](https://example.com)"},'
       '{"type":"math","expression":"e=mc^2"},'
       '{"type":"quote","children":[{"type":"text","text":"Quoted"}]}]',
     );
@@ -99,9 +99,25 @@ void main() {
     expect(richTextContaining('Mention'), findsOneWidget);
     expect(richTextContaining('Chip'), findsOneWidget);
     expect(richTextContaining('Typed'), findsOneWidget);
-    expect(richTextContaining('Link'), findsOneWidget);
+    // The markdown span renders its label (not the raw `[label](href)`
+    // text) — links live inside text tokens per the render grammar.
+    expect(richTextContaining('see Link'), findsOneWidget);
+    expect(richTextContaining('[Link](https://example.com)'), findsNothing);
     expect(richTextContaining('e=mc^2'), findsOneWidget);
     expect(richTextContaining('Quoted'), findsOneWidget);
+  });
+
+  testWidgets('non-linkable markdown hrefs stay literal text', (tester) async {
+    final root = block(
+      'aaaaaaaa-0000-0000-0000-000000000001',
+      '[{"type":"text","text":"[safe](javascript:alert(1)) and [rel](docs/page)"}]',
+    );
+    await tester.pumpWidget(host(root));
+
+    expect(
+      richTextContaining('[safe](javascript:alert(1)) and [rel](docs/page)'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('unknown token types degrade to their text', (tester) async {
