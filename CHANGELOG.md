@@ -6,6 +6,36 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-21
+
+- **feat(protocol,store): the binding-sequence retirement —
+  `class.property.set` is active-only (Flutter lockstep port of the
+  monorepo's owner ruling 2026-10-21, a continuation of the
+  property-definition surfaces batch).** `sequence` RETIRES from the
+  binding: class properties render as a PURE ALPHABETICAL list everywhere
+  (by property name, a read-time derivation), so panel order no longer
+  exists to configure; the binding keeps only the `active` soft-unbind flag.
+  The strict payload validator rejects the retired key like any unknown key
+  (the row carries ONLY the genuinely per-class mechanic). Data layer: local
+  store bumps to schema v33 — `class_property` REBUILDS without `sequence`
+  (the v26/v32 rebuild pattern; no data backfill — order metadata is
+  discarded; the historical v26/v32 migration views drop it too), the
+  snapshot reader guards the column for pre-v26 server snapshots, and the
+  effective-properties read orders PURE ALPHABETICALLY by property name,
+  unbound authored rows last, `(idx, elementId)` tiebreak — the
+  `EffectiveProperty.sequence` field is gone. The applier's binding upsert
+  is `active`-only; the task-family seed-ensure (and the local workspace
+  seed) bind sequence-less — `TaskFamilySeedEntry.sequence` is gone.
+  Fixtures: `class-property-defaults`/`class-property-active`/
+  `class-unassign`/`property-schema-scope` re-vendored byte-identical
+  (sha256-verified) from the monorepo. The block-bullet value button's
+  ordering rides the effective read's alphabetical order.
+
+  Verification: `flutter analyze` clean; `flutter test` green (see the run
+  on main). The live log rewrite
+  (`scripts/migrate-drop-binding-sequence.mts`) runs in the monorepo after
+  this port (the fixture gate law).
+
 ## 2026-10-20
 
 - **feat(protocol,store): the binding-default batch — `defaultValue` moves

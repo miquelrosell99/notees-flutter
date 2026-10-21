@@ -59,10 +59,12 @@ import '../models/relay/workspace_features.dart';
 ///    ancestor) and drops a stored default that no longer matches the
 ///    schema type;
 ///  - the binding row (class.property.set) carries ONLY the genuinely
-///    per-class mechanics (sequence, active): `required` retired outright
-///    and `defaultValue` MOVED to the property schema (owner ruling
+///    per-class mechanic (active): `required` retired outright and
+///    `defaultValue` MOVED to the property schema (owner ruling
 ///    2026-10-20 — one global default per property, the Logseq shape),
-///    where PC2 validates it against the payload type at create and the
+///    `sequence` retired outright (owner ruling 2026-10-21 — class panels
+///    render alphabetically by property name, a read-time derivation);
+///    PC2 validates the default against the payload type at create and the
 ///    stored type at update (a schema-less write stores unchecked);
 ///  - per-workspace feature toggles (workspace.feature.set) LWW by HLC on
 ///    (workspace, feature) derive the membership-preserving archival of the
@@ -1551,13 +1553,15 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // PC2 left the binding with the owner ruling 2026-10-20: `defaultValue`
     // MOVED to the property schema (one global default per property) and
     // `required` retired outright — both reject at the strict payload gate
-    // before this applier runs. The row carries sequence + active only.
+    // before this applier runs. `sequence` followed them with the owner
+    // ruling 2026-10-21 (class panels render alphabetically by property
+    // name — panel order no longer exists to configure). The row carries
+    // active only.
 
     await _cache.upsertClassPropertyBinding(
       classId: classId,
       schemaId: schemaId,
       incoming: incoming,
-      sequence: (payload['sequence'] as num?)?.toInt(),
       // PC4: the soft-unbind flag rides the row LWW (absent = keep).
       active: payload['active'] as bool?,
     );
@@ -2015,7 +2019,6 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       await _cache.insertClassPropertyBindingIfAbsent(
         classId: classId,
         schemaId: entry.schemaId,
-        sequence: entry.sequence,
       );
     }
   }

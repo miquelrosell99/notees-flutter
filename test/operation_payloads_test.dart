@@ -538,7 +538,6 @@ void main() {
         () => OperationPayloads.validatePayload('class.property.set', {
           'classId': classId,
           'propertySchemaId': objectId,
-          'sequence': 1,
           'active': false,
         }),
         returnsNormally,

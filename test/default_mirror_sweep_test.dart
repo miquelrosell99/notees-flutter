@@ -92,16 +92,14 @@ void main() {
       OperationPayloads.classPropertySet(
         classId: klass,
         propertySchemaId: statusSchema,
-        sequence: 0,
-      ),
+              ),
     ));
     await apply(env(
       'class.property.set',
       OperationPayloads.classPropertySet(
         classId: klass,
         propertySchemaId: notesSchema,
-        sequence: 1,
-      ),
+              ),
     ));
     await apply(env(
       'object.create',
@@ -262,8 +260,7 @@ void main() {
       OperationPayloads.classPropertySet(
         classId: plainClass,
         propertySchemaId: notesSchema,
-        sequence: 0,
-      ),
+              ),
     ));
     await apply(env(
       'object.create',
@@ -325,8 +322,7 @@ void main() {
       OperationPayloads.classPropertySet(
         classId: counter,
         propertySchemaId: countSchema,
-        sequence: 0,
-      ),
+              ),
     ));
     await apply(env(
       'object.create',

@@ -279,19 +279,19 @@ List<WorkspaceFeature> gatingFeaturesForClass(String name) {
 /// One task-family seed-ensure entry: a property schema + its task-class
 /// binding, authored idempotently when the `tasks` feature enables
 /// (closes the "task property schemas never authored" row). Fixed ids end
-/// to end (schema + option uuids); [sequence]
-/// is the task-panel display order. Status options carry the
+/// to end (schema + option uuids). Binding rows carry NO order (owner
+/// ruling 2026-10-21 — `sequence` retired from the binding; class panels
+/// render alphabetically by property name). Status options carry the
 /// designed glyphs (the owner-mandated icon + color set);
 /// [display] (PROPERTY-level after the owner review) rides the
 /// SCHEMA entry — the Status schema defaults to 'bullet' (its value rides
 /// the block bullet as an icon button), the rest stay in the properties
-/// panel (null). The binding row carries only the per-class mechanics.
+/// panel (null). The binding row carries only the soft-unbind flag.
 class TaskFamilySeedEntry {
   const TaskFamilySeedEntry({
     required this.schemaId,
     required this.name,
     required this.type,
-    required this.sequence,
     this.options = const [],
     this.display,
   });
@@ -299,7 +299,6 @@ class TaskFamilySeedEntry {
   final String schemaId;
   final String name;
   final String type; // 'select' | 'datetime'
-  final int sequence;
   final List<Map<String, String>> options; // [{id, label, icon?, color?}]
   final String? display; // 'panel' | 'bullet' | 'inline'
 }
@@ -313,7 +312,6 @@ const List<TaskFamilySeedEntry> taskFamilySeed = [
     schemaId: SystemPropertyUuids.taskStatus,
     name: 'Status',
     type: 'select',
-    sequence: 1,
     display: 'bullet',
     options: [
       {
@@ -358,19 +356,16 @@ const List<TaskFamilySeedEntry> taskFamilySeed = [
     schemaId: SystemPropertyUuids.taskScheduled,
     name: 'Scheduled',
     type: 'datetime',
-    sequence: 2,
   ),
   TaskFamilySeedEntry(
     schemaId: SystemPropertyUuids.taskDeadline,
     name: 'Deadline',
     type: 'datetime',
-    sequence: 3,
   ),
   TaskFamilySeedEntry(
     schemaId: SystemPropertyUuids.taskPriority,
     name: 'Priority',
     type: 'select',
-    sequence: 4,
     options: [
       {'id': TaskFamilyOptionUuids.low, 'label': 'Low'},
       {'id': TaskFamilyOptionUuids.medium, 'label': 'Medium'},
@@ -382,7 +377,6 @@ const List<TaskFamilySeedEntry> taskFamilySeed = [
     schemaId: SystemPropertyUuids.taskClosedDate,
     name: 'Closed',
     type: 'datetime',
-    sequence: 5,
   ),
   // migrated recurrence as a plain select (no engine executes it);
   // authored optionless until the recurrence spec lands.
@@ -390,6 +384,5 @@ const List<TaskFamilySeedEntry> taskFamilySeed = [
     schemaId: SystemPropertyUuids.taskRecurrence,
     name: 'Recurrence',
     type: 'select',
-    sequence: 6,
   ),
 ];

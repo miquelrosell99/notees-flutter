@@ -85,11 +85,11 @@ void main() {
         ),
       );
 
-  /// Binds [classId] to the schema (sequence-only row) and, when
+  /// Binds [classId] to the schema (active-only row) and, when
   /// [defaultValue] is non-null, writes the schema's GLOBAL default (owner
   /// ruling 2026-10-20 — one default per property; the LAST default write
   /// wins for every node, so the per-binding conflict these tests resolve
-  /// is the WINNING BINDING (boundBy/sequence), never the value).
+  /// is the WINNING BINDING (boundBy), never the value).
   Future<void> bind(
     String classId,
     String defaultValue, {
@@ -101,7 +101,6 @@ void main() {
       {
         'classId': classId,
         'propertySchemaId': schema,
-        'sequence': 0,
         'active': ?active,
       },
       hlc,
@@ -379,7 +378,6 @@ void main() {
         {
           'classId': classId,
           'propertySchemaId': scoped,
-          'sequence': 0,
         },
         5,
       ));

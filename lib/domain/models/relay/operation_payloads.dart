@@ -362,8 +362,8 @@ class OperationPayloads {
 
   /// [type] is the property-schema enum (op-types.ts); [targetClassFilter]
   /// constrains node-typed (m2o/m2m) schemas to those classes.
-  /// Binding upsert: a configuration row on `class_property` (sequence +
-  /// active ONLY). Row-level LWW by envelope HLC; omitted fields KEEP their
+  /// Binding upsert: a configuration row on `class_property` (active ONLY).
+  /// Row-level LWW by envelope HLC; omitted fields KEEP their
   /// existing values (partial patch, not a replace).
   ///
   /// Owner ruling 2026-10-20: `required` and `defaultValue` RETIRE from the
@@ -372,19 +372,20 @@ class OperationPayloads {
   /// render-contract law: suggestion only, never enforcement) and
   /// `defaultValue` MOVED to the property schema (one GLOBAL default per
   /// property, the Logseq shape). This strict payload rejects both keys like
-  /// any retired key. A binding answers "does THIS class list the property,
-  /// in what order"; a schema answers "what the property is, how it behaves,
-  /// and what value it starts with everywhere".
+  /// any retired key. Owner ruling 2026-10-21: `sequence` RETIRES too —
+  /// class panels render as a PURE ALPHABETICAL list everywhere (by property
+  /// name, read-time derivation), so panel order no longer exists to
+  /// configure. A binding answers "does THIS class list the property"; a
+  /// schema answers "what the property is, how it behaves, and what value it
+  /// starts with everywhere".
   static Map<String, dynamic> classPropertySet({
     required String classId,
     required String propertySchemaId,
-    int? sequence,
     bool? active,
   }) =>
       _validated('class.property.set', {
         'classId': classId,
         'propertySchemaId': propertySchemaId,
-        'sequence': ?sequence,
         'active': ?active,
       });
 
@@ -865,20 +866,20 @@ class OperationPayloads {
         _uuid(payload, 'classId');
         _uuidList(payload, 'parentClassIds');
       case 'class.property.set':
-        // The binding carries ONLY the genuinely per-class mechanics
-        // (sequence, active) — `required` retired outright and
-        // `defaultValue` moved to the property schema (owner ruling
-        // 2026-10-20); both reject here like any retired key, as do the
-        // PROPERTY-level render contracts (readonly/hideWhenEmpty/display).
+        // The binding carries ONLY the genuinely per-class mechanic
+        // (active) — `required` retired outright and `defaultValue` moved
+        // to the property schema (owner ruling 2026-10-20), `sequence`
+        // retired outright (owner ruling 2026-10-21 — class panels render
+        // alphabetically by property name); all reject here like any
+        // retired key, as do the PROPERTY-level render contracts
+        // (readonly/hideWhenEmpty/display).
         _strict(payload, {
           'classId',
           'propertySchemaId',
-          'sequence',
           'active',
         });
         _uuid(payload, 'classId');
         _uuid(payload, 'propertySchemaId');
-        _int(payload, 'sequence', required: false);
         _bool(payload, 'active', required: false);
       case 'class.property.unset':
         _strict(payload, {'classId', 'propertySchemaId'});
