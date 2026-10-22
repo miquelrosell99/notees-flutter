@@ -604,8 +604,10 @@ class SyncV2Service {
   // --- realtime acceleration path (WIRE.md) -----------------------------------
 
   /// Starts the realtime WebSocket acceleration path for the current
-  /// workspace. [apiKey] authenticates the handshake (the per-server key the
-  /// Dio layer already attaches as `X-API-Key`).
+  /// workspace. [apiKey] authenticates the upgrade as
+  /// `Authorization: Bearer <apiKey>` (the same per-server key the Dio layer
+  /// attaches as `X-API-Key`); the URL itself carries no credential — the
+  /// relay retired `?token=`.
   ///
   /// Every (re)connect sends a fresh `hello`: a restoreEpoch change or a
   /// `latestSeq` ahead of the cursor triggers a catch-up pull; `ops` frames
@@ -623,7 +625,8 @@ class SyncV2Service {
       if (generation != _realtimeGeneration) return;
       if (workspaceId == null || _ws != null) return;
       final client = RelayWsClient(
-        url: buildRelayWsUrl(baseUrl, workspaceId, apiKey),
+        url: buildRelayWsUrl(baseUrl, workspaceId),
+        headers: {'Authorization': 'Bearer $apiKey'},
         connector: wsConnectorOverride,
         onHello: (hello) {
           _runWsWork(_onWsHello(hello, workspaceId));

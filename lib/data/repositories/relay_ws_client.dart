@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../domain/models/relay/operation_envelope.dart';
@@ -78,14 +79,26 @@ class WebSocketChannelConnection implements WsConnection {
   void close(int code, String reason) => _channel.sink.close(code, reason);
 }
 
-/// Opens a production socket for [url].
-Future<WsConnection> defaultWsConnector(String url) async {
-  final channel = WebSocketChannel.connect(Uri.parse(url));
+/// Opens a production socket for [url], sending [headers] on the upgrade
+/// (the bearer credential rides as `Authorization`, never in the URL — the
+/// relay retired `?token=` because a URL credential lands in every log along
+/// the path).
+Future<WsConnection> defaultWsConnector(
+  String url,
+  Map<String, String> headers,
+) async {
+  final channel = IOWebSocketChannel.connect(
+    Uri.parse(url),
+    headers: headers,
+  );
   await channel.ready;
   return WebSocketChannelConnection(channel);
 }
 
-typedef WsConnector = Future<WsConnection> Function(String url);
+typedef WsConnector = Future<WsConnection> Function(
+  String url,
+  Map<String, String> headers,
+);
 
 /// Realtime subscriber for one workspace — the relay's acceleration path
 /// (WIRE.md).
@@ -109,6 +122,7 @@ typedef WsConnector = Future<WsConnection> Function(String url);
 class RelayWsClient {
   RelayWsClient({
     required this.url,
+    this.headers = const <String, String>{},
     this.connector,
     this.onHello,
     this.onOps,
@@ -118,6 +132,11 @@ class RelayWsClient {
   });
 
   final String url;
+
+  /// Upgrade headers sent on EVERY connect, including backoff reconnects —
+  /// the bearer credential rides here (`Authorization`), never in [url]
+  /// (WIRE.md retired the `?token=` fallback).
+  final Map<String, String> headers;
   final WsConnector? connector;
   final void Function(WsHelloInfo hello)? onHello;
   final void Function(
@@ -202,7 +221,7 @@ class RelayWsClient {
     while (!_stopped && !_failed) {
       WsConnection? connection;
       try {
-        connection = await (connector ?? defaultWsConnector)(url);
+        connection = await (connector ?? defaultWsConnector)(url, headers);
         if (_stopped) {
           connection.close(1000, 'bye');
           return;
@@ -349,7 +368,12 @@ class RelayWsClient {
 }
 
 /// Builds the relay WS URL from the REST base URL (`http(s)` → `ws(s)`).
-String buildRelayWsUrl(String baseUrl, String workspaceId, String token) {
+///
+/// The URL carries NO credential: the relay retired `?token=` on the entire
+/// API (a bearer token in a URL lands in every log along the path), so the
+/// credential travels as the `Authorization` upgrade header instead (see
+/// [RelayWsClient.headers]).
+String buildRelayWsUrl(String baseUrl, String workspaceId) {
   var base = baseUrl.endsWith('/') ? baseUrl.substring(0, baseUrl.length - 1) : baseUrl;
   // The Dio base already carries /api (e.g. https://host/api); the WS path
   // appends the relay route under it.
@@ -361,8 +385,5 @@ String buildRelayWsUrl(String baseUrl, String workspaceId, String token) {
   } else if (base.startsWith('http://')) {
     base = 'ws://${base.substring('http://'.length)}';
   }
-  final wsBase = base;
-  final wsToken = Uri.encodeQueryComponent(token);
-  return '$wsBase/api/relay/v2/ws/${Uri.encodeQueryComponent(workspaceId)}'
-      '?token=$wsToken';
+  return '$base/api/relay/v2/ws/${Uri.encodeQueryComponent(workspaceId)}';
 }

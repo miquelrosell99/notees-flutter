@@ -8,6 +8,35 @@ lives in git history.
 
 ## 2026-10-22
 
+- **feat(sync): WS auth moves to the `Authorization` upgrade header —
+  `?token=` retired (Flutter lockstep port of the monorepo's
+  0ea18fcd5, WIRE.md §2).** The relay now REJECTS `?token=` credential
+  query params on the entire API (401) — a bearer token in a URL lands in
+  every log along the path — and the WS upgrade `/api/relay/v2/ws/
+  {workspaceId}` admits auth as an `Authorization: Bearer <credential>`
+  header (native-client path; the `?ticket=` flow is browser-only and not
+  needed here). `buildRelayWsUrl(baseUrl, workspaceId)` loses its token
+  parameter entirely (the `/api` suffix-trim and http→ws mapping
+  unchanged); the credential now travels as
+  `{'Authorization': 'Bearer $apiKey'}` on every connect, including
+  backoff reconnects: `RelayWsClient` gains a `headers` field, the
+  `WsConnector` typedef becomes `(String url, Map<String, String>
+  headers) → Future<WsConnection>`, and `defaultWsConnector` switches
+  from `WebSocketChannel.connect` (cannot set headers) to
+  `IOWebSocketChannel.connect(uri, headers: …)` from
+  `package:web_socket_channel/io.dart` (pinned 3.0.3; dart:io is
+  available on Android/iOS/Linux). The `WsConnection` seam is untouched —
+  tests still inject scripted fakes. `SyncV2Service.startRealtime`
+  passes the header map; the Dio REST layer already attached
+  `Authorization`/`X-API-Key` via interceptors and needed no change.
+  Docstrings updated (`?token=` rationale recorded at each anchor).
+  **Verification:** `flutter analyze` clean; `flutter test` green —
+  URL assertions no longer expect a query string, a new unit proves the
+  URL carries no credential, the connector-fake suite asserts the
+  `Authorization` header reaches the connector on connect AND reconnect,
+  and the engine-level realtime test captures the header the production
+  connector would send. Shipped via CI APK on push to main.
+
 - **feat(protocol,store): the system-extends lock — a system class's
   `extends` mapping is frozen to the seeded set (Flutter lockstep port of the
   monorepo's SCHEMA.md "Class properties").**

@@ -159,7 +159,7 @@ void main() {
         dio: buildDio(),
         clientId: device,
       );
-      service.wsConnectorOverride = (_) async => ws;
+      service.wsConnectorOverride = (_, _) async => ws;
       await service.setWorkspaceId(workspaceId);
     });
 
@@ -169,19 +169,23 @@ void main() {
       AppDatabase.reset();
     });
 
-    test('connects the WS URL with the token, ops frames apply to the cache',
+    test('connects with the bearer header, ops frames apply to the cache',
         () async {
       String? connectedUrl;
-      service.wsConnectorOverride = (url) async {
+      Map<String, String>? connectedHeaders;
+      service.wsConnectorOverride = (url, headers) async {
         connectedUrl = url;
+        connectedHeaders = Map<String, String>.from(headers);
         return ws;
       };
       service.startRealtime(apiKey: 'secret key');
       await pumpEventQueue();
       expect(
         connectedUrl,
-        'wss://notees.example.com/api/relay/v2/ws/$workspaceId?token=secret+key',
+        'wss://notees.example.com/api/relay/v2/ws/$workspaceId',
       );
+      expect(connectedUrl, isNot(contains('token')));
+      expect(connectedHeaders, {'Authorization': 'Bearer secret key'});
 
       // Fresh hello in sync with the local cursor: no pull, buffer drains.
       ws.serverSends(jsonEncode({
