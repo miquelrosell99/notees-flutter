@@ -72,6 +72,15 @@ class SystemClassUuids {
   static const String place = '00000000-0000-0000-0001-000000000045';
   static const String project = '00000000-0000-0000-0001-000000000046';
   static const String trip = '00000000-0000-0000-0001-000000000047';
+
+  // The TS-manifest trio the mobile seed delta never carried (…031–…033,
+  // lockstep with the TS seed manifest `SYSTEM_CLASS_UUIDS`): referenced by
+  // the system-extends lock only — the frozen-extends authority needs every
+  // system class UUID, and these three map to the empty parent set. Fixed
+  // ids, never reuse.
+  static const String organization = '00000000-0000-0000-0001-000000000031';
+  static const String collection = '00000000-0000-0000-0001-000000000032';
+  static const String highlight = '00000000-0000-0000-0001-000000000033';
 }
 
 class SystemPropertyUuids {

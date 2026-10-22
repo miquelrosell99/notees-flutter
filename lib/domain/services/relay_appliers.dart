@@ -1476,6 +1476,31 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       throw NodeNotFoundError('$opType: class $classId does not exist', opType);
     }
 
+    // System-extends lock (SCHEMA.md "Class properties"): a system class's extends mapping is seeded platform
+    // structure — the feature-toggle cascade (systemClassAncestors) and
+    // binding inheritance (the class_extends walk) both derive from it. The
+    // payload's parent set must EQUAL the seeded set (compared as sets —
+    // the seed/ensure re-issue convergence path); any deviation fails loud
+    // and is never applied. System classes without seeded parents are
+    // frozen to the empty set. User classes stay freely extensible,
+    // including onto system bases.
+    final seededParents = systemClassExtendsIds[classId];
+    if (seededParents != null) {
+      final next = parentClassIds.toSet();
+      final seeded = seededParents.toSet();
+      final same =
+          next.length == seeded.length && next.every(seeded.contains);
+      if (!same) {
+        String fmt(Set<String> ids) => (ids.toList()..sort()).join(', ');
+        throw SystemExtendsLockError(
+          '$opType: system class $classId has a frozen extends mapping; '
+          'payload parents [${fmt(next)}] deviate from the seeded '
+          'set [${fmt(seeded)}]',
+          opType,
+        );
+      }
+    }
+
     // Cycle gate, checked against the pre-write closure (so multi-hop cycles
     // across several parents are covered too). All checks run before any
     // write: a thrown apply leaves the closure and edges exactly as they

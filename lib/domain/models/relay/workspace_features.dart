@@ -209,6 +209,89 @@ const Map<String, List<String>> systemClassExtends = {
   'trip': ['event'],
 };
 
+/// The full system-class seed set (TS manifest `SYSTEM_CLASS_UUIDS` — the
+/// frozen-extends authority below needs EVERY system class UUID; the family
+/// subset [systemClassUuids] above is not enough). Fixed ids, never reuse.
+const Map<String, String> systemClassSeedUuids = {
+  'year': SystemClassUuids.year,
+  'month': SystemClassUuids.month,
+  'day': SystemClassUuids.day,
+  'quote': SystemClassUuids.quote,
+  'query': SystemClassUuids.query,
+  'code': SystemClassUuids.code,
+  'asset': SystemClassUuids.asset,
+  'whiteboard': SystemClassUuids.whiteboard,
+  'card': SystemClassUuids.card,
+  'task': SystemClassUuids.task,
+  'template': SystemClassUuids.template,
+  'comment': SystemClassUuids.comment,
+  'table': SystemClassUuids.table,
+  'warning': SystemClassUuids.warning,
+  'note': SystemClassUuids.note,
+  'tip': SystemClassUuids.tip,
+  'info': SystemClassUuids.info,
+  'danger': SystemClassUuids.danger,
+  'success': SystemClassUuids.success,
+  'cloze': SystemClassUuids.cloze,
+  'source': SystemClassUuids.source,
+  'book': SystemClassUuids.book,
+  'paper': SystemClassUuids.paper,
+  'article': SystemClassUuids.article,
+  'thesis': SystemClassUuids.thesis,
+  'document': SystemClassUuids.document,
+  'agent': SystemClassUuids.agent,
+  'person': SystemClassUuids.person,
+  'organization': SystemClassUuids.organization,
+  'collection': SystemClassUuids.collection,
+  'highlight': SystemClassUuids.highlight,
+  'weblink': SystemClassUuids.weblink,
+  'movie': SystemClassUuids.movie,
+  'song': SystemClassUuids.song,
+  'tv_series': SystemClassUuids.tvSeries,
+  'conference': SystemClassUuids.conference,
+  'meeting': SystemClassUuids.meeting,
+  'event': SystemClassUuids.event,
+  'birthday': SystemClassUuids.birthday,
+  'definition': SystemClassUuids.definition,
+  'idea': SystemClassUuids.idea,
+  'place': SystemClassUuids.place,
+  'project': SystemClassUuids.project,
+  'trip': SystemClassUuids.trip,
+};
+
+/// The seeded `extends` edges the feature-cascade slice [systemClassExtends]
+/// omits — the TS manifest `SYSTEM_CLASS_EXTENDS` is complete: organization
+/// under agent, weblink under source.
+const Map<String, List<String>> systemClassExtendsLockExtra = {
+  'organization': ['agent'],
+  'weblink': ['source'],
+};
+
+/// The frozen extends parent set per system class UUID (the Dart port of the
+/// TS manifest `SYSTEM_CLASS_EXTENDS_IDS`) — the system-extends lock
+/// authority (SCHEMA.md "Class properties"): a
+/// system class's extends mapping is seeded platform structure the
+/// feature-toggle cascade ([systemClassAncestors]) and binding inheritance
+/// (the applier's `class_extends` walk) both derive from, so
+/// `class.setExtends` on a system class only applies when the payload's
+/// parent set EQUALS the seeded set (compared order-insensitively — the
+/// seed/ensure re-issue convergence path); every deviation fails loud with
+/// `SystemExtendsLockError` and is never applied. Classes absent from the
+/// seeded edges map to the empty set. User classes stay freely extensible,
+/// including onto system bases.
+final Map<String, List<String>> systemClassExtendsIds = {
+  for (final entry in systemClassSeedUuids.entries)
+    entry.value: [
+      for (final parent in systemClassExtends[entry.key] ??
+          systemClassExtendsLockExtra[entry.key] ??
+          const <String>[])
+        systemClassSeedUuids[parent]!,
+    ],
+};
+
+/// True when [id] is a fixed system-class seed UUID.
+bool isSystemClassId(String id) => systemClassExtendsIds.containsKey(id);
+
 /// The transitive ancestor set of [name] over [systemClassExtends];
 /// a class is gated when itself or any ancestor is feature-off.
 Set<String> systemClassAncestors(String name) {
