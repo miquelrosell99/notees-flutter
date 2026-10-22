@@ -8,6 +8,42 @@ lives in git history.
 
 ## 2026-10-22
 
+- **feat(protocol,store): the classes gallery + retired `class.delete`
+  (Flutter lockstep port of the monorepo's 1423ce2c2).** Four wire/applier
+  changes land together: (1) `object.update` gains the optional `active`
+  boolean — `false` archives, `true` unarchives — a platform node field
+  like icon/color; the applier projects it to the node row's archived flag
+  and mirrors it to the class registry for class rows, with two archival
+  refusals failing loud (the locked system classes can never be archived;
+  family bases are toggle-managed — the Features setting is their single
+  archive path; unarchiving stays legal). (2) `workspace.feature.set`'s
+  feature enum gains `journal` — a SURFACES-only toggle (journal view +
+  Today-page management) that derives NO class archival bits
+  (`isFamilyFeature` is the applier guard). (3) `class.delete` is RETIRED
+  from the op registry — rejected outright like any unknown op type; a
+  replayed log entry is ignored. (4) `object.delete` on a class node routes
+  four ways, all a pure function of the class id: LOCKED system classes
+  (year, month, day, table, asset, query, code, template, comment — new
+  `lockedSystemClassNames`/`isLockedSystemClassId`/
+  `systemClassNameForId` in `workspace_features.dart`) fail loud with the
+  new `LockedSystemClassError`; family bases route to
+  `workspace.feature.set {enabled: false}`; other system classes archive
+  (`active = false`, no trash row — the unarchive path is the archival
+  write, never `object.restore`); user classes take the plain trash row.
+  Membership RIDES every removal path: the membership sweep is gone from
+  the delete arms and `trash.empty`, so `class_member_set` pairs survive
+  archive, trash, restore, and permanent delete (the dangling-reference
+  state); `object.restore` gained a class-only root path (registry
+  reactivation + subtree reactivation). `_deriveFamilyClassBits` now also
+  flips class node rows that exist. Fixture corpus: byte-identical sync
+  with the monorepo — `object-update-active.json` and
+  `object-delete-class-routing.json` added, `workspace-feature-set.json`
+  gains the journal pair, `class-delete-managed.json` deleted; the replay
+  gate excludes the routing fixture (its locked delete throws) and pins
+  all four arms, and the `workspace-feature-set` replay now expects the
+  `journal` row. **Verification:** `flutter analyze` clean; `flutter
+  test` green (payload registry, feature routing, fixture replay).
+
 - **feat(sync): WS auth moves to the `Authorization` upgrade header —
   `?token=` retired (Flutter lockstep port of the monorepo's
   0ea18fcd5, WIRE.md §2).** The relay now REJECTS `?token=` credential

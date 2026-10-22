@@ -48,6 +48,17 @@
 ///    (the page subtitle, max 512 chars) joins them 2026-10-09;
 ///  - the `propertySchema.create` type enum gains `"asset"` (an asset-node
 ///    reference whose class filter is implicit in the type).
+///
+/// Classes-gallery batch (2026-10-22 lockstep):
+///  - `object.update` gains the optional `active` boolean (archival state:
+///    `false` ARCHIVES, `true` UNARCHIVES — a platform node field like
+///    icon/color; `object.create` carries none);
+///  - `workspace.feature.set`'s feature enum gains `"journal"` (surfaces-only
+///    — it derives no class archival bits, unlike the five families);
+///  - `class.delete` is RETIRED from the op registry — rejected outright
+///    like any unknown op type; class-node deletion routes through
+///    `object.delete` (four applier-decided arms, SCHEMA.md "Workspace
+///    features").
 library;
 
 import 'colors.dart';
@@ -71,7 +82,6 @@ class OperationPayloads {
     'trash.empty',
     'class.create',
     'class.update',
-    'class.delete',
     'class.unassign',
     'class.reorder',
     'tag.unassign',
@@ -95,15 +105,19 @@ class OperationPayloads {
   /// The per-workspace feature toggle ids (reshaped per owner
   /// directive 2026-10-04): the toggles ARE the five core class
   /// families — tasks=task, events=event, meetings=meeting, sources=source,
-  /// persons=person. Feature ids are protocol vocabulary (not UUIDs); the
-  /// retired pre-reshape ids (journals/readItLater/library/people/
-  /// collections) are rejected outright by [validatePayload].
+  /// persons=person — plus `journal`, a
+  /// SURFACES-only toggle (the journal nav view + Today-page management)
+  /// that derives NO class archival bits. Feature ids are protocol
+  /// vocabulary (not UUIDs); the retired pre-reshape ids
+  /// (journals/readItLater/library/people/collections) are rejected
+  /// outright by [validatePayload].
   static const workspaceFeatures = {
     'tasks',
     'events',
     'meetings',
     'sources',
     'persons',
+    'journal',
   };
 
   // --- objects ----------------------------------------------------------------
@@ -185,11 +199,22 @@ class OperationPayloads {
   /// [listStyle]: pass a style to SET it, `null` explicitly to CLEAR back to
   /// the bullet default (the wire carries `"listStyle": null`, exactly like
   /// `color`).
+  ///
+  /// Archival state (the classes-gallery batch):
+  /// [active] is a platform node field like icon/color — `false` ARCHIVES
+  /// the node, `true` UNARCHIVES it. A reversible STATE, distinct from the
+  /// trash table (deletion rides `object.delete`/`object.restore`). The
+  /// applier projects the bit to the node row's archived flag and mirrors
+  /// it to the class registry for class nodes. Archival REFUSALS fail loud:
+  /// the locked system classes can never be archived, and family bases are
+  /// toggle-managed (the Features setting is their single archive path) —
+  /// unarchiving is harmless and stays legal.
   static Map<String, dynamic> objectUpdate({
     required String objectId,
     bool? isEmbedded,
     String? icon,
     Object? color = _undefined,
+    bool? active,
     Object? coverAssetId = _undefined,
     Object? bannerAssetId = _undefined,
     Object? aliasedNodeId = _undefined,
@@ -201,6 +226,7 @@ class OperationPayloads {
     if (isEmbedded == null &&
         icon == null &&
         identical(color, _undefined) &&
+        active == null &&
         identical(coverAssetId, _undefined) &&
         identical(bannerAssetId, _undefined) &&
         identical(aliasedNodeId, _undefined) &&
@@ -221,6 +247,7 @@ class OperationPayloads {
       'isEmbedded': ?isEmbedded,
       'icon': ?icon,
       if (!identical(color, _undefined)) 'color': color,
+      'active': ?active,
       if (!identical(coverAssetId, _undefined))
         'coverAssetId': coverAssetId,
       if (!identical(bannerAssetId, _undefined))
@@ -345,9 +372,6 @@ class OperationPayloads {
       'description': ?description,
     });
   }
-
-  static Map<String, dynamic> classDelete({required String classId}) =>
-      _validated('class.delete', {'classId': classId});
 
   /// Replace semantics: [parentClassIds] IS the class's full parent set
   /// (an empty array detaches all parents). The store fails loud on cycles.
@@ -644,13 +668,13 @@ class OperationPayloads {
 
   /// Per-workspace feature toggle: LWW by HLC on
   /// (workspace, feature); an absent derived row reads ENABLED. [feature] is
-  /// the strict five-family enum ([workspaceFeatures]); the retired
-  /// pre-reshape ids fail loud. Applying the toggle derives the
-  /// membership-preserving archival of the family's managed system classes
-  /// (hide surfaces, keep data); a class.delete on a family base routes here
-  /// (F4). LOCKSTEP-PENDING authoring: the builder exists for tests and the
-  /// future Features settings surface, but no app surface emits the op until
-  /// every client parses it.
+  /// the strict six-toggle enum ([workspaceFeatures] — the five families
+  /// plus `journal`, surfaces-only); the retired pre-reshape ids fail loud.
+  /// Applying a FAMILY toggle derives the membership-preserving archival of
+  /// the family's managed system classes (hide surfaces, keep data); the
+  /// `journal` toggle writes only the LWW row (no class bits). An
+  /// object.delete on a family base routes here (the class-node delete
+  /// routing).
   static Map<String, dynamic> workspaceFeatureSet({
     required String feature,
     required bool enabled,
@@ -787,6 +811,7 @@ class OperationPayloads {
           'isEmbedded',
           'icon',
           'color',
+          'active',
           'coverAssetId',
           'bannerAssetId',
           'aliasedNodeId',
@@ -799,6 +824,10 @@ class OperationPayloads {
         _bool(payload, 'isEmbedded', required: false);
         _string(payload, 'icon', max: 64, required: false);
         _color(payload, 'color');
+        // Archival state (the classes-gallery
+        // batch): `false` archives, `true` unarchives — a boolean, presence
+        // writes (the locked/family-base refusals are applier-side).
+        _bool(payload, 'active', required: false);
         // Wire node fields: nullable uuids (absence = no write, present
         // null = clear — the `_uuid` helper accepts a present null and
         // validates the shape only when a string rides).
@@ -851,10 +880,11 @@ class OperationPayloads {
         _string(payload, 'icon', max: 64, required: false);
         _color(payload, 'color');
         _string(payload, 'description', max: 4096, required: false);
-      case 'class.delete':
-        _strict(payload, {'classId'});
-        _uuid(payload, 'classId');
       case 'class.setExtends':
+        // `class.delete` is RETIRED: it left the
+        // op registry outright — the strict validator rejects it like any
+        // unknown op type (the default arm below), and class-node deletion
+        // routes through `object.delete` (SCHEMA.md "Workspace features").
         _strict(payload, {'classId', 'parentClassIds'});
         _uuid(payload, 'classId');
         _uuidList(payload, 'parentClassIds');
@@ -1008,9 +1038,10 @@ class OperationPayloads {
         _uuid(payload, 'elementId', required: false);
         _int(payload, 'idx', min: 0, required: false);
       case 'workspace.feature.set':
-        // The strict five-family enum; the retired
-        // pre-reshape ids (journals/readItLater/library/people/collections)
-        // are rejected outright like any unknown value.
+        // The strict six-toggle enum (five families + journal,
+        // surfaces-only); the retired pre-reshape ids
+        // (journals/readItLater/library/people/collections) are rejected
+        // outright like any unknown value.
         _strict(payload, {'feature', 'enabled'});
         _enum(payload, 'feature', workspaceFeatures);
         _bool(payload, 'enabled');

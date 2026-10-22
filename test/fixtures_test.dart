@@ -31,7 +31,6 @@ void main() {
   // Fixtures holding {"comment": ..., "envelopes": [...]}.
   const envelopeListFixtures = [
     'class-convert.json',
-    'class-delete-managed.json',
     'class-extends-cycle.json',
     'class-extends-m2m.json',
     'class-extends-system-lock.json',
@@ -47,11 +46,13 @@ void main() {
     'is-embedded-parent-page.json',
     'link-embedded.json',
     'object-color.json',
+    'object-delete-class-routing.json',
     'object-is-embedded.json',
     'object-list-style.json',
     'object-move-before.json',
     'object-move.json',
     'object-restore.json',
+    'object-update-active.json',
     'trash-empty.json',
     'object-wire-fields.json',
     'property-asset-type.json',

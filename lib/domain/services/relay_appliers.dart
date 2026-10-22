@@ -67,9 +67,11 @@ import '../models/relay/workspace_features.dart';
 ///    stored type at update (a schema-less write stores unchecked);
 ///  - per-workspace feature toggles (workspace.feature.set) LWW by HLC on
 ///    (workspace, feature) derive the membership-preserving archival of the
-///    five managed class families (F2 absent-row=ON, F3 keep-data, F4
-///    class.delete-on-a-base routes to the toggle; the tasks enable authors
-///    the task family at the fixed seed ids on every enable payload);
+///    five managed class families (F2 absent-row=ON, F3 keep-data; the
+///    `journal` toggle is surfaces-only and derives no class bits; the
+///    tasks enable authors the task family at the fixed seed ids on every
+///    enable payload); an object.delete on a family base routes to the
+///    toggle (the class-node delete routing);
 ///  - trash.empty (2026-10-14 lockstep) permanently deletes every node
 ///    carrying a non-permanent trash_root row through the same hard-delete
 ///    body as `object.delete {permanent: true}`; the root set is an
@@ -149,8 +151,6 @@ class RelayAppliers {
         return true;
       case 'class.update':
         return _applyClassUpdate(envelope, payload);
-      case 'class.delete':
-        return _applyClassDelete(envelope, payload);
       case 'class.setExtends':
         await _applyClassSetExtends(envelope, payload);
         return true;
@@ -198,6 +198,11 @@ class RelayAppliers {
       case 'node.addAlias':
       case 'node.removeAlias':
       case 'plugin.op':
+      case 'class.delete':
+        // `class.delete` is RETIRED from the op registry — class-node deletion routes through `object.delete`
+        // (four applier-decided arms, SCHEMA.md "Workspace features"). A
+        // retired op in a replayed log lands here and is ignored, exactly
+        // like the other legacy ops below.
         return false;
       default:
         // No silent fallthrough: log op types this client does not know
@@ -427,6 +432,16 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     final opType = envelope.opType;
     final node = await _cache.getByUuid(objectId);
     if (node == null) {
+      // Class-only rows (no node-cache row — classes live in class_cache):
+      // the archival bit is their only object.update surface (the
+      // classes-gallery disable gesture). The same refusals apply; the bit
+      // mirrors to the registry projection.
+      if (payload.containsKey('active') &&
+          await _cache.classActiveState(objectId) != null) {
+        _assertArchivalAllowed(opType, objectId, payload['active'] == true);
+        await _cache.setClassActive(objectId, payload['active'] == true);
+        return true;
+      }
       throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
     }
     final hasDelta = payload['contentDeltaB64'] != null;
@@ -529,6 +544,17 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         await _assertAliasAcyclic(objectId, target, opType);
       }
     }
+    // Archival bit (the classes-gallery batch):
+    // presence writes — `false` archives, `true` unarchives. A reversible
+    // STATE, distinct from the trash table (deletion). Archival REFUSALS
+    // fail loud: the locked system classes can never be archived, and
+    // family bases are toggle-managed (the Features setting is their
+    // single archive path) — unarchiving is harmless and stays legal.
+    // Class rows mirror the bit to the registry projection below (the
+    // feature-derivation pattern).
+    if (payload.containsKey('active') && node.isClass) {
+      _assertArchivalAllowed(opType, objectId, payload['active'] == true);
+    }
     await _cache.upsert(
       _copyWith(
         node,
@@ -539,6 +565,12 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         // parentless or standalone); class rows are tree-external and keep
         // whatever they carried (they live in class_cache locally).
         isPage: node.isClass ? node.isPage : !resultingIsEmbedded,
+        // Archival: presence writes — `false` archives the row, `true`
+        // unarchives it (the node row's archived flag is the projection of
+        // `node.is_active` in the TS store).
+        isArchived: payload.containsKey('active')
+            ? payload['active'] != true
+            : node.isArchived,
         icon: payload['icon'] as String? ?? node.icon,
         // Color is presence-based (TS `if (p.color !== undefined)`): a
         // present null CLEARS the stored color instead of keeping it.
@@ -568,6 +600,13 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         actorId: incoming.actor,
       ),
     );
+    // An archival flip on a class row mirrors to the registry projection
+    // (`class_cache.active`, the pickers/class hubs read — the
+    // feature-derivation pattern): the class node's bit is the authority,
+    // the registry column its direct projection.
+    if (payload.containsKey('active') && node.isClass) {
+      await _cache.setClassActive(objectId, payload['active'] == true);
+    }
     // Content-asserted membership: the class_link tokens about to be stored
     // class the node (any writer converges). Class rows flatten (never carry
     // links); date-chain nodes' class set is fixed — a foreign link there is
@@ -595,6 +634,34 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       await _cache.rebuildEdges(objectId, at: envelope.timestamp);
     }
     return true;
+  }
+
+  /// Archival refusals (the classes-gallery batch):
+  /// the locked system classes can never be archived, and family bases are
+  /// toggle-managed (the Features setting is their single archive path) —
+  /// a direct archival write would diverge the class bit from the toggle
+  /// until the next re-derivation. Both fail loud, never applied.
+  /// Unarchiving stays legal: it heals, never diverges harmfully.
+  void _assertArchivalAllowed(String opType, String objectId, bool unarchiving) {
+    if (unarchiving) return;
+    if (isLockedSystemClassId(objectId)) {
+      throw LockedSystemClassError(
+        '$opType: ${systemClassNameForId(objectId)} is a locked system '
+        'class — it can never be archived (archival is gallery-toggleable '
+        'for every OTHER system class)',
+        opType,
+      );
+    }
+    final managedFeature = featureForManagedClass(objectId);
+    if (managedFeature != null) {
+      throw MoveGuardError(
+        '$opType: ${systemClassNameForId(objectId)} is a family base '
+        'class — archival is toggle-managed (workspace.feature.set '
+        '{feature: "$managedFeature", enabled: false}); direct archival '
+        'writes are refused',
+        opType,
+      );
+    }
   }
 
   /// M12 write-time alias-cycle validation (the extends-DAG precedent):
@@ -632,31 +699,79 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     Map<String, dynamic> payload,
   ) async {
     final opType = envelope.opType;
-    if (await _cache.getByUuid(objectId) == null) {
+    final permanent = payload['permanent'] == true;
+    final nodeRow = await _cache.getByUuid(objectId);
+    // Class-node delete routing (the retired
+    // class.delete op's routing, moved here; SCHEMA.md "Workspace
+    // features"). Classes are nodes: one delete op, four applier-decided
+    // outcomes, all a pure function of the class id so every replica takes
+    // the same branch. MEMBERSHIP RIDES in every arm — `class_member_set`
+    // rows are never touched by class removal (archive or trash); stripping
+    // a class from nodes stays the explicit per-node `class.unassign`.
+    final deletedIsClass =
+        nodeRow?.isClass ?? await _cache.classActiveState(objectId) != null;
+    if (deletedIsClass) {
+      // Arm 1 — LOCKED system classes (the date chain + table, asset,
+      // query, code, template, comment): platform structure, never
+      // archivable or deletable. Fails loud, never applied — regardless
+      // of `permanent`.
+      if (isLockedSystemClassId(objectId)) {
+        throw LockedSystemClassError(
+          '$opType: ${systemClassNameForId(objectId)} is a locked system '
+          'class — it can never be deleted',
+          opType,
+        );
+      }
+      // Arm 2 — a family BASE class (task, event, meeting, source, person):
+      // routed to the toggle, applied as a feature-disable (the LWW row +
+      // the family re-derivation — the Features setting stays the single
+      // archive path for the families, and the whole extends family
+      // archives with the base). The route decision rides the envelope's
+      // HLC, so a racing toggle converges under either delivery order.
+      final managedFeature = featureForManagedClass(objectId);
+      if (managedFeature != null) {
+        final wrote = await _lwwWriteFeatureRow(
+          envelope,
+          managedFeature,
+          false,
+        );
+        if (wrote) {
+          await _deriveFamilyClassBits(envelope.workspaceId, managedFeature);
+        }
+        return wrote;
+      }
+      // Arm 3 — any OTHER non-locked system class: re-wired to ARCHIVAL
+      // (`active = false`), NOT trash (the gallery's disable gesture; the
+      // system picks the most reversible interpretation — disable =
+      // delete). No trash row: the class revives with
+      // `object.update {active: true}`, not `object.restore` (archive is
+      // not deletion). `permanent` is ignored on this arm — archival is
+      // the only delete a system class admits.
+      if (systemClassNameForId(objectId) != null) {
+        await _archiveClassRow(objectId);
+        return true;
+      }
+      // Arm 4 — a USER class: falls through to the plain trash path below
+      // (soft delete with a trash row, restorable from the Trash hub — the
+      // whole subtree rides, exactly like any node).
+    } else if (nodeRow == null) {
       throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
     }
-    final permanent = payload['permanent'] == true;
-    // Class-node deletion sweeps memberships (the no-divergence law's
-    // deletion arm): the class leaves every node's class list.
-    final deletedRow = await _cache.getByUuid(objectId);
-    final deletedIsClass = deletedRow?.isClass ?? false;
+
     if (!permanent) {
       // Soft delete: trash the whole subtree (relay semantics — restore is
       // whole-tree). The trash/archive view reads is_archived; the
       // trash_root row (one per root, lockstep with the TS `trash` table)
       // is what lets object.restore tell "rode with the parent" apart from
-      // "trashed independently".
+      // "trashed independently". Membership RIDES — a class root's
+      // class_member_set pairs are never tombstoned by the delete.
       final ids = await _cache.subtreeUuids(objectId);
       for (final id in ids) {
         final node = await _cache.getByUuid(id);
         if (node != null) await _cache.upsert(node.copyWithIsArchived(true));
       }
       if (deletedIsClass) {
-        final members =
-            await _cache.sweepClassMembership(objectId, purge: false);
-        for (final member in members) {
-          await _cache.recomputeClassIds(member);
-        }
+        await _cache.deleteClass(objectId);
       }
       await _cache.recordTrashRoot(
         objectId,
@@ -665,14 +780,25 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       return true;
     }
     // Permanent delete: hard-delete the subtree and its derived rows.
+    // Membership RIDES even here: the pairs stand (the class pill renders
+    // the dangling reference — SCHEMA.md "Content grammar").
     await _cache.hardDelete(objectId);
     if (deletedIsClass) {
-      final members = await _cache.sweepClassMembership(objectId, purge: true);
-      for (final member in members) {
-        await _cache.recomputeClassIds(member);
-      }
+      await _cache.deleteClass(objectId);
     }
     return true;
+  }
+
+  /// Arm-3 archival (a non-locked system class delete): the class registry
+  /// row deactivates and a class node row, when one exists, archives with
+  /// it. No trash row, no membership touches — restore is the archival
+  /// write (`object.update {active: true}`), never `object.restore`.
+  Future<void> _archiveClassRow(String classId) async {
+    await _cache.deleteClass(classId);
+    final node = await _cache.getByUuid(classId);
+    if (node != null) {
+      await _cache.upsert(node.copyWithIsArchived(true));
+    }
   }
 
   /// Empties the trash (the trash.empty op, 2026-10-14 lockstep):
@@ -699,13 +825,11 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         await _cache.consumeTrashRoot(root);
         continue;
       }
-      final rootWasClass = rootRow.isClass;
       await _cache.hardDelete(root);
-      if (rootWasClass) {
-        final members = await _cache.sweepClassMembership(root, purge: true);
-        for (final member in members) {
-          await _cache.recomputeClassIds(member);
-        }
+      // Membership RIDES the empty too: a class root's pairs stand (the
+      // dangling-reference state, SCHEMA.md "Content grammar").
+      if (rootRow.isClass) {
+        await _cache.deleteClass(root);
       }
     }
     return roots.isNotEmpty;
@@ -719,6 +843,24 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     final opType = envelope.opType;
     final root = await _cache.getByUuid(objectId);
     if (root == null) {
+      // Class-only root (no node row — classes live in class_cache): the
+      // plain-trash arm of the class-node delete routing recorded the
+      // trash_root row. Restore reactivates the registry row, reactivates
+      // any node children that rode the delete, and consumes the root.
+      // (Arm-3 archival is NOT restored here — archive is not deletion; it
+      // revives through `object.update {active: true}`.)
+      if (await _cache.classActiveState(objectId) != null) {
+        await _cache.setClassActive(objectId, true);
+        final ids = await _cache.subtreeUuids(objectId);
+        for (final id in ids) {
+          final node = await _cache.getByUuid(id);
+          if (node != null && node.isArchived) {
+            await _cache.upsert(node.copyWithIsArchived(false));
+          }
+        }
+        await _cache.consumeTrashRoot(objectId);
+        return true;
+      }
       throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
     }
     // Corner: dangling parent (parent permanently deleted / legacy data) —
@@ -1434,37 +1576,14 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     return contentSourceToExcerpt(contentAst);
   }
 
-  /// F4: a delete addressed at a family BASE class is
-  /// routed to the toggle — applied as a feature-disable so the Features
-  /// setting is the single archive path for the families and the lossy
-  /// plain delete (membership tombstoning) never runs on them. The five
-  /// bases route (task, event, meeting, source, person — the TS domain test
-  /// pins the meeting mapping); non-base family children (book, birthday, …)
-  /// keep plain delete semantics. The route decision is a pure function of
-  /// the class id (fixed vocabulary), so every replica takes the same
-  /// branch; the LWW row gate keeps the derived state convergent under
-  /// either delivery order.
-  Future<bool> _applyClassDelete(
-    OperationEnvelope envelope,
-    Map<String, dynamic> payload,
-  ) async {
-    final classId = payload['classId'] as String;
-    final managedFeature = featureForManagedClass(classId);
-    if (managedFeature != null) {
-      final wrote = await _lwwWriteFeatureRow(
-        envelope,
-        managedFeature,
-        false,
-      );
-      if (wrote) {
-        await _deriveFamilyClassBits(envelope.workspaceId, managedFeature);
-      }
-      return wrote;
-    }
-    await _cache.deleteClass(classId);
-    return true;
-  }
-
+  /// Class-node delete routing — arm 2 lives in
+  /// [_applyDelete]: a delete addressed at a family BASE class is routed to
+  /// the toggle, applied as a feature-disable so the Features setting is the
+  /// single archive path for the families and the whole extends family
+  /// archives with the base. The route decision is a pure function of the
+  /// class id (fixed vocabulary), so every replica takes the same branch;
+  /// the LWW row gate keeps the derived state convergent under either
+  /// delivery order.
   Future<void> _applyClassSetExtends(
     OperationEnvelope envelope,
     Map<String, dynamic> payload,
@@ -1936,8 +2055,12 @@ List<String> _contentClassLinkIds(dynamic tokens) {
   // feature's managed system classes from it. Toggle-off is
   // hide-surfaces-keep-data (F3): the class registry `active` bit flips,
   // class membership rows are NEVER touched. An absent row means ENABLED
-  // (F2). A class.delete on a managed base routes here (F4 — see
-  // [_applyClassDelete]).
+  // (F2). An object.delete addressed at a family base class is ROUTED here
+  // (the class-node delete routing — the retired
+  // class.delete op's rule, moved into the object.delete applier). The
+  // `journal` toggle gates SURFACES only (the journal nav view, Today-page
+  // management) — the date classes stay always-on and it derives no class
+  // bits ([isFamilyFeature] is the guard).
 
   /// LWW-write one feature row. Returns true when the incoming envelope won
   /// (the row was written); false when a newer (hlc, actor) row already
@@ -1984,7 +2107,15 @@ List<String> _contentClassLinkIds(dynamic tokens) {
           break;
         }
       }
-      await _cache.setClassActive(systemClassUuids[name]!, enabled);
+      final classId = systemClassUuids[name]!;
+      await _cache.setClassActive(classId, enabled);
+      // The class NODE flip is what pickers/search/class hubs filter on
+      // (the node row's archived flag) — when a class node row exists (a
+      // converted node) it archives with the registry projection.
+      final node = await _cache.getByUuid(classId);
+      if (node != null && node.isArchived == enabled) {
+        await _cache.upsert(node.copyWithIsArchived(!enabled));
+      }
     }
   }
 
@@ -2050,9 +2181,13 @@ List<String> _contentClassLinkIds(dynamic tokens) {
   ) async {
     final feature = payload['feature'] as String;
     final enabled = payload['enabled'] == true;
+    // Family toggles derive class archival bits; the journal toggle gates
+    // SURFACES only (the date classes stay always-on) — no family, no
+    // derivation, just the LWW row.
+    final family = isFamilyFeature(feature) ? feature : null;
     final wrote = await _lwwWriteFeatureRow(envelope, feature, enabled);
-    if (wrote) {
-      await _deriveFamilyClassBits(envelope.workspaceId, feature);
+    if (wrote && family != null) {
+      await _deriveFamilyClassBits(envelope.workspaceId, family);
     }
     // The ensure rides every enable PAYLOAD (not only the LWW winner):
     // both delivery orders of a racing toggle pair must author the
@@ -2211,6 +2346,7 @@ Node _copyWith(
   int? hlcLogical,
   String? actorId,
   bool? isPage,
+  bool? isArchived,
   // Identity only changes on the class.create conversion path (a node
   // declared a class); update/move never flip it.
   bool? isClass,
@@ -2253,7 +2389,7 @@ Node _copyWith(
   isAsset: node.isAsset,
   isComment: node.isComment,
   isDeleted: node.isDeleted,
-  isArchived: node.isArchived,
+  isArchived: isArchived ?? node.isArchived,
   isPrivate: node.isPrivate,
   classes: node.classes,
   classesUuid: node.classesUuid,

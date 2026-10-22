@@ -7,31 +7,39 @@
 /// persons=person. Each family is a seeded system class with built-in
 /// product logic; the extends-children ride the base class (disabling
 /// events archives meetings, birthdays, and trips with it —
-/// [systemClassExtends] is the cascade authority). Feature ids are protocol
+/// [systemClassAncestors] is the cascade authority). Feature ids are protocol
 /// vocabulary ([OperationPayloads.workspaceFeatures]); the op-log home is
 /// `workspace.feature.set`; the derived home is the app DB's
 /// `workspace_feature` table (v22 migration).
 ///
-/// Semantics (F1–F4, owner-confirmed):
+/// Semantics (F1–F3 + the class-node delete routing, owner-confirmed;
+/// superseding F4 — the retired class.delete op):
 ///  - Toggle-off is NEVER deletion (F3): the applier flips the family
 ///    classes' registry `active` bit, leaving class membership untouched —
 ///    instances keep their class ids and stay in the graph; pickers/search
 ///    filter the flags for free.
 ///  - An absent `workspace_feature` row means ENABLED (F2 — all families
 ///    default ON; the empty table is the pre-toggle state, zero migration).
-///  - A `class.delete` addressed at a family's BASE class is routed to the
-///    toggle (F4): applied as a feature-disable, so the Features setting is
-///    the single archive path and the lossy plain delete (membership
-///    tombstoning) never runs on managed classes. The five bases route
-///    (task, event, meeting, source, person — the TS domain test pins the
-///    meeting mapping); non-base family children (book, birthday, …) keep
-///    plain delete semantics.
+///  - Class-node delete routing: `object.delete`
+///    on a LOCKED system class ([lockedSystemClassNames]) fails loud; on a
+///    family BASE class it is routed to the toggle (applied as a
+///    feature-disable — the Features setting is the single archive path
+///    for the families); on any other non-locked system class it archives
+///    (`active = false`), never trash; on a user class it is a plain trash
+///    row. Membership RIDES in every arm — `class_member_set` is never
+///    touched by class removal (archive or trash); stripping a class from
+///    nodes stays the explicit per-node `class.unassign`.
+///  - The `journal` toggle is NOT a family: it
+///    gates the journal SURFACES (the journal nav view, Today-page
+///    management) while the date classes stay always-on structural seeds
+///    (F1); it derives no class bits ([isFamilyFeature] is the guard).
 library;
 
 import '../../../core/constants/system.dart';
 
-/// Feature ids are the five-family enum (validated on the wire by
-/// [OperationPayloads.validatePayload]).
+/// Feature ids are the six-toggle enum (validated on the wire by
+/// [OperationPayloads.validatePayload]); the five families derive class
+/// archival bits, `journal` gates surfaces only.
 typedef WorkspaceFeature = String;
 
 /// One family entry of [workspaceFeatureMap].
@@ -42,7 +50,7 @@ class WorkspaceFeatureSpec {
     required this.powers,
   });
 
-  /// The family's base system class (the F4 routing target).
+  /// The family's base system class (the delete-routing target).
   final String baseClass;
 
   /// Settings label.
@@ -292,6 +300,48 @@ final Map<String, List<String>> systemClassExtendsIds = {
 /// True when [id] is a fixed system-class seed UUID.
 bool isSystemClassId(String id) => systemClassExtendsIds.containsKey(id);
 
+/// Locked system classes (the classes-gallery
+/// batch): the core seeds that can NEVER be archived or deleted —
+/// `object.delete` fails loud (LockedSystemClassError) and an archival
+/// write (`object.update {active: false}`) is rejected the same way. This
+/// is the always-on set's locked CORE: the date chain + table, asset,
+/// query, code, template, comment. The other always-on classes (callouts,
+/// quote, whiteboard, …) are gallery-toggleable — disabling them archives
+/// (`active = false`), it never deletes. Membership rides; nothing here is
+/// ever feature-managed.
+const List<String> lockedSystemClassNames = [
+  'year',
+  'month',
+  'day',
+  'table',
+  'asset',
+  'query',
+  'code',
+  'template',
+  'comment',
+];
+
+final Set<String> _lockedSystemClassIdSet = {
+  for (final name in lockedSystemClassNames) systemClassSeedUuids[name]!,
+};
+
+/// True when [classId] is a LOCKED system class (never archivable/deletable).
+bool isLockedSystemClassId(String classId) =>
+    _lockedSystemClassIdSet.contains(classId);
+
+final Map<String, String> _systemClassNameById = {
+  for (final entry in systemClassSeedUuids.entries) entry.value: entry.key,
+};
+
+/// The seed name for a system-class id, else null (user/unknown classes).
+String? systemClassNameForId(String classId) =>
+    _systemClassNameById[classId];
+
+/// True when [feature] is a family toggle (derives class archival bits).
+/// The `journal` toggle is surfaces-only — no family, no derivation.
+bool isFamilyFeature(WorkspaceFeature feature) =>
+    workspaceFeatureMap.containsKey(feature);
+
 /// The transitive ancestor set of [name] over [systemClassExtends];
 /// a class is gated when itself or any ancestor is feature-off.
 Set<String> systemClassAncestors(String name) {
@@ -330,11 +380,11 @@ List<String> familyClassNames(WorkspaceFeature feature) {
 List<String> managedClassIds(WorkspaceFeature feature) =>
     [for (final name in familyClassNames(feature)) systemClassUuids[name]!];
 
-/// F4 routing: the owning feature when [classId] is a family's BASE class,
-/// else null. The five bases route — task, event, meeting, source, person
-/// (pinned by the TS domain test, `featureForManagedClass` there returns
-/// "meetings" for the meeting id). Family children that are NOT bases
-/// (book, birthday, …) keep plain delete semantics.
+/// Delete routing: the owning feature when [classId] is a family's BASE
+/// class, else null. The five bases route (task, event, meeting, source,
+/// person — the TS domain test pins the meeting mapping); family children
+/// that are NOT bases (book, birthday, …) fall to the other delete arms —
+/// archival when they are system classes, plain trash when user classes.
 WorkspaceFeature? featureForManagedClass(String classId) {
   for (final entry in workspaceFeatureMap.entries) {
     if (systemClassUuids[entry.value.baseClass] == classId) return entry.key;

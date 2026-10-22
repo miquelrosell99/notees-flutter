@@ -52,6 +52,15 @@ class SystemExtendsLockError extends StoreError {
   const SystemExtendsLockError(super.message, [super.opType]);
 }
 
+/// A LOCKED system class (the date chain + table, asset, query, code,
+/// template, comment) was archived or deleted (the
+/// classes-gallery batch): platform structure can never be archived or
+/// deleted — the write fails loud and is never applied (SCHEMA.md
+/// "Workspace features").
+class LockedSystemClassError extends StoreError {
+  const LockedSystemClassError(super.message, [super.opType]);
+}
+
 /// object.update arrived with the canonical CRDT wire carrier
 /// (contentDeltaB64) but no readable contentAst mirror. The Yjs port is
 /// future work; until it lands this carrier cannot be interpreted, so the applier

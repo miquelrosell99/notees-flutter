@@ -59,11 +59,14 @@ void main() {
   /// property-validation-rules' rejecting tail — below-min/above-max number,
   /// pattern rejects, a bad multi element, an uncompilable pattern — throws
   /// on apply by design, each reject pinned deliberately in the replay
-  /// suite).
+  /// suite; object-delete-class-routing pins the locked-system-class delete
+  /// arm (LockedSystemClassError) after its accepting prefix — the four
+  /// arms are asserted deliberately in the routing suite below).
   const replayExcluded = {
     'class-extends-cycle.json',
     'class-extends-system-lock.json',
     'is-embedded-parent-page.json',
+    'object-delete-class-routing.json',
     'property-validation-rules.json',
   };
 
@@ -1450,6 +1453,78 @@ void main() {
       final after = await cache.propertyValuesFor(owner);
       expect(after.map((v) => v.schemaId).toSet(),
           values.map((v) => v.schemaId).toSet());
+    });
+
+    test('object-update-active fixture archives then unarchives via the '
+        'active bit', () async {
+      for (final envelope in fixtureEnvelopes('object-update-active.json')) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      const page = '0192a000-0000-7000-8000-000000000a20';
+      const other = '0192a000-0000-7000-8000-000000000a21';
+      // Archive page, archive the other page, unarchive page — one archived
+      // node remains at the end (the default read hides it; the unarchived
+      // one is back).
+      expect((await cache.getByUuid(page))!.isArchived, isFalse);
+      expect((await cache.getByUuid(other))!.isArchived, isTrue);
+      // Archive is not deletion: no trash_root row on either arm.
+      final trash = await raw(
+        'SELECT node_id FROM trash_root WHERE node_id IN (?, ?)',
+        [page, other],
+      );
+      expect(trash, isEmpty);
+    });
+
+    test('object-delete-class-routing fixture exercises all four arms; '
+        'membership survives each', () async {
+      const task = '00000000-0000-0000-0001-000000000012';
+      const year = '00000000-0000-0000-0001-000000000003';
+      const quote = '00000000-0000-0000-0001-000000000006';
+      const genre = '0192a000-0000-7000-8000-000000000a23';
+      const taskMember = '0192a000-0000-7000-8000-000000000a22';
+      const genreMember = '0192a000-0000-7000-8000-000000000a24';
+      final fixture = fixtureEnvelopes('object-delete-class-routing.json');
+      final lockedDelete = fixture[5]; // the year delete — arm 1 fails loud
+      for (final envelope in [...fixture.take(5), ...fixture.skip(6)]) {
+        await appliers.apply(envelope);
+      }
+      // Arm 2 — family base (task): routed to the toggle, NOT trashed; the
+      // family archives membership-preserving.
+      expect(await cache.featureEnabledNow(ws, 'tasks'), isFalse);
+      expect(await cache.classActiveState(task), isFalse);
+      expect(
+        await raw('SELECT 1 AS x FROM trash_root WHERE node_id = ?', [task]),
+        isEmpty,
+      );
+      final taskMemberRow = await raw(
+        'SELECT present FROM class_member_set WHERE node_uuid = ? AND class_id = ?',
+        [taskMember, task],
+      );
+      expect(taskMemberRow.single['present'], 1);
+      // Arm 3 — system class (quote): archived, NOT trashed.
+      expect(await cache.classActiveState(quote), isFalse);
+      expect(
+        await raw('SELECT 1 AS x FROM trash_root WHERE node_id = ?', [quote]),
+        isEmpty,
+      );
+      // Arm 4 — user class (Genre): plain trash row, memberships intact.
+      expect(await cache.classActiveState(genre), isFalse);
+      final genreTrash = await raw(
+        'SELECT 1 AS x FROM trash_root WHERE node_id = ?',
+        [genre],
+      );
+      expect(genreTrash, isNotEmpty);
+      final genreMemberRow = await raw(
+        'SELECT present FROM class_member_set WHERE node_uuid = ? AND class_id = ?',
+        [genreMember, genre],
+      );
+      expect(genreMemberRow.single['present'], 1);
+      expect((await cache.getByUuid(genreMember))!.classesUuid, [genre]);
+      // Arm 1 — the locked delete still throws when applied deliberately,
+      // and the year class stays active.
+      expect(() => appliers.apply(lockedDelete),
+          throwsA(isA<LockedSystemClassError>()));
+      expect(await cache.classActiveState(year), isTrue);
     });
 
     test('re-applying the whole fixture set is state-idempotent', () async {
