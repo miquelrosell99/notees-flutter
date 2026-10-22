@@ -92,7 +92,7 @@ void main() {
         dio: buildDio(),
         clientId: device,
       );
-      service.wsConnectorOverride = (url) async {
+      service.wsConnectorOverride = (url, _) async {
         connectionUrls.add(url);
         final conn = FakeWsConnection();
         connections.add(conn);
@@ -180,13 +180,15 @@ void main() {
         () async {
       service.startRealtime(apiKey: 'k');
       await waitFor(() => connections.length == 1, reason: 'first connect');
-      expect(connectionUrls.single, contains('/ws/$workspaceId?'));
+      expect(connectionUrls.single, contains('/ws/$workspaceId'));
+      expect(connectionUrls.single, isNot(contains('?')));
 
       await service.stopRealtime();
       await service.setWorkspaceId(workspace2);
       service.startRealtime(apiKey: 'k');
       await waitFor(() => connections.length == 2, reason: 'reconnect');
-      expect(connectionUrls[1], contains('/ws/$workspace2?'));
+      expect(connectionUrls[1], contains('/ws/$workspace2'));
+      expect(connectionUrls[1], isNot(contains('?')));
       expect(connectionUrls[1], isNot(contains(workspaceId)));
     });
 

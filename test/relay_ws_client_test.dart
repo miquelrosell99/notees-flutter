@@ -75,7 +75,7 @@ void main() {
       final errors = <Object>[];
       final client = RelayWsClient(
         url: 'ws://example/ws',
-        connector: (_) async => conn,
+        connector: (_, _) async => conn,
         reconnectDelays: fastDelays,
         onHello: (h) => hello = HelloInfoCapture(h.latestSeq, h.restoreEpoch),
         onOps: (envelopes, seqs) => ops = OpsCapture(envelopes, seqs),
@@ -129,7 +129,7 @@ void main() {
       final hellos = <WsHelloInfo>[];
       final client = RelayWsClient(
         url: 'ws://example/ws',
-        connector: (_) async => conn,
+        connector: (_, _) async => conn,
         reconnectDelays: fastDelays,
         onHello: hellos.add,
         onError: errors.add,
@@ -160,7 +160,7 @@ void main() {
       final hellos = <WsHelloInfo>[];
       final client = RelayWsClient(
         url: 'ws://example/ws',
-        connector: (_) async => conn,
+        connector: (_, _) async => conn,
         reconnectDelays: fastDelays,
         onHello: hellos.add,
         onError: errors.add,
@@ -186,7 +186,7 @@ void main() {
       var connectCount = 0;
       final client = RelayWsClient(
         url: 'ws://example/ws',
-        connector: (_) async {
+        connector: (_, _) async {
           connectCount++;
           return conn;
         },
@@ -220,7 +220,7 @@ void main() {
       final ops = <OpsCapture>[];
       final client = RelayWsClient(
         url: 'ws://example/ws',
-        connector: (_) async => connections[connectCount++],
+        connector: (_, _) async => connections[connectCount++],
         reconnectDelays: fastDelays,
         onHello: hellos.add,
         onOps: (envelopes, seqs) => ops.add(OpsCapture(envelopes, seqs)),
@@ -267,7 +267,7 @@ void main() {
       var connectCount = 0;
       final client = RelayWsClient(
         url: 'ws://example/ws',
-        connector: (_) async {
+        connector: (_, _) async {
           connectCount++;
           return conn;
         },
@@ -288,7 +288,7 @@ void main() {
       final conn = FakeWsConnection();
       final client = RelayWsClient(
         url: 'ws://example/ws',
-        connector: (_) async => conn,
+        connector: (_, _) async => conn,
         reconnectDelays: fastDelays,
       );
       expect(client.sendBatch([sampleEnvelope()]), isFalse);
@@ -309,19 +309,62 @@ void main() {
         buildRelayWsUrl(
           'https://notees.example.com/api',
           '0192a000-0000-7000-8000-000000000001',
-          'secret key',
         ),
         'wss://notees.example.com/api/relay/v2/ws/'
-            '0192a000-0000-7000-8000-000000000001?token=secret+key',
+            '0192a000-0000-7000-8000-000000000001',
       );
       expect(
-        buildRelayWsUrl(
-          'http://192.168.1.10:8080/api/',
-          'ws-id',
-          'k',
-        ),
-        'ws://192.168.1.10:8080/api/relay/v2/ws/ws-id?token=k',
+        buildRelayWsUrl('http://192.168.1.10:8080/api/', 'ws-id'),
+        'ws://192.168.1.10:8080/api/relay/v2/ws/ws-id',
       );
+    });
+
+    test('carries no credential: the URL never contains the key', () {
+      final url = buildRelayWsUrl(
+        'https://notees.example.com/api',
+        'ws-id',
+      );
+      expect(url, isNot(contains('token')));
+      expect(url, isNot(contains('?')));
+      expect(url, isNot(contains('secret')));
+    });
+  });
+
+  group('upgrade headers', () {
+    test('sends the Authorization header on connect and reconnect', () async {
+      final connections = [FakeWsConnection(), FakeWsConnection()];
+      final seenHeaders = <Map<String, String>>[];
+      var connectCount = 0;
+      const auth = {'Authorization': 'Bearer secret key'};
+      final client = RelayWsClient(
+        url: 'ws://example/ws',
+        headers: auth,
+        connector: (url, headers) async {
+          seenHeaders.add(Map<String, String>.from(headers));
+          return connections[connectCount++];
+        },
+        reconnectDelays: fastDelays,
+      );
+      client.start();
+      await pumpEventQueue();
+
+      connections[0].serverSends(jsonEncode({
+        'type': 'hello',
+        'wsProtocolVersion': 2,
+        'restoreEpoch': 0,
+        'latestSeq': 1,
+      }));
+      await pumpEventQueue();
+      connections[0].kill();
+      await Future.delayed(const Duration(milliseconds: 50));
+      await pumpEventQueue();
+      expect(connectCount, 2);
+
+      expect(seenHeaders, hasLength(2));
+      for (final headers in seenHeaders) {
+        expect(headers, auth);
+      }
+      await client.stop();
     });
   });
 }
