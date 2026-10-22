@@ -13,9 +13,11 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// Acceptance suite: replays the vendored protocol fixtures through the
 /// Flutter derived-state appliers — the same envelopes the monorepo's store
 /// tests and the GTK client replay must converge to the same derived state
-/// here. The cycle fixture is deliberately excluded from the all-fixtures
-/// replay: its final two envelopes close cycles and MUST throw CycleError
-/// on apply (see the cycle test).
+/// here. The throw-fixtures are deliberately excluded from the all-fixtures
+/// replay: class-extends-cycle's final two envelopes close cycles and MUST
+/// throw CycleError on apply, class-extends-system-lock's tail deviates from
+/// the seeded system-extends sets and MUST throw SystemExtendsLockError
+/// (see the dedicated tests).
 ///
 /// Expected outcomes mirror `tests/test_store_fixtures.py` (GTK) and
 /// `packages/store/test/store.test.ts` (monorepo).
@@ -50,7 +52,9 @@ void main() {
   const cycleLeaf = '0192a000-0000-7000-8000-0000000000d2';
 
   /// Fixtures whose application must throw — never part of the replay set
-  /// (class-extends-cycle closes a cycle; is-embedded-parent-page claims the
+  /// (class-extends-cycle closes a cycle; class-extends-system-lock pins the
+  /// system-extends lock's reject tail (detach/extra-parent/deviate) after
+  /// an accepting prefix; is-embedded-parent-page claims the
   /// standalone role under an embedded block, the parent-page condition;
   /// property-validation-rules' rejecting tail — below-min/above-max number,
   /// pattern rejects, a bad multi element, an uncompilable pattern — throws
@@ -58,6 +62,7 @@ void main() {
   /// suite).
   const replayExcluded = {
     'class-extends-cycle.json',
+    'class-extends-system-lock.json',
     'is-embedded-parent-page.json',
     'property-validation-rules.json',
   };
@@ -1081,6 +1086,43 @@ void main() {
       final edgeCount =
           await raw('SELECT COUNT(*) AS c FROM class_extends');
       expect(edgeCount.single['c'], 1);
+    });
+
+    test('system-extends lock: seeded re-issue applies, deviations throw and '
+        'change nothing', () async {
+      final envelopes = fixtureEnvelopes('class-extends-system-lock.json');
+      const event = '00000000-0000-0000-0001-000000000040';
+      const meeting = '00000000-0000-0000-0001-000000000039';
+      const userClass = '0192a000-0000-7000-8000-0000000000e1';
+
+      // The 5-envelope PREFIX applies cleanly: a USER class may extend a
+      // system base (conference talk extends meeting), and meeting → [event]
+      // is the seeded re-issue (the seed/ensure convergence path).
+      for (final envelope in envelopes.take(5)) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      Future<List<String>> parentsOf(String id) async => (await raw(
+            'SELECT parent_class_id FROM class_extends WHERE class_id = ? '
+            'ORDER BY parent_class_id',
+            [id],
+          ))
+              .map((r) => r['parent_class_id'] as String)
+              .toList();
+      expect(await parentsOf(userClass), [meeting]);
+      expect(await parentsOf(meeting), [event]);
+
+      // The rejecting tail: detaching meeting's seeded parent, an extra
+      // parent on meeting, and event gaining a parent (event has no seeded
+      // parents — a system class is frozen to the empty set).
+      for (final envelope in envelopes.skip(5)) {
+        expect(() async => appliers.apply(envelope),
+            throwsA(isA<SystemExtendsLockError>()));
+      }
+
+      // A thrown apply changes nothing: exactly the two prefix edges remain.
+      final edgeCount =
+          await raw('SELECT COUNT(*) AS c FROM class_extends');
+      expect(edgeCount.single['c'], 2);
     });
 
     test('object-list-style lands numbered → alpha → clear, and styles the '

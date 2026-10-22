@@ -6,6 +6,35 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-22
+
+- **feat(protocol,store): the system-extends lock — a system class's
+  `extends` mapping is frozen to the seeded set (Flutter lockstep port of the
+  monorepo's owner ruling 2026-10-22, SCHEMA.md "Class properties").**
+  `class.setExtends` on a SYSTEM class applies only when the payload's
+  `parentClassIds` set EQUALS the seeded parent set (order-insensitive — the
+  seed/ensure re-issue convergence path keeps working); every deviation fails
+  loud with the new `SystemExtendsLockError` and is never applied. The guard
+  runs after the class-node existence check, before the parent-existence and
+  cycle checks (TS ordering). Authority: `systemClassExtendsIds` in
+  `domain/models/relay/workspace_features.dart` — the Dart port of the TS
+  manifest `SYSTEM_CLASS_EXTENDS_IDS` (every system class UUID resolved to its
+  seeded parent UUIDs via the full `systemClassSeedUuids` map; classes absent
+  from the seeded edges are frozen to the empty set), with `isSystemClassId`
+  alongside. The full map needs the three seed UUIDs the mobile seed delta
+  never carried (`organization`/`collection`/`highlight`, …031–…033), added
+  to `core/constants/system.dart` — additive constants only, the seed delta
+  itself is untouched. User classes stay freely extensible, including onto
+  system bases. New vendored fixture `class-extends-system-lock.json`
+  (byte-pinned, sha256-verified against the monorepo corpus) — added to the
+  fixtures-test gate list and excluded from the all-fixtures replay; the
+  replay suite pins its accepting prefix (user class → meeting, meeting →
+  event re-issue) and its three-envelope rejecting tail (detach, extra
+  parent, empty-set deviate), each throwing the lock error and leaving
+  `class_extends` exactly at the two prefix edges. No local DB schema change.
+  **Verification:** `flutter analyze` clean; `flutter test` green. Shipped
+  via CI APK on push to main.
+
 ## 2026-10-21
 
 - **fix(search,picker): diacritic folding — `video` finds the class

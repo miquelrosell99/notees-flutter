@@ -43,6 +43,15 @@ class CycleError extends StoreError {
   const CycleError(super.message, [super.opType]);
 }
 
+/// class.setExtends attempted to modify a system class's frozen extends
+/// mapping (SCHEMA.md "Class properties", owner ruling 2026-10-22 — system
+/// mappings are seeded platform structure; only an idempotent re-issue of the
+/// seeded parent set applies, every deviation fails loud and is never
+/// applied).
+class SystemExtendsLockError extends StoreError {
+  const SystemExtendsLockError(super.message, [super.opType]);
+}
+
 /// object.update arrived with the canonical CRDT wire carrier
 /// (contentDeltaB64) but no readable contentAst mirror. The Yjs port is
 /// future work; until it lands this carrier cannot be interpreted, so the applier
