@@ -12,7 +12,7 @@
 # (see .agents/skills/notees-flutter-operations/references/releases.md).
 
 pkgname=notees
-pkgver=4.0.0
+pkgver=4.3.0
 pkgrel=1
 pkgdesc="First-class Flutter client for Notees — self-hosted notes, journals, and tasks"
 arch=(x86_64)
@@ -22,7 +22,7 @@ depends=(atk cairo fontconfig gdk-pixbuf2 glib2 gtk3 harfbuzz libepoxy libsecret
 makedepends=(clang cmake ninja pkgconf python)
 options=(!debug)  # flutter release libs carry no debuginfo
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/miquelrosell99/notees-flutter/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('d3647144f25ada0bd6e3a3e162deec13f5e11e1e6d85caff1663b7352c029e26')
+sha256sums=('8664a740022d51c74c80a6f009203693246618c3908e00d6bc99a23989f83e77')
 
 build() {
   cd "${srcdir}/notees-flutter-${pkgver}"
