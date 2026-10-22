@@ -374,7 +374,8 @@ void main() {
       );
     });
 
-    test('applies class.create, update, setExtends and delete', () async {
+    test('applies class.create, update, setExtends; object.delete trashes '
+        'a user class (membership rides)', () async {
       const classUuid = '00000000-0000-0000-0000-000000000301';
       const parentUuid = '00000000-0000-0000-0000-000000000302';
 
@@ -427,12 +428,21 @@ void main() {
 
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-0000000000ef',
-        opType: 'class.delete',
-        payload: OperationPayloads.classDelete(classId: classUuid),
+        opType: 'object.delete',
+        payload: OperationPayloads.objectDelete(objectId: classUuid),
         physical: 4,
       ));
+      // A user class takes the plain-trash arm: the registry row reads
+      // inactive and a trash_root row was recorded (restorable through
+      // object.restore); membership pairs are never touched.
       cls = await cache.getClassByUuid(classUuid);
       expect(cls, isNull);
+      final db = await database.database;
+      final trash = await db.rawQuery(
+        'SELECT node_id FROM trash_root WHERE node_id = ?',
+        [classUuid],
+      );
+      expect(trash.single['node_id'], classUuid);
     });
 
     test('class.create drops description (TS parity: the payload schema '

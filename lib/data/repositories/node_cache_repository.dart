@@ -1408,36 +1408,22 @@ class NodeCacheRepository {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  /// The no-divergence law's deletion arm (owner ruling 2026-10-15 lockstep):
-  /// a deleted class leaves every node's class list. [purge] deletes the
-  /// membership rows outright (permanent delete / trash.empty); otherwise
-  /// the pairs are tombstoned (trash — restore brings the class node back).
-  /// Returns the affected node ids so callers can recompute their lists.
-  Future<List<String>> sweepClassMembership(String classId,
-      {required bool purge}) async {
+  /// The class registry row's archival bit, or null when the class is not
+  /// cached (read UNFILTERED — unlike [getClassByUuid], which hides
+  /// inactive rows). The class-node delete routing and the class-only
+  /// object.update/restore paths need to tell an archived class from an
+  /// absent one.
+  Future<bool?> classActiveState(String uuid) async {
     final db = await _database.database;
     final rows = await db.query(
-      'class_member_set',
-      columns: ['node_uuid'],
-      where: 'class_id = ? AND present = 1',
-      whereArgs: [classId],
+      'class_cache',
+      columns: ['active'],
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+      limit: 1,
     );
-    final members = rows.map((r) => r['node_uuid'] as String).toList();
-    if (purge) {
-      await db.delete(
-        'class_member_set',
-        where: 'class_id = ?',
-        whereArgs: [classId],
-      );
-    } else {
-      await db.update(
-        'class_member_set',
-        {'present': 0},
-        where: 'class_id = ?',
-        whereArgs: [classId],
-      );
-    }
-    return members;
+    if (rows.isEmpty) return null;
+    return (rows.first['active'] as num? ?? 0) == 1;
   }
 
   /// Recomputes [uuid]'s class list from the membership OR-Set's present

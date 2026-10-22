@@ -97,6 +97,64 @@ void main() {
       );
     });
 
+    test('object.update carries the archival bit; object.create rejects it '
+        'outright', () {
+      // The classes-gallery batch (owner ruling 2026-10-22): `active` is a
+      // platform node field — `false` archives, `true` unarchives.
+      final archived = OperationPayloads.objectUpdate(
+        objectId: objectId,
+        active: false,
+      );
+      expect(archived['active'], isFalse);
+      final unarchived = OperationPayloads.objectUpdate(
+        objectId: objectId,
+        active: true,
+      );
+      expect(unarchived['active'], isTrue);
+      // A non-boolean active is rejected outright (the strict schema).
+      expect(
+        () => OperationPayloads.validatePayload('object.update', {
+          'objectId': objectId,
+          'active': 'yes',
+        }),
+        throwsFormatException,
+      );
+      // The bit is object.update-only — object.create carries no
+      // appearance/fundamental fields (the wire-fields precedent).
+      expect(
+        () => OperationPayloads.validatePayload('object.create', {
+          'objectId': objectId,
+          'active': false,
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('class.delete is retired from the op registry', () {
+      expect(OperationPayloads.isKnownOpType('class.delete'), isFalse);
+      expect(
+        () => OperationPayloads.validatePayload(
+            'class.delete', {'classId': classId}),
+        throwsFormatException,
+      );
+    });
+
+    test('workspace.feature.set accepts journal; the plural spelling stays '
+        'rejected outright', () {
+      final journal = OperationPayloads.workspaceFeatureSet(
+        feature: 'journal',
+        enabled: false,
+      );
+      expect(journal, {'feature': 'journal', 'enabled': false});
+      expect(
+        () => OperationPayloads.workspaceFeatureSet(
+          feature: 'journals',
+          enabled: false,
+        ),
+        throwsFormatException,
+      );
+    });
+
     test('object.update carries the wire node fields set + clear; '
         'object.create rejects them outright', () {
       const asset = '0192a000-0000-7000-8000-00000000052b';

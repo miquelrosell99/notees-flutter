@@ -8,19 +8,21 @@ import 'package:notees/data/repositories/node_cache_repository.dart';
 import 'package:notees/domain/models/relay/hlc.dart';
 import 'package:notees/domain/models/relay/operation_envelope.dart';
 import 'package:notees/domain/models/relay/operation_payloads.dart';
+import 'package:notees/domain/models/relay/store_errors.dart';
 import 'package:notees/domain/models/relay/workspace_features.dart';
 import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Acceptance for the `workspace.feature.set` lockstep op:
-/// the strict five-family enum (retired ids rejected outright), the
-/// `workspace_feature` LWW row (absent = ON, F2), the membership-preserving
-/// family archival via per-class re-derivation (F3 + the event→meeting /
-/// birthday / trip cascade), the F4 class.delete routing on the five bases
-/// only,
-/// and the idempotent task-family seed-ensure riding every enable payload.
+/// the strict six-toggle enum (retired ids rejected outright; `journal` is
+/// surfaces-only and derives no class bits), the `workspace_feature` LWW
+/// row (absent = ON, F2), the membership-preserving family archival via
+/// per-class re-derivation (F3 + the event→meeting / birthday / trip
+/// cascade), the class-node delete routing on the five bases only (an
+/// object.delete on a family base routes to the toggle), and the idempotent
+/// task-family seed-ensure riding every enable payload.
 /// Replays the two canonical fixtures (workspace-feature-set,
-/// class-delete-managed) through the appliers.
+/// object-delete-class-routing) through the appliers.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -155,9 +157,10 @@ void main() {
       }
     });
 
-    test('F4 routing resolves the five base ids and nothing else', () {
+    test('delete routing resolves the five base ids and nothing else', () {
       // The TS domain test pins the owner mapping: the five bases route,
-      // children (book, birthday, …) keep plain delete semantics.
+      // children (book, birthday, …) fall to the other delete arms —
+      // archival for system classes, plain trash for user classes.
       expect(
         featureForManagedClass(SystemClassUuids.task),
         'tasks',
@@ -175,6 +178,38 @@ void main() {
         SystemClassUuids.meeting,
         SystemClassUuids.trip,
       ]);
+    });
+
+    test('the locked system classes: the always-on core, name lookup',
+        () {
+      // The locked core (owner ruling 2026-10-22): the date chain + table,
+      // asset, query, code, template, comment. Everything else system is
+      // gallery-toggleable (archival), never deletable via the gallery.
+      for (final name in [
+        'year',
+        'month',
+        'day',
+        'table',
+        'asset',
+        'query',
+        'code',
+        'template',
+        'comment',
+      ]) {
+        expect(isLockedSystemClassId(systemClassSeedUuids[name]!), isTrue,
+            reason: name);
+      }
+      expect(isLockedSystemClassId(SystemClassUuids.quote), isFalse);
+      expect(isLockedSystemClassId(SystemClassUuids.task), isFalse);
+      expect(isLockedSystemClassId('0192a000-0000-7000-8000-00000000ffff'),
+          isFalse);
+      expect(systemClassNameForId(SystemClassUuids.year), 'year');
+      expect(systemClassNameForId(SystemClassUuids.task), 'task');
+      expect(systemClassNameForId('0192a000-0000-7000-8000-00000000ffff'),
+          isNull);
+      // The family guard: journal is a toggle but NOT a family.
+      expect(isFamilyFeature('journal'), isFalse);
+      expect(isFamilyFeature('tasks'), isTrue);
     });
   });
 
@@ -423,9 +458,11 @@ void main() {
         'ORDER BY feature',
         [ws],
       );
+      // The `journal` pair (off → on) leaves the toggle enabled; it derives
+      // NO class bits — the date classes stay always-on (surfaces-only).
       expect(
         rows.map((r) => (r['feature'], r['enabled'])).toList(),
-        [('events', 0), ('sources', 1), ('tasks', 0)],
+        [('events', 0), ('journal', 1), ('sources', 1), ('tasks', 0)],
       );
       // The tasks enable payloads (both) authored the family even though
       // the disable won the row.
@@ -459,7 +496,7 @@ void main() {
       );
       expect(
         rowsReverse.map((r) => (r['feature'], r['enabled'])).toList(),
-        [('events', 0), ('sources', 1), ('tasks', 0)],
+        [('events', 0), ('journal', 1), ('sources', 1), ('tasks', 0)],
       );
       final taskReverse = await raw(
         'SELECT active FROM class_cache WHERE uuid = ?',
@@ -468,42 +505,29 @@ void main() {
       expect(taskReverse.single['active'], 0);
     });
 
-    test('fixture class-delete-managed: F4 routing preserves membership',
+    test('the journal toggle is surfaces-only: row LWW, no class bits',
         () async {
-      final envelopes = fixtureEnvelopes('class-delete-managed.json');
-      for (final envelope in envelopes) {
-        expect(await appliers.apply(envelope), isTrue);
-      }
-      const memberNode = '0192a000-0000-7000-8000-000000000615';
-      // The delete routed to a feature-disable: the row is disabled.
-      final rows = await raw(
-        'SELECT enabled FROM workspace_feature WHERE workspace_id = ? AND feature = ?',
-        [ws, 'tasks'],
-      );
-      expect(rows.single['enabled'], 1, reason: 'the re-enable wins last');
-      // ...and the re-enable un-archived the class.
-      final task = await raw(
-        'SELECT active FROM class_cache WHERE uuid = ?',
-        [SystemClassUuids.task],
-      );
-      expect(task.single['active'], 1);
-      // F3: membership is NEVER touched by the toggle path.
-      final member = await raw(
-        'SELECT present FROM class_member_set WHERE node_uuid = ? AND class_id = ?',
-        [memberNode, SystemClassUuids.task],
-      );
-      expect(member.single['present'], 1);
-      final node = await cache.getByUuid(memberNode);
-      expect(node!.classesUuid, contains(SystemClassUuids.task));
+      expect(await appliers.apply(toggle('journal', false, 1000)), isTrue);
+      expect(await cache.featureEnabledNow(ws, 'journal'), isFalse);
+      expect(await appliers.apply(toggle('journal', true, 900)), isFalse);
+      expect(await cache.featureEnabledNow(ws, 'journal'), isFalse);
+      expect(await appliers.apply(toggle('journal', true, 2000)), isTrue);
+      expect(await cache.featureEnabledNow(ws, 'journal'), isTrue);
+      // No family derivation: no class_cache row was touched (the date
+      // classes stay always-on structural seeds).
+      final classes = await raw('SELECT COUNT(*) AS c FROM class_cache');
+      expect(classes.single['c'], 0);
     });
 
-    test('class.delete on the task base routes to the toggle mid-fixture',
-        () async {
-      final envelopes = fixtureEnvelopes('class-delete-managed.json');
-      // Apply through the class.delete only.
-      await appliers.apply(envelopes[0]); // class.create Task
-      await appliers.apply(envelopes[1]); // object.create member
-      expect(await appliers.apply(envelopes[2]), isTrue); // class.delete
+    test('fixture object-delete-class-routing: the task delete routes to '
+        'the toggle mid-fixture', () async {
+      final envelopes = fixtureEnvelopes('object-delete-class-routing.json');
+      // Apply through the task delete only.
+      await appliers.apply(envelopes[0]); // class.create Year (seed prefix)
+      await appliers.apply(envelopes[1]); // class.create Quote
+      await appliers.apply(envelopes[2]); // class.create Task
+      await appliers.apply(envelopes[3]); // object.create member
+      expect(await appliers.apply(envelopes[4]), isTrue); // object.delete Task
       final rows = await raw(
         'SELECT enabled FROM workspace_feature WHERE workspace_id = ? AND feature = ?',
         [ws, 'tasks'],
@@ -514,21 +538,23 @@ void main() {
         [SystemClassUuids.task],
       );
       expect(task.single['active'], 0);
-      // Membership stands (the lossy plain delete never ran).
-      const memberNode = '0192a000-0000-7000-8000-000000000615';
+      // Membership stands (the routed arm never touches the pairs).
+      const taskMember = '0192a000-0000-7000-8000-000000000a22';
       final member = await raw(
         'SELECT present FROM class_member_set WHERE node_uuid = ? AND class_id = ?',
-        [memberNode, SystemClassUuids.task],
+        [taskMember, SystemClassUuids.task],
       );
       expect(member.single['present'], 1);
-      // A stale class.delete (lower HLC than the toggle) is dropped.
-      expect(await appliers.apply(envelopes[2]), isFalse);
+      // A stale routed delete (same HLC re-applied) is dropped by the LWW
+      // row gate.
+      expect(await appliers.apply(envelopes[4]), isFalse);
     });
 
-    test('F4 does not route family children or unmanaged classes', () async {
+    test('object.delete on a family child (birthday) archives, never '
+        'routes: the system-class arm', () async {
       // A birthday (an EVENTS-family child, not any feature's base) delete
-      // keeps plain semantics: the class row deactivates and NO
-      // workspace_feature row appears.
+      // takes arm 3: the class row deactivates and NO workspace_feature row
+      // appears. Membership rides.
       await appliers.apply(OperationEnvelope(
         id: '0192a000-0000-7000-8000-0000000000a1',
         workspaceId: ws,
@@ -550,17 +576,94 @@ void main() {
         deviceId: 'feature-test-device',
         hlc: Hlc(physical: 200, logical: 0),
         affectedNodeIds: [SystemClassUuids.birthday],
-        opType: 'class.delete',
-        payload: OperationPayloads.classDelete(classId: SystemClassUuids.birthday),
+        opType: 'object.delete',
+        payload: OperationPayloads.objectDelete(
+          objectId: SystemClassUuids.birthday,
+        ),
         timestamp: '2026-09-24T12:00:00.100Z',
       ));
       expect(deleted, isTrue);
+      // Archived, NOT trashed: the registry row reads inactive, the
+      // trash_root table stays empty, and no toggle was written.
+      expect(await cache.classActiveState(SystemClassUuids.birthday), isFalse);
       expect(await cache.getClassByUuid(SystemClassUuids.birthday), isNull);
+      final trash = await raw('SELECT COUNT(*) AS c FROM trash_root');
+      expect(trash.single['c'], 0);
       final rows = await raw(
         'SELECT COUNT(*) AS c FROM workspace_feature WHERE workspace_id = ?',
         [ws],
       );
       expect(rows.single['c'], 0);
+      // Archive is not deletion: the unarchive write revives the class.
+      final revived = await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-0000000000a3',
+        workspaceId: ws,
+        actorId: actor,
+        deviceId: 'feature-test-device',
+        hlc: Hlc(physical: 300, logical: 0),
+        affectedNodeIds: [SystemClassUuids.birthday],
+        opType: 'object.update',
+        payload: OperationPayloads.objectUpdate(
+          objectId: SystemClassUuids.birthday,
+          active: true,
+        ),
+        timestamp: '2026-09-24T12:00:00.200Z',
+      ));
+      expect(revived, isTrue);
+      expect(await cache.classActiveState(SystemClassUuids.birthday), isTrue);
+    });
+
+    test('archival write refusals: locked classes and family bases fail '
+        'loud; unarchiving stays legal', () async {
+      // Seed the year (locked) and task (family base) class rows.
+      for (final entry in [
+        (SystemClassUuids.year, 'Year', 100),
+        (SystemClassUuids.task, 'Task', 200),
+      ]) {
+        await appliers.apply(OperationEnvelope(
+          id: '0192a000-0000-7000-8000-0000000000b${entry.$3}',
+          workspaceId: ws,
+          actorId: actor,
+          deviceId: 'feature-test-device',
+          hlc: Hlc(physical: entry.$3, logical: 0),
+          affectedNodeIds: [entry.$1],
+          opType: 'class.create',
+          payload: OperationPayloads.classCreate(
+            classId: entry.$1,
+            name: entry.$2,
+          ),
+          timestamp: '2026-09-24T12:00:00.000Z',
+        ));
+      }
+      OperationEnvelope archival(String classId, bool active, int physical) =>
+          OperationEnvelope(
+            id: '0192a000-0000-7000-8000-0000000000c$physical',
+            workspaceId: ws,
+            actorId: actor,
+            deviceId: 'feature-test-device',
+            hlc: Hlc(physical: physical, logical: 0),
+            affectedNodeIds: [classId],
+            opType: 'object.update',
+            payload: OperationPayloads.objectUpdate(
+              objectId: classId,
+              active: active,
+            ),
+            timestamp: '2026-09-24T12:00:00.000Z',
+          );
+
+      // Locked: archiving the year fails loud, never applied.
+      expect(() => appliers.apply(archival(SystemClassUuids.year, false, 300)),
+          throwsA(isA<LockedSystemClassError>()));
+      expect(await cache.classActiveState(SystemClassUuids.year), isTrue);
+      // Family base: archiving the task is toggle-managed, refused.
+      expect(() => appliers.apply(archival(SystemClassUuids.task, false, 400)),
+          throwsA(isA<MoveGuardError>()));
+      expect(await cache.classActiveState(SystemClassUuids.task), isTrue);
+      // Unarchiving both is harmless and applies (no-ops on active rows).
+      expect(await appliers.apply(archival(SystemClassUuids.year, true, 500)),
+          isTrue);
+      expect(await appliers.apply(archival(SystemClassUuids.task, true, 600)),
+          isTrue);
     });
   });
 }
