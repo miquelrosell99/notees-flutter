@@ -45,17 +45,21 @@ class SystemClassUuids {
   // `SYSTEM_CLASS_UUIDS` — the five family bases and their
   // extends-children; fixed ids, never reuse).
   static const String book = '00000000-0000-0000-0001-000000000024';
-  static const String paper = '00000000-0000-0000-0001-000000000025';
-  static const String article = '00000000-0000-0000-0001-000000000026';
+  // …0025 WITHDRAWN 2026-10-23 (source-library roster, lockstep with the TS
+  // seed manifest `SYSTEM_CLASS_UUIDS`): Zotero has no "paper" — nodes
+  // migrate to journal_article — never reuse.
+  static const String journalArticle = '00000000-0000-0000-0001-000000000026';
   static const String thesis = '00000000-0000-0000-0001-000000000027';
   static const String document = '00000000-0000-0000-0001-000000000028';
   static const String person = '00000000-0000-0000-0001-000000000030';
-  static const String movie = '00000000-0000-0000-0001-000000000035';
-  // The web link IS a source (owner ruling, 2026-10-07 seed convergence):
-  // a bookmarked page is a cited web source — weblink inherits the source
+  static const String film = '00000000-0000-0000-0001-000000000035';
+  // The web page IS a source (owner ruling, 2026-10-07 seed convergence;
+  // RENAMED weblink → web_page 2026-10-23 in the source-library roster,
+  // lockstep with the TS seed manifest — the UUID …0034 is unchanged):
+  // a bookmarked page is a cited web source — web_page inherits the source
   // family's bibliographic bindings while its own `url` binding stays the
-  // class-local winner; disabling `source` hides weblinks with the family.
-  static const String weblink = '00000000-0000-0000-0001-000000000034';
+  // class-local winner; disabling `source` hides web pages with the family.
+  static const String webPage = '00000000-0000-0000-0001-000000000034';
   static const String meeting = '00000000-0000-0000-0001-000000000039';
   static const String event = '00000000-0000-0000-0001-000000000040';
   static const String birthday = '00000000-0000-0000-0001-000000000041';
@@ -81,6 +85,43 @@ class SystemClassUuids {
   static const String organization = '00000000-0000-0000-0001-000000000031';
   static const String collection = '00000000-0000-0000-0001-000000000032';
   static const String highlight = '00000000-0000-0000-0001-000000000033';
+
+  // Source-library roster (owner 2026-10-23, slice 1 task 3, lockstep with
+  // the TS seed manifest `SYSTEM_CLASS_UUIDS`): 30 NEW source type-classes,
+  // the Zotero-faithful long tail. Slots …0048–…0065 (hex — the
+  // TASK_STATUS_OPTION_UUIDS precedent), assigned ALPHABETICALLY BY KEY for
+  // determinism; all extend source (workspace_features `systemClassExtends`
+  // is the cascade authority). Fixed ids, never reuse.
+  static const String artwork = '00000000-0000-0000-0001-000000000048';
+  static const String audioRecording = '00000000-0000-0000-0001-000000000049';
+  static const String bill = '00000000-0000-0000-0001-00000000004a';
+  static const String blogPost = '00000000-0000-0000-0001-00000000004b';
+  static const String bookSection = '00000000-0000-0000-0001-00000000004c';
+  static const String computerProgram = '00000000-0000-0000-0001-00000000004d';
+  static const String conferencePaper = '00000000-0000-0000-0001-00000000004e';
+  static const String dataset = '00000000-0000-0000-0001-00000000004f';
+  static const String dictionaryEntry = '00000000-0000-0000-0001-000000000050';
+  static const String email = '00000000-0000-0000-0001-000000000051';
+  static const String encyclopediaArticle = '00000000-0000-0000-0001-000000000052';
+  static const String forumPost = '00000000-0000-0000-0001-000000000053';
+  static const String hearing = '00000000-0000-0000-0001-000000000054';
+  static const String instantMessage = '00000000-0000-0000-0001-000000000055';
+  static const String interview = '00000000-0000-0000-0001-000000000056';
+  static const String letter = '00000000-0000-0000-0001-000000000057';
+  static const String magazineArticle = '00000000-0000-0000-0001-000000000058';
+  static const String manuscript = '00000000-0000-0000-0001-000000000059';
+  static const String map = '00000000-0000-0000-0001-00000000005a';
+  static const String newspaperArticle = '00000000-0000-0000-0001-00000000005b';
+  static const String patent = '00000000-0000-0000-0001-00000000005c';
+  static const String podcast = '00000000-0000-0000-0001-00000000005d';
+  static const String preprint = '00000000-0000-0000-0001-00000000005e';
+  static const String presentation = '00000000-0000-0000-0001-00000000005f';
+  static const String radioBroadcast = '00000000-0000-0000-0001-000000000060';
+  static const String report = '00000000-0000-0000-0001-000000000061';
+  static const String standard = '00000000-0000-0000-0001-000000000062';
+  static const String statute = '00000000-0000-0000-0001-000000000063';
+  static const String tvBroadcast = '00000000-0000-0000-0001-000000000064';
+  static const String videoRecording = '00000000-0000-0000-0001-000000000065';
 }
 
 class SystemPropertyUuids {
@@ -95,12 +136,22 @@ class SystemPropertyUuids {
   static const String extends_ = '00000000-0000-0000-0000-000000000008';
   static const String whiteboardData = '00000000-0000-0000-0000-000000000010';
 
-  // FINAL (owner reversion, 2026-09-27): `authors` is node-typed again —
-  // {type: object, multi: true, bindTo: source, targetClassFilter: [agent]}.
+  // RETYPED 2026-10-23 (owner ruling, source-library slice 1 task 4,
+  // lockstep with the TS seed manifest `SYSTEM_PROPERTY_SPECS`): object →
+  // text, multi — authors are free-text strings on the source family; the
+  // node-typed experiment is reinstated as `linkedAuthors` (…0006-…0001).
+  // The UUID …0012 is unchanged and the object filter is superseded (a
+  // text schema takes no targetClassFilter).
   static const String authors = '00000000-0000-0000-0000-000000000012';
 
   // …0025 withdrawn (was `linkedAuthors` in the reverted text-authors
-  // revision) — never reuse (fixed-UUID manifest rule).
+  // revision) — never reuse (fixed-UUID manifest rule). REINSTATED
+  // 2026-10-23 at a NEW uuid (…0006-…0001) after the 2026-09-27
+  // withdrawal: the node-typed authorship experiment returns as its own
+  // property, coexisting with the free-text `authors` (source-library
+  // slice 1 task 4, lockstep with the TS seed manifest).
+  static const String linkedAuthors = '00000000-0000-0000-0006-000000000001';
+  static const String editors = '00000000-0000-0000-0006-000000000002';
 
   // Task class properties
   static const String taskStatus = '00000000-0000-0000-0003-000000000001';

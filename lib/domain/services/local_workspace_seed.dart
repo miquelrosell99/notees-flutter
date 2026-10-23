@@ -20,11 +20,11 @@ import './sync_v2_service.dart';
 /// local subset mirrors it whole — the workspace-feature cascade (the
 /// applier's archival re-derivation over familyClassNames) then flips real
 /// rows instead of no-opping over absent ones. The property-SCHEMA axis
-/// stays the citations revision's `authors` spec only: the meeting/event/
-/// birthday bindings (eventDate, meetingDate, location, agenda,
-/// birthdayPerson) are not locally seeded, exactly like the source
-/// family's bibliography specs — a server attach converges them through the
-/// shared log (the mobile app reads no event/meeting property surfaces).
+/// stays the source family's CREATOR slice only (authors + linkedAuthors +
+/// editors, 2026-10-23 source-library lockstep): the meeting/event/
+/// birthday bindings and the rest of the bibliography pool are not locally
+/// seeded — a server attach converges them through the shared log (the
+/// mobile app reads no event/meeting property surfaces).
 ///
 /// Ops go through the normal outbox/applier path ([SyncV2Service.emitLocal]),
 /// so the local derived state matches what a server-seeded workspace would
@@ -64,7 +64,7 @@ class LocalWorkspaceSeed {
     'success': SystemClassUuids.success,
     'cloze': SystemClassUuids.cloze,
     'source': SystemClassUuids.source,
-    'weblink': SystemClassUuids.weblink,
+    'web_page': SystemClassUuids.webPage,
     'song': SystemClassUuids.song,
     'tv_series': SystemClassUuids.tvSeries,
     'conference': SystemClassUuids.conference,
@@ -94,7 +94,7 @@ class LocalWorkspaceSeed {
     'song': 'mdiMusicNote',
     'tv_series': 'mdiTelevisionClassic',
     'conference': 'mdiPresentation',
-    'weblink': 'mdiLinkVariant',
+    'web_page': 'mdiLinkVariant',
     'definition': 'mdiBookOpenPageVariant',
     'idea': 'mdiThoughtBubbleOutline',
     'place': 'mdiMapMarkerOutline',
@@ -104,32 +104,54 @@ class LocalWorkspaceSeed {
 
   /// Canonical extends edges for the seeded classes that carry one (TS
   /// manifest `SYSTEM_CLASS_EXTENDS` slice): the citations-model revision's
-  /// four all extend `source` — the web link IS a cited web source (owner
-  /// ruling, 2026-10-07 seed convergence) — and the events family rides its
-  /// root (meeting + birthday + trip extend `event`; a trip is
-  /// calendar-bound, so the events toggle cascades to it — this map is the
-  /// cascade authority).
+  /// four all extend `source` — the web page IS a cited web source (owner
+  /// ruling, 2026-10-07 seed convergence; RENAMED weblink → web_page
+  /// 2026-10-23, source-library roster — the UUID …0034 is unchanged) —
+  /// and the events family rides its root (meeting + birthday + trip extend
+  /// `event`; a trip is calendar-bound, so the events toggle cascades to
+  /// it — this map is the cascade authority).
   static const Map<String, List<String>> systemClassExtends = {
     'song': ['source'],
     'tv_series': ['source'],
     'conference': ['source'],
-    'weblink': ['source'],
+    'web_page': ['source'],
     'meeting': ['event'],
     'birthday': ['event'],
     'trip': ['event'],
   };
 
-  /// System property specs the citations-model revision touched (TS manifest
-  /// `SYSTEM_PROPERTY_SPECS`, FINAL owner reversion): `authors` is
-  /// node-typed again — explicit person linkage to `agent`.
+  /// System property specs the source family's CREATOR slice carries (TS
+  /// manifest `SYSTEM_PROPERTY_SPECS`, source-library slice 1 task 4,
+  /// 2026-10-23): `authors` is free TEXT again (object → text-multi retype,
+  /// owner ruling — the UUID …0012 unchanged, the object filter superseded);
+  /// `linkedAuthors` is the reinstated node-typed authorship experiment
+  /// (new UUID …0006-…0001 — the withdrawn …0025 stays burned, never
+  /// reused), explicit person linkage to `agent`; `editors` is free-text
+  /// multi (…0006-…0002). The rest of the bibliographic pool stays
+  /// server-seeded (the documented divergence — a server attach converges
+  /// it through the shared log).
   static const List<SeedPropertySpec> systemPropertySpecs = [
     SeedPropertySpec(
       name: 'authors',
       propertySchemaId: SystemPropertyUuids.authors,
+      type: 'text',
+      multi: true,
+      bindTo: 'source',
+    ),
+    SeedPropertySpec(
+      name: 'linkedAuthors',
+      propertySchemaId: SystemPropertyUuids.linkedAuthors,
       type: 'object',
       multi: true,
       bindTo: 'source',
       targetClassFilter: <String>[SystemClassUuids.agent],
+    ),
+    SeedPropertySpec(
+      name: 'editors',
+      propertySchemaId: SystemPropertyUuids.editors,
+      type: 'text',
+      multi: true,
+      bindTo: 'source',
     ),
   ];
 

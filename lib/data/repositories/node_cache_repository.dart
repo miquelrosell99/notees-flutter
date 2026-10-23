@@ -1175,6 +1175,15 @@ class NodeCacheRepository {
   }
 
   /// Creates or updates a class row in the local cache.
+  ///
+  /// `active` rides the INSERT only: a re-declaration NEVER rewrites the
+  /// stored bit — archival is log state of its own (object.update / the
+  /// feature derivation / restore are the revival paths), so a re-issued
+  /// class.create — the seed/ensure idempotent re-run — must NOT revive an
+  /// archived class (owner ruling 2026-10-23, the source-library
+  /// archived-by-default seed; the TS applyClassCreate conflict arm
+  /// parity). A null [active] preserves the stored bit on conflict and
+  /// defaults the fresh INSERT to active (TS `active = 1` fresh-row arm).
   Future<void> upsertClass({
     required String uuid,
     String? name,
@@ -1182,22 +1191,35 @@ class NodeCacheRepository {
     String? color,
     String? description,
     List<String>? extendsUuids,
-    bool active = true,
+    bool? active,
     String? createdAt,
     String? updatedAt,
   }) async {
     final db = await _database.database;
-    await db.insert('class_cache', {
-      'uuid': uuid,
-      'name': _normalizeClassName(name),
-      'icon': icon,
-      'color': color,
-      'description': description,
-      'extends_uuid': jsonEncode(extendsUuids ?? const <String>[]),
-      'active': active ? 1 : 0,
-      'created_at': createdAt,
-      'updated_at': updatedAt,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.rawInsert(
+      'INSERT INTO class_cache '
+      '(uuid, name, icon, color, description, extends_uuid, active, '
+      'created_at, updated_at) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) '
+      'ON CONFLICT(uuid) DO UPDATE SET '
+      'name = excluded.name, '
+      'icon = excluded.icon, '
+      'color = excluded.color, '
+      'description = excluded.description, '
+      'extends_uuid = excluded.extends_uuid, '
+      'updated_at = excluded.updated_at',
+      [
+        uuid,
+        _normalizeClassName(name),
+        icon,
+        color,
+        description,
+        jsonEncode(extendsUuids ?? const <String>[]),
+        (active ?? true) ? 1 : 0,
+        createdAt,
+        updatedAt,
+      ],
+    );
   }
 
   // === v2 derived state (relay-v2 appliers; see AppDatabase._migrateV16) ===
@@ -1702,10 +1724,18 @@ class NodeCacheRepository {
   /// class_extends edge set (port of the TS store's rebuildClassHierarchy:
   /// rows inserted per class in sorted id order with sorted ancestor
   /// order, so wipe -> replay converges to identical state).
+  ///
+  /// EVERY class row participates — archival (`class_cache.active = 0`,
+  /// the gallery/picker visibility bit) is NOT an absence: an archived
+  /// class must still resolve through extends for class:/classAny queries,
+  /// the family-members read, scope eligibility, and the
+  /// effective-properties reach (owner ruling 2026-10-23, the
+  /// source-library slice — an archived-by-default type still IS-A
+  /// source). The default reads filter the bit; the closure never does.
   Future<void> rebuildClassHierarchy() async {
     final db = await _database.database;
     final classes = await db.rawQuery(
-      'SELECT uuid FROM class_cache WHERE active = 1 ORDER BY uuid',
+      'SELECT uuid FROM class_cache ORDER BY uuid',
     );
     final edges = await classExtendsEdges();
     final parentsById = <String, List<String>>{};

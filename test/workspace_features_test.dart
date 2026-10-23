@@ -120,19 +120,53 @@ void main() {
       // trip is calendar-bound, so the events family set archives it with
       // meeting and birthday (the four-strong cascade).
       expect(familyClassNames('events'), ['event', 'birthday', 'meeting', 'trip']);
+      // The source-library roster (owner 2026-10-23, slice 1 task 3): the
+      // 30-new source type-classes all extend source — they join the
+      // family set (paper withdrew; article/weblink/movie renamed to
+      // journal_article/web_page/film, keeping their UUIDs).
       expect(
         familyClassNames('sources'),
         [
           'source',
-          'article',
+          'artwork',
+          'audio_recording',
+          'bill',
+          'blog_post',
           'book',
+          'book_section',
+          'computer_program',
           'conference',
+          'conference_paper',
+          'dataset',
+          'dictionary_entry',
           'document',
-          'movie',
-          'paper',
+          'email',
+          'encyclopedia_article',
+          'film',
+          'forum_post',
+          'hearing',
+          'instant_message',
+          'interview',
+          'journal_article',
+          'letter',
+          'magazine_article',
+          'manuscript',
+          'map',
+          'newspaper_article',
+          'patent',
+          'podcast',
+          'preprint',
+          'presentation',
+          'radio_broadcast',
+          'report',
           'song',
+          'standard',
+          'statute',
           'thesis',
+          'tv_broadcast',
           'tv_series',
+          'video_recording',
+          'web_page',
         ],
       );
     });
