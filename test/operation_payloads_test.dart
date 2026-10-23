@@ -155,6 +155,37 @@ void main() {
       );
     });
 
+    test('workspace.feature.set settings: optional record, strict shape', () {
+      const settings = {'citekeyPattern': '[auth:lower][year]', 'autoCitekey': true};
+      // Absent stays absent (the old shape); present rides the payload.
+      expect(
+        OperationPayloads.workspaceFeatureSet(feature: 'sources', enabled: true),
+        {'feature': 'sources', 'enabled': true},
+      );
+      final withSettings = OperationPayloads.workspaceFeatureSet(
+        feature: 'sources',
+        enabled: true,
+        settings: settings,
+      );
+      expect(withSettings['settings'], settings);
+      // An empty record is a REAL value (distinct from absent).
+      final empty = OperationPayloads.workspaceFeatureSet(
+        feature: 'sources',
+        enabled: true,
+        settings: const {},
+      );
+      expect(empty['settings'], isEmpty);
+      // Non-record settings fail loud at validation.
+      expect(
+        () => OperationPayloads.validatePayload('workspace.feature.set', {
+          'feature': 'sources',
+          'enabled': true,
+          'settings': 'not-a-record',
+        }),
+        throwsFormatException,
+      );
+    });
+
     test('object.update carries the wire node fields set + clear; '
         'object.create rejects them outright', () {
       const asset = '0192a000-0000-7000-8000-00000000052b';

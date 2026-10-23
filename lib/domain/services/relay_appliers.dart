@@ -749,10 +749,13 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       // HLC, so a racing toggle converges under either delivery order.
       final managedFeature = featureForManagedClass(objectId);
       if (managedFeature != null) {
+        // The routed disable is an old-shape write: object.delete carries
+        // no settings, so a winning route stores NULL (whole-row LWW).
         final wrote = await _lwwWriteFeatureRow(
           envelope,
           managedFeature,
           false,
+          null,
         );
         if (wrote) {
           await _deriveFamilyClassBits(envelope.workspaceId, managedFeature);
@@ -2090,10 +2093,15 @@ List<String> _contentClassLinkIds(dynamic tokens) {
   /// LWW-write one feature row. Returns true when the incoming envelope won
   /// (the row was written); false when a newer (hlc, actor) row already
   /// stood (the toggle is dropped, exactly like a stale property.set).
+  /// [settings] rides the same comparator: the winning payload's record is
+  /// stored as JSON text, and a winning payload WITHOUT settings stores
+  /// NULL (absent — distinct from '{}'), which the read paths surface as
+  /// null.
   Future<bool> _lwwWriteFeatureRow(
     OperationEnvelope envelope,
     WorkspaceFeature feature,
     bool enabled,
+    Map<String, dynamic>? settings,
   ) async {
     final existing = await _cache.workspaceFeatureWinner(
       envelope.workspaceId,
@@ -2108,6 +2116,7 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       feature,
       enabled,
       incoming,
+      settings: settings,
     );
     return true;
   }
@@ -2210,7 +2219,12 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // SURFACES only (the date classes stay always-on) — no family, no
     // derivation, just the LWW row.
     final family = isFamilyFeature(feature) ? feature : null;
-    final wrote = await _lwwWriteFeatureRow(envelope, feature, enabled);
+    final wrote = await _lwwWriteFeatureRow(
+      envelope,
+      feature,
+      enabled,
+      payload['settings'] as Map<String, dynamic>?,
+    );
     if (wrote && family != null) {
       await _deriveFamilyClassBits(envelope.workspaceId, family);
     }

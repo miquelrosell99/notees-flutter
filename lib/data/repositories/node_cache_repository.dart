@@ -2503,21 +2503,54 @@ class NodeCacheRepository {
   }
 
   /// LWW-write one feature row (callers gate on [workspaceFeatureWinner]).
+  /// [settings] is the winning payload's optional configuration record —
+  /// stored as JSON text, null when the winning payload carried no settings
+  /// (whole-row LWW: a winning old-shape write clears a standing record).
   Future<void> upsertWorkspaceFeature(
     String workspaceId,
     String feature,
     bool enabled,
-    LwwWinner incoming,
-  ) async {
+    LwwWinner incoming, {
+    Map<String, dynamic>? settings,
+  }) async {
     final db = await _database.database;
     await db.insert('workspace_feature', {
       'workspace_id': workspaceId,
       'feature': feature,
       'enabled': enabled ? 1 : 0,
+      'settings': settings == null ? null : jsonEncode(settings),
       'hlc_physical': incoming.physical,
       'hlc_logical': incoming.logical,
       'actor_id': incoming.actor,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// The winning (workspace, feature) row's full state — the enabled bit
+  /// plus the optional settings record (null = the winning payload carried
+  /// no settings, distinct from {}) — or null when the workspace never
+  /// toggled the feature (the F2 all-ON default).
+  Future<({bool enabled, Map<String, dynamic>? settings})?>
+      workspaceFeatureRow(
+    String workspaceId,
+    String feature,
+  ) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'workspace_feature',
+      columns: ['enabled', 'settings'],
+      where: 'workspace_id = ? AND feature = ?',
+      whereArgs: [workspaceId, feature],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    final settingsText = row['settings'] as String?;
+    return (
+      enabled: (row['enabled'] as num? ?? 1) == 1,
+      settings: settingsText == null
+          ? null
+          : jsonDecode(settingsText) as Map<String, dynamic>,
+    );
   }
 
   /// The current (winning) toggle state — an ABSENT row means ENABLED (F2:

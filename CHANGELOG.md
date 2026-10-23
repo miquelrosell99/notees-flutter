@@ -8,6 +8,29 @@ lives in git history.
 
 ## 2026-10-23
 
+- **feat(protocol,store): `workspace.feature.set` settings payload —
+  whole-row LWW (Flutter lockstep port of the source-library slice-2 change).**
+  The op payload extends with an optional `settings` JSON record (strict
+  shape — the protocol pins only "a JSON object"; feature-scoped vocabulary,
+  no Flutter surface emits settings yet — convergence-only alignment). The
+  re-vendored canonical fixture (`workspace-feature-set.json`, sha256
+  `f8989a15…a94431`, byte-identical to the monorepo corpus) grew a
+  three-envelope tail exercising the semantics. The payload factory +
+  validator accept the optional record; the applier persists it on the same
+  whole-row LWW-by-(workspace, feature) comparator — a winning old-shape
+  write stores NULL (absent is distinct from `{}`), the derived
+  `workspace_feature` table gains the `settings` TEXT column (schema v37,
+  the TS store schema v29→v30 lockstep; the guarded ALTER backfills NULL,
+  which is exactly the pre-column meaning), and the repository exposes the
+  winning row's full state (`workspaceFeatureRow` — enabled + parsed
+  settings) alongside the winner-only comparator read. The store acceptance
+  pins the fixture's forward AND reversed replay landing on the identical
+  settings state (the final sources winner's record; the intermediate
+  old-shape re-enable cleared it to NULL; the old-shape tasks winner stores
+  NULL) plus the dedicated whole-row LWW lifecycle (set → old-shape win →
+  NULL; `{}` round-trips as a real value; a stale settings op loses and
+  leaves the row untouched).
+
 - **feat(protocol,store): the source library — seed-manifest lockstep
   (Flutter port of the monorepo's source-library slice 1 tasks 3–5).** The
   system-seed manifests align with the TS seed authority
