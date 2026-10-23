@@ -1120,6 +1120,78 @@ void main() {
       );
     });
 
+    test('external_ref.set/delete are strict, the ref is length-capped',
+        () {
+      final set = OperationPayloads.externalRefSet(
+        ref: 'gcal:event:abc123@google.com',
+        nodeId: objectId,
+      );
+      expect(set, {
+        'ref': 'gcal:event:abc123@google.com',
+        'nodeId': objectId,
+      });
+      expect(
+        () => OperationPayloads.validatePayload('external_ref.set', set),
+        returnsNormally,
+      );
+
+      final del = OperationPayloads.externalRefDelete(
+        ref: 'gcal:event:abc123@google.com',
+      );
+      expect(del, {'ref': 'gcal:event:abc123@google.com'});
+      expect(
+        () =>
+            OperationPayloads.validatePayload('external_ref.delete', del),
+        returnsNormally,
+      );
+
+      // The 512-char cap: 512 validates, 513 fails loud.
+      final atCap = OperationPayloads.externalRefSet(
+        ref: 'x' * 512,
+        nodeId: objectId,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('external_ref.set', atCap),
+        returnsNormally,
+      );
+
+      // Empty / oversize / missing / non-uuid / extra keys fail loud
+      // (zod .strict() parity).
+      final badSets = [
+        {'ref': '', 'nodeId': objectId},
+        {'ref': 'x' * 513, 'nodeId': objectId},
+        {'ref': 'gcal:event:abc123@google.com'},
+        {'ref': 'gcal:event:abc123@google.com', 'nodeId': 'not-a-uuid'},
+        {
+          'ref': 'gcal:event:abc123@google.com',
+          'nodeId': objectId,
+          'kind': 'event',
+        },
+      ];
+      for (final bad in badSets) {
+        expect(
+          () => OperationPayloads.validatePayload('external_ref.set', bad),
+          throwsFormatException,
+          reason: '$bad',
+        );
+      }
+      expect(
+        () => OperationPayloads.validatePayload('external_ref.delete', {
+          'ref': '',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('external_ref.delete', {
+          'ref': 'gcal:event:abc123@google.com',
+          'nodeId': objectId,
+        }),
+        throwsFormatException,
+      );
+      expect(OperationPayloads.isKnownOpType('external_ref.set'), isTrue);
+      expect(OperationPayloads.isKnownOpType('external_ref.delete'), isTrue);
+    });
+
     test('unknown op type is rejected', () {
       expect(
         () => OperationPayloads.validatePayload('node.archive', {

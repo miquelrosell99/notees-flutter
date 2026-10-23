@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 35,
+          version: 36,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 35,
+      version: 36,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -129,6 +129,7 @@ class AppDatabase {
     await _migrateV33(db);
     await _migrateV34(db);
     await _migrateV35(db);
+    await _migrateV36(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -237,6 +238,9 @@ class AppDatabase {
     }
     if (oldVersion < 35) {
       await _migrateV35(db);
+    }
+    if (oldVersion < 36) {
+      await _migrateV36(db);
     }
   }
 
@@ -1029,6 +1033,48 @@ class AppDatabase {
     await db.delete('search_index');
   }
 
+  /// v36 — external-id mappings for importer/sync plugins (2026-10-23
+  /// lockstep with the TS store schema v29→v30 + SCHEMA.md "External-id
+  /// mappings"): the `external_ref.*` op family. One LIVE mapping per
+  /// (workspace, ref) — LWW by envelope (hlc, actor) on the ref key, so a
+  /// re-set MOVES the mapping and racing writes converge on the higher
+  /// tuple; a node may carry MANY refs (the reverse read scans by node_id).
+  /// The delete side keeps a tombstone per (workspace, ref) (the
+  /// property_value_tombstone precedent) — including a delete of an
+  /// UNMAPPED ref — so a stale concurrent set delivered after the winning
+  /// delete is dropped on every replica. At most one of {live row,
+  /// tombstone} stands per key. No referential integrity (the
+  /// property_value precedent); a node's HARD delete purges its live rows
+  /// (the subtree purge in NodeCacheRepository.hardDelete), soft-trash
+  /// keeps them. Purely additive: CREATE IF NOT EXISTS is a no-op for
+  /// fresh v36 creates.
+  Future<void> _migrateV36(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS external_ref (
+        ref TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        node_id TEXT NOT NULL,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        PRIMARY KEY (workspace_id, ref)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_external_ref_node ON external_ref (node_id)',
+    );
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS external_ref_tombstone (
+        ref TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        PRIMARY KEY (workspace_id, ref)
+      )
+    ''');
+  }
+
   /// Derived reference index (never authored): mention/typed_link edges
   /// projected from content tokens plus node-typed property values. Mirrors
   /// the TS store `edge` table.
@@ -1585,6 +1631,7 @@ class AppDatabase {
     await _migrateEdgeV30(db);
     await _migrateV31(db);
     await _migrateV32(db);
+    await _migrateV36(db);
   }
 
   Future<int> enqueue(String method, String payload) async {
