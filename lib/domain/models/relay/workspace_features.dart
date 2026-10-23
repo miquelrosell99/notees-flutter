@@ -98,11 +98,10 @@ const Map<String, String> systemClassUuids = {
   'birthday': SystemClassUuids.birthday,
   'source': SystemClassUuids.source,
   'book': SystemClassUuids.book,
-  'paper': SystemClassUuids.paper,
-  'article': SystemClassUuids.article,
+  'journal_article': SystemClassUuids.journalArticle,
   'thesis': SystemClassUuids.thesis,
   'document': SystemClassUuids.document,
-  'movie': SystemClassUuids.movie,
+  'film': SystemClassUuids.film,
   'song': SystemClassUuids.song,
   'tv_series': SystemClassUuids.tvSeries,
   'conference': SystemClassUuids.conference,
@@ -119,6 +118,45 @@ const Map<String, String> systemClassUuids = {
   'place': SystemClassUuids.place,
   'project': SystemClassUuids.project,
   'trip': SystemClassUuids.trip,
+  // The web link IS a source (
+  // RENAMED weblink → web_page 2026-10-23, source-library roster — the
+  // UUID …0034 is unchanged).
+  'web_page': SystemClassUuids.webPage,
+  // Source-library roster: the 30 NEW
+  // source type-classes ALL extend source — they ride the sources toggle
+  // with the family (the applier's family-bit derivation no-ops over
+  // absent registry rows, so local-only workspaces that never seeded them
+  // are unaffected).
+  'artwork': SystemClassUuids.artwork,
+  'audio_recording': SystemClassUuids.audioRecording,
+  'bill': SystemClassUuids.bill,
+  'blog_post': SystemClassUuids.blogPost,
+  'book_section': SystemClassUuids.bookSection,
+  'computer_program': SystemClassUuids.computerProgram,
+  'conference_paper': SystemClassUuids.conferencePaper,
+  'dataset': SystemClassUuids.dataset,
+  'dictionary_entry': SystemClassUuids.dictionaryEntry,
+  'email': SystemClassUuids.email,
+  'encyclopedia_article': SystemClassUuids.encyclopediaArticle,
+  'forum_post': SystemClassUuids.forumPost,
+  'hearing': SystemClassUuids.hearing,
+  'instant_message': SystemClassUuids.instantMessage,
+  'interview': SystemClassUuids.interview,
+  'letter': SystemClassUuids.letter,
+  'magazine_article': SystemClassUuids.magazineArticle,
+  'manuscript': SystemClassUuids.manuscript,
+  'map': SystemClassUuids.map,
+  'newspaper_article': SystemClassUuids.newspaperArticle,
+  'patent': SystemClassUuids.patent,
+  'podcast': SystemClassUuids.podcast,
+  'preprint': SystemClassUuids.preprint,
+  'presentation': SystemClassUuids.presentation,
+  'radio_broadcast': SystemClassUuids.radioBroadcast,
+  'report': SystemClassUuids.report,
+  'standard': SystemClassUuids.standard,
+  'statute': SystemClassUuids.statute,
+  'tv_broadcast': SystemClassUuids.tvBroadcast,
+  'video_recording': SystemClassUuids.videoRecording,
 };
 
 /// Icons for the family classes (TS manifest `SYSTEM_CLASS_ICONS` slice).
@@ -129,31 +167,66 @@ const Map<String, String> systemClassIcons = {
   'birthday': 'mdiCakeVariant',
   'source': 'mdiBookshelf',
   'book': 'mdiBookOpenVariant',
-  'paper': 'mdiNewspaperVariantOutline',
-  'article': 'mdiNewspaper',
+  'journal_article': 'mdiNewspaper',
   'thesis': 'mdiSchoolOutline',
   'document': 'mdiFileOutline',
-  'movie': 'mdiMovieOpenOutline',
+  'film': 'mdiMovieOpenOutline',
   'song': 'mdiMusicNote',
   'tv_series': 'mdiTelevisionClassic',
   'conference': 'mdiPresentation',
   'person': 'mdiAccountOutline',
+  'web_page': 'mdiLinkVariant',
   // The #14 follow-up five (seeds.ts `SYSTEM_CLASS_ICONS` slice).
   'definition': 'mdiBookOpenPageVariant',
   'idea': 'mdiThoughtBubbleOutline',
   'place': 'mdiMapMarkerOutline',
   'project': 'mdiBriefcaseOutline',
   'trip': 'mdiAirplane',
+  // Source-library roster (the seeds.ts
+  // `SYSTEM_CLASS_ICONS` slice for the 30-new set; RENAMED classes keep
+  // their icons: journal_article was article's mdiNewspaper, web_page was
+  // weblink's mdiLinkVariant, film was movie's mdiMovieOpenOutline).
+  'audio_recording': 'mdiMicrophone',
+  'artwork': 'mdiPaletteOutline',
+  'bill': 'mdiScriptTextOutline',
+  'blog_post': 'mdiPostOutline',
+  'book_section': 'mdiTableOfContents',
+  'computer_program': 'mdiCodeBraces',
+  'conference_paper': 'mdiTextBoxOutline',
+  'dataset': 'mdiDatabaseOutline',
+  'dictionary_entry': 'mdiBookAlphabet',
+  'email': 'mdiEmailOutline',
+  'encyclopedia_article': 'mdiLibrary',
+  'forum_post': 'mdiForumOutline',
+  'hearing': 'mdiGavel',
+  'instant_message': 'mdiMessageTextOutline',
+  'interview': 'mdiAccountVoice',
+  'letter': 'mdiMailboxOutline',
+  'magazine_article': 'mdiNewspaperVariant',
+  'manuscript': 'mdiScriptOutline',
+  'map': 'mdiMapOutline',
+  'newspaper_article': 'mdiTextBoxMultipleOutline',
+  'patent': 'mdiStamp',
+  'podcast': 'mdiPodcast',
+  'preprint': 'mdiFileClockOutline',
+  'presentation': 'mdiPresentationPlay',
+  'radio_broadcast': 'mdiRadio',
+  'report': 'mdiFileChartOutline',
+  'standard': 'mdiFileCheckOutline',
+  'statute': 'mdiScaleBalance',
+  'tv_broadcast': 'mdiTelevision',
+  'video_recording': 'mdiVideoOutline',
 };
 
 /// The display titles the server seed authors into the class nodes' text
 /// content (seeds.ts `SYSTEM_CLASS_DISPLAY_NAMES` slice — title-is-content;
 /// the raw keys stay code-facing vocabulary, these are the human wordings).
-/// Covers every class the local workspace seed emits — the local seed writes
-/// these into its class.create content, exactly the server seed's shape
-/// (normal wording, "TV series" not "tv_series"). The seed-parity test pins
-/// one entry per local-seed class key — the seed-parity suite pins the
-/// completeness.
+/// Covers every class the local workspace seed emits AND the source-library
+/// roster the synced server seed carries (2026-10-23) — the local seed
+/// writes its subset into its class.create content, exactly the server
+/// seed's shape (normal wording, "TV series" not "tv_series"). The
+/// seed-parity suite pins one entry per local-seed class key plus the
+/// roster's fixed ids, icons, and titles.
 const Map<String, String> systemClassDisplayNames = {
   'year': 'Year',
   'month': 'Month',
@@ -176,7 +249,16 @@ const Map<String, String> systemClassDisplayNames = {
   'success': 'Success',
   'cloze': 'Cloze',
   'source': 'Source',
-  'weblink': 'Web link',
+  'web_page': 'Web page',
+  // The pre-roster source-family children (the seeds.ts
+  // `SYSTEM_CLASS_DISPLAY_NAMES` slice; RENAMED 2026-10-23: article →
+  // journal_article, movie → film — the local seed emits only web_page of
+  // these, the rest arrive via a server attach).
+  'book': 'Book',
+  'journal_article': 'Journal article',
+  'thesis': 'Thesis',
+  'document': 'Document',
+  'film': 'Film',
   'song': 'Song',
   'tv_series': 'TV series',
   'conference': 'Conference',
@@ -192,22 +274,57 @@ const Map<String, String> systemClassDisplayNames = {
   'place': 'Place',
   'project': 'Project',
   'trip': 'Trip',
+  // Source-library roster (the seeds.ts
+  // `SYSTEM_CLASS_DISPLAY_NAMES` slice for the 30-new set; sentence-case
+  // conventional wordings, acronyms uppercase: "TV broadcast").
+  'audio_recording': 'Audio recording',
+  'artwork': 'Artwork',
+  'bill': 'Bill',
+  'blog_post': 'Blog post',
+  'book_section': 'Book section',
+  'computer_program': 'Computer program',
+  'conference_paper': 'Conference paper',
+  'dataset': 'Dataset',
+  'dictionary_entry': 'Dictionary entry',
+  'email': 'Email',
+  'encyclopedia_article': 'Encyclopedia article',
+  'forum_post': 'Forum post',
+  'hearing': 'Hearing',
+  'instant_message': 'Instant message',
+  'interview': 'Interview',
+  'letter': 'Letter',
+  'magazine_article': 'Magazine article',
+  'manuscript': 'Manuscript',
+  'map': 'Map',
+  'newspaper_article': 'Newspaper article',
+  'patent': 'Patent',
+  'podcast': 'Podcast',
+  'preprint': 'Preprint',
+  'presentation': 'Presentation',
+  'radio_broadcast': 'Radio broadcast',
+  'report': 'Report',
+  'standard': 'Standard',
+  'statute': 'Statute',
+  'tv_broadcast': 'TV broadcast',
+  'video_recording': 'Video recording',
 };
 
 /// Canonical `extends` edges between the family classes (TS manifest
-/// `SYSTEM_CLASS_EXTENDS` slice): the source family's ten-strong set,
-/// meeting + birthday + trip under event (the event→meeting/birthday/trip
-/// cascade), person under agent.
+/// `SYSTEM_CLASS_EXTENDS` slice): the source family's full set — the
+/// pre-roster children, the RENAMED web_page (weblink → web_page
+/// 2026-10-23, source-library roster), and the 30-new roster ALL extending
+/// source — plus meeting + birthday + trip under event (the event cascade)
+/// and person under agent.
 const Map<String, List<String>> systemClassExtends = {
   'book': ['source'],
-  'paper': ['source'],
-  'article': ['source'],
+  'journal_article': ['source'],
   'thesis': ['source'],
   'document': ['source'],
-  'movie': ['source'],
+  'film': ['source'],
   'song': ['source'],
   'tv_series': ['source'],
   'conference': ['source'],
+  'web_page': ['source'],
   'person': ['agent'],
   'meeting': ['event'],
   'birthday': ['event'],
@@ -215,6 +332,40 @@ const Map<String, List<String>> systemClassExtends = {
   // is calendar-bound, so the events toggle cascades to it — this map is
   // the cascade authority (seeds.ts `SYSTEM_CLASS_EXTENDS` parity).
   'trip': ['event'],
+  // Source-library roster: the 30-new
+  // source type-classes ALL extend source — the Zotero-faithful long tail
+  // inherits the family's bibliographic bindings; the sources toggle
+  // archives/revives them with the family (seeds.ts parity).
+  'artwork': ['source'],
+  'audio_recording': ['source'],
+  'bill': ['source'],
+  'blog_post': ['source'],
+  'book_section': ['source'],
+  'computer_program': ['source'],
+  'conference_paper': ['source'],
+  'dataset': ['source'],
+  'dictionary_entry': ['source'],
+  'email': ['source'],
+  'encyclopedia_article': ['source'],
+  'forum_post': ['source'],
+  'hearing': ['source'],
+  'instant_message': ['source'],
+  'interview': ['source'],
+  'letter': ['source'],
+  'magazine_article': ['source'],
+  'manuscript': ['source'],
+  'map': ['source'],
+  'newspaper_article': ['source'],
+  'patent': ['source'],
+  'podcast': ['source'],
+  'preprint': ['source'],
+  'presentation': ['source'],
+  'radio_broadcast': ['source'],
+  'report': ['source'],
+  'standard': ['source'],
+  'statute': ['source'],
+  'tv_broadcast': ['source'],
+  'video_recording': ['source'],
 };
 
 /// The full system-class seed set (TS manifest `SYSTEM_CLASS_UUIDS` — the
@@ -243,8 +394,7 @@ const Map<String, String> systemClassSeedUuids = {
   'cloze': SystemClassUuids.cloze,
   'source': SystemClassUuids.source,
   'book': SystemClassUuids.book,
-  'paper': SystemClassUuids.paper,
-  'article': SystemClassUuids.article,
+  'journal_article': SystemClassUuids.journalArticle,
   'thesis': SystemClassUuids.thesis,
   'document': SystemClassUuids.document,
   'agent': SystemClassUuids.agent,
@@ -252,8 +402,8 @@ const Map<String, String> systemClassSeedUuids = {
   'organization': SystemClassUuids.organization,
   'collection': SystemClassUuids.collection,
   'highlight': SystemClassUuids.highlight,
-  'weblink': SystemClassUuids.weblink,
-  'movie': SystemClassUuids.movie,
+  'web_page': SystemClassUuids.webPage,
+  'film': SystemClassUuids.film,
   'song': SystemClassUuids.song,
   'tv_series': SystemClassUuids.tvSeries,
   'conference': SystemClassUuids.conference,
@@ -265,15 +415,82 @@ const Map<String, String> systemClassSeedUuids = {
   'place': SystemClassUuids.place,
   'project': SystemClassUuids.project,
   'trip': SystemClassUuids.trip,
+  // Source-library roster: the 30-new
+  // source type-classes join the frozen-extends authority — the system
+  // lock must know EVERY system class UUID or a server-origined
+  // class.setExtends on one of them would be treated as a user-class op
+  // (the …0048–…0065 slots, alphabetical by key; paper's …0025 stays
+  // withdrawn, never reused).
+  'artwork': SystemClassUuids.artwork,
+  'audio_recording': SystemClassUuids.audioRecording,
+  'bill': SystemClassUuids.bill,
+  'blog_post': SystemClassUuids.blogPost,
+  'book_section': SystemClassUuids.bookSection,
+  'computer_program': SystemClassUuids.computerProgram,
+  'conference_paper': SystemClassUuids.conferencePaper,
+  'dataset': SystemClassUuids.dataset,
+  'dictionary_entry': SystemClassUuids.dictionaryEntry,
+  'email': SystemClassUuids.email,
+  'encyclopedia_article': SystemClassUuids.encyclopediaArticle,
+  'forum_post': SystemClassUuids.forumPost,
+  'hearing': SystemClassUuids.hearing,
+  'instant_message': SystemClassUuids.instantMessage,
+  'interview': SystemClassUuids.interview,
+  'letter': SystemClassUuids.letter,
+  'magazine_article': SystemClassUuids.magazineArticle,
+  'manuscript': SystemClassUuids.manuscript,
+  'map': SystemClassUuids.map,
+  'newspaper_article': SystemClassUuids.newspaperArticle,
+  'patent': SystemClassUuids.patent,
+  'podcast': SystemClassUuids.podcast,
+  'preprint': SystemClassUuids.preprint,
+  'presentation': SystemClassUuids.presentation,
+  'radio_broadcast': SystemClassUuids.radioBroadcast,
+  'report': SystemClassUuids.report,
+  'standard': SystemClassUuids.standard,
+  'statute': SystemClassUuids.statute,
+  'tv_broadcast': SystemClassUuids.tvBroadcast,
+  'video_recording': SystemClassUuids.videoRecording,
 };
 
 /// The seeded `extends` edges the feature-cascade slice [systemClassExtends]
 /// omits — the TS manifest `SYSTEM_CLASS_EXTENDS` is complete: organization
-/// under agent, weblink under source.
+/// under agent (RENAMED web_page carries its edge in [systemClassExtends]
+/// since 2026-10-23).
 const Map<String, List<String>> systemClassExtendsLockExtra = {
   'organization': ['agent'],
-  'weblink': ['source'],
 };
+
+/// Source-library roster (the TS
+/// manifest `SYSTEM_ARCHIVED_BY_DEFAULT_CLASSES`): the new source
+/// type-classes that seed ARCHIVED (`active = false`) — the long tail
+/// nobody wants in a fresh workspace's gallery and pickers. EIGHTEEN
+/// names: the everyday types (book_section, magazine_article,
+/// newspaper_article, preprint, report, standard, podcast, the
+/// broadcasts, the conference trio, audio/video) stay ENABLED by default.
+/// NOTHING consumes this yet — it is seed data for the later slices (the
+/// ensure paths seed the archived bit from it), exactly the core's
+/// slice-1 state.
+const List<String> systemArchivedByDefaultClasses = [
+  'artwork',
+  'bill',
+  'blog_post',
+  'computer_program',
+  'dataset',
+  'dictionary_entry',
+  'email',
+  'encyclopedia_article',
+  'forum_post',
+  'hearing',
+  'instant_message',
+  'interview',
+  'letter',
+  'manuscript',
+  'map',
+  'patent',
+  'radio_broadcast',
+  'statute',
+];
 
 /// The frozen extends parent set per system class UUID (the Dart port of the
 /// TS manifest `SYSTEM_CLASS_EXTENDS_IDS`) — the system-extends lock

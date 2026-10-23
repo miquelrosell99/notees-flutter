@@ -9,14 +9,22 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Seed-parity tests for the citations-model revision (2026-09-27), in
 /// lockstep with the TS seed manifest (`packages/domain/src/seeds.ts`):
-/// fixed UUIDs, never reused; new classes extend `source`; the `authors`
-/// spec is verbatim-text (never node-typed person creation); `linkedAuthors`
-/// is the explicit person linkage.
+/// fixed UUIDs, never reused; new classes extend `source`; the creator
+/// family is `authors` (free-text multi, retyped from object 2026-10-23)
+/// + `linkedAuthors` (the explicit node-typed person linkage to `agent`,
+/// reinstated at …0006-…0001) + `editors` (free-text multi, …0006-…0002).
 ///
 /// Also pins the #14 follow-up five (owner list, 2026-10-06):
 /// definition/idea/place/project as plain seeds + trip extending event
 /// (the events-family cascade) — the fixed ids, the static-map coverage,
 /// the local seed emission, and the features.ts gating/family mirror.
+///
+/// And the source-library roster: the
+/// three class renames (article → journal_article …0026, weblink →
+/// web_page …0034, movie → film …0035), the paper withdrawal (…0025,
+/// never reused), and the 30-new source type-classes …0048–…0065 (all
+/// extend source; 18 archived-by-default) — the frozen-extends lock
+/// coverage, the family cascade, and the archived set.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -115,24 +123,49 @@ void main() {
   });
 
   group('citations-revision seed specs', () {
-    test('authors is node-typed (FINAL owner reversion)', () {
-      final authors = LocalWorkspaceSeed.systemPropertySpecs
-          .firstWhere((spec) => spec.name == 'authors');
+    test('the creator-family slice: authors retyped, linkedAuthors '
+        'reinstated, editors added (source-library slice 1 task 4)', () {
+      final specs = {
+        for (final spec in LocalWorkspaceSeed.systemPropertySpecs)
+          spec.name: spec,
+      };
+      expect(specs.keys, ['authors', 'linkedAuthors', 'editors']);
+
+      // authors: object → text, multi (owner retype ruling 2026-10-23) —
+      // the UUID …0012 unchanged, the object filter superseded.
+      final authors = specs['authors']!;
       expect(authors.propertySchemaId, SystemPropertyUuids.authors);
-      expect(authors.type, 'object');
+      expect(authors.propertySchemaId,
+          '00000000-0000-0000-0000-000000000012');
+      expect(authors.type, 'text');
       expect(authors.multi, isTrue);
       expect(authors.bindTo, 'source');
-      expect(authors.targetClassFilter, [SystemClassUuids.agent]);
-    });
+      expect(authors.targetClassFilter, isNull);
 
-    test('the linkedAuthors spec entry is gone (…0025 withdrawn)', () {
-      expect(
-        LocalWorkspaceSeed.systemPropertySpecs
-            .where((spec) => spec.name == 'linkedAuthors'),
-        isEmpty,
-      );
-      // No live constant references the withdrawn id: the value appears
-      // nowhere in the seed specs.
+      // linkedAuthors: the node-typed authorship experiment REINSTATED at
+      // the NEW uuid …0006-…0001 (the withdrawn …0025 stays burned, never
+      // reused) — object, multi, explicit person linkage to `agent`.
+      final linked = specs['linkedAuthors']!;
+      expect(linked.propertySchemaId, SystemPropertyUuids.linkedAuthors);
+      expect(linked.propertySchemaId,
+          '00000000-0000-0000-0006-000000000001');
+      expect(linked.type, 'object');
+      expect(linked.multi, isTrue);
+      expect(linked.bindTo, 'source');
+      expect(linked.targetClassFilter, [SystemClassUuids.agent]);
+
+      // editors: free-text multi at the pinned slot …0006-…0002.
+      final editors = specs['editors']!;
+      expect(editors.propertySchemaId, SystemPropertyUuids.editors);
+      expect(editors.propertySchemaId,
+          '00000000-0000-0000-0006-000000000002');
+      expect(editors.type, 'text');
+      expect(editors.multi, isTrue);
+      expect(editors.bindTo, 'source');
+      expect(editors.targetClassFilter, isNull);
+
+      // No live spec references the withdrawn …0025 (the fixed-UUID
+      // manifest rule — withdrawn ids are never reused).
       final referenced = <String>[
         for (final spec in LocalWorkspaceSeed.systemPropertySpecs)
           spec.propertySchemaId,
@@ -144,7 +177,7 @@ void main() {
     });
 
     test('new classes extend source with the TS manifest icons', () {
-      for (final name in ['song', 'tv_series', 'conference', 'weblink']) {
+      for (final name in ['song', 'tv_series', 'conference', 'web_page']) {
         expect(LocalWorkspaceSeed.systemClassExtends[name], ['source']);
       }
       expect(LocalWorkspaceSeed.systemClassIcons['song'], 'mdiMusicNote');
@@ -152,7 +185,8 @@ void main() {
           'mdiTelevisionClassic');
       expect(LocalWorkspaceSeed.systemClassIcons['conference'],
           'mdiPresentation');
-      expect(LocalWorkspaceSeed.systemClassIcons['weblink'], 'mdiLinkVariant');
+      expect(LocalWorkspaceSeed.systemClassIcons['web_page'],
+          'mdiLinkVariant');
       // The extends targets all resolve to seeded classes.
       final targets = <String>{
         for (final parents in LocalWorkspaceSeed.systemClassExtends.values)
@@ -177,11 +211,12 @@ void main() {
         seeded.contains('00000000-0000-0000-0001-000000000001'),
         isFalse,
       );
-      // weblink leads the source-family convergence (
-      // 2026-10-07): seeded, and its extends edge targets source.
-      expect(LocalWorkspaceSeed.systemClassNames['weblink'],
+      // web_page leads the source-family convergence (source-library
+      // roster — the UUID …0034 is unchanged): seeded, and its extends
+      // edge targets source.
+      expect(LocalWorkspaceSeed.systemClassNames['web_page'],
           '00000000-0000-0000-0001-000000000034');
-      expect(LocalWorkspaceSeed.systemClassExtends['weblink'], ['source']);
+      expect(LocalWorkspaceSeed.systemClassExtends['web_page'], ['source']);
     });
 
     test('seeded class UUIDs in the seed map stay unique', () {
@@ -295,6 +330,245 @@ void main() {
     });
   });
 
+  group('source-library roster ', () {
+    // The 30-new source type-classes (seeds.ts `SYSTEM_CLASS_UUIDS` slots
+    // …0048–…0065, assigned ALPHABETICALLY BY KEY for determinism — the
+    // domain test pins the exact map). Pinned here so a future main-repo
+    // seed change that skips this port fails here.
+    const roster = <(String, String, String, String)>[
+      // (seed key, uuid, mdi icon, display title) — the seeds.ts record.
+      ('artwork', '00000000-0000-0000-0001-000000000048',
+        'mdiPaletteOutline', 'Artwork'),
+      ('audio_recording', '00000000-0000-0000-0001-000000000049',
+        'mdiMicrophone', 'Audio recording'),
+      ('bill', '00000000-0000-0000-0001-00000000004a',
+        'mdiScriptTextOutline', 'Bill'),
+      ('blog_post', '00000000-0000-0000-0001-00000000004b',
+        'mdiPostOutline', 'Blog post'),
+      ('book_section', '00000000-0000-0000-0001-00000000004c',
+        'mdiTableOfContents', 'Book section'),
+      ('computer_program', '00000000-0000-0000-0001-00000000004d',
+        'mdiCodeBraces', 'Computer program'),
+      ('conference_paper', '00000000-0000-0000-0001-00000000004e',
+        'mdiTextBoxOutline', 'Conference paper'),
+      ('dataset', '00000000-0000-0000-0001-00000000004f',
+        'mdiDatabaseOutline', 'Dataset'),
+      ('dictionary_entry', '00000000-0000-0000-0001-000000000050',
+        'mdiBookAlphabet', 'Dictionary entry'),
+      ('email', '00000000-0000-0000-0001-000000000051',
+        'mdiEmailOutline', 'Email'),
+      ('encyclopedia_article', '00000000-0000-0000-0001-000000000052',
+        'mdiLibrary', 'Encyclopedia article'),
+      ('forum_post', '00000000-0000-0000-0001-000000000053',
+        'mdiForumOutline', 'Forum post'),
+      ('hearing', '00000000-0000-0000-0001-000000000054',
+        'mdiGavel', 'Hearing'),
+      ('instant_message', '00000000-0000-0000-0001-000000000055',
+        'mdiMessageTextOutline', 'Instant message'),
+      ('interview', '00000000-0000-0000-0001-000000000056',
+        'mdiAccountVoice', 'Interview'),
+      ('letter', '00000000-0000-0000-0001-000000000057',
+        'mdiMailboxOutline', 'Letter'),
+      ('magazine_article', '00000000-0000-0000-0001-000000000058',
+        'mdiNewspaperVariant', 'Magazine article'),
+      ('manuscript', '00000000-0000-0000-0001-000000000059',
+        'mdiScriptOutline', 'Manuscript'),
+      ('map', '00000000-0000-0000-0001-00000000005a',
+        'mdiMapOutline', 'Map'),
+      ('newspaper_article', '00000000-0000-0000-0001-00000000005b',
+        'mdiTextBoxMultipleOutline', 'Newspaper article'),
+      ('patent', '00000000-0000-0000-0001-00000000005c',
+        'mdiStamp', 'Patent'),
+      ('podcast', '00000000-0000-0000-0001-00000000005d',
+        'mdiPodcast', 'Podcast'),
+      ('preprint', '00000000-0000-0000-0001-00000000005e',
+        'mdiFileClockOutline', 'Preprint'),
+      ('presentation', '00000000-0000-0000-0001-00000000005f',
+        'mdiPresentationPlay', 'Presentation'),
+      ('radio_broadcast', '00000000-0000-0000-0001-000000000060',
+        'mdiRadio', 'Radio broadcast'),
+      ('report', '00000000-0000-0000-0001-000000000061',
+        'mdiFileChartOutline', 'Report'),
+      ('standard', '00000000-0000-0000-0001-000000000062',
+        'mdiFileCheckOutline', 'Standard'),
+      ('statute', '00000000-0000-0000-0001-000000000063',
+        'mdiScaleBalance', 'Statute'),
+      ('tv_broadcast', '00000000-0000-0000-0001-000000000064',
+        'mdiTelevision', 'TV broadcast'),
+      ('video_recording', '00000000-0000-0000-0001-000000000065',
+        'mdiVideoOutline', 'Video recording'),
+    ];
+
+    // The renames keep their UUIDs; paper's …0025 is withdrawn (never
+    // reused); the retired `class` meta class (…0001) and `cover` (…0042)
+    // stay dead slots.
+    const renamed = <(String, String, String, String)>[
+      ('journal_article', '00000000-0000-0000-0001-000000000026',
+        'mdiNewspaper', 'Journal article'),
+      ('web_page', '00000000-0000-0000-0001-000000000034',
+        'mdiLinkVariant', 'Web page'),
+      ('film', '00000000-0000-0000-0001-000000000035',
+        'mdiMovieOpenOutline', 'Film'),
+    ];
+    const withdrawnClassIds = <String>[
+      '00000000-0000-0000-0001-000000000001', // the `class` meta class
+      '00000000-0000-0000-0001-000000000025', // paper (2026-10-23)
+      '00000000-0000-0000-0001-000000000042', // cover
+    ];
+
+    // seeds.ts `SYSTEM_ARCHIVED_BY_DEFAULT_CLASSES` — the 18 archived by
+    // default (the list is the authority over the brief's prose).
+    const archivedByDefault = <String>[
+      'artwork',
+      'bill',
+      'blog_post',
+      'computer_program',
+      'dataset',
+      'dictionary_entry',
+      'email',
+      'encyclopedia_article',
+      'forum_post',
+      'hearing',
+      'instant_message',
+      'interview',
+      'letter',
+      'manuscript',
+      'map',
+      'patent',
+      'radio_broadcast',
+      'statute',
+    ];
+
+    test('fixed ids: block-prefixed, hex-slot contiguous, withdrawn slots '
+        'untouched', () {
+      final ids = [for (final entry in roster) entry.$2];
+      expect(ids.toSet(), hasLength(ids.length), reason: 'unique class UUIDs');
+      for (var i = 0; i < roster.length; i++) {
+        final suffix = (0x48 + i).toRadixString(16).padLeft(12, '0');
+        expect(
+          roster[i].$2,
+          '00000000-0000-0000-0001-$suffix',
+          reason: 'alphabetical-by-key slot assignment: ${roster[i].$1}',
+        );
+      }
+      for (final id in withdrawnClassIds) {
+        expect(ids.contains(id), isFalse, reason: 'withdrawn slot: $id');
+        expect(renamed.any((entry) => entry.$2 == id), isFalse,
+            reason: 'withdrawn slot: $id');
+      }
+    });
+
+    test('the static maps carry the roster + the renames with the seeds.ts '
+        'icons + display titles', () {
+      for (final entry in [...roster, ...renamed]) {
+        final name = entry.$1;
+        expect(systemClassUuids[name], entry.$2,
+            reason: 'workspace_features systemClassUuids.$name');
+        expect(systemClassSeedUuids[name], entry.$2,
+            reason: 'workspace_features systemClassSeedUuids.$name');
+        expect(systemClassIcons[name], entry.$3, reason: 'icons.$name');
+        expect(systemClassDisplayNames[name], entry.$4,
+            reason: 'display names.$name');
+        // Every roster class extends source — the family cascade + the
+        // frozen-extends lock both derive from this edge.
+        expect(systemClassExtends[name], ['source'],
+            reason: 'extends.$name');
+      }
+      // The old keys are gone everywhere.
+      for (final dead in ['paper', 'article', 'weblink', 'movie']) {
+        expect(systemClassUuids.containsKey(dead), isFalse, reason: dead);
+        expect(systemClassSeedUuids.containsKey(dead), isFalse,
+            reason: dead);
+      }
+      // The archived-by-default set is exactly the 18, all roster members.
+      expect(systemArchivedByDefaultClasses, archivedByDefault);
+      for (final name in archivedByDefault) {
+        expect(systemClassUuids.containsKey(name), isTrue, reason: name);
+      }
+    });
+
+    test('the frozen-extends lock covers the whole roster', () {
+      // systemClassExtendsIds is the system-extends lock authority: every
+      // roster class must resolve there, frozen to {source}.
+      for (final entry in roster) {
+        final locked = systemClassExtendsIds[entry.$2];
+        expect(locked, [SystemClassUuids.source], reason: entry.$1);
+        expect(isSystemClassId(entry.$2), isTrue, reason: entry.$1);
+      }
+      // The renamed classes keep their frozen source parent set.
+      expect(
+        systemClassExtendsIds[SystemClassUuids.journalArticle],
+        [SystemClassUuids.source],
+      );
+      expect(systemClassExtendsIds[SystemClassUuids.webPage],
+          [SystemClassUuids.source]);
+      expect(systemClassExtendsIds[SystemClassUuids.film],
+          [SystemClassUuids.source]);
+      // paper's …0025 is nobody's lock key anymore.
+      expect(
+        systemClassExtendsIds.containsKey(
+            '00000000-0000-0000-0001-000000000025'),
+        isFalse,
+      );
+    });
+
+    test('the sources family cascade covers the roster', () {
+      // features.ts parity: the sources family set is the base + every
+      // extends-child, sorted — the 30-new roster joins the eight
+      // pre-roster children (paper withdrew; the three renames keep their
+      // slots).
+      final family = familyClassNames('sources');
+      expect(family.first, 'source');
+      expect(family.length, 40);
+      expect(family.sublist(1), [
+        'artwork',
+        'audio_recording',
+        'bill',
+        'blog_post',
+        'book',
+        'book_section',
+        'computer_program',
+        'conference',
+        'conference_paper',
+        'dataset',
+        'dictionary_entry',
+        'document',
+        'email',
+        'encyclopedia_article',
+        'film',
+        'forum_post',
+        'hearing',
+        'instant_message',
+        'interview',
+        'journal_article',
+        'letter',
+        'magazine_article',
+        'manuscript',
+        'map',
+        'newspaper_article',
+        'patent',
+        'podcast',
+        'preprint',
+        'presentation',
+        'radio_broadcast',
+        'report',
+        'song',
+        'standard',
+        'statute',
+        'thesis',
+        'tv_broadcast',
+        'tv_series',
+        'video_recording',
+        'web_page',
+      ]);
+      // The roster classes gate on the sources toggle.
+      for (final entry in roster) {
+        expect(gatingFeaturesForClass(entry.$1), ['sources'],
+            reason: entry.$1);
+      }
+    });
+  });
+
   group('display titles + the events family (2026-10-07 follow-up)', () {
     // The display-title revision: the local seed authors the display
     // titles (the seeds.ts SYSTEM_CLASS_DISPLAY_NAMES slice), matching the
@@ -313,7 +587,9 @@ void main() {
 
     test('the wording pins (the seeds.ts record)', () {
       expect(systemClassDisplayNames['tv_series'], 'TV series');
-      expect(systemClassDisplayNames['weblink'], 'Web link');
+      expect(systemClassDisplayNames['web_page'], 'Web page');
+      expect(systemClassDisplayNames['journal_article'], 'Journal article');
+      expect(systemClassDisplayNames['film'], 'Film');
       expect(systemClassDisplayNames['task'], 'Task');
       expect(systemClassDisplayNames['source'], 'Source');
       expect(systemClassDisplayNames['meeting'], 'Meeting');
@@ -345,12 +621,13 @@ void main() {
         expect(LocalWorkspaceSeed.systemClassNames.containsKey(target), isTrue,
             reason: 'extends target $target is seeded');
       }
-      // The property-schema axis stays the authors-only slice (documented
-      // divergence — the meeting/event/birthday bindings are server-seeded,
-      // like the source family's bibliography specs).
+      // The property-schema axis stays the creator-family slice
+      // (authors + linkedAuthors + editors — the 2026-10-23 source-library
+      // lockstep); the meeting/event/birthday bindings and the rest of the
+      // bibliography pool are server-seeded (the documented divergence).
       expect(
         LocalWorkspaceSeed.systemPropertySpecs.map((s) => s.name),
-        ['authors'],
+        ['authors', 'linkedAuthors', 'editors'],
       );
     });
   });
@@ -385,14 +662,16 @@ void main() {
       final emitted =
           await LocalWorkspaceSeed(syncService).ensureLocalWorkspace();
       // 33 class.create (the seeded `class` meta class retired 2026-10-07;
-      // weblink joins the source family; meeting + event + birthday join as
+      // web_page joins the source family; meeting + event + birthday join as
       // the full events family, 2026-10-07; the #14 follow-up five join,
       // 2026-10-06) + 7 class.setExtends (song, tv_series, conference,
-      // weblink — all extend source; meeting, birthday, trip extend event) +
-      // 1 propertySchema.create + 1 class.property.set (authors,
-      // node-typed per the FINAL reversion) + 1 object.create (Inbox; the
-      // scratchpad seed was withdrawn 2026-10-05).
-      expect(emitted, 43);
+      // web_page — all extend source; meeting, birthday, trip extend event) +
+      // 3 propertySchema.create + 3 class.property.set (the creator-family
+      // slice — authors retyped text-multi, linkedEditors node-typed to
+      // agent, editors text-multi; source-library slice 1 task 4,
+      // 2026-10-23) + 1 object.create (Inbox; the scratchpad seed was
+      // withdrawn 2026-10-05).
+      expect(emitted, 47);
 
       final db = await database.database;
 
@@ -401,7 +680,7 @@ void main() {
       for (final entry in [
         (SystemClassUuids.task, 'Task'),
         (SystemClassUuids.tvSeries, 'TV series'),
-        (SystemClassUuids.weblink, 'Web link'),
+        (SystemClassUuids.webPage, 'Web page'),
         (SystemClassUuids.meeting, 'Meeting'),
         (SystemClassUuids.event, 'Event'),
         (SystemClassUuids.birthday, 'Birthday'),
@@ -420,11 +699,11 @@ void main() {
         [SystemClassUuids.song],
       );
       expect(song.single['icon'], 'mdiMusicNote');
-      final weblink = await db.rawQuery(
+      final webPage = await db.rawQuery(
         'SELECT icon FROM class_cache WHERE uuid = ?',
-        [SystemClassUuids.weblink],
+        [SystemClassUuids.webPage],
       );
-      expect(weblink.single['icon'], 'mdiLinkVariant');
+      expect(webPage.single['icon'], 'mdiLinkVariant');
       // The #14 follow-up five seeded with their mdi icons.
       for (final entry in [
         (SystemClassUuids.definition, 'mdiBookOpenPageVariant'),
@@ -446,7 +725,7 @@ void main() {
         SystemClassUuids.song,
         SystemClassUuids.tvSeries,
         SystemClassUuids.conference,
-        SystemClassUuids.weblink,
+        SystemClassUuids.webPage,
       ]) {
         final edges = await db.rawQuery(
           'SELECT parent_class_id FROM class_extends WHERE class_id = ?',
@@ -494,6 +773,8 @@ void main() {
       // Property schemas + bindings on source.
       for (final schemaId in [
         SystemPropertyUuids.authors,
+        SystemPropertyUuids.linkedAuthors,
+        SystemPropertyUuids.editors,
       ]) {
         final schema = await db.rawQuery(
           'SELECT name, type, multi FROM property_schema WHERE uuid = ?',
@@ -510,8 +791,14 @@ void main() {
         'SELECT type, multi FROM property_schema WHERE uuid = ?',
         [SystemPropertyUuids.authors],
       );
-      expect(authorsRow.single['type'], 'object');
+      expect(authorsRow.single['type'], 'text');
       expect(authorsRow.single['multi'], 1);
+      final linkedRow = await db.rawQuery(
+        'SELECT type, multi FROM property_schema WHERE uuid = ?',
+        [SystemPropertyUuids.linkedAuthors],
+      );
+      expect(linkedRow.single['type'], 'object');
+      expect(linkedRow.single['multi'], 1);
 
       // Idempotent re-run emits nothing.
       expect(

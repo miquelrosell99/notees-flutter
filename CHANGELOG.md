@@ -8,6 +8,52 @@ lives in git history.
 
 ## 2026-10-23
 
+- **feat(protocol,store): the source library — seed-manifest lockstep
+  (Flutter port of the monorepo's source-library slice 1 tasks 3–5).** The
+  system-seed manifests align with the TS seed authority
+  (`packages/domain/src/seeds.ts` + `source-class-bindings.ts`): three
+  system class RENAMES keeping their fixed UUIDs — `article` →
+  `journal_article` (…0026), `weblink` → `web_page` (…0034), `movie` →
+  `film` (…0035) — and the `paper` class WITHDRAWN (…0025, never reused:
+  Zotero has no "paper"; nodes migrate to journal_article). The
+  source-library roster lands: 30 NEW source type-classes (UUIDs
+  …0048–…0065, alphabetical by key) ALL extending `source` — the
+  frozen-extends lock authority (`systemClassSeedUuids` /
+  `systemClassExtendsIds`), the sources-family cascade
+  (`familyClassNames('sources')` now 40 classes), the icons/display-titles
+  maps, and the gating walk all cover them; the 18-name
+  `SYSTEM_ARCHIVED_BY_DEFAULT_CLASSES` set ports as
+  `systemArchivedByDefaultClasses` (pure seed data — nothing consumes it
+  yet, exactly the core's slice-1 state). The property axis: `authors`
+  RETYPED object → text-multi (UUID …0012 unchanged, the agent filter
+  superseded), `linkedAuthors` REINSTATED at its new UUID …0006-…0001
+  (object-multi, targetClassFilter [agent] — the burned …0025 stays
+  unused), `editors` ADDED at …0006-…0002 (text-multi); the local
+  workspace seed's property slice is now the creator family
+  (authors + linkedAuthors + editors, each bound to `source`), replacing
+  the retired authors-object reversion. Structural divergences kept
+  deliberate: the local seed still emits its curated class subset (the
+  30-new roster is NOT locally seeded — a server attach converges it, and
+  the applier's family-bit derivation no-ops over absent registry rows),
+  and the rest of the bibliographic pool (the 80 non-creator properties),
+  the per-class `SYSTEM_SOURCE_CLASS_BINDINGS` table, and the Zotero
+  item-type manifest stay unported — no Flutter surface consumes them
+  until the citation-import slices. Two store applier fixes ride the same
+  slice (the core's `2441de071` "archival is
+  VISIBILITY state, not an absence"): the `class_hierarchy` closure
+  rebuild walks EVERY class row (the `active = 1` filter dropped an
+  archived class's entire extends closure on the next `class.setExtends`),
+  and the `class_cache` upsert's conflict arm never rewrites `active` (a
+  re-issued `class.create` — the seed/ensure idempotent re-run — no longer
+  revives an archived class). The vendored `object-create.json` fixture
+  keeps its …0025 classId (opaque to the appliers; the core left it
+  unchanged). **Verification:** `flutter analyze` clean; `flutter test`
+  green (seed-parity suite extended: the roster pins — fixed ids, static
+  maps, the frozen-extends lock coverage, the family cascade, the
+  archived set — the creator-spec and emission-count updates, plus the new
+  archival-semantics regressions: archived-survives-rebuild,
+  re-create-never-revives, archived-type resolves through extends).
+
 - **feat(protocol,store): external-id mappings — the `external_ref.*` op
   family (Flutter lockstep port of the monorepo's SCHEMA.md "External-id
   mappings" + TS store schema v30).** The plugin mapping substrate: a

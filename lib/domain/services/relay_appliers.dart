@@ -1517,8 +1517,12 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       // class.create never writes description: a fresh row starts
       // description-less and a re-declaration keeps the stored one (TS
       // parity — the payload schema accepts the key, the applier drops it).
+      // The archival bit is deliberately NOT passed: the re-declaration
+      // conflict arm never touches `active`, so a re-issued class.create —
+      // the seed/ensure idempotent re-run — must NOT revive an archived
+      // class (the source-library
+      // archived-by-default seed).
       description: await _cache.classDescription(classId),
-      active: true,
       createdAt: envelope.timestamp,
       updatedAt: envelope.timestamp,
     );

@@ -220,25 +220,26 @@ void main() {
       final seed = LocalWorkspaceSeed(syncService);
 
       // 33 system classes (21 legacy + source + song/tv_series/conference
-      // from the citations revision + weblink joining the source family +
+      // from the citations revision + web_page joining the source family +
       // meeting + event + birthday as the full events family + the #14
       // follow-up five; the seeded `class` meta class retired 2026-10-07 —
       // class.create carries the display-wording title) +
       // 7 class.setExtends (the source family four + meeting/birthday/trip
       // extending event) +
-      // 1 propertySchema.create + 1 class.property.set (authors, node-typed
-      // per the FINAL owner reversion) + 1 page (Inbox; the scratchpad seed
-      // was withdrawn 2026-10-05).
+      // 3 propertySchema.create + 3 class.property.set (the creator-family
+      // slice — authors text-multi, linkedAuthors object→agent, editors
+      // text-multi; source-library slice 1 task 4) + 1 page (Inbox; the
+      // scratchpad seed was withdrawn 2026-10-05).
       final emitted = await seed.ensureLocalWorkspace();
-      expect(emitted, 43);
+      expect(emitted, 47);
 
       final taskClass =
           await syncService.cache.getClassByUuid(SystemClassUuids.task);
       expect(taskClass?.name, 'Task');
 
-      final weblinkClass =
-          await syncService.cache.getClassByUuid(SystemClassUuids.weblink);
-      expect(weblinkClass?.name, 'Web link');
+      final webPageClass =
+          await syncService.cache.getClassByUuid(SystemClassUuids.webPage);
+      expect(webPageClass?.name, 'Web page');
 
       final meetingClass =
           await syncService.cache.getClassByUuid(SystemClassUuids.meeting);
@@ -251,11 +252,11 @@ void main() {
 
       final db = await database.database;
       // Seed ops stay in the outbox for a later server attach.
-      expect(await db.query('relay_outbox'), hasLength(43));
+      expect(await db.query('relay_outbox'), hasLength(47));
 
       // Re-running emits nothing.
       expect(await seed.ensureLocalWorkspace(), 0);
-      expect(await db.query('relay_outbox'), hasLength(43));
+      expect(await db.query('relay_outbox'), hasLength(47));
     });
   });
 }
