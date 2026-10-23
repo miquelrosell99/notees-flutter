@@ -6,6 +6,49 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-23
+
+- **feat(protocol,store): external-id mappings — the `external_ref.*` op
+  family (Flutter lockstep port of the monorepo's SCHEMA.md "External-id
+  mappings" + TS store schema v30).** The plugin mapping substrate: a
+  durable, per-workspace, log-carried `externalId -> nodeId` map so
+  re-runs of an importer or a provider sync UPDATE the mapped node instead
+  of duplicating it. `external_ref.set {ref, nodeId}` writes one LIVE
+  mapping per (workspace, ref) — LWW by envelope (hlc, actor) on the ref
+  key, so a re-set MOVES the mapping (re-targeting is legal) and a racing
+  pair converges on the higher tuple under either delivery order; a stale
+  write (full tuple <= the standing record) is dropped. `external_ref.delete
+  {ref}` is the LWW delete side and keeps a TOMBSTONE per (workspace, ref)
+  — including a delete of an UNMAPPED ref — so a stale concurrent set
+  delivered after the winning delete is dropped on every replica and
+  wipe → replay converges under any delivery order; at most one of {live
+  row, tombstone} stands per key (a winning set deletes the tombstone, a
+  winning delete deletes the live row). `ref` is the caller-namespaced key
+  `<provider>:<kind>:<externalId>` (opaque to the protocol, 1..512 chars —
+  empty/oversize fail loud in the strict validator); `nodeId` is a bare
+  uuid with NO referential integrity (the property_value precedent — a
+  mapping may name a not-yet-synced node). Both ops join the op registry
+  (`OperationPayloads.knownOpTypes`) with strict factories
+  `externalRefSet`/`externalRefDelete`; the appliers route by op type
+  (the payload carries no addressed `objectId`), fail loud with
+  `EnvelopeValidationError` on malformed payloads, and never swallow a
+  write. Derived state: local schema v35→v36 (`external_ref` PK
+  (workspace_id, ref) + node_id index, `external_ref_tombstone` — purely
+  additive, the TS store's v29→v30 mirror) with the repository's
+  record/upsert/purge methods and the two TS-parity reads
+  `resolveExternalRef` (live table only — a tombstoned ref resolves null)
+  and `externalRefsOf` (sorted reverse read). A node's HARD delete purges
+  its live rows (the subtree purge in `NodeCacheRepository.hardDelete`,
+  riding trash.empty too); soft-trash keeps them (a restore re-activates
+  the node, mappings intact); ref tombstones survive their node's purge.
+  Fixture corpus: `external-ref.json` vendored byte-identical (sha256
+  9cf46b1b630be8db109cf999f451242ca880398eb43c2decc79068994145a47e)
+  and wired into the parity gate + the replay suite — the canonical
+  fixture converges forward AND with the mapping ops reversed (the
+  tombstones kill the stale sets), plus soft/hard-trash and fail-loud
+  payload suites. **Verification:** `flutter analyze` clean; `flutter
+  test` green (payload registry, fixture parity, fixture replay).
+
 ## 2026-10-22
 
 - **feat(protocol,store): the classes gallery + retired `class.delete`

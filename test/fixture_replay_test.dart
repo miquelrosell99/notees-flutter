@@ -51,6 +51,15 @@ void main() {
   const cycleRoot = '0192a000-0000-7000-8000-0000000000d1';
   const cycleLeaf = '0192a000-0000-7000-8000-0000000000d2';
 
+  // external-ref.json ids + refs.
+  const extA = '0192a000-0000-7000-8000-000000000b10';
+  const extB = '0192a000-0000-7000-8000-000000000b11';
+  const refGcal = 'gcal:event:abc123@google.com';
+  const refReadwise = 'readwise:highlight:12345';
+  const refReaditlater = 'readitlater:entry:7788';
+  const refDef456 = 'gcal:event:def456@google.com';
+  const refGhi789 = 'gcal:event:ghi789@google.com';
+
   /// Fixtures whose application must throw — never part of the replay set
   /// (class-extends-cycle closes a cycle; class-extends-system-lock pins the
   /// system-extends lock's reject tail (detach/extra-parent/deviate) after
@@ -125,6 +134,26 @@ void main() {
           'parentId': parentId,
         },
         timestamp: '2026-09-24T12:00:00.000Z',
+      );
+
+  /// Hand-built `external_ref.*` envelope (the TS store tests' `env()`
+  /// helper equivalent): the mapping ops key their state by the payload's
+  /// `ref`, so affectedNodeIds stays empty.
+  OperationEnvelope extRefOp(
+    String opType,
+    Map<String, dynamic> payload,
+    int physical,
+  ) =>
+      OperationEnvelope(
+        id: '0192a000-0000-7000-8000-0000000005$physical',
+        workspaceId: ws,
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'fixture-test-device',
+        hlc: Hlc(physical: physical, logical: 0),
+        affectedNodeIds: const [],
+        opType: opType,
+        payload: payload,
+        timestamp: '2026-09-24T12:00:50.000Z',
       );
 
   group('fixture replay acceptance', () {
@@ -919,8 +948,168 @@ void main() {
       expect(rows, isEmpty);
     });
 
-    test('typed-link mark then deleted lands the final content', () async {
-      await seedBaseWithBlock();
+    test('external-ref: the canonical fixture converges — the re-set moves '
+        'the mapping, the deletes tombstone, the hard delete purges', () async {
+      final envelopes = fixtureEnvelopes('external-ref.json');
+      for (final envelope in envelopes) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+
+      // The gcal re-set MOVED the mapping A -> B (the higher HLC tuple
+      // wins); the readwise delete tombstoned the ref; the def456 delete
+      // tombstoned that ref too; ghi789 named A, whose permanent delete
+      // purged the row with the subtree; readitlater re-set to B at ...750
+      // (the last write) rides B, untouched by A's purge.
+      expect(await cache.resolveExternalRef(ws, refGcal), extB);
+      expect(await cache.resolveExternalRef(ws, refReaditlater), extB);
+      expect(await cache.resolveExternalRef(ws, refReadwise), isNull);
+      expect(await cache.resolveExternalRef(ws, refDef456), isNull);
+      expect(await cache.resolveExternalRef(ws, refGhi789), isNull);
+      expect(await cache.externalRefsOf(ws, extA), isEmpty);
+      expect(await cache.externalRefsOf(ws, extB), [refGcal, refReaditlater]);
+
+      // The one-record invariant: the live table holds the two B mappings,
+      // the tombstones carry exactly the two winning deletes.
+      final liveRows = await raw(
+        'SELECT ref, node_id FROM external_ref WHERE workspace_id = ? '
+        'ORDER BY ref',
+        [ws],
+      );
+      expect(liveRows, [
+        {'ref': refGcal, 'node_id': extB},
+        {'ref': refReaditlater, 'node_id': extB},
+      ]);
+      final tombRows = await raw(
+        'SELECT ref FROM external_ref_tombstone WHERE workspace_id = ? '
+        'ORDER BY ref',
+        [ws],
+      );
+      expect(
+        tombRows.map((r) => r['ref']).toList(),
+        [refDef456, refReadwise],
+      );
+
+      // Idempotent replay: every op re-applies to the identical state.
+      for (final envelope in envelopes) {
+        await appliers.apply(envelope);
+      }
+      expect(await cache.externalRefsOf(ws, extB), [refGcal, refReaditlater]);
+      final liveAfter = await raw(
+        'SELECT ref, node_id FROM external_ref WHERE workspace_id = ?',
+        [ws],
+      );
+      expect(liveAfter, hasLength(2));
+    });
+
+    test('external-ref: the mapping ops converge under reverse delivery '
+        '(the tombstones kill the stale sets)', () async {
+      final envelopes = fixtureEnvelopes('external-ref.json');
+      // The node creates and the permanent delete are causally ordered (a
+      // hard delete cannot apply before its node's create) — the
+      // convergence claim under reordering covers the MAPPING ops, whose
+      // only interdependencies are the LWW tuples (the TS reference test
+      // builds the scenario the same way).
+      final creates = envelopes.take(2).toList();
+      final mappingOps = envelopes.skip(2).take(9).toList();
+      final purge = envelopes.last;
+
+      Future<void> replay(List<OperationEnvelope> ops) async {
+        for (final op in ops) {
+          await appliers.apply(op);
+        }
+      }
+
+      Future<void> expectConverged() async {
+        expect(await cache.resolveExternalRef(ws, refGcal), extB);
+        expect(await cache.resolveExternalRef(ws, refReaditlater), extB);
+        expect(await cache.resolveExternalRef(ws, refReadwise), isNull);
+        expect(await cache.resolveExternalRef(ws, refDef456), isNull);
+        expect(await cache.resolveExternalRef(ws, refGhi789), isNull);
+        expect(await cache.externalRefsOf(ws, extA), isEmpty);
+        expect(await cache.externalRefsOf(ws, extB), [refGcal, refReaditlater]);
+      }
+
+      await replay([...creates, ...mappingOps, purge]);
+      await expectConverged();
+
+      // Fresh store, mapping ops reversed: the winning deletes land
+      // FIRST, the stale sets LAST — the tombstones must drop them (the
+      // divergence the tombstone exists to prevent).
+      await database.close();
+      final ffiDb2 = await databaseFactoryFfi.openDatabase(
+        ':memory:',
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      database = AppDatabase.fromDatabase(ffiDb2);
+      await database.initializeSchema();
+      cache = NodeCacheRepository(database);
+      appliers = RelayAppliers(cache);
+      await replay([...creates, ...mappingOps.reversed, purge]);
+      await expectConverged();
+    });
+
+    test('external_ref: soft-trash keeps the mappings (restore re-activates '
+        'them intact); a hard delete purges', () async {
+      const page = '0192a000-0000-7000-8000-000000000b20';
+      await appliers.apply(basePage(page, 0));
+      await appliers.apply(
+          extRefOp('external_ref.set', {'ref': refGcal, 'nodeId': page}, 1));
+      await appliers.apply(extRefOp(
+          'external_ref.set', {'ref': refReadwise, 'nodeId': page}, 2));
+      expect(await cache.externalRefsOf(ws, page), [refGcal, refReadwise]);
+
+      // Soft-trash: the mappings ride.
+      await appliers
+          .apply(extRefOp('object.delete', {'objectId': page}, 3));
+      expect(await cache.resolveExternalRef(ws, refGcal), page);
+      expect(await cache.externalRefsOf(ws, page), [refGcal, refReadwise]);
+      await appliers
+          .apply(extRefOp('object.restore', {'objectId': page}, 4));
+      expect(await cache.externalRefsOf(ws, page), [refGcal, refReadwise]);
+
+      // Hard delete: the subtree's live rows are purged.
+      await appliers.apply(extRefOp(
+          'object.delete', {'objectId': page, 'permanent': true}, 5));
+      expect(await cache.resolveExternalRef(ws, refGcal), isNull);
+      expect(await cache.resolveExternalRef(ws, refReadwise), isNull);
+      expect(await cache.externalRefsOf(ws, page), isEmpty);
+    });
+
+    test('external_ref: malformed payloads fail loud at the apply boundary '
+        'and never touch state', () async {
+      const page = '0192a000-0000-7000-8000-000000000b21';
+      await appliers.apply(basePage(page, 0));
+
+      Future<void> expectRejected(
+              String opType, Map<String, dynamic> payload) =>
+          expectLater(
+            appliers.apply(extRefOp(opType, payload, 1)),
+            throwsA(isA<EnvelopeValidationError>()),
+          );
+
+      await expectRejected(
+          'external_ref.set', {'ref': '', 'nodeId': page});
+      await expectRejected(
+          'external_ref.set', {'ref': 'x' * 513, 'nodeId': page});
+      await expectRejected('external_ref.set', {'ref': refGcal});
+      await expectRejected(
+          'external_ref.set', {'ref': refGcal, 'nodeId': 'not-a-uuid'});
+      await expectRejected('external_ref.set',
+          {'ref': refGcal, 'nodeId': page, 'kind': 'event'});
+      await expectRejected('external_ref.delete', {'ref': ''});
+      await expectRejected(
+          'external_ref.delete', {'ref': refGcal, 'nodeId': page});
+
+      expect(await cache.resolveExternalRef(ws, refGcal), isNull);
+      final liveRows =
+          await raw('SELECT COUNT(*) AS c FROM external_ref');
+      expect(liveRows.single['c'], 0);
+      final tombRows =
+          await raw('SELECT COUNT(*) AS c FROM external_ref_tombstone');
+      expect(tombRows.single['c'], 0);
+    });
+
+    test('typed-link mark then deleted lands the final content', () async {      await seedBaseWithBlock();
       for (final name in ['typed-link-mark.json', 'typed-link-mark-deleted.json']) {
         for (final envelope in fixtureEnvelopes(name)) {
           expect(await appliers.apply(envelope), isTrue);

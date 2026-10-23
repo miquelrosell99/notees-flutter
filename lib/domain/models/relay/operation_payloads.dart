@@ -59,6 +59,18 @@
 ///    like any unknown op type; class-node deletion routes through
 ///    `object.delete` (four applier-decided arms, SCHEMA.md "Workspace
 ///    features").
+///
+/// External-ref batch (2026-10-23 lockstep, SCHEMA.md "External-id
+/// mappings"):
+///  - `external_ref.set {ref, nodeId}` — one LIVE mapping per
+///    (workspace, ref), LWW by envelope (hlc, actor); a re-set MOVES the
+///    mapping; [ref] is the caller-namespaced key
+///    `<provider>:<kind>:<externalId>` (opaque, 1..512 chars), nodeId is a
+///    bare uuid with NO referential integrity;
+///  - `external_ref.delete {ref}` — the ref key's LWW delete side; the
+///    derived store keeps a tombstone per (workspace, ref), including a
+///    delete of an UNMAPPED ref, so a stale concurrent set delivered after
+///    the winning delete is dropped on every replica.
 library;
 
 import 'colors.dart';
@@ -98,6 +110,8 @@ class OperationPayloads {
     'collection.member.add',
     'collection.member.remove',
     'workspace.feature.set',
+    'external_ref.set',
+    'external_ref.delete',
   ];
 
   static bool isKnownOpType(String opType) => knownOpTypes.contains(opType);
@@ -119,6 +133,10 @@ class OperationPayloads {
     'persons',
     'journal',
   };
+
+  /// The external-ref key cap (`EXTERNAL_REF_MAX_LENGTH` in op-types.ts):
+  /// empty or oversize refs fail loud at the strict validator.
+  static const externalRefMaxLength = 512;
 
   // --- objects ----------------------------------------------------------------
 
@@ -684,6 +702,32 @@ class OperationPayloads {
         'enabled': enabled,
       });
 
+  // --- external refs -----------------------------------------------------------
+
+  /// External-id mapping for importer/sync plugins (the plugin mapping
+  /// substrate, owner requirement 2026-10-23): a durable per-workspace
+  /// `externalId -> nodeId` map carried by the log, so re-runs of an
+  /// importer or a provider sync UPDATE the mapped node instead of
+  /// duplicating it. LWW by envelope (hlc, actor) on the (workspace, ref)
+  /// key — a re-set MOVES the mapping to another node; the winning delete
+  /// keeps a tombstone so a stale set delivered later is dropped. [ref] is
+  /// the caller-namespaced key `<provider>:<kind>:<externalId>` (opaque to
+  /// the protocol, 1..[externalRefMaxLength] chars); [nodeId] is a bare
+  /// uuid with NO referential integrity (the property_value precedent — a
+  /// mapping may name a node another device has not synced yet).
+  static Map<String, dynamic> externalRefSet({
+    required String ref,
+    required String nodeId,
+  }) =>
+      _validated('external_ref.set', {'ref': ref, 'nodeId': nodeId});
+
+  /// The LWW delete side of the ref key: the winning delete removes the
+  /// live row (when one stands) and records a tombstone — including for an
+  /// UNMAPPED ref — so a stale concurrent set delivered after it is dropped
+  /// on every replica and wipe -> replay converges under any delivery order.
+  static Map<String, dynamic> externalRefDelete({required String ref}) =>
+      _validated('external_ref.delete', {'ref': ref});
+
   // --- assets & collections ---------------------------------------------------
 
   static Map<String, dynamic> assetAttach({
@@ -1045,6 +1089,16 @@ class OperationPayloads {
         _strict(payload, {'feature', 'enabled'});
         _enum(payload, 'feature', workspaceFeatures);
         _bool(payload, 'enabled');
+      case 'external_ref.set':
+        // The strict schema: ref is the caller-namespaced key (opaque to
+        // the protocol, capped at 512 chars — empty/oversize fail loud);
+        // nodeId is a bare uuid, no referential integrity.
+        _strict(payload, {'ref', 'nodeId'});
+        _string(payload, 'ref', min: 1, max: externalRefMaxLength);
+        _uuid(payload, 'nodeId');
+      case 'external_ref.delete':
+        _strict(payload, {'ref'});
+        _string(payload, 'ref', min: 1, max: externalRefMaxLength);
       case 'asset.attach':
         _strict(payload, {
           'objectId',

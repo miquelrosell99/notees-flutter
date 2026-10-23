@@ -340,6 +340,14 @@ class NodeCacheRepository {
         'DELETE FROM collection_member WHERE object_id IN ($placeholders)',
         ids,
       );
+      // external_ref: the subtree's LIVE mappings die with it (a
+      // hard-deleted node leaves no mapping behind — soft-trash keeps
+      // them); the ref tombstones survive (keyed by ref, they bound
+      // garbage to the ref name).
+      await txn.rawDelete(
+        'DELETE FROM external_ref WHERE node_id IN ($placeholders)',
+        ids,
+      );
       await txn.rawDelete(
         'DELETE FROM edge WHERE source_id IN ($placeholders) OR target_id IN ($placeholders)',
         [...ids, ...ids],
@@ -391,6 +399,8 @@ class NodeCacheRepository {
       await txn.delete('collection_member');
       await txn.delete('edge');
       await txn.delete('class_property');
+      await txn.delete('external_ref');
+      await txn.delete('external_ref_tombstone');
     });
   }
 
@@ -2508,6 +2518,156 @@ class NodeCacheRepository {
       where: 'uuid = ?',
       whereArgs: [uuid],
     );
+  }
+
+  // === External refs (importer/sync plugin mappings) ==========================
+  //
+  // The `external_ref.*` op family's derived state (owner requirement
+  // 2026-10-23, SCHEMA.md "External-id mappings" — the TS store schema v30
+  // mirror): a durable per-workspace `externalId -> nodeId` map carried by
+  // the log. One LIVE mapping per (workspace, ref), LWW by envelope
+  // (hlc, actor) on the ref key; the delete side keeps a tombstone per ref
+  // (including a delete of an UNMAPPED ref) so a stale concurrent set
+  // delivered after the winning delete is dropped on every replica. At most
+  // one of {live row, tombstone} stands per key — the applier maintains
+  // the invariant. No referential integrity (the property_value precedent);
+  // a node's HARD delete purges its live rows (see [hardDelete]),
+  // soft-trash keeps them; ref tombstones survive their node's purge.
+
+  /// The one standing record per (workspace, ref) — [live] names a live
+  /// mapping's node, a tombstone carries [live] = false and no node.
+  /// Null when neither a live row nor a tombstone exists.
+  Future<({bool live, String? nodeId, LwwWinner winner})?> externalRefRecord(
+    String workspaceId,
+    String ref,
+  ) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'external_ref',
+      columns: ['node_id', 'hlc_physical', 'hlc_logical', 'actor_id'],
+      where: 'workspace_id = ? AND ref = ?',
+      whereArgs: [workspaceId, ref],
+      limit: 1,
+    );
+    if (rows.isNotEmpty) {
+      final row = rows.first;
+      return (
+        live: true,
+        nodeId: row['node_id'] as String?,
+        winner: lwwWinnerFrom(
+          physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+          logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+          actor: row['actor_id'] as String? ?? '',
+        ),
+      );
+    }
+    final tombs = await db.query(
+      'external_ref_tombstone',
+      columns: ['hlc_physical', 'hlc_logical', 'actor_id'],
+      where: 'workspace_id = ? AND ref = ?',
+      whereArgs: [workspaceId, ref],
+      limit: 1,
+    );
+    if (tombs.isEmpty) return null;
+    final tomb = tombs.first;
+    return (
+      live: false,
+      nodeId: null,
+      winner: lwwWinnerFrom(
+        physical: (tomb['hlc_physical'] as num?)?.toInt() ?? 0,
+        logical: (tomb['hlc_logical'] as num?)?.toInt() ?? 0,
+        actor: tomb['actor_id'] as String? ?? '',
+      ),
+    );
+  }
+
+  /// LWW-write one live mapping row (the applier gates on
+  /// [externalRefRecord]); a re-set MOVES the mapping via the PK replace.
+  Future<void> upsertExternalRef(
+    String workspaceId,
+    String ref,
+    String nodeId,
+    LwwWinner incoming,
+  ) async {
+    final db = await _database.database;
+    await db.insert('external_ref', {
+      'ref': ref,
+      'workspace_id': workspaceId,
+      'node_id': nodeId,
+      'hlc_physical': incoming.physical,
+      'hlc_logical': incoming.logical,
+      'actor_id': incoming.actor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Take the live row down (the winning delete / the tombstone supersede).
+  Future<void> deleteExternalRef(String workspaceId, String ref) async {
+    final db = await _database.database;
+    await db.delete(
+      'external_ref',
+      where: 'workspace_id = ? AND ref = ?',
+      whereArgs: [workspaceId, ref],
+    );
+  }
+
+  /// LWW-write the delete-side tombstone (the applier gates on
+  /// [externalRefRecord]); a winning set supersedes it via
+  /// [deleteExternalRefTombstone] — the one-record invariant.
+  Future<void> upsertExternalRefTombstone(
+    String workspaceId,
+    String ref,
+    LwwWinner incoming,
+  ) async {
+    final db = await _database.database;
+    await db.insert('external_ref_tombstone', {
+      'ref': ref,
+      'workspace_id': workspaceId,
+      'hlc_physical': incoming.physical,
+      'hlc_logical': incoming.logical,
+      'actor_id': incoming.actor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// The winning set's tombstone supersede (the one-record invariant).
+  Future<void> deleteExternalRefTombstone(String workspaceId, String ref) async {
+    final db = await _database.database;
+    await db.delete(
+      'external_ref_tombstone',
+      where: 'workspace_id = ? AND ref = ?',
+      whereArgs: [workspaceId, ref],
+    );
+  }
+
+  /// Resolve an external-id mapping to its node id — null when the ref was
+  /// never mapped or its winning op is a delete (the tombstoned state; only
+  /// the LIVE table is consulted). The mapping names a node, it does not
+  /// guarantee one: the row carries no referential integrity, and a
+  /// hard-deleted node's rows are purged, so the caller validates the
+  /// target.
+  Future<String?> resolveExternalRef(String workspaceId, String ref) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'external_ref',
+      columns: ['node_id'],
+      where: 'workspace_id = ? AND ref = ?',
+      whereArgs: [workspaceId, ref],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['node_id'] as String?;
+  }
+
+  /// Every LIVE ref mapped to the node, sorted — a node may carry many
+  /// refs (the same event synced from two providers lands two).
+  Future<List<String>> externalRefsOf(String workspaceId, String nodeId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'external_ref',
+      columns: ['ref'],
+      where: 'workspace_id = ? AND node_id = ?',
+      whereArgs: [workspaceId, nodeId],
+      orderBy: 'ref',
+    );
+    return rows.map((row) => row['ref'] as String).toList();
   }
 
   /// INSERT-or-ignore a class registry row (the task-family seed-ensure):

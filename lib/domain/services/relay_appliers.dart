@@ -72,6 +72,13 @@ import '../models/relay/workspace_features.dart';
 ///    tasks enable authors the task family at the fixed seed ids on every
 ///    enable payload); an object.delete on a family base routes to the
 ///    toggle (the class-node delete routing);
+///  - external-id mappings (external_ref.set / external_ref.delete,
+///    2026-10-23 lockstep) LWW by envelope (hlc, actor) on the
+///    (workspace, ref) key with a delete-side tombstone per ref (including
+///    a delete of an unmapped ref), so a stale concurrent set delivered
+///    after the winning delete is dropped on every replica; a node's hard
+///    delete purges its live rows, soft-trash keeps them (SCHEMA.md
+///    "External-id mappings");
 ///  - trash.empty (2026-10-14 lockstep) permanently deletes every node
 ///    carrying a non-permanent trash_root row through the same hard-delete
 ///    body as `object.delete {permanent: true}`; the root set is an
@@ -108,10 +115,15 @@ class RelayAppliers {
     // is the one target-less op WITH a derived representation (the
     // workspace_feature row): it routes by op type below, as does
     // `trash.empty` (its victims are the apply-time trash set, not a
-    // payload objectId).
+    // payload objectId). `external_ref.*` keys its state by the payload's
+    // `ref` (the set's nodeId is a mapping TARGET, not the op's addressed
+    // object — a mapping may name a not-yet-synced node), so both ops
+    // route by op type too.
     if (objectId.isEmpty &&
         envelope.opType != 'workspace.feature.set' &&
-        envelope.opType != 'trash.empty') {
+        envelope.opType != 'trash.empty' &&
+        envelope.opType != 'external_ref.set' &&
+        envelope.opType != 'external_ref.delete') {
       return false;
     }
 
@@ -186,6 +198,10 @@ class RelayAppliers {
         return _applyCollectionMember(envelope, payload, present: false);
       case 'workspace.feature.set':
         return _applyWorkspaceFeatureSet(envelope, payload);
+      case 'external_ref.set':
+        return _applyExternalRefSet(envelope, payload);
+      case 'external_ref.delete':
+        return _applyExternalRefDelete(envelope, payload);
       case 'activity.record':
       case 'activity.delete':
       case 'link.click':
@@ -2198,6 +2214,70 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       await _deriveFamilyClassBits(envelope.workspaceId, feature);
     }
     return wrote;
+  }
+
+  // --- external_ref.* ---------------------------------------------------------
+  //
+  // External-id mappings for importer/sync plugins (owner requirement
+  // 2026-10-23): a durable per-workspace `externalId -> nodeId` map carried
+  // by the log. LWW by envelope (hlc, actor) on the ref key: a re-set MOVES
+  // the mapping, racing sets converge on the higher tuple under either
+  // delivery order. The delete side keeps a tombstone per ref (the
+  // property_value_tombstone precedent) — including a delete of an UNMAPPED
+  // ref — so a stale set delivered after the winning delete is dropped on
+  // every replica and wipe -> replay converges under any delivery order.
+  // The applier maintains the invariant that at most one of {live row,
+  // tombstone} exists per (workspace, ref): a winning set deletes the
+  // tombstone, a winning delete deletes the live row. No referential
+  // integrity (the property_value precedent — a mapping may name a node
+  // another device has not synced yet); the object.delete hard path purges
+  // a subtree's live rows (NodeCacheRepository.hardDelete), soft-trash
+  // keeps them; ref tombstones survive their node's purge.
+
+  /// LWW-write one live mapping; a stale write (full tuple <= the standing
+  /// record, live or tombstone) leaves state untouched and is dropped,
+  /// exactly like a stale property.set.
+  Future<bool> _applyExternalRefSet(
+    OperationEnvelope envelope,
+    Map<String, dynamic> payload,
+  ) async {
+    final ref = payload['ref'] as String;
+    final nodeId = payload['nodeId'] as String;
+    final incoming = _incoming(envelope);
+    final record = await _cache.externalRefRecord(envelope.workspaceId, ref);
+    if (record != null && compareLww(incoming, record.winner) <= 0) {
+      return false;
+    }
+    await _cache.upsertExternalRef(envelope.workspaceId, ref, nodeId, incoming);
+    // The winning set supersedes any standing tombstone (the invariant).
+    await _cache.deleteExternalRefTombstone(envelope.workspaceId, ref);
+    return true;
+  }
+
+  /// The LWW delete side: the winning delete takes the live row down (when
+  /// one stands) and records its causality — a delete of an UNMAPPED ref
+  /// still lands the tombstone, which is what kills stale concurrent sets
+  /// delivered later. A stale delete (full tuple <= the standing record)
+  /// leaves the mapping intact.
+  Future<bool> _applyExternalRefDelete(
+    OperationEnvelope envelope,
+    Map<String, dynamic> payload,
+  ) async {
+    final ref = payload['ref'] as String;
+    final incoming = _incoming(envelope);
+    final record = await _cache.externalRefRecord(envelope.workspaceId, ref);
+    if (record != null && compareLww(incoming, record.winner) <= 0) {
+      return false;
+    }
+    if (record != null && record.live) {
+      await _cache.deleteExternalRef(envelope.workspaceId, ref);
+    }
+    await _cache.upsertExternalRefTombstone(
+      envelope.workspaceId,
+      ref,
+      incoming,
+    );
+    return true;
   }
 
   // --- fractional position allocator (port of appliers.ts) ---------------------------

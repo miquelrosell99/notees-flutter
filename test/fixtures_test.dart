@@ -41,6 +41,7 @@ void main() {
     'class-unassign.json',
     'code-block.json',
     'embed-ref-view.json',
+    'external-ref.json',
     'hr.json',
     'heading-content.json',
     'is-embedded-parent-page.json',
