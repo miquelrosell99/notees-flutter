@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 36,
+          version: 37,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 36,
+      version: 37,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -130,6 +130,7 @@ class AppDatabase {
     await _migrateV34(db);
     await _migrateV35(db);
     await _migrateV36(db);
+    await _migrateV37(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -241,6 +242,9 @@ class AppDatabase {
     }
     if (oldVersion < 36) {
       await _migrateV36(db);
+    }
+    if (oldVersion < 37) {
+      await _migrateV37(db);
     }
   }
 
@@ -375,7 +379,10 @@ class AppDatabase {
   ///  - `workspace_feature`: the winning LWW row per (workspace_id, feature)
   ///    for `workspace.feature.set`; an ABSENT row means enabled (all
   ///    features default ON — the empty table is the pre-toggle state, so
-  ///    existing workspaces need no migration);
+  ///    existing workspaces need no migration); the `settings` column (the
+  ///    optional per-feature configuration record, JSON text; NULL = the
+  ///    winning payload carried no settings) is added by v37 below — the
+  ///    column's home since the TS store schema v30 lockstep;
   ///  - `class_property.active`: the PC4 soft-unbind flag — absent column
   ///    means the pre-PC4 state, which IS active, so the backfill default
   ///    is 1;
@@ -1075,6 +1082,18 @@ class AppDatabase {
     ''');
   }
 
+  /// v37 — the `workspace.feature.set` settings payload (2026-10-23 lockstep
+  /// with the TS store schema v29→v30): `workspace_feature` gains `settings`
+  /// TEXT — the winning payload's optional per-feature configuration record
+  /// as JSON text. NULL = the winning payload carried no settings (absent is
+  /// distinct from '{}'); existing rows backfill to NULL, which is exactly
+  /// their pre-column meaning (an old-shape winning write stores NULL).
+  /// The column guard keeps the migration idempotent for databases that
+  /// already carry it (a fresh v37 create).
+  Future<void> _migrateV37(Database db) async {
+    await _addColumnIfMissing(db, 'workspace_feature', 'settings', 'TEXT');
+  }
+
   /// Derived reference index (never authored): mention/typed_link edges
   /// projected from content tokens plus node-typed property values. Mirrors
   /// the TS store `edge` table.
@@ -1632,6 +1651,7 @@ class AppDatabase {
     await _migrateV31(db);
     await _migrateV32(db);
     await _migrateV36(db);
+    await _migrateV37(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

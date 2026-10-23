@@ -44,6 +44,7 @@ void main() {
     bool enabled,
     int physical, {
     int idNonce = 0,
+    Map<String, dynamic>? settings,
   }) =>
       OperationEnvelope(
         id: '0192a000-0000-7000-8000-'
@@ -54,7 +55,11 @@ void main() {
         hlc: Hlc(physical: physical, logical: 0),
         affectedNodeIds: const [],
         opType: 'workspace.feature.set',
-        payload: {'feature': feature, 'enabled': enabled},
+        payload: {
+          'feature': feature,
+          'enabled': enabled,
+          'settings': ?settings,
+        },
         timestamp: '2026-09-24T12:00:00.000Z',
       );
 
@@ -509,6 +514,17 @@ void main() {
         [SystemClassUuids.task],
       );
       expect(task.single['active'], 0);
+      // The settings tail: the final sources winner carried settings; the
+      // intermediate old-shape re-enable cleared them to NULL under the
+      // same LWW comparator; the old-shape tasks winner stores NULL too.
+      final sourcesRow = await cache.workspaceFeatureRow(ws, 'sources');
+      expect(sourcesRow?.enabled, isTrue);
+      expect(sourcesRow?.settings, {
+        'citekeyPattern': '[auth:lower][year]',
+        'autoCitekey': true,
+      });
+      expect((await cache.workspaceFeatureRow(ws, 'tasks'))?.settings, isNull);
+      expect((await cache.workspaceFeatureRow(ws, 'journal'))?.settings, isNull);
       // Converges under the reversed delivery order too.
       await database.close();
       final ffiDb2 = await databaseFactoryFfi.openDatabase(
@@ -532,6 +548,13 @@ void main() {
         rowsReverse.map((r) => (r['feature'], r['enabled'])).toList(),
         [('events', 0), ('journal', 1), ('sources', 1), ('tasks', 0)],
       );
+      // The reverse-order replay lands on the identical settings state.
+      final sourcesReverse = await cache.workspaceFeatureRow(ws, 'sources');
+      expect(sourcesReverse?.settings, {
+        'citekeyPattern': '[auth:lower][year]',
+        'autoCitekey': true,
+      });
+      expect((await cache.workspaceFeatureRow(ws, 'tasks'))?.settings, isNull);
       final taskReverse = await raw(
         'SELECT active FROM class_cache WHERE uuid = ?',
         [SystemClassUuids.task],
@@ -551,6 +574,38 @@ void main() {
       // classes stay always-on structural seeds).
       final classes = await raw('SELECT COUNT(*) AS c FROM class_cache');
       expect(classes.single['c'], 0);
+    });
+
+    test('settings ride the whole-row LWW: NULL for absent, distinct '
+        'from {}', () async {
+      const settings = {'citekeyPattern': '[auth:lower][year]', 'autoCitekey': true};
+      // Set: settings persist and read back through the row getter.
+      expect(
+        await appliers.apply(toggle('sources', true, 1000, settings: settings)),
+        isTrue,
+      );
+      final setRow = await cache.workspaceFeatureRow(ws, 'sources');
+      expect(setRow?.enabled, isTrue);
+      expect(setRow?.settings, settings);
+      // Old shape wins: the winning payload carries no settings key, so
+      // the row stores NULL (settings are gone — whole-row LWW).
+      expect(await appliers.apply(toggle('sources', true, 2000)), isTrue);
+      expect((await cache.workspaceFeatureRow(ws, 'sources'))?.settings, isNull);
+      // An empty record is a REAL value, not absent: it round-trips as {}.
+      expect(
+        await appliers.apply(toggle('sources', true, 3000, settings: const {})),
+        isTrue,
+      );
+      expect((await cache.workspaceFeatureRow(ws, 'sources'))?.settings, isEmpty);
+      // Stale settings op: loses the LWW compare, the row is untouched.
+      expect(
+        await appliers.apply(toggle('sources', false, 2500, settings: const {
+          'citekeyPattern': '[stale]',
+        })),
+        isFalse,
+      );
+      expect((await cache.workspaceFeatureRow(ws, 'sources'))?.settings, isEmpty);
+      expect(await cache.featureEnabledNow(ws, 'sources'), isTrue);
     });
 
     test('fixture object-delete-class-routing: the task delete routes to '

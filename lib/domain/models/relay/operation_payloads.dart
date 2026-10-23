@@ -692,14 +692,21 @@ class OperationPayloads {
   /// the family's managed system classes (hide surfaces, keep data); the
   /// `journal` toggle writes only the LWW row (no class bits). An
   /// object.delete on a family base routes here (the class-node delete
-  /// routing).
+  /// routing). [settings] is the optional
+  /// per-feature configuration record (feature-scoped vocabulary — the
+  /// protocol pins only "a JSON object", the Sources library's citekey
+  /// pattern, etc.); it rides the same whole-row LWW comparator: a winning
+  /// payload without settings stores NULL (absent is distinguishable from
+  /// {}).
   static Map<String, dynamic> workspaceFeatureSet({
     required String feature,
     required bool enabled,
+    Map<String, dynamic>? settings,
   }) =>
       _validated('workspace.feature.set', {
         'feature': feature,
         'enabled': enabled,
+        'settings': ?settings,
       });
 
   // --- external refs -----------------------------------------------------------
@@ -1085,10 +1092,14 @@ class OperationPayloads {
         // The strict six-toggle enum (five families + journal,
         // surfaces-only); the retired pre-reshape ids
         // (journals/readItLater/library/people/collections) are rejected
-        // outright like any unknown value.
-        _strict(payload, {'feature', 'enabled'});
+        // outright like any unknown value. The optional `settings` record
+        // is a plain JSON object (zod `z.record(z.unknown())` parity) —
+        // present null is NOT a clear: absent and present are both
+        // "no settings" and store NULL (whole-row LWW with the toggle).
+        _strict(payload, {'feature', 'enabled', 'settings'});
         _enum(payload, 'feature', workspaceFeatures);
         _bool(payload, 'enabled');
+        _record(payload, 'settings', required: false);
       case 'external_ref.set':
         // The strict schema: ref is the caller-namespaced key (opaque to
         // the protocol, capped at 512 chars — empty/oversize fail loud);
