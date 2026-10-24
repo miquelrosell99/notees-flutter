@@ -528,6 +528,75 @@ void main() {
       await appDb.close();
       AppDatabase.reset();
     });
+
+    test('the v32 snapshot shape restores the parentlessRole demote ',
+         () async {
+      const workspaceId = 'ws-1';
+      // Upgrade the snapshot schema to the TS store v32 shape: the class
+      // registry gains parentless_role, the closure table exists.
+      await snapshotDb.execute(
+        'ALTER TABLE class ADD COLUMN parentless_role TEXT',
+      );
+      await snapshotDb.execute('''
+        CREATE TABLE class_hierarchy (
+          class_id TEXT NOT NULL,
+          ancestor_id TEXT NOT NULL,
+          PRIMARY KEY (class_id, ancestor_id)
+        )
+      ''');
+      await snapshotDb.insert('class', {
+        'id': SystemClassUuids.task,
+        'workspace_id': workspaceId,
+        'name': 'Task',
+        'parentless_role': 'block',
+        'active': 1,
+      });
+      for (final pair in [
+        (SystemClassUuids.task, SystemClassUuids.task),
+      ]) {
+        await snapshotDb.insert('class_hierarchy', {
+          'class_id': pair.$1,
+          'ancestor_id': pair.$2,
+        });
+      }
+      await snapshotDb.insert('node', {
+        'id': 'plain-page',
+        'workspace_id': workspaceId,
+        'is_class': 0,
+        'is_embedded': 0,
+        'class_ids': '[]',
+        'content': '[{"type":"text","text":"Plain"}]',
+        'is_active': 1,
+      });
+      await snapshotDb.insert('node', {
+        'id': 'standalone-task',
+        'workspace_id': workspaceId,
+        'is_class': 0,
+        'is_embedded': 0,
+        'class_ids': '["${SystemClassUuids.task}"]',
+        'content': '[{"type":"text","text":"Call the electrician"}]',
+        'is_active': 1,
+      });
+
+      AppDatabase.reset();
+      final appDb = AppDatabase.inMemory();
+      final readerRepo = NodeCacheRepository(appDb);
+
+      final snapshot = await readerRepo.readSnapshot(snapshotDb, workspaceId);
+      // The parentless member reads the Block role (is_page = 0); the
+      // unflagged parentless page keeps document chrome. (The flag itself
+      // rides the class registry row into the restore bundle — the bundle's
+      // class rows are library-private, so the column read is pinned by the
+      // applier-level classParentlessRole tests.)
+      final plain = snapshot.nodes.firstWhere((n) => n.uuid == 'plain-page');
+      expect(plain.isPage, isTrue);
+      final standalone =
+          snapshot.nodes.firstWhere((n) => n.uuid == 'standalone-task');
+      expect(standalone.isPage, isFalse);
+
+      await appDb.close();
+      AppDatabase.reset();
+    });
   });
 
   group('AppDatabase v19 → v20 migration (Revision 11 render-state model)',

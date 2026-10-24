@@ -112,9 +112,11 @@ void main() {
   });
 
   /// Revision-11 render cascade as a user-facing label (typeLabel in
-  /// lib/shared/views/_view_helpers.dart): is_class → Class; parentless →
-  /// Page (document chrome, bit unread); a parented non-class node → Page
-  /// when its present_as_main bit is set, Block when inline.
+  /// lib/shared/views/_view_helpers.dart): is_class → Class; the is_page
+  /// bit → Page — flag-aware since 2026-10-24, when a parentless
+  /// member of a block-flagged class demoted to the Block role (the bit is
+  /// the authority; the store re-derives it at write time, so labels never
+  /// re-derive placement by hand); everything else → Block.
   group('typeLabel render-state cascade', () {
   Node node({
     bool isClass = false,
@@ -122,6 +124,7 @@ void main() {
     String? parentUuid,
     bool isTask = false,
     bool isDaily = false,
+    bool isPage = false,
   }) {
     return Node(
       id: 0,
@@ -133,6 +136,7 @@ void main() {
       parentUuid: parentUuid,
       isTask: isTask,
       isDaily: isDaily,
+      isPage: isPage,
     );
   }
 
@@ -143,18 +147,26 @@ void main() {
     );
   });
 
-  test('parentless non-class nodes are Pages (bit unread)', () {
-    expect(typeLabel(node(isEmbedded: true)), 'Page');
-    expect(typeLabel(node(isEmbedded: null)), 'Page');
+  test('parentless non-class nodes follow the flag-aware is_page bit ',
+       () {
+    // Document chrome: the page default (unflagged) and an explicit page.
+    expect(typeLabel(node(isEmbedded: false, isPage: true)), 'Page');
+    // The parentlessRole "block" demote: a parentless member of a
+    // block-flagged class renders in the Block role despite standing at
+    // the workspace root.
+    expect(typeLabel(node(isEmbedded: false, isPage: false)), 'Block');
   });
 
   test('parented nodes follow the render bit', () {
     const parent = '00000000-0000-0000-0000-0000000000aa';
     expect(
-      typeLabel(node(isEmbedded: false, parentUuid: parent)),
+      typeLabel(node(isEmbedded: false, parentUuid: parent, isPage: true)),
       'Page',
     );
-    expect(typeLabel(node(isEmbedded: true, parentUuid: parent)), 'Block');
+    expect(
+      typeLabel(node(isEmbedded: true, parentUuid: parent)),
+      'Block',
+    );
     // A parented node without the bit set is an inline block.
     expect(typeLabel(node(parentUuid: parent)), 'Block');
   });

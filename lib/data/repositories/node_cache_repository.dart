@@ -32,6 +32,7 @@ class _ClassRow {
     this.icon,
     this.color,
     this.description,
+    this.parentlessRole,
     this.extendsUuids = const [],
     this.active = true,
     this.createdAt,
@@ -43,6 +44,10 @@ class _ClassRow {
   final String? icon;
   final String? color;
   final String? description;
+
+  /// The class-level parentlessRole render contract;
+  /// null = the 'page' default. Snapshot restores copy it verbatim.
+  final String? parentlessRole;
   final List<String> extendsUuids;
   final bool active;
   final String? createdAt;
@@ -785,6 +790,36 @@ class NodeCacheRepository {
     return rows.isNotEmpty;
   }
 
+  /// The effectively-block-flagged class ids of a snapshot database (owner
+  /// 2026-10-24, the parentlessRole render contract): every class whose own
+  /// flag OR any extends-ancestor's (through the snapshot's class_hierarchy
+  /// closure) is 'block' — the one-way demote read. Pre-v32 snapshots carry
+  /// no `parentless_role` column and no closure guarantee: the guarded
+  /// reads fall back to "nobody is flagged", which is exactly the
+  /// zero-migration default. The flag lives on the snapshot's `class`
+  /// registry rows (the TS store mirrors it onto class node rows; the
+  /// local restore maps it into class_cache only).
+  Future<Set<String>> _snapshotEffectivelyBlockFlaggedClassIds(
+    Database db,
+  ) async {
+    final classInfo = await db.rawQuery('PRAGMA table_info(class)');
+    if (!classInfo.any((c) => c['name'] == 'parentless_role')) {
+      return const {};
+    }
+    if (await _snapshotHasTable(db, 'class_hierarchy')) {
+      final rows = await db.rawQuery(
+        'SELECT DISTINCT ch.class_id AS id FROM class_hierarchy ch '
+        'JOIN class c ON c.id = ch.ancestor_id '
+        "WHERE c.parentless_role = 'block'",
+      );
+      return rows.map((r) => r['id'] as String).toSet();
+    }
+    final rows = await db.rawQuery(
+      "SELECT id FROM class WHERE parentless_role = 'block'",
+    );
+    return rows.map((r) => r['id'] as String).toSet();
+  }
+
   /// Reads [Node] objects from a server-derived snapshot database.
   ///
   /// Exposed for testing; most callers should use [restoreFromSnapshot].
@@ -846,6 +881,11 @@ class NodeCacheRepository {
       }
     }
 
+    // The parentlessRole demote: a parentless member of
+    // an effectively-block-flagged class renders in the Block role, so its
+    // is_page bit lands 0 on restore (pre-v32 snapshots flag nobody).
+    final blockFlagged = await _snapshotEffectivelyBlockFlaggedClassIds(db);
+
     return nodeRows.where((row) => row['is_class'] != 1).map((row) {
       final uuid = row['id'] as String;
       final isClass = (row['is_class'] as int? ?? 0) == 1;
@@ -881,9 +921,14 @@ class NodeCacheRepository {
         parentUuid: parentId,
         sequence: double.tryParse(positionByNode[uuid] ?? '') ?? 0.0,
         position: positionByNode[uuid],
-        // Document chrome ⇔ class, parentless, or main-presenting (the
-        // render cascade); the is_page query flag mirrors it.
-        isPage: isClass || parentId == null || !isEmbedded,
+        // Document chrome ⇔ class, parentless (flag-aware — a parentless
+        // member of a block-flagged class renders in the Block role, owner
+        // 2026-10-24), or main-presenting (the render cascade); the is_page
+        // query flag mirrors it.
+        isPage: isClass ||
+            (parentId == null
+                ? !blockFlagged.any(classIds.contains)
+                : !isEmbedded),
         isTask: classIds.contains(SystemClassUuids.task),
         isDaily: classIds.contains(SystemClassUuids.day),
         isMonthly: classIds.contains(SystemClassUuids.month),
@@ -934,6 +979,13 @@ class NodeCacheRepository {
         edge['parent_class_id'] as String,
       );
     }
+    // The parentlessRole column rides the TS store schema v32; pre-v32
+    // snapshot bytes predate it — the class_property-edge precedent guards
+    // the read so old snapshots restore unchanged (NULL = the 'page'
+    // default, the zero-migration semantics).
+    final classInfo = await db.rawQuery('PRAGMA table_info(class)');
+    final hasParentlessRole =
+        classInfo.any((c) => c['name'] == 'parentless_role');
     return rows.map((row) {
       final classId = row['id'] as String;
       return _ClassRow(
@@ -942,6 +994,9 @@ class NodeCacheRepository {
         icon: row['icon'] as String?,
         color: row['color'] as String?,
         description: row['description'] as String?,
+        parentlessRole: hasParentlessRole
+            ? row['parentless_role'] as String?
+            : null,
         extendsUuids: extendsByClass[classId] ?? const [],
         active: (row['active'] as int? ?? 1) == 1,
         createdAt: row['created_at'] as String?,
@@ -1184,12 +1239,18 @@ class NodeCacheRepository {
   /// archived-by-default seed; the TS applyClassCreate conflict arm
   /// parity). A null [active] preserves the stored bit on conflict and
   /// defaults the fresh INSERT to active (TS `active = 1` fresh-row arm).
+  /// [parentlessRole] is the class-level parentlessRole render contract
+  ///: presence writes, present-null clears — the callers
+  /// pass the stored value when the payload omits the key (upsertClass is
+  /// replace-semantics; an absent key must not wipe the stored flag, the
+  /// icon/color applier pattern).
   Future<void> upsertClass({
     required String uuid,
     String? name,
     String? icon,
     String? color,
     String? description,
+    String? parentlessRole,
     List<String>? extendsUuids,
     bool? active,
     String? createdAt,
@@ -1198,14 +1259,15 @@ class NodeCacheRepository {
     final db = await _database.database;
     await db.rawInsert(
       'INSERT INTO class_cache '
-      '(uuid, name, icon, color, description, extends_uuid, active, '
-      'created_at, updated_at) '
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) '
+      '(uuid, name, icon, color, description, parentless_role, extends_uuid, '
+      'active, created_at, updated_at) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
       'ON CONFLICT(uuid) DO UPDATE SET '
       'name = excluded.name, '
       'icon = excluded.icon, '
       'color = excluded.color, '
       'description = excluded.description, '
+      'parentless_role = excluded.parentless_role, '
       'extends_uuid = excluded.extends_uuid, '
       'updated_at = excluded.updated_at',
       [
@@ -1214,6 +1276,7 @@ class NodeCacheRepository {
         icon,
         color,
         description,
+        parentlessRole,
         jsonEncode(extendsUuids ?? const <String>[]),
         (active ?? true) ? 1 : 0,
         createdAt,
@@ -1458,6 +1521,77 @@ class NodeCacheRepository {
     return (rows.first['active'] as num? ?? 0) == 1;
   }
 
+  /// The stored parentlessRole flag of a cached class ('page' | 'block'),
+  /// or null when the class is not cached or carries no flag (the 'page'
+  /// default). Read UNFILTERED like [classActiveState]: the render contract
+  /// rides the registry row, archival never clears it (the class_hierarchy
+  /// closure is built from EVERY class row).
+  Future<String?> classParentlessRole(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'class_cache',
+      columns: ['parentless_role'],
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['parentless_role'] as String?;
+  }
+
+  /// The extends-aware parentlessRole read (SCHEMA.md
+  /// "Node structure"): true when ANY of [classIds] — or any of their
+  /// extends-ancestors through the class_hierarchy closure — carries
+  /// `parentless_role = 'block'` in the registry. The one-way demote: an
+  /// inherited demote cannot be cleared at the subclass (no per-level
+  /// unflag). No/empty class context = false (the TS store's
+  /// rowIsParentlessBlock).
+  Future<bool> classEffectivelyBlockFlagged(Iterable<String> classIds) async {
+    final ids = classIds.toSet().toList()..sort();
+    if (ids.isEmpty) return false;
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      'SELECT 1 AS hit FROM class_hierarchy ch '
+      'JOIN class_cache c ON c.uuid = ch.ancestor_id '
+      'WHERE ch.class_id IN (${ids.map((_) => '?').join(',')}) '
+      'AND c.parentless_role = \'block\' '
+      'LIMIT 1',
+      ids,
+    );
+    return rows.isNotEmpty;
+  }
+
+  /// Re-derives the `is_page` bit of every parentless non-class node whose
+  /// class closure contains [classId] — the member nodes of [classId] AND
+  /// of every class extending it (the effective flag derives through the
+  /// closure, so a set/clear on an ancestor demotes/promotes descendants'
+  /// members too). Runs after a class.create/class.update touches
+  /// `parentlessRole`; a pure active-bit re-derivation (no causality
+  /// writes), idempotent and convergent (the _deriveFamilyClassBits
+  /// precedent). The rewrite rides the payload like every node write —
+  /// reads decode the payload JSON, so a bare column UPDATE would leave
+  /// them stale. Parented nodes are untouched — the embedding flag branch
+  /// decides their role.
+  Future<void> rederiveParentlessNodePageBits(String classId) async {
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      'SELECT n.uuid AS uuid FROM node_cache n '
+      'WHERE n.is_class = 0 AND n.parent_uuid IS NULL AND EXISTS ('
+      'SELECT 1 FROM class_member_set cm '
+      'JOIN class_hierarchy ch ON ch.class_id = cm.class_id '
+      'WHERE cm.node_uuid = n.uuid AND cm.present = 1 '
+      'AND ch.ancestor_id = ?)',
+      [classId],
+    );
+    for (final row in rows) {
+      final node = await getByUuid(row['uuid'] as String);
+      if (node == null) continue;
+      final isPage = !(await classEffectivelyBlockFlagged(node.classesUuid));
+      if (node.isPage == isPage) continue;
+      await upsert(node.copyWithIsPage(isPage));
+    }
+  }
+
   /// Recomputes [uuid]'s class list from the membership OR-Set's present
   /// rows and refreshes the class-derived flags. User order
   /// (node_cache.class_order, written by class.reorder) wins: ordered
@@ -1483,6 +1617,15 @@ class NodeCacheRepository {
     final node = await getByUuid(uuid);
     if (node == null) return;
     final flags = _deriveFlags(classIds);
+    // The parentlessRole demote (SCHEMA.md "Node
+    // structure"): a parentless non-class node's is_page bit follows the
+    // effective class flag — a membership change (create re-issue,
+    // content-asserted class_link, class.unassign) re-derives it here;
+    // parented nodes and classes keep the stored bit (the embedding flag /
+    // class branches are untouched by membership).
+    final isPage = !node.isClass && node.parentUuid == null
+        ? !(await classEffectivelyBlockFlagged(classIds))
+        : node.isPage;
     await upsert(
       Node(
         id: node.id,
@@ -1497,7 +1640,7 @@ class NodeCacheRepository {
         pageUuid: node.pageUuid,
         sequence: node.sequence,
         position: node.position,
-        isPage: node.isPage,
+        isPage: isPage,
         isTask: flags.isTask,
         isDaily: flags.isDaily,
         isMonthly: flags.isMonthly,
@@ -4670,6 +4813,7 @@ class NodeCacheRepository {
       'icon': cls.icon,
       'color': cls.color,
       'description': cls.description,
+      'parentless_role': cls.parentlessRole,
       'extends_uuid': jsonEncode(cls.extendsUuids),
       'active': cls.active ? 1 : 0,
       'created_at': cls.createdAt,

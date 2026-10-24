@@ -170,14 +170,25 @@ class LocalWorkspaceSeed {
       // the builder wraps the `name` convenience); no separate content op
       // is needed (the legacy app emitted a node.updateContent for the
       // class-page title). The title is the DISPLAY wording — the server
-      // seed authors SYSTEM_CLASS_DISPLAY_NAMES, never the raw key.
+      // seed authors SYSTEM_CLASS_DISPLAY_NAMES, never the raw key. The
+      // parentlessRole "block" roster rides the same
+      // envelope: the flagged classes emit the flag on create, exactly
+      // like the server seed and the web ensure path.
+      final flagged = systemClassParentlessRoleBlock.contains(entry.key);
       await _sync.emitLocal(
         opType: 'class.create',
-        payload: OperationPayloads.classCreate(
-          classId: classId,
-          name: systemClassDisplayNames[entry.key]!,
-          icon: systemClassIcons[entry.key],
-        ),
+        payload: flagged
+            ? OperationPayloads.classCreate(
+                classId: classId,
+                name: systemClassDisplayNames[entry.key]!,
+                icon: systemClassIcons[entry.key],
+                parentlessRole: 'block',
+              )
+            : OperationPayloads.classCreate(
+                classId: classId,
+                name: systemClassDisplayNames[entry.key]!,
+                icon: systemClassIcons[entry.key],
+              ),
         affectedNodeIds: [classId],
       );
       seededThisRun.add(classId);

@@ -393,6 +393,66 @@ void main() {
           returnsNormally);
     });
 
+    test('class.create/class.update parentlessRole: presence writes, '
+        'present-null clears, bad values reject', () {
+      // create carries the flag...
+      final created = OperationPayloads.classCreate(
+        classId: classId,
+        name: 'Task',
+        parentlessRole: 'block',
+      );
+      expect(created['parentlessRole'], 'block');
+      expect(
+          () => OperationPayloads.validatePayload('class.create', created),
+          returnsNormally);
+      // ...and stays absent when omitted.
+      final plain = OperationPayloads.classCreate(
+        classId: classId,
+        name: 'Note',
+      );
+      expect(plain.containsKey('parentlessRole'), isFalse);
+      expect(() => OperationPayloads.validatePayload('class.create', plain),
+          returnsNormally);
+
+      // update: present-null CLEARS (the wire carries the null)...
+      final cleared = OperationPayloads.classUpdate(
+        classId: classId,
+        parentlessRole: null,
+      );
+      expect(cleared.containsKey('parentlessRole'), isTrue);
+      expect(cleared['parentlessRole'], isNull);
+      expect(
+          () => OperationPayloads.validatePayload('class.update', cleared),
+          returnsNormally);
+      // ...an explicit 'page' writes the default...
+      final paged = OperationPayloads.classUpdate(
+        classId: classId,
+        parentlessRole: 'page',
+      );
+      expect(paged['parentlessRole'], 'page');
+      expect(() => OperationPayloads.validatePayload('class.update', paged),
+          returnsNormally);
+      // ...and an unknown value fails loud like any bad enum.
+      for (final opType in ['class.create', 'class.update']) {
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'classId': classId,
+            'parentlessRole': 'widget',
+          }),
+          throwsFormatException,
+          reason: '$opType rejects a non-enum parentlessRole',
+        );
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'classId': classId,
+            'parentlessRole': 7,
+          }),
+          throwsFormatException,
+          reason: '$opType rejects a non-string parentlessRole',
+        );
+      }
+    });
+
     test('class.reorder carries objectId and the full ordered classIds', () {
       final payload = OperationPayloads.classReorder(
         objectId: objectId,

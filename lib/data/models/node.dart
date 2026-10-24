@@ -347,6 +347,60 @@ class Node {
     );
   }
 
+  /// Returns a copy of this node with [isPage] updated — the parentlessRole
+  /// flag-flip sweep re-derives the stored bit through
+  /// the payload like every other node write (the copyWithIsArchived
+  /// precedent); a bare column UPDATE would leave the payload stale, and
+  /// reads decode the payload.
+  Node copyWithIsPage(bool isPage) {
+    return Node(
+      id: id,
+      uuid: uuid,
+      name: name,
+      displayName: displayName,
+      icon: icon,
+      color: color,
+      parentId: parentId,
+      parentUuid: parentUuid,
+      pageId: pageId,
+      pageUuid: pageUuid,
+      sequence: sequence,
+      isPage: isPage,
+      isTask: isTask,
+      isDaily: isDaily,
+      isMonthly: isMonthly,
+      isYearly: isYearly,
+      isTable: isTable,
+      isAsset: isAsset,
+      isComment: isComment,
+      isDeleted: isDeleted,
+      isArchived: isArchived,
+      isPrivate: isPrivate,
+      classes: classes,
+      classesUuid: classesUuid,
+      tags: tags,
+      tagsUuid: tagsUuid,
+      properties: properties,
+      children: children,
+      createDate: createDate,
+      writeDate: writeDate,
+      extendsUuid: extendsUuid,
+      title: title,
+      position: position,
+      isClass: isClass,
+      isEmbedded: isEmbedded,
+      classOrder: classOrder,
+      hlcPhysical: hlcPhysical,
+      hlcLogical: hlcLogical,
+      actorId: actorId,
+      coverAssetId: coverAssetId,
+      bannerAssetId: bannerAssetId,
+      aliasedNodeId: aliasedNodeId,
+      description: description,
+      listStyle: listStyle,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'uuid': uuid,
