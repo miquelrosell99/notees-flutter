@@ -230,3 +230,30 @@ const List<String> readonlySystemPropertyIds = [
 /// write, PC1).
 bool isReadonlyProperty(String schemaId) =>
     readonlySystemPropertyIds.contains(schemaId);
+
+/// The class-level parentlessRole "block" seed roster (owner 2026-10-24,
+/// lockstep with the TS seed manifest `SYSTEM_CLASS_PARENTLESS_ROLE_BLOCK`):
+/// classes whose PARENTLESS members render in the Block role — standalone
+/// captures (tasks, quotes, highlights, assets, comments, cloze) and small
+/// structural elements (queries, templates, tables, code, cards,
+/// definitions, ideas, events) surface through queries/collections/search
+/// instead of the Pages chrome. `meeting` and `birthday` are DELIBERATELY
+/// ABSENT — they inherit the demote through `event` via the seeded extends
+/// edge (the effective flag derives at read time; one-way demote, no
+/// per-level unflag).
+const Set<String> systemClassParentlessRoleBlock = {
+  'quote',
+  'code',
+  'asset',
+  'card',
+  'task',
+  'template',
+  'comment',
+  'table',
+  'cloze',
+  'highlight',
+  'query',
+  'definition',
+  'idea',
+  'event',
+};

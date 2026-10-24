@@ -36,6 +36,7 @@ void main() {
     'class-extends-system-lock.json',
     'class-link-assertion.json',
     'class-link.json',
+    'class-parentless-role.json',
     'class-property-active.json',
     'class-property-defaults.json',
     'class-unassign.json',

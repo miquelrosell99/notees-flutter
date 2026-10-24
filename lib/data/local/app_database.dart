@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 37,
+          version: 38,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 37,
+      version: 38,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -131,6 +131,7 @@ class AppDatabase {
     await _migrateV35(db);
     await _migrateV36(db);
     await _migrateV37(db);
+    await _migrateV38(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -245,6 +246,9 @@ class AppDatabase {
     }
     if (oldVersion < 37) {
       await _migrateV37(db);
+    }
+    if (oldVersion < 38) {
+      await _migrateV38(db);
     }
   }
 
@@ -1094,6 +1098,24 @@ class AppDatabase {
     await _addColumnIfMissing(db, 'workspace_feature', 'settings', 'TEXT');
   }
 
+  /// v38 — the class-level parentlessRole render contract (2026-10-24
+  /// lockstep with the TS store schema v31→v32, SCHEMA.md "Node structure",
+  /// owner 2026-10-24): `class_cache` gains `parentless_role` TEXT — the
+  /// class registry's copy of the class.create/class.update
+  /// `parentlessRole` payload field (`'block'` = parentless members render
+  /// in the Block role; NULL = the 'page' default; presence writes,
+  /// present-null clears, the icon/color precedent). The local store keeps
+  /// class config in `class_cache` ONLY — classes have no node_cache row
+  /// here (converted classes keep theirs, and the icon/color precedent
+  /// never mirrored class config onto it), so the TS store's two-column
+  /// node+registry port lands as this single registry column; the
+  /// effective-role reads walk `class_cache` × `class_hierarchy`, the
+  /// effectiveClassColor precedent. The column guard keeps the migration
+  /// idempotent for databases that already carry it (a fresh v38 create).
+  Future<void> _migrateV38(Database db) async {
+    await _addColumnIfMissing(db, 'class_cache', 'parentless_role', 'TEXT');
+  }
+
   /// Derived reference index (never authored): mention/typed_link edges
   /// projected from content tokens plus node-typed property values. Mirrors
   /// the TS store `edge` table.
@@ -1652,6 +1674,7 @@ class AppDatabase {
     await _migrateV32(db);
     await _migrateV36(db);
     await _migrateV37(db);
+    await _migrateV38(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

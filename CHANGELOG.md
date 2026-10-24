@@ -6,6 +6,56 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-24
+
+- **feat(protocol,store): class-level `parentlessRole` — the parentless
+  branch of the render cascade goes class-aware (Flutter lockstep port of
+  the owner-2026-10-24 change).** `class.create`/`class.update` gain the
+  OPTIONAL NULLABLE `parentlessRole` (`"page" | "block"`; absent/null =
+  `"page"`, the zero-migration default; presence writes, present-null
+  clears, exactly like `color` — strict payloads reject unknown keys, so the
+  lockstep law gates mixed writers). The canonical fixture
+  (`class-parentless-role.json`, sha256 `11779e2ce5a89…85cab494`,
+  byte-identical to the monorepo corpus) pins the payload shapes: Task seeds
+  flagged, Event is flagged then cleared by a present-null update, Errand
+  carries no flag of its own but extends the flagged Task. Derived store:
+  this client keeps class config in `class_cache` only (classes have no
+  node_cache row — the icon/color precedent), so the TS store's
+  node+registry two-column port lands as the single registry column
+  `parentless_role` (schema v38, the guarded-ALTER idempotent migration;
+  the TS store schema v31→v32 lockstep). The class.create applier maps
+  presence/present-null and a re-issued flag-less create PRESERVES the
+  stored flag (the TS COALESCE conflict arm). The cascade: the stored
+  `is_page` bit becomes flag-aware — a parentless non-class node renders
+  with document chrome UNLESS any carried class effectively carries
+  `"block"`, where effective is EXTENDS-AWARE (own flag OR any
+  extends-ancestor's via `class_cache` × `class_hierarchy`, one-way demote,
+  no per-level unflag) — re-derived at object.create/move/update, on
+  membership recomputation, swept over a class's parentless members when a
+  class.create/update writes the flag, and honored by the snapshot restore
+  (pre-v32 snapshot bytes guard to "nobody flagged", the zero-migration
+  default). The parent-page guard (`_isPageRow`) reads the same predicate,
+  so a standalone claim (object.create / promotion / object.move) under a
+  block-role parentless node fails loud with the same `MoveGuardError` — no
+  new error type. The local workspace seed emits `parentlessRole: "block"`
+  on class.create for the flagged roster (`systemClassParentlessRoleBlock`,
+  the TS `SYSTEM_CLASS_PARENTLESS_ROLE_BLOCK` port — quote, code, asset,
+  card, task, template, comment, table, cloze, highlight, query, definition,
+  idea, event; meeting/birthday deliberately absent — they inherit through
+  event's seeded extends edge); the applier-side task-family ensure path
+  matches the TS `ensureTaskFamilyRows`, which writes no flag. Page-role
+  surfaces (search page scope, the node picker's page filter, alias-target
+  guard) follow automatically — they read the `is_page` bit; the two
+  UI-side cascade re-derivations (the archived-screen subtitle and
+  `typeLabel`) now read the same bit instead of re-deriving
+  `parentless || standalone` by hand; no new surfaces invented. Verified:
+  `flutter analyze` clean + `flutter test`
+  green (the fixture replays through the acceptance suite; new pins cover
+  create-with-flag/absent-null, update set + present-null clear, flag-less
+  re-issue preservation, the Errand-extends-Task effective demote, the
+  flag-flip member sweep, and the flag-aware guard on create/promotion/
+  move).
+
 ## 2026-10-23
 
 - **feat(protocol,store): `workspace.feature.set` settings payload —

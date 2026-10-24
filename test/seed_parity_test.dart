@@ -631,6 +631,39 @@ void main() {
         ['authors', 'linkedAuthors', 'editors'],
       );
     });
+
+    test('the parentlessRole "block" roster (owner 2026-10-24)', () {
+      // The TS seed manifest SYSTEM_CLASS_PARENTLESS_ROLE_BLOCK port: the
+      // 14 flagged names exactly. meeting/birthday are DELIBERATELY
+      // absent — they inherit the demote through event via the seeded
+      // extends edge (the effective flag derives at read time).
+      expect(systemClassParentlessRoleBlock, {
+        'quote',
+        'code',
+        'asset',
+        'card',
+        'task',
+        'template',
+        'comment',
+        'table',
+        'cloze',
+        'highlight',
+        'query',
+        'definition',
+        'idea',
+        'event',
+      });
+      expect(systemClassParentlessRoleBlock.contains('meeting'), isFalse);
+      expect(systemClassParentlessRoleBlock.contains('birthday'), isFalse);
+      // Every locally seeded flagged class resolves a seed entry (highlight
+      // is not in the local subset — the TS-manifest trio the mobile seed
+      // never carried — so the emitted create set is 13 of the 14).
+      for (final name in systemClassParentlessRoleBlock) {
+        if (name == 'highlight') continue;
+        expect(LocalWorkspaceSeed.systemClassNames.containsKey(name), isTrue,
+            reason: 'flagged class $name is locally seeded');
+      }
+    });
   });
 
   group('seed emission', () {
@@ -718,6 +751,46 @@ void main() {
           [entry.$1],
         );
         expect(row.single['icon'], entry.$2);
+      }
+
+      // The parentlessRole "block" roster (owner 2026-10-24): the flagged
+      // seeded classes emit the flag on class.create; the unflagged stay
+      // NULL — meeting/birthday inherit the demote through event's extends
+      // edge, so they deliberately write NO flag of their own.
+      Future<String?> roleOf(String uuid) async {
+        final rows = await db.rawQuery(
+          'SELECT parentless_role FROM class_cache WHERE uuid = ?',
+          [uuid],
+        );
+        return rows.isEmpty ? null : rows.single['parentless_role'] as String?;
+      }
+
+      for (final uuid in [
+        SystemClassUuids.quote,
+        SystemClassUuids.query,
+        SystemClassUuids.code,
+        SystemClassUuids.asset,
+        SystemClassUuids.card,
+        SystemClassUuids.task,
+        SystemClassUuids.template,
+        SystemClassUuids.comment,
+        SystemClassUuids.table,
+        SystemClassUuids.cloze,
+        SystemClassUuids.definition,
+        SystemClassUuids.idea,
+        SystemClassUuids.event,
+      ]) {
+        expect(await roleOf(uuid), 'block', reason: 'flagged roster member');
+      }
+      for (final uuid in [
+        SystemClassUuids.meeting,
+        SystemClassUuids.birthday,
+        SystemClassUuids.trip,
+        SystemClassUuids.source,
+        SystemClassUuids.webPage,
+      ]) {
+        expect(await roleOf(uuid), isNull,
+            reason: 'no own flag (meeting/birthday inherit through event)');
       }
 
       // Extends edges + closure: the four source-family classes extend

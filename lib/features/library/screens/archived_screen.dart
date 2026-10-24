@@ -179,10 +179,11 @@ class _ArchivedScreenState extends State<ArchivedScreen> {
               title: Text(resolveNodeDisplayName(node, dateFormat: context.read<SettingsProvider>().dateFormat)),
               subtitle: Text(
                 // Revision-11 render cascade (see typeLabel in
-                // _view_helpers.dart).
+                // _view_helpers.dart): the is_page bit is flag-aware since
+                // owner 2026-10-24.
                 node.isClass
                     ? 'Class'
-                    : (node.parentUuid == null || node.isEmbedded == false)
+                    : node.isPage
                     ? 'Page'
                     : 'Block',
                 style: TextStyle(color: colors.onSurfaceVariant),

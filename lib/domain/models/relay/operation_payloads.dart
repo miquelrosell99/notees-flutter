@@ -71,6 +71,15 @@
 ///    derived store keeps a tombstone per (workspace, ref), including a
 ///    delete of an UNMAPPED ref, so a stale concurrent set delivered after
 ///    the winning delete is dropped on every replica.
+///
+/// Class parentlessRole batch (2026-10-24 lockstep, SCHEMA.md "Node
+/// structure", owner 2026-10-24): `class.create`/`class.update` gain the
+/// OPTIONAL NULLABLE `parentlessRole` — `"page" | "block"` (`"block"` = a
+/// parentless member of the class renders in the Block role, no document
+/// chrome; absent/null = `"page"`, the zero-migration default). Presence
+/// writes, present-null clears, exactly like `color`. Strict payloads: the
+/// key is additive, so pre-change clients reject it — the lockstep law
+/// gates mixed writers.
 library;
 
 import 'colors.dart';
@@ -331,6 +340,10 @@ class OperationPayloads {
   /// content, like pages). [name] is a convenience wrapped into a single
   /// text token (`WorkspaceClient.createClass` parity). Color:
   /// [color] is a preset token or `#RRGGBB` hex (omit for no color).
+  /// [parentlessRole] is the parentless render role of the class's
+  /// standalone instances (`"page"` | `"block"`; omitted = absent, an
+  /// explicit `null` CLEARS — presence writes, present-null clears, the
+  /// color contract).
   static Map<String, dynamic> classCreate({
     required String classId,
     String? name,
@@ -338,6 +351,7 @@ class OperationPayloads {
     String? icon,
     String? color,
     String? description,
+    Object? parentlessRole = _undefined,
   }) {
     final effectiveContent =
         contentAst ??
@@ -352,6 +366,8 @@ class OperationPayloads {
       'icon': ?icon,
       'color': ?color,
       'description': ?description,
+      if (!identical(parentlessRole, _undefined))
+        'parentlessRole': parentlessRole,
     });
   }
 
@@ -359,7 +375,10 @@ class OperationPayloads {
   /// [classCreate]. Color: [color] is a preset token or `#RRGGBB`
   /// hex; pass `null` explicitly to CLEAR the class's color (the wire
   /// carries `"color": null` — the schema now accepts what the catalog
-  /// always documented).
+  /// always documented). [parentlessRole] is the parentless render role
+  /// (`"page"` | `"block"`); pass `null` explicitly to CLEAR back to the
+  /// `"page"` default (presence writes, present-null clears, the color
+  /// contract).
   static Map<String, dynamic> classUpdate({
     required String classId,
     String? name,
@@ -367,12 +386,14 @@ class OperationPayloads {
     String? icon,
     Object? color = _undefined,
     String? description,
+    Object? parentlessRole = _undefined,
   }) {
     if (name == null &&
         contentAst == null &&
         icon == null &&
         identical(color, _undefined) &&
-        description == null) {
+        description == null &&
+        identical(parentlessRole, _undefined)) {
       throw ArgumentError('class.update requires at least one field');
     }
     final effectiveContent =
@@ -388,6 +409,8 @@ class OperationPayloads {
       'icon': ?icon,
       if (!identical(color, _undefined)) 'color': color,
       'description': ?description,
+      if (!identical(parentlessRole, _undefined))
+        'parentlessRole': parentlessRole,
     });
   }
 
@@ -811,6 +834,11 @@ class OperationPayloads {
   /// the bullet default).
   static const _listStyles = {'numbered', 'alpha', 'roman'};
 
+  /// The class-level parentlessRole values (SCHEMA.md "Node structure",
+  /// owner 2026-10-24): `"block"` = parentless members render in the Block
+  /// role; `"page"` (or absent/null) = document chrome, the default.
+  static const _parentlessRoles = {'page', 'block'};
+
   /// SCHEMA.md "Datetime" precision enum (the finest granularity a datetime
   /// value may claim; NULL/absent = day at the read model).
   static const _datePrecisions = {'year', 'month', 'day'};
@@ -920,19 +948,29 @@ class OperationPayloads {
       case 'trash.empty':
         _strict(payload, <String>{});
       case 'class.create':
-        _strict(payload, {'classId', 'contentAst', 'icon', 'color', 'description'});
+        _strict(
+          payload,
+          {'classId', 'contentAst', 'icon', 'color', 'description', 'parentlessRole'},
+        );
         _uuid(payload, 'classId');
         _list(payload, 'contentAst', required: false);
         _string(payload, 'icon', max: 64, required: false);
         _color(payload, 'color');
         _string(payload, 'description', max: 4096, required: false);
+        // The parentless render role (owner 2026-10-24): nullable+optional —
+        // presence writes, present-null clears, exactly like `color`.
+        _enum(payload, 'parentlessRole', _parentlessRoles, required: false);
       case 'class.update':
-        _strict(payload, {'classId', 'contentAst', 'icon', 'color', 'description'});
+        _strict(
+          payload,
+          {'classId', 'contentAst', 'icon', 'color', 'description', 'parentlessRole'},
+        );
         _uuid(payload, 'classId');
         _list(payload, 'contentAst', required: false);
         _string(payload, 'icon', max: 64, required: false);
         _color(payload, 'color');
         _string(payload, 'description', max: 4096, required: false);
+        _enum(payload, 'parentlessRole', _parentlessRoles, required: false);
       case 'class.setExtends':
         // `class.delete` is RETIRED (owner ruling 2026-10-22): it left the
         // op registry outright — the strict validator rejects it like any

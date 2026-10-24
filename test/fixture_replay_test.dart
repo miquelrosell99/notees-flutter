@@ -1317,6 +1317,242 @@ void main() {
       expect(edgeCount.single['c'], 2);
     });
 
+    group('class-parentless-role (owner 2026-10-24)', () {
+      const taskClass = '0192a000-0000-7000-8000-0000000000d1';
+      const eventClass = '0192a000-0000-7000-8000-0000000000d2';
+      const standaloneTask = '0192a000-0000-7000-8000-0000000000d3';
+      const errandClass = '0192a000-0000-7000-8000-0000000000d4';
+
+      OperationEnvelope op(
+        String opType,
+        Map<String, dynamic> payload,
+        int physical,
+      ) =>
+          OperationEnvelope(
+            id: '0192a000-0000-7000-8000-0000000006$physical',
+            workspaceId: ws,
+            actorId: '0192a000-0000-7000-8000-000000000002',
+            deviceId: 'fixture-test-device',
+            hlc: Hlc(physical: physical, logical: 0),
+            affectedNodeIds: [payload['objectId'] ?? payload['classId'] ?? ''],
+            opType: opType,
+            payload: payload,
+            timestamp: '2026-09-24T12:00:50.000Z',
+          );
+
+      test('the canonical fixture replays to the flag-aware derived state',
+          () async {
+        final envelopes = fixtureEnvelopes('class-parentless-role.json');
+
+        // class.create maps the flag to the registry column; absent = NULL
+        // (the icon/color two-table precedent collapses to class_cache —
+        // classes have no node_cache row locally).
+        expect(await appliers.apply(envelopes[0]), isTrue);
+        expect(await appliers.apply(envelopes[1]), isTrue);
+        expect(await cache.classParentlessRole(taskClass), 'block');
+        expect(await cache.classParentlessRole(eventClass), isNull);
+
+        // The standalone task node is the population the role bends:
+        // parentless + a flagged class → Block role (no document chrome).
+        expect(await appliers.apply(envelopes[2]), isTrue);
+        final taskNode = await cache.getByUuid(standaloneTask);
+        expect(taskNode!.parentUuid, isNull);
+        expect(taskNode.isPage, isFalse);
+
+        // class.update presence writes...
+        expect(await appliers.apply(envelopes[3]), isTrue);
+        expect(await cache.classParentlessRole(eventClass), 'block');
+        // ...and present-null clears back to the page default.
+        expect(await appliers.apply(envelopes[4]), isTrue);
+        expect(await cache.classParentlessRole(eventClass), isNull);
+
+        // Errand carries no flag of its own; the extends edge to the
+        // flagged Task lands and the EFFECTIVE flag derives through the
+        // closure (one-way demote, no stored value).
+        expect(await appliers.apply(envelopes[5]), isTrue);
+        expect(await appliers.apply(envelopes[6]), isTrue);
+        expect(await cache.classParentlessRole(errandClass), isNull);
+        expect(
+          await raw(
+            'SELECT 1 FROM class_hierarchy WHERE class_id = ? AND ancestor_id = ?',
+            [errandClass, taskClass],
+          ),
+          hasLength(1),
+        );
+        expect(await cache.classEffectivelyBlockFlagged([errandClass]),
+            isTrue);
+        expect(await cache.classEffectivelyBlockFlagged([eventClass]),
+            isFalse);
+
+        // The inherited demote bends a member's role without any stored
+        // value of its own: a parentless node created carrying Errand
+        // lands is_page = 0.
+        const errandNode = '0192a000-0000-7000-8000-000000000d10';
+        expect(
+          await appliers.apply(op('object.create', {
+            'objectId': errandNode,
+            'contentAst': [
+              {'type': 'text', 'text': 'Pick up dry cleaning'},
+            ],
+            'classIds': [errandClass],
+          }, 1000)),
+          isTrue,
+        );
+        expect((await cache.getByUuid(errandNode))!.isPage, isFalse);
+      });
+
+      test('a re-issued flag-less class.create (the seed/ensure re-run) '
+          'preserves the stored flag', () async {
+        const task = '0192a000-0000-7000-8000-000000000601';
+        expect(
+          await appliers.apply(op('class.create', {
+            'classId': task,
+            'contentAst': [
+              {'type': 'text', 'text': 'Task'},
+            ],
+            'parentlessRole': 'block',
+          }, 100)),
+          isTrue,
+        );
+        expect(
+          await appliers.apply(op('class.create', {
+            'classId': task,
+            'contentAst': [
+              {'type': 'text', 'text': 'Task'},
+            ],
+          }, 200)),
+          isTrue,
+        );
+        expect(await cache.classParentlessRole(task), 'block');
+      });
+
+      test('a class.update flag flip re-derives the parentless members\' '
+          'is_page bits', () async {
+        const klass = '0192a000-0000-7000-8000-000000000602';
+        const member = '0192a000-0000-7000-8000-000000000603';
+        expect(
+          await appliers.apply(op('class.create', {
+            'classId': klass,
+            'contentAst': [
+              {'type': 'text', 'text': 'Quote'},
+            ],
+            'parentlessRole': 'block',
+          }, 100)),
+          isTrue,
+        );
+        expect(
+          await appliers.apply(op('object.create', {
+            'objectId': member,
+            'classIds': [klass],
+          }, 200)),
+          isTrue,
+        );
+        expect((await cache.getByUuid(member))!.isPage, isFalse);
+        // Clearing the flag promotes the member back to the Page role.
+        expect(
+          await appliers.apply(op('class.update', {
+            'classId': klass,
+            'parentlessRole': null,
+          }, 300)),
+          isTrue,
+        );
+        expect(await cache.classParentlessRole(klass), isNull);
+        expect((await cache.getByUuid(member))!.isPage, isTrue);
+        // Setting it again demotes once more.
+        expect(
+          await appliers.apply(op('class.update', {
+            'classId': klass,
+            'parentlessRole': 'block',
+          }, 400)),
+          isTrue,
+        );
+        expect((await cache.getByUuid(member))!.isPage, isFalse);
+      });
+
+      test('the parent-page guard is flag-aware: no standalone claim under '
+          'a block-role parentless node', () async {
+        const task = '0192a000-0000-7000-8000-000000000620';
+        const parent = '0192a000-0000-7000-8000-000000000621';
+        const child = '0192a000-0000-7000-8000-000000000622';
+        const wanted = '0192a000-0000-7000-8000-000000000623';
+        const mover = '0192a000-0000-7000-8000-000000000624';
+        expect(
+          await appliers.apply(op('class.create', {
+            'classId': task,
+            'contentAst': [
+              {'type': 'text', 'text': 'Task'},
+            ],
+            'parentlessRole': 'block',
+          }, 100)),
+          isTrue,
+        );
+        expect(
+          await appliers.apply(op('object.create', {
+            'objectId': parent,
+            'classIds': [task],
+            'contentAst': [
+              {'type': 'text', 'text': 'Fix sink'},
+            ],
+          }, 200)),
+          isTrue,
+        );
+        expect((await cache.getByUuid(parent))!.isPage, isFalse);
+
+        // An EMBEDDED child under the block-role parentless node stays
+        // legal (embedded blocks are the Block role's children).
+        expect(
+          await appliers.apply(op('object.create', {
+            'objectId': child,
+            'parentId': parent,
+            'contentAst': [
+              {'type': 'text', 'text': 'detail'},
+            ],
+          }, 300)),
+          isTrue,
+        );
+
+        // A standalone claim (isEmbedded = false) under it fails loud — the
+        // guard sees the same block role render sees.
+        expect(
+          () => appliers.apply(op('object.create', {
+                'objectId': wanted,
+                'parentId': parent,
+                'isEmbedded': false,
+                'contentAst': [
+                  {'type': 'text', 'text': 'claim'},
+                ],
+              }, 400)),
+          throwsA(isA<MoveGuardError>()),
+        );
+        // Promotion of the embedded child is rejected by the same guard.
+        expect(
+          () => appliers.apply(op('object.update', {
+                'objectId': child,
+                'isEmbedded': false,
+              }, 500)),
+          throwsA(isA<MoveGuardError>()),
+        );
+        // Moving a standalone node under it fails loud too.
+        expect(
+          await appliers.apply(op('object.create', {
+            'objectId': mover,
+            'isEmbedded': false,
+            'contentAst': [
+              {'type': 'text', 'text': 'page'},
+            ],
+          }, 600)),
+          isTrue,
+        );
+        expect(
+          () => appliers.apply(op('object.move', {
+                'objectId': mover,
+                'parentId': parent,
+              }, 700)),
+          throwsA(isA<MoveGuardError>()),
+        );
+      });
+    });
+
     test('object-list-style lands numbered → alpha → clear, and styles the '
         'page itself', () async {
       const page = '0192a000-0000-7000-8000-00000000056a';

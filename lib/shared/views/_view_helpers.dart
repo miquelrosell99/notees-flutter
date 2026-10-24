@@ -127,13 +127,13 @@ IconData iconForNode(Node node) {
 }
 
 /// Revision-11 render cascade as a user-facing label: `is_class` → Class;
-/// parentless → Page (document chrome, bit unread); a parented non-class
-/// node → Page when its present_as_main bit is set (main-children zone +
-/// document chrome when zoomed), Block when inline.
+/// the is_page bit (flag-aware since owner 2026-10-24 — a parentless
+/// member of a block-flagged class is Block-role, not a page) → Page;
+/// everything else → Block.
 String typeLabel(Node node) {
   if (node.isJournal) return 'Journal';
   if (node.isTask) return 'Task';
   if (node.isClass) return 'Class';
-  if (node.parentUuid == null || node.isEmbedded == false) return 'Page';
+  if (node.isPage) return 'Page';
   return 'Block';
 }

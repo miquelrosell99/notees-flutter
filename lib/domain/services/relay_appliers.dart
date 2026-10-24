@@ -85,6 +85,21 @@ import '../models/relay/workspace_features.dart';
 ///    body as `object.delete {permanent: true}`; the root set is an
 ///    apply-time snapshot (restore-before-empty survives, log order
 ///    otherwise), a consumed or nodeless row is swept, never fatal;
+///  - class-level parentlessRole (2026-10-24 lockstep, SCHEMA.md "Node
+///    structure", owner 2026-10-24): `class.create`/`class.update` carry the
+///    OPTIONAL NULLABLE `parentlessRole` ('page' | 'block'; absent/null =
+///    'page', presence writes, present-null clears, the color contract).
+///    The local store keeps class config in class_cache only, so the flag
+///    lands as the registry column `parentless_role` (schema v38 — the TS
+///    store's node+registry two-column port collapses to the registry:
+///    classes have no node_cache row here, the icon/color precedent) and
+///    the stored `is_page` bit becomes flag-aware: parentless nodes read
+///    the EXTENDS-AWARE demote (own flag OR any ancestor's, one-way, via
+///    class_cache × class_hierarchy) at create/move/update and on
+///    membership recomputation, and a class flag write sweeps its members'
+///    bits; the parent-page guard (_isPageRow) reads the same predicate, so
+///    a standalone claim under a block-role parentless node fails loud (the
+///    same MoveGuardError, no new error type);
 ///  - appliers fail loud with typed [StoreError]s and never swallow a write
 ///    silently. Envelope-id idempotency lives in the sync service
 ///    (relay_operations dedupe), mirroring applied_envelope in the TS store.
@@ -397,6 +412,17 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     };
     final name = AstBuilder.serialize(flatAst);
     final flags = _deriveFlags(classIds);
+    // The parentlessRole demote (owner 2026-10-24, SCHEMA.md "Node
+    // structure"): a parentless node renders with document chrome UNLESS
+    // one of its classes effectively carries the block flag — the flag is
+    // read ONLY in the parentless branch (the is_embedded symmetry: the
+    // embedding flag decides only for parented nodes). The OR-Set seeding
+    // above lands before this insert, so the flag read sees the create's
+    // full class context (explicit classIds + content-asserted links).
+    final effectiveClassIds = <String>{...classIds, ...linkClassIds};
+    final isPage = parentId == null
+        ? !(await _cache.classEffectivelyBlockFlagged(effectiveClassIds))
+        : !isEmbedded;
     final position = parentId == null
         ? null
         : await _allocateChildPosition(
@@ -418,7 +444,7 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         sequence: double.tryParse(position ?? '') ?? 0.0,
         classesUuid: classIds,
         tagsUuid: tagIds,
-        isPage: !isEmbedded,
+        isPage: isPage,
         isTask: flags.isTask,
         isDaily: flags.isDaily,
         isMonthly: flags.isMonthly,
@@ -580,10 +606,20 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         name: newName,
         displayName: newDisplay,
         isEmbedded: resultingIsEmbedded,
-        // The is_page query flag follows the flag (document chrome ⇔
-        // parentless or standalone); class rows are tree-external and keep
-        // whatever they carried (they live in class_cache locally).
-        isPage: node.isClass ? node.isPage : !resultingIsEmbedded,
+        // The is_page query flag follows the role: a parentless node reads
+        // the parentlessRole demote (owner 2026-10-24 — its membership
+        // changes re-derive through recomputeClassIds below, the isEmbedded
+        // toggle just re-asserts the same branch), a parented node follows
+        // the embedding flag (document chrome ⇔ the standalone claim);
+        // class rows are tree-external and keep whatever they carried (they
+        // live in class_cache locally).
+        isPage: node.isClass
+            ? node.isPage
+            : node.parentUuid == null
+                ? !(await _cache.classEffectivelyBlockFlagged(
+                    node.classesUuid,
+                  ))
+                : !resultingIsEmbedded,
         // Archival: presence writes — `false` archives the row, `true`
         // unarchives it (the node row's archived flag is the projection of
         // `node.is_active` in the TS store).
@@ -1043,9 +1079,13 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         parentUuid: parentId,
         position: position,
         sequence: double.tryParse(position ?? '') ?? node.sequence,
-        // Document chrome ⇔ the landing is parentless or the stored bit is
-        // set; moves never write the bit, so a parented landing follows it.
-        isPage: parentId == null || node.isEmbedded == false,
+        // Document chrome ⇔ the landing is parentless (flag-aware — a
+        // block-flagged parentless node stays Block-role, owner
+        // 2026-10-24) or the stored bit is set; moves never write the bit,
+        // so a parented landing follows it.
+        isPage: parentId == null
+            ? !(await _cache.classEffectivelyBlockFlagged(node.classesUuid))
+            : node.isEmbedded == false,
         writeDate: envelope.timestamp,
         hlcPhysical: incoming.physical,
         hlcLogical: incoming.logical,
@@ -1503,7 +1543,11 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // text. Absent fields PRESERVE on re-declaration (the upsert used to
     // wipe icon/color with null — the TS COALESCE semantics); a conversion
     // (no contentAst) on a fresh row adopts the node's current title
-    // (title-is-content: the node row is the authority).
+    // (title-is-content: the node row is the authority). The parentlessRole
+    // flag (owner 2026-10-24) follows the same presence contract: a
+    // re-issued flag-less class.create — the seed/ensure idempotent re-run —
+    // PRESERVES the stored flag (TS `COALESCE(excluded.parentless_role,
+    // class.parentless_role)` parity), present-null clears.
     String? adoptedTitle;
     if (!payload.containsKey('contentAst')) {
       final node = await _cache.getByUuid(classId);
@@ -1529,6 +1573,9 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       // class (owner ruling 2026-10-23, the source-library
       // archived-by-default seed).
       description: await _cache.classDescription(classId),
+      parentlessRole: payload.containsKey('parentlessRole')
+          ? payload['parentlessRole'] as String?
+          : await _cache.classParentlessRole(classId),
       createdAt: envelope.timestamp,
       updatedAt: envelope.timestamp,
     );
@@ -1558,6 +1605,14 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // Hierarchy self-row: the closure queries match through it, so every
     // class needs (id, id) even before any setExtends runs.
     await _cache.insertClassHierarchySelfRow(classId);
+    // The parentlessRole write may demote/promote existing parentless
+    // members (the conversion path can declare a class over a node whose
+    // members already carry it): re-derive their is_page bits. Absent-key
+    // re-issues changed nothing, so only an explicit key triggers the
+    // sweep.
+    if (payload.containsKey('parentlessRole')) {
+      await _cache.rederiveParentlessNodePageBits(classId);
+    }
   }
 
   Future<bool> _applyClassUpdate(
@@ -1590,8 +1645,18 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       description: payload.containsKey('description')
           ? payload['description'] as String?
           : await _cache.classDescription(classId),
+      // The parentlessRole flag (owner 2026-10-24): presence writes,
+      // present-null clears (the color precedent). A flag flip re-derives
+      // the is_page bits of every parentless member — the stored-bit
+      // projection of a read-time derivation the TS store computes live.
+      parentlessRole: payload.containsKey('parentlessRole')
+          ? payload['parentlessRole'] as String?
+          : await _cache.classParentlessRole(classId),
       updatedAt: envelope.timestamp,
     );
+    if (payload.containsKey('parentlessRole')) {
+      await _cache.rederiveParentlessNodePageBits(classId);
+    }
     return true;
   }
 
@@ -2407,15 +2472,21 @@ List<String> _contentClassLinkIds(dynamic tokens) {
 }
 
 /// True when the node renders with document chrome under the recursive
-/// parent-page rule (owner ruling 2026-10-15, carried into Revision 12): a
-/// class never does (ClassView), a parentless non-class node always does
-/// (the flag is unread), and a parented node does exactly when it is NOT
-/// embedded (the standalone claim) AND its parent also renders with
-/// document chrome. Cycles are impossible (subtree moves are guarded); a
-/// missing parent row is a defensive "not a page".
+/// parent-page rule (owner ruling 2026-10-15, carried into Revision 12):
+/// a class never does (ClassView); a parentless non-class node does —
+/// UNLESS one of its classes effectively carries parentlessRole "block"
+/// (owner 2026-10-24, the extends-aware one-way demote; the guard must see
+/// the same role render sees, or a standalone claim could be stored under
+/// a block-role parent — an impossible RENDERED state); a parented node
+/// does exactly when it is NOT embedded (the standalone claim) AND its
+/// parent also renders with document chrome. Cycles are impossible
+/// (subtree moves are guarded); a missing parent row is a defensive "not
+/// a page".
 Future<bool> _isPageRow(Node node, NodeCacheRepository cache) async {
   if (node.isClass) return false;
-  if (node.parentUuid == null) return true;
+  if (node.parentUuid == null) {
+    return !(await cache.classEffectivelyBlockFlagged(node.classesUuid));
+  }
   if (node.isEmbedded != false) return false;
   final parent = await cache.getByUuid(node.parentUuid!);
   if (parent == null) return false;
