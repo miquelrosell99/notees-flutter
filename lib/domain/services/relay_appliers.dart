@@ -990,7 +990,7 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // under its deterministic chain parent (SCHEMA.md "Datetime" — the
     // parenting lock). A parentless non-class node is legal
     // too: it renders with document chrome by the second cascade branch
-    // regardless of present_as_main.
+    // regardless of the stored embedding bit.
     if (parentId != null) {
       if (await _cache.getByUuid(parentId) == null &&
           !await _cache.isClassNode(parentId)) {
@@ -1032,6 +1032,29 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       }
     }
 
+    // Treat-as-main on first parenting: a parentless node
+    // with the bit still 1 renders as a page by the second cascade branch;
+    // the first parenting acquires the standalone claim so it stays one
+    // (the applier applies the claim below). Block-role parentless-class
+    // members are excluded — they keep the bit and stay blocks.
+    final claimsMain = parentId != null &&
+        node.parentUuid == null &&
+        !node.isClass &&
+        node.isEmbedded == true &&
+        !(await _cache.classEffectivelyBlockFlagged(node.classesUuid));
+    if (claimsMain) {
+      final parent = await _cache.getByUuid(parentId);
+      if (parent == null || !await _isPageRow(parent, _cache)) {
+        throw MoveGuardError(
+          '$opType: node $objectId renders as a main page while '
+          'parentless; parenting it requires a parent that renders with '
+          'document chrome (parent $parentId is a class or an embedded '
+          'block)',
+          opType,
+        );
+      }
+    }
+
     // Date-chain parenting lock (SCHEMA.md "Datetime", 2026-10-13 lockstep):
     // a date node may ONLY live under its deterministic chain parent
     // (year → root, month → year, day → month). The chain self-heal
@@ -1054,11 +1077,31 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       actor: node.actorId ?? '',
     );
     // Parent/position are row-level LWW: re-applying an older move after a
-    // newer one drops whole. Moves never write the render bit: the bit is
-    // read only for parented non-class nodes, so a parentless landing
-    // renders with document chrome by the second cascade branch regardless
-    // of the stored bit.
+    // newer one drops whole. A stale move also drops the treat-as-main
+    // acquisition whole: the bit write rides this same row winner.
     if (compareLww(incoming, rowWinner) <= 0) return false;
+
+    // Treat-as-main acquisition: the acquired standalone
+    // claim — the bit goes 1 → 0 plus the content stringify, the same lossy
+    // main-role boundary as the object.update promotion. Parented→parented
+    // moves leave the bit alone.
+    var resultingIsEmbedded = node.isEmbedded ?? true;
+    var newName = node.name;
+    var newDisplay = node.displayName;
+    if (claimsMain && node.name.isNotEmpty) {
+      try {
+        final stored = jsonDecode(node.name);
+        if (stored is List<dynamic>) {
+          newName = AstBuilder.serialize(stringifyContentAst(
+            normalizeContentAst(stored),
+          ));
+          newDisplay = deriveDisplayName(newName);
+        }
+      } on FormatException {
+        // Not a JSON document (legacy plain text): already text-only.
+      }
+    }
+    if (claimsMain) resultingIsEmbedded = false;
 
     final position = parentId == null
         ? null
@@ -1073,16 +1116,19 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     await _cache.upsert(
       _copyWith(
         node,
+        name: newName,
+        displayName: newDisplay,
+        isEmbedded: resultingIsEmbedded,
         parentUuid: parentId,
         position: position,
         sequence: double.tryParse(position ?? '') ?? node.sequence,
         // Document chrome ⇔ the landing is parentless (flag-aware — a
         // block-flagged parentless node stays Block-role, owner
-        // 2026-10-24) or the stored bit is set; moves never write the bit,
-        // so a parented landing follows it.
+        // 2026-10-24) or the resulting standalone claim is set; the
+        // treat-as-main acquisition is the one move that writes the bit.
         isPage: parentId == null
             ? !(await _cache.classEffectivelyBlockFlagged(node.classesUuid))
-            : node.isEmbedded == false,
+            : !resultingIsEmbedded,
         writeDate: envelope.timestamp,
         hlcPhysical: incoming.physical,
         hlcLogical: incoming.logical,

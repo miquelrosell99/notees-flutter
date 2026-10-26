@@ -6,6 +6,38 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-26
+
+- **fix(store): `object.move` keeps a parentless main node a page — the
+  first parenting acquires the standalone claim (treat-as-main, Flutter
+  lockstep port of the monorepo fix, reference commit `867c25134`).** A node
+  left parentless with `is_embedded` still 1 (an extracted-to-page block, a
+  block un-parented via "Remove parent") renders as a page while parentless,
+  but the untouched bit silently demoted it to an embedded block the moment
+  a parent was assigned. The `_applyMove` applier now computes a
+  treat-as-main claim — the row was parentless, the new parent is not null,
+  the row is not a class, the stored bit is 1, and the node is NOT a member
+  of an effectively `parentlessRole "block"` class (extends-aware, the same
+  predicate the page-row guard reads for its parentless arm) — and on the
+  claim: (1) GUARD: the new parent must render with document chrome, else
+  the same `MoveGuardError` the standalone-move guard uses, with the TS
+  message (`node <id> renders as a main page while parentless; parenting it
+  requires a parent that renders with document chrome`); (2) APPLY: the move
+  additionally writes `is_embedded = 0` AND stringifies the node's content
+  in the same op — the same lossy flatten as the `object.update` promotion
+  (1→0), flattening the content AST to text-only via the content
+  stringifier. Parented→parented moves still never touch the flag;
+  unparenting is unchanged; the acquisition rides the existing row-level LWW
+  gate (a stale move still drops whole). No wire change — the fixture
+  corpus is untouched. Verified: `flutter analyze` clean + `flutter test`
+  green — four new pins mirror the TS tests (orphan parenting acquires the
+  claim, the acquisition stringifies a text+mention stream to a single text
+  token, parenting under an embedded block or a class throws and leaves the
+  flag untouched, a parentless `parentlessRole "block"` class member keeps
+  the bit and stays a block) and the pre-existing move-to-root test's
+  re-parent tail now asserts the acquired claim. Completes the
+  three-implementation lockstep (TS reference, GTK, Flutter).
+
 ## 2026-10-24
 
 - **feat(protocol,store): class-level `parentlessRole` — the parentless

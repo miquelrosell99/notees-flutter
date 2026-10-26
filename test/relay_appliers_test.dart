@@ -2159,11 +2159,12 @@ void main() {
 
       final node = await cache.getByUuid(blockUuid);
       expect(node!.parentUuid, isNull);
-      // The move never writes the render bit; the parentless landing
-      // renders with document chrome by the second cascade branch.
+      // The move to the root never writes the render bit; the parentless
+      // landing renders with document chrome by the second cascade branch.
       expect(node.isPage, isTrue);
       expect(node.isEmbedded, isTrue);
-      // Moving under a parent again keeps the stored bit (inline).
+      // Parenting the parentless block back acquires the standalone claim
+      // (treat-as-main): it stays a page.
       await appliers.apply(envelope(
         id: '0192a000-0000-7000-8000-00000000019c',
         opType: 'object.move',
@@ -2175,8 +2176,8 @@ void main() {
       ));
       final back = await cache.getByUuid(blockUuid);
       expect(back!.parentUuid, pageUuid);
-      expect(back.isEmbedded, isTrue);
-      expect(back.isPage, isFalse);
+      expect(back.isEmbedded, isFalse);
+      expect(back.isPage, isTrue);
     });
 
     test('a main child and an inline child partition a parent by the one '
@@ -2220,6 +2221,273 @@ void main() {
       expect(main.isPage, isTrue);
       expect(inline.isEmbedded, isTrue);
       expect(inline.isPage, isFalse);
+    });
+
+    group('treat-as-main on first parenting', () {
+      test('parenting a parentless embedded node acquires the standalone '
+          'claim (it stays a page)', () async {
+        const pageUuid = '00000000-0000-0000-0000-000000000901';
+        const blockUuid = '00000000-0000-0000-0000-000000000902';
+        const orphanUuid = '00000000-0000-0000-0000-000000000903';
+
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000201',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(objectId: pageUuid),
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000202',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: blockUuid,
+            parentId: pageUuid,
+            contentAst: AstBuilder.parseInline('Body'),
+          ),
+          physical: 2,
+        ));
+        // Orphan: created as a block, then un-parented (Remove parent /
+        // extract-to-page) — parentless with the bit still 1, so it renders
+        // as a page until something parents it.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000203',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: orphanUuid,
+            parentId: blockUuid,
+            contentAst: AstBuilder.parseInline('orphan'),
+          ),
+          physical: 3,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000204',
+          opType: 'object.move',
+          payload: OperationPayloads.objectMove(
+            objectId: orphanUuid,
+            parentId: null,
+          ),
+          physical: 4,
+        ));
+        final orphan = await cache.getByUuid(orphanUuid);
+        expect(orphan!.parentUuid, isNull);
+        expect(orphan.isEmbedded, isTrue);
+        expect(orphan.isPage, isTrue);
+
+        // Parenting it (the breadcrumbs "Add parent" gesture) must keep it
+        // a page: the move acquires the standalone claim.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000205',
+          opType: 'object.move',
+          payload: OperationPayloads.objectMove(
+            objectId: orphanUuid,
+            parentId: pageUuid,
+          ),
+          physical: 5,
+        ));
+        final parented = await cache.getByUuid(orphanUuid);
+        expect(parented!.parentUuid, pageUuid);
+        expect(parented.isEmbedded, isFalse);
+        expect(parented.isPage, isTrue);
+      });
+
+      test('the acquisition stringifies rich content (the promotion '
+          'boundary)', () async {
+        const pageUuid = '00000000-0000-0000-0000-000000000911';
+        const orphanUuid = '00000000-0000-0000-0000-000000000912';
+
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000211',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(objectId: pageUuid),
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000212',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: orphanUuid,
+            parentId: pageUuid,
+            contentAst: const [
+              {'type': 'text', 'text': 'see '},
+              {
+                'type': 'mention',
+                'targetNodeId': '00000000-0000-0000-0000-000000000199',
+                'text': 'shopping',
+              },
+            ],
+          ),
+          physical: 2,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000213',
+          opType: 'object.move',
+          payload: OperationPayloads.objectMove(
+            objectId: orphanUuid,
+            parentId: null,
+          ),
+          physical: 3,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000214',
+          opType: 'object.move',
+          payload: OperationPayloads.objectMove(
+            objectId: orphanUuid,
+            parentId: pageUuid,
+          ),
+          physical: 4,
+        ));
+
+        final node = await cache.getByUuid(orphanUuid);
+        expect(node!.isEmbedded, isFalse);
+        // The mention flattened into the single text-only token (the same
+        // lossy boundary as the object.update promotion).
+        expect(jsonDecode(node.name), [
+          {'type': 'text', 'text': 'see shopping'},
+        ]);
+        expect(node.displayName, 'see shopping');
+      });
+
+      test('parenting the orphan under an embedded block or a class fails '
+          'loud and leaves the flag untouched', () async {
+        const pageUuid = '00000000-0000-0000-0000-000000000921';
+        const blockUuid = '00000000-0000-0000-0000-000000000922';
+        const orphanUuid = '00000000-0000-0000-0000-000000000923';
+        const classUuid = '00000000-0000-0000-0000-000000000924';
+
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000221',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(objectId: pageUuid),
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000222',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: blockUuid,
+            parentId: pageUuid,
+            contentAst: AstBuilder.parseInline('Body'),
+          ),
+          physical: 2,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000223',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: orphanUuid,
+            parentId: blockUuid,
+            contentAst: AstBuilder.parseInline('orphan'),
+          ),
+          physical: 3,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000224',
+          opType: 'object.move',
+          payload: OperationPayloads.objectMove(
+            objectId: orphanUuid,
+            parentId: null,
+          ),
+          physical: 4,
+        ));
+
+        // Under an embedded block: the acquisition answers to the
+        // parent-page condition and fails loud.
+        expect(
+          () async => appliers.apply(envelope(
+            id: '0192a000-0000-7000-8000-000000000225',
+            opType: 'object.move',
+            payload: OperationPayloads.objectMove(
+              objectId: orphanUuid,
+              parentId: blockUuid,
+            ),
+            physical: 5,
+          )),
+          throwsA(isA<MoveGuardError>()),
+        );
+        // Under a class: a class never renders with document chrome.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000226',
+          opType: 'class.create',
+          payload: OperationPayloads.classCreate(
+            classId: classUuid,
+            contentAst: AstBuilder.parseInline('C'),
+          ),
+          physical: 6,
+        ));
+        expect(
+          () async => appliers.apply(envelope(
+            id: '0192a000-0000-7000-8000-000000000227',
+            opType: 'object.move',
+            payload: OperationPayloads.objectMove(
+              objectId: orphanUuid,
+              parentId: classUuid,
+            ),
+            physical: 7,
+          )),
+          throwsA(isA<MoveGuardError>()),
+        );
+        // The rejected moves left the flag (and the parent) untouched.
+        final orphan = await cache.getByUuid(orphanUuid);
+        expect(orphan!.parentUuid, isNull);
+        expect(orphan.isEmbedded, isTrue);
+      });
+
+      test('a parentless block-role class member keeps the bit on parenting '
+          '(stays a block)', () async {
+        const taskClass = '00000000-0000-0000-0000-000000000931';
+        const pageUuid = '00000000-0000-0000-0000-000000000932';
+        const orphanTask = '00000000-0000-0000-0000-000000000933';
+
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000231',
+          opType: 'class.create',
+          payload: OperationPayloads.classCreate(
+            classId: taskClass,
+            contentAst: AstBuilder.parseInline('Task'),
+            parentlessRole: 'block',
+          ),
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000232',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(objectId: pageUuid),
+          physical: 2,
+        ));
+        // An embedded Task block under the page, then un-parented:
+        // parentless with the bit 1 AND a block-role class — the
+        // 2026-10-24 contract wins, it stays a block when parented.
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000233',
+          opType: 'object.create',
+          payload: OperationPayloads.objectCreate(
+            objectId: orphanTask,
+            parentId: pageUuid,
+            classIds: [taskClass],
+            contentAst: AstBuilder.parseInline('fix sink'),
+          ),
+          physical: 3,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000234',
+          opType: 'object.move',
+          payload: OperationPayloads.objectMove(
+            objectId: orphanTask,
+            parentId: null,
+          ),
+          physical: 4,
+        ));
+        await appliers.apply(envelope(
+          id: '0192a000-0000-7000-8000-000000000235',
+          opType: 'object.move',
+          payload: OperationPayloads.objectMove(
+            objectId: orphanTask,
+            parentId: pageUuid,
+          ),
+          physical: 5,
+        ));
+
+        final node = await cache.getByUuid(orphanTask);
+        expect(node!.parentUuid, pageUuid);
+        expect(node.isEmbedded, isTrue);
+        expect(node.isPage, isFalse);
+      });
     });
 
     test('the retired nodeType payload key is rejected outright (strict '
