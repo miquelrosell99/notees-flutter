@@ -8,6 +8,23 @@ lives in git history.
 
 ## 2026-10-27
 
+- **test(sync): vendor the `tag-membership` fixture + replay expectations —
+  the tags wire converges on Flutter.** `test/fixtures/wire/tag-membership.json`
+  joins the byte-pinned corpus (sha256 `f3f8e4d0…57e5f0977`, identical to the
+  monorepo's `packages/protocol/fixtures/` copy — corpus 40→41) and enters the
+  fixtures parity gate list. The fixture pins the tags OR-Set end to end: two
+  parentless tag pages, the `object.create` `tagIds` seed, the re-issued
+  create assign carrier (accumulates B, `recomputeTagIds` sorted by tag_id,
+  the tree untouched), the `tag.unassign` tombstone, and the newer re-issued
+  create's add-wins resurrection (the tag add's strictly-greater `(hlc,
+  actor)` tiebreak — the deliberate asymmetry vs classIds' `>=`). The fixture
+  replay suite now asserts each stage's derived state, including the
+  `tag_member_set` end-state rows. The sync layer already carried this wire
+  (the tag-ui slice's foundation), so this is expectation coverage only — no
+  applier change. Verified: `flutter analyze` clean + `flutter test` green —
+  the parity sweep's "every fixture on disk is covered" assertion passes with
+  exactly the one new file.
+
 - **feat(editor): first-class tag management — tag pills on pages and
   blocks (web TagsRow / BlockRow parity).** The Flutter UI had no tag
   surface; the sync layer already carried tag membership (the re-issued

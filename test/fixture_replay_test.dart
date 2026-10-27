@@ -913,6 +913,55 @@ void main() {
       );
     });
 
+    test('tag-membership: seed, re-issued create assign carrier, unassign '
+        'tombstone, add-wins resurrection', () async {
+      const tagA = '0192a000-0000-7000-8000-000000000701';
+      const tagB = '0192a000-0000-7000-8000-000000000702';
+      const item = '0192a000-0000-7000-8000-000000000703';
+      final envelopes = fixtureEnvelopes('tag-membership.json');
+
+      Future<List<String>> tagIds() async =>
+          (await cache.getByUuid(item))!.tagsUuid;
+
+      // Tag pages + the seeded create: only A.
+      for (final envelope in envelopes.take(3)) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      expect(await tagIds(), [tagA]);
+
+      // The re-issued create assign carrier accumulates B (recomputeTagIds
+      // sorts by tag_id); the tree is untouched — parentless, standalone
+      // (the alreadyExists branch never moves the node).
+      expect(await appliers.apply(envelopes[3]), isFalse);
+      expect(await tagIds(), [tagA, tagB]);
+      final itemNode = await cache.getByUuid(item);
+      expect(itemNode!.parentUuid, isNull);
+      expect(itemNode.isEmbedded, isFalse);
+      expect(itemNode.isPage, isTrue);
+
+      // The unassign tombstones A.
+      expect(await appliers.apply(envelopes[4]), isTrue);
+      expect(await tagIds(), [tagB]);
+
+      // The newer re-issued create resurrects A (add-wins — the tag add's
+      // strictly-greater (hlc, actor) tiebreak, the deliberate asymmetry
+      // vs classIds' '>=').
+      expect(await appliers.apply(envelopes[5]), isFalse);
+      expect(await tagIds(), [tagA, tagB]);
+
+      // The OR-Set rows mirror the TS store end state: A's pair reads
+      // present again (the newer add beat the tombstone), B's add stands.
+      final rows = await raw(
+        'SELECT tag_id, present FROM tag_member_set WHERE node_uuid = ? '
+        'ORDER BY tag_id',
+        [item],
+      );
+      expect(rows, [
+        {'tag_id': tagA, 'present': 1},
+        {'tag_id': tagB, 'present': 1},
+      ]);
+    });
+
     test('trash-empty hard-deletes every soft-trashed root; the restored '
         'page survives with no trash row', () async {
       // trash-empty.json: A (...f3) + child (...f4), B (...f5) + child

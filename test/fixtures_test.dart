@@ -65,6 +65,7 @@ void main() {
     'property-set-lww.json',
     'property-validation-rules.json',
     'property-value-elements.json',
+    'tag-membership.json',
     'typed-link-mark.json',
     'typed-link-mark-deleted.json',
     'workspace-feature-set.json',
