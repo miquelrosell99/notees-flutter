@@ -6,6 +6,32 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-27
+
+- **feat(editor): first-class tag management — tag pills on pages and
+  blocks (web TagsRow / BlockRow parity).** The Flutter UI had no tag
+  surface; the sync layer already carried tag membership (the re-issued
+  `object.create` `tagIds` OR-Set carrier and `tag.unassign`), so this slice
+  is UI + write wiring only — the appliers are untouched. The page header
+  now renders a tags row under the class pills: alphabetical pills tinted
+  with each tag's effective color (own color, else its classes', else the
+  theme accent — the web's `effectiveNodeColor`), a trailing × that
+  unassigns, and an "Add tag" chip; blocks carrying tags get a dedicated
+  indented row below the block row (the web's `nt-block-tags` visibility
+  rule: the row renders only when at least one tag is set). Assignment rides
+  the existing node-picker sheet — `NodePickerMode.tag` now actually lists
+  the page space (any page can act as a tag; the mode was a stub returning
+  nothing) — and both assign and remove enqueue `add_tag`/`remove_tag` on
+  the offline outbox, the exact queue class writes already use
+  (`_removeClass` is the remove mirror), applied to the local cache before
+  the push. The page's ⋮ menu and the per-block options menu carry the
+  assign affordance for the empty state. Verified: `flutter analyze` clean +
+  `flutter test` green — new `test/tag_ui_test.dart` (9 tests: alphabetical
+  ordering, effective-color resolution, the block-row visibility rule, pill
+  remove/add callbacks, and the outbox write path — assign flushes as
+  `object.create` with `tagIds` and unassign as `tag.unassign`, both applied
+  to the local cache).
+
 ## 2026-10-26
 
 - **fix(store): `object.move` keeps a parentless main node a page — the

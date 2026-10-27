@@ -85,7 +85,14 @@ class _NodePickerState extends State<NodePicker> {
                 .toList();
           }
         case NodePickerMode.tag:
-          results = [];
+          // Any page can act as a tag (web NodeSelector searchMode
+          // "pages"): the tag picker searches the page space.
+          if (query.isEmpty) {
+            results = await repo.fetchRecentPages(limit: 20);
+          } else {
+            results = await repo.searchNodes(query, limit: 20);
+          }
+          results = results.where((n) => n.isPage).toList();
         case NodePickerMode.page:
         case NodePickerMode.any:
           if (query.isEmpty) {

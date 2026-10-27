@@ -42,6 +42,7 @@ import '../../../shared/widgets/node_picker.dart';
 import '../widgets/property_value_cell.dart';
 import '../../shares/widgets/shares_bottom_sheet.dart';
 import '../widgets/slash_command_palette.dart';
+import '../widgets/tag_pills.dart';
 
 /// Native page editor with a web-app-like bullet tree and breadcrumbs.
 ///
@@ -86,6 +87,12 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   bool _isMonthly = false;
   bool _isYearly = false;
   List<String> _pageClassUuids = const [];
+
+  /// Tag chrome (web TagsRow parity): the page's tag uuid set, and the
+  /// resolved tag nodes for the page AND its blocks (any page can act as a
+  /// tag, so the same map feeds the header row and the per-block rows).
+  List<String> _pageTagUuids = const [];
+  Map<String, Node> _tagNodes = const {};
   final Set<String> _deletedBlockUuids = {};
   bool _loading = true;
   bool _saving = false;
@@ -234,6 +241,25 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
         }
       } catch (_) {}
 
+      // Tag chrome: best-effort the same way (non-critical). Collect the
+      // tag uuids carried by the page and every block, then resolve the tag
+      // nodes in one read (the pills need display names, icons and colors).
+      Map<String, Node> tagNodes = const {};
+      try {
+        final tagUuids = <String>{...page.tagsUuid};
+        void collectTags(List<Node> nodes) {
+          for (final n in nodes) {
+            tagUuids.addAll(n.tagsUuid);
+            collectTags(n.children);
+          }
+        }
+        collectTags(page.children);
+        if (tagUuids.isNotEmpty) {
+          final fetched = await repo.fetchNodesByUuids(tagUuids.toList());
+          tagNodes = {for (final t in fetched) t.uuid: t};
+        }
+      } catch (_) {}
+
       final classNames = {
         for (final c in classes)
           if (c.uuid.isNotEmpty) c.uuid: c.displayName.toLowerCase(),
@@ -285,6 +311,8 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
           _isMonthly = page.isMonthly;
           _isYearly = page.isYearly;
           _pageClassUuids = page.classesUuid;
+          _pageTagUuids = page.tagsUuid;
+          _tagNodes = tagNodes;
           _coverAssetUuid = page.coverAssetId;
           _breadcrumbs = breadcrumbs;
           _deletedBlockUuids.clear();
@@ -459,6 +487,14 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                   _openShareSheet();
                 },
               ),
+            ListTile(
+              leading: Icon(MdiIcons.tagOutline),
+              title: const Text('Add tag'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _addPageTag();
+              },
+            ),
           ],
         ),
       ),
@@ -1802,6 +1838,7 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
                   ),
                 _buildHeaderWithCover(),
                 _buildClassPills(colors),
+                _buildTagPillsRow(colors),
                 const SizedBox(height: 8),
                 _buildPropertiesSection(colors),
                 const SizedBox(height: 8),
@@ -2159,6 +2196,160 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     );
   }
 
+  /// The page's tags row (web PageHeader TagsRow parity): alphabetical
+  /// pills tinted with each tag's effective color, an × to unassign, and a
+  /// trailing "Add tag" chip. Hidden when the page carries no tags — the
+  /// page options menu carries the assign affordance for the empty state.
+  Widget _buildTagPillsRow(ColorScheme colors) {
+    if (_pageTagUuids.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      child: TagPills(
+        tagIds: _pageTagUuids,
+        nodesByUuid: _tagNodes,
+        colorsByUuid: _linkColors,
+        fallbackColor: colors.primary,
+        onOpen: (tag) => context.push('${Routes.editor}/${tag.uuid}'),
+        onRemove: _removePageTag,
+        onAdd: _addPageTag,
+      ),
+    );
+  }
+
+  Future<void> _addPageTag() => _assignTag(widget.nodeUuid, _pageTagUuids);
+
+  Future<void> _removePageTag(Node tag) async {
+    final auth = context.read<AuthProvider>();
+    if (auth.syncService == null) return;
+
+    try {
+      await auth.syncService!.enqueue(
+        type: 'remove_tag',
+        nodeUuid: widget.nodeUuid,
+        tagUuid: tag.uuid,
+      );
+      await auth.syncService!.flush();
+      if (!mounted) return;
+      await _loadPage();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not remove tag: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _addBlockTag(BlockNode block) =>
+      _assignTag(block.node.uuid, block.node.tagsUuid);
+
+  Future<void> _removeBlockTag(BlockNode block, String tagUuid) async {
+    final auth = context.read<AuthProvider>();
+    if (auth.syncService == null) return;
+
+    try {
+      await auth.syncService!.enqueue(
+        type: 'remove_tag',
+        nodeUuid: block.node.uuid,
+        tagUuid: tagUuid,
+      );
+      await auth.syncService!.flush();
+      if (!mounted) return;
+      // Update the row in place: drop the uuid from the block's local
+      // projection (the flush already applied the op to the cache).
+      block.node = _copyNodeWithTags(
+        block.node,
+        block.node.tagsUuid.where((t) => t != tagUuid).toList(),
+      );
+      setState(() {});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not remove tag: $e')),
+        );
+      }
+    }
+  }
+
+  /// Shared assign path (page header and block options menu): the tag
+  /// picker searches the page space (any page can act as a tag), the picked
+  /// page rides the offline outbox as an add-wins `add_tag` enqueue — the
+  /// same queue class writes use (`_removeClass` is the remove mirror).
+  Future<void> _assignTag(String carrierUuid, List<String> currentTagIds) async {
+    final picked = await NodePicker.show(context, mode: NodePickerMode.tag);
+    if (picked == null || !mounted) return;
+    if (currentTagIds.contains(picked.uuid)) return;
+    final sync = context.read<AuthProvider>().syncService;
+    if (sync == null) return;
+
+    try {
+      await sync.enqueue(
+        type: 'add_tag',
+        nodeUuid: carrierUuid,
+        tagUuid: picked.uuid,
+      );
+      await sync.flush();
+      if (!mounted) return;
+      if (carrierUuid == widget.nodeUuid) {
+        await _loadPage();
+      } else {
+        // Block carrier: update the row in place and keep the resolved tag
+        // node for the pill (the flush already applied the op to the cache).
+        final block = _allBlocks().where((b) => b.node.uuid == carrierUuid).firstOrNull;
+        if (block != null) {
+          block.node = _copyNodeWithTags(
+            block.node,
+            [...block.node.tagsUuid, picked.uuid],
+          );
+        }
+        _tagNodes = {..._tagNodes, picked.uuid: picked};
+        setState(() {});
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not add tag: $e')),
+        );
+      }
+    }
+  }
+
+  Node _copyNodeWithTags(Node node, List<String> tagsUuid) {
+    return Node(
+      id: node.id,
+      uuid: node.uuid,
+      name: node.name,
+      displayName: node.displayName,
+      icon: node.icon,
+      color: node.color,
+      parentUuid: node.parentUuid,
+      pageUuid: node.pageUuid,
+      sequence: node.sequence,
+      isPage: node.isPage,
+      isTask: node.isTask,
+      isDaily: node.isDaily,
+      isMonthly: node.isMonthly,
+      isYearly: node.isYearly,
+      isTable: node.isTable,
+      isAsset: node.isAsset,
+      isComment: node.isComment,
+      isPrivate: node.isPrivate,
+      classes: node.classes,
+      classesUuid: node.classesUuid,
+      tags: node.tags,
+      tagsUuid: tagsUuid,
+      properties: node.properties,
+      children: node.children,
+      createDate: node.createDate,
+      writeDate: node.writeDate,
+      isClass: node.isClass,
+      isEmbedded: node.isEmbedded,
+      aliasedNodeId: node.aliasedNodeId,
+      coverAssetId: node.coverAssetId,
+    );
+  }
+
   void _onClassTap(String classUuid) {
     HapticFeedback.lightImpact();
     context.push('${Routes.editor}/$classUuid');
@@ -2329,6 +2520,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       linkColors: _linkColors,
       bulletProperties: _bulletProperties,
       onBulletPropertyWrite: _onBulletPropertyWrite,
+      tagNodes: _tagNodes,
+      onOpenTag: (tagUuid) => context.push('${Routes.editor}/$tagUuid'),
+      onRemoveTag: _removeBlockTag,
+      onAddTag: _addBlockTag,
     );
   }
 

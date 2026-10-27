@@ -11,6 +11,7 @@ import '../../../core/utils/node_icon.dart';
 import '../../../data/models/node.dart';
 import './asset_block_widget.dart';
 import './ast_rich_text.dart';
+import './tag_pills.dart';
 
 /// One select option of a display-positioned property. [icon] is a
 /// camelCase MDI name (absent = the tinted dot fallback); [color] is a
@@ -168,6 +169,10 @@ class BlockTreeEditor extends StatefulWidget {
     this.linkColors,
     this.bulletProperties = const {},
     this.onBulletPropertyWrite,
+    this.tagNodes = const {},
+    this.onOpenTag,
+    this.onRemoveTag,
+    this.onAddTag,
   });
 
   final List<BlockNode> roots;
@@ -242,6 +247,22 @@ class BlockTreeEditor extends StatefulWidget {
   /// projection — the current icon renders but never opens the sheet.
   final Future<void> Function(BlockNode node, BulletPropertyWrite write)?
   onBulletPropertyWrite;
+
+  /// Resolved tag nodes (tag uuid → node) for the tags row: any page can
+  /// act as a tag, so the host screen fetches the tag uuid sets carried by
+  /// the page and its blocks and passes the resolved nodes here. Pill
+  /// colors are derived per tag (own color, else its classes', else the
+  /// theme primary) from [linkColors].
+  final Map<String, Node> tagNodes;
+
+  /// Invoked when the user taps a tag pill (open the tag's page).
+  final ValueChanged<String>? onOpenTag;
+
+  /// Invoked when the user taps a tag pill's × (unassign from the block).
+  final void Function(BlockNode node, String tagUuid)? onRemoveTag;
+
+  /// Invoked from the block options menu to assign a tag to the block.
+  final ValueChanged<BlockNode>? onAddTag;
 
   @override
   BlockTreeEditorState createState() => BlockTreeEditorState();
@@ -538,6 +559,34 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
         ),
         padding: const EdgeInsets.only(left: 6),
         child: content,
+      );
+    }
+
+    // Tags: dedicated row below the block row, only when set (web BlockRow
+    // `nt-block-tags` parity — an untagged block renders no row). The pills
+    // indent under the block content, past the bullet column.
+    if (shouldShowTagRow(node.node.tagsUuid)) {
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          content,
+          Padding(
+            padding: EdgeInsets.only(left: indent + 30, top: 2, bottom: 2),
+            child: TagPills(
+              tagIds: node.node.tagsUuid,
+              nodesByUuid: widget.tagNodes,
+              colorsByUuid: widget.linkColors ?? const {},
+              fallbackColor: colors.primary,
+              compact: true,
+              onOpen: widget.onOpenTag == null
+                  ? null
+                  : (tag) => widget.onOpenTag!(tag.uuid),
+              onRemove: widget.onRemoveTag == null
+                  ? null
+                  : (tag) => widget.onRemoveTag!(node, tag.uuid),
+            ),
+          ),
+        ],
       );
     }
 
@@ -853,6 +902,15 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
                 widget.onOutdent(node);
               },
             ),
+            if (widget.onAddTag != null)
+              ListTile(
+                leading: Icon(MdiIcons.tagOutline),
+                title: const Text('Add tag'),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  widget.onAddTag!(node);
+                },
+              ),
             ListTile(
               leading: Icon(MdiIcons.deleteOutline),
               title: const Text('Delete block'),
