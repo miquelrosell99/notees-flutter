@@ -6,6 +6,36 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-27
+
+- **feat(protocol,store): `class.property.set` pinned — pin-tier property
+  ordering (Flutter lockstep port of the monorepo slice, reference commit
+  `08544be6e`).** The `class_property` binding row gains the binary `pinned`
+  tier flag: `class.property.set` payloads may now carry the optional
+  `pinned?: boolean` (strict payload, boolean-only; patch semantics
+  identical to `active` — an omitted key keeps the stored flag, row LWW by
+  envelope HLC). Class property lists render in two PIN TIERS — pinned
+  bindings FIRST, alphabetical by property name within each tier, unpinned
+  after, unbound authored rows still last — while a stored/configurable
+  ORDER stays retired (`sequence` never returns; `pinned` is a
+  classification, never an order). Store: `class_property` gains
+  `pinned INTEGER NOT NULL DEFAULT 0` (local schema v39, the guarded-ALTER
+  v22 `active` precedent; fresh creates carry the column); the effective
+  read threads the winning binding's flag into `EffectiveProperty.pinned`
+  (default false) and the comparator inserts the tier between the bound
+  arm and the alphabetical key — `(boundBy == null, pinned, name, idx,
+  elementId)`. The canonical `class-property-pinned.json` fixture is vendored
+  byte-identical (sha256 `4f7b93f2…e9d674`) and registered in the fixture
+  gate; replay covers the lower-HLC losing pin, the true→false flip, the
+  active-only patch keeping the stored flag, and the final unset. The seed
+  manifest gains no pins (the monorepo seeds none yet — wiring only).
+  Verified: `flutter analyze` clean + `flutter test` green — the payload
+  suite pins accept true/false, reject non-boolean, and keep retired keys
+  rejected; the effective suite pins the pinned tier first with
+  alphabetical-within-tier order, the flip/patch semantics, unbound-authored
+  last, and the unchanged (idx, element id) tiebreak. Completes the
+  three-implementation lockstep (TS reference, GTK, Flutter).
+
 ## 2026-10-26
 
 - **fix(store): `object.move` keeps a parentless main node a page — the

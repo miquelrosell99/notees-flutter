@@ -691,7 +691,70 @@ void main() {
         }),
         returnsNormally,
       );
+    });
 
+    test('pinned rides class.property.set (2026-10-27 tier flag)', () {
+      // The binding's binary tier flag — pinned properties render FIRST in
+      // class property lists (alphabetical within each tier). Optional,
+      // boolean-only, partial-patch semantics identical to `active`;
+      // `sequence` stays retired (a classification, never a stored order).
+      for (final pinned in [true, false]) {
+        expect(
+          () => OperationPayloads.validatePayload('class.property.set', {
+            'classId': classId,
+            'propertySchemaId': objectId,
+            'pinned': pinned,
+          }),
+          returnsNormally,
+          reason: 'pinned: $pinned',
+        );
+      }
+      // Non-boolean rejects like any type violation.
+      expect(
+        () => OperationPayloads.validatePayload('class.property.set', {
+          'classId': classId,
+          'propertySchemaId': objectId,
+          'pinned': 'yes',
+        }),
+        throwsFormatException,
+      );
+      // Retired keys still reject alongside the new key.
+      for (final retired in ['sequence', 'required', 'defaultValue']) {
+        expect(
+          () => OperationPayloads.validatePayload('class.property.set', {
+            'classId': classId,
+            'propertySchemaId': objectId,
+            'pinned': true,
+            retired: true,
+          }),
+          throwsFormatException,
+          reason: retired,
+        );
+      }
+      // The factory threads the flag and omits it when unset.
+      final pinned = OperationPayloads.classPropertySet(
+        classId: classId,
+        propertySchemaId: objectId,
+        pinned: true,
+      );
+      expect(pinned['pinned'], isTrue);
+      expect(
+        () => OperationPayloads.validatePayload('class.property.set', pinned),
+        returnsNormally,
+      );
+      final bare = OperationPayloads.classPropertySet(
+        classId: classId,
+        propertySchemaId: objectId,
+      );
+      expect(bare.containsKey('pinned'), isFalse);
+      expect(
+        () => OperationPayloads.validatePayload('class.property.set', bare),
+        returnsNormally,
+      );
+    });
+
+    test('propertySchema create/update keep carrying the render contracts',
+        () {
       // propertySchema.create/update carry the render contracts —
       // nullable+optional (absent keeps, null clears; the builders omit
       // nulls, so explicit clears ride raw maps). `readonly` retired

@@ -427,8 +427,8 @@ class OperationPayloads {
 
   /// [type] is the property-schema enum (op-types.ts); [targetClassFilter]
   /// constrains node-typed (m2o/m2m) schemas to those classes.
-  /// Binding upsert: a configuration row on `class_property` (active ONLY).
-  /// Row-level LWW by envelope HLC; omitted fields KEEP their
+  /// Binding upsert: a configuration row on `class_property` (active +
+  /// pinned ONLY). Row-level LWW by envelope HLC; omitted fields KEEP their
   /// existing values (partial patch, not a replace).
   ///
   /// `required` and `defaultValue` RETIRE from the
@@ -440,18 +440,23 @@ class OperationPayloads {
   /// any retired key. `sequence` RETIRES too —
   /// class panels render as a PURE ALPHABETICAL list everywhere (by property
   /// name, read-time derivation), so panel order no longer exists to
-  /// configure. A binding answers "does THIS class list the property"; a
+  /// configure. `pinned` (2026-10-27) is the binary TIER flag: pinned
+  /// bindings render FIRST in class property lists (alphabetical within each
+  /// tier) — a classification, never a stored or configurable ORDER. A
+  /// binding answers "does THIS class list the property"; a
   /// schema answers "what the property is, how it behaves, and what value it
   /// starts with everywhere".
   static Map<String, dynamic> classPropertySet({
     required String classId,
     required String propertySchemaId,
     bool? active,
+    bool? pinned,
   }) =>
       _validated('class.property.set', {
         'classId': classId,
         'propertySchemaId': propertySchemaId,
         'active': ?active,
+        'pinned': ?pinned,
       });
 
   /// Binding removal: deletes the `class_property` row. No tombstone — a
@@ -977,11 +982,12 @@ class OperationPayloads {
         _uuid(payload, 'classId');
         _uuidList(payload, 'parentClassIds');
       case 'class.property.set':
-        // The binding carries ONLY the genuinely per-class mechanic
-        // (active) — `required` retired outright and `defaultValue` moved
+        // The binding carries ONLY the genuinely per-class mechanics
+        // (active, pinned) — `required` retired outright and `defaultValue` moved
         // to the property schema, `sequence`
-        // retired outright (class panels render
-        // alphabetically by property name); all reject here like any
+        // retired outright (class panels render in two PIN TIERS — pinned
+        // first, alphabetical within each tier — a read-time derivation);
+        // all reject here like any
         // retired key, as do the PROPERTY-level render contracts
         // (hideWhenEmpty/display; `readonly` retired outright 2026-10-21 —
         // derived from the system list, not stored).
@@ -989,10 +995,12 @@ class OperationPayloads {
           'classId',
           'propertySchemaId',
           'active',
+          'pinned',
         });
         _uuid(payload, 'classId');
         _uuid(payload, 'propertySchemaId');
         _bool(payload, 'active', required: false);
+        _bool(payload, 'pinned', required: false);
       case 'class.property.unset':
         _strict(payload, {'classId', 'propertySchemaId'});
         _uuid(payload, 'classId');

@@ -1829,9 +1829,9 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // MOVED to the property schema (one global default per property) and
     // `required` retired outright — both reject at the strict payload gate
     // before this applier runs. `sequence` followed them with the owner
-    // ruling 2026-10-21 (class panels render alphabetically by property
-    // name — panel order no longer exists to configure). The row carries
-    // active only.
+    // ruling 2026-10-21 (class panels render in two pin tiers — pinned
+    // first, alphabetical within each tier; panel order no longer exists to
+    // configure). The row carries active + pinned only.
 
     await _cache.upsertClassPropertyBinding(
       classId: classId,
@@ -1839,6 +1839,9 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       incoming: incoming,
       // PC4: the soft-unbind flag rides the row LWW (absent = keep).
       active: payload['active'] as bool?,
+      // 2026-10-27: the binary tier flag rides the same row LWW (absent =
+      // keep) — patch semantics identical to `active`.
+      pinned: payload['pinned'] as bool?,
     );
     return true;
   }

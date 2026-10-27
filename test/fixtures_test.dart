@@ -39,6 +39,7 @@ void main() {
     'class-parentless-role.json',
     'class-property-active.json',
     'class-property-defaults.json',
+    'class-property-pinned.json',
     'class-unassign.json',
     'code-block.json',
     'embed-ref-view.json',

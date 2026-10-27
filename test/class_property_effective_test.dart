@@ -382,6 +382,238 @@ void main() {
     });
   });
 
+  group('pinned binding tier (2026-10-27 lockstep)', () {
+    late AppDatabase database;
+    late NodeCacheRepository cache;
+    late RelayAppliers appliers;
+
+    const ws = '0192a000-0000-7000-8000-000000000001';
+    const actor = '0192a000-0000-7000-8000-000000000002';
+    // Schemas named so pure-alphabetical order (alpha, beta, zeta) is the
+    // OPPOSITE of pin-tier order when zeta alone is pinned.
+    const alpha = '0192a000-0000-7000-8000-000000000511';
+    const beta = '0192a000-0000-7000-8000-000000000512';
+    const zeta = '0192a000-0000-7000-8000-000000000513';
+    const orphan = '0192a000-0000-7000-8000-000000000514';
+    const cls = '0192a000-0000-7000-8000-000000000521';
+    const node = '0192a000-0000-7000-8000-000000000522';
+
+    var physical = 1727200010000;
+    var seq = 0;
+
+    setUp(() async {
+      final ffiDb = await databaseFactoryFfi.openDatabase(
+        ':memory:',
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      database = AppDatabase.fromDatabase(ffiDb);
+      await database.initializeSchema();
+      cache = NodeCacheRepository(database);
+      appliers = RelayAppliers(cache);
+      physical = 1727200010000;
+      seq = 0;
+    });
+
+    tearDown(() async {
+      await database.close();
+      AppDatabase.reset();
+    });
+
+    Future<void> emit(
+      String opType,
+      Map<String, dynamic> payload,
+      List<String> affected,
+    ) async {
+      physical += 10;
+      seq += 1;
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-000000009${seq.toString().padLeft(3, '0')}',
+        workspaceId: ws,
+        actorId: actor,
+        deviceId: 'test-device',
+        hlc: Hlc(physical: physical, logical: 0),
+        affectedNodeIds: affected,
+        opType: opType,
+        payload: payload,
+        timestamp: '2026-09-24T12:00:00.000Z',
+      ));
+    }
+
+    Future<void> seed({bool pinZeta = true}) async {
+      for (final entry in [
+        (alpha, 'alpha', 'a'),
+        (beta, 'beta', 'b'),
+        (zeta, 'zeta', 'z'),
+      ]) {
+        await emit(
+          'propertySchema.create',
+          OperationPayloads.propertySchemaCreate(
+            propertySchemaId: entry.$1,
+            name: entry.$2,
+            type: 'text',
+            defaultValue: entry.$3,
+          ),
+          [entry.$1],
+        );
+      }
+      await emit(
+        'propertySchema.create',
+        OperationPayloads.propertySchemaCreate(
+          propertySchemaId: orphan,
+          name: 'orphan',
+          type: 'text',
+        ),
+        [orphan],
+      );
+      await emit(
+        'class.create',
+        OperationPayloads.classCreate(
+          classId: cls,
+          contentAst: [
+            {'type': 'text', 'text': 'Feature'},
+          ],
+        ),
+        [cls],
+      );
+      await emit(
+        'object.create',
+        OperationPayloads.objectCreate(
+          objectId: node,
+          isEmbedded: false,
+          classIds: const [cls],
+        ),
+        [node],
+      );
+      for (final schemaId in [alpha, beta, zeta]) {
+        await emit(
+          'class.property.set',
+          OperationPayloads.classPropertySet(
+            classId: cls,
+            propertySchemaId: schemaId,
+            pinned: schemaId == zeta ? pinZeta : null,
+          ),
+          [cls],
+        );
+      }
+    }
+
+    Future<List<String>> effectiveOrder() async =>
+        (await cache.getEffectiveProperties(node))
+            .map((r) => r.schema?.name ?? r.propertySchemaId)
+            .toList();
+
+    test('pinned tier renders FIRST, alphabetical within each tier, '
+        'unpinned after', () async {
+      await seed();
+      // zeta is pinned (alphabetically LAST) yet renders first; alpha and
+      // beta stay alphabetical in the unpinned tier.
+      expect(await effectiveOrder(), ['zeta', 'alpha', 'beta']);
+      final rows = await cache.getEffectiveProperties(node);
+      expect(rows.singleWhere((r) => r.propertySchemaId == zeta).pinned,
+          isTrue);
+      expect(rows.singleWhere((r) => r.propertySchemaId == alpha).pinned,
+          isFalse);
+    });
+
+    test('a true→false flip rejoins the unpinned tier; an active-only patch '
+        'keeps the stored flag', () async {
+      await seed();
+      expect(await effectiveOrder(), ['zeta', 'alpha', 'beta']);
+
+      // Active-only patch (pinned omitted) keeps the stored pin.
+      await emit(
+        'class.property.set',
+        OperationPayloads.classPropertySet(
+          classId: cls,
+          propertySchemaId: zeta,
+          active: true,
+        ),
+        [cls],
+      );
+      expect(await effectiveOrder(), ['zeta', 'alpha', 'beta']);
+
+      // The flip back unpins: pure alphabetical again.
+      await emit(
+        'class.property.set',
+        OperationPayloads.classPropertySet(
+          classId: cls,
+          propertySchemaId: zeta,
+          pinned: false,
+        ),
+        [cls],
+      );
+      expect(await effectiveOrder(), ['alpha', 'beta', 'zeta']);
+    });
+
+    test('an unbound authored row renders LAST, unpinned, and bound authored '
+        'rows join the pin tiers', () async {
+      await seed();
+      await emit(
+        'property.set',
+        OperationPayloads.propertySet(
+          objectId: node,
+          propertySchemaId: beta,
+          value: 'authored-b',
+        ),
+        [node],
+      );
+      await emit(
+        'property.set',
+        OperationPayloads.propertySet(
+          objectId: node,
+          propertySchemaId: orphan,
+          value: 'lonely',
+        ),
+        [node],
+      );
+      // The bound authored row replaces beta's derived default in place; the
+      // unbound authored row trails every bound row.
+      expect(await effectiveOrder(), ['zeta', 'alpha', 'beta', 'orphan']);
+      final rows = await cache.getEffectiveProperties(node);
+      expect(rows.singleWhere((r) => r.propertySchemaId == beta).source,
+          'authored');
+      final orphanRow =
+          rows.singleWhere((r) => r.propertySchemaId == orphan);
+      expect(orphanRow.boundBy, isNull);
+      expect(orphanRow.pinned, isFalse);
+    });
+
+    test('the (idx, element id) tiebreak is unchanged by the pin tier',
+        () async {
+      await seed();
+      // Two authored elements on the pinned schema at the same idx: the
+      // element id orders them, inside the pinned tier.
+      await emit(
+        'property.set',
+        OperationPayloads.propertySet(
+          objectId: node,
+          propertySchemaId: zeta,
+          value: 'second',
+          elementId: '0192a000-0000-7000-8000-000000000581',
+          idx: 0,
+        ),
+        [node],
+      );
+      await emit(
+        'property.set',
+        OperationPayloads.propertySet(
+          objectId: node,
+          propertySchemaId: zeta,
+          value: 'first',
+          elementId: '0192a000-0000-7000-8000-000000000580',
+          idx: 0,
+        ),
+        [node],
+      );
+      final rows = await cache.getEffectiveProperties(node);
+      final zetas = rows.where((r) => r.propertySchemaId == zeta).toList();
+      expect(zetas.map((r) => r.value), ['first', 'second']);
+      // The pinned schema's rows still lead the list.
+      expect(rows.first.propertySchemaId, zeta);
+      expect(await effectiveOrder(), ['zeta', 'zeta', 'alpha', 'beta']);
+    });
+  });
+
   group('property-level render contracts (schema-sourced display)', () {
     late AppDatabase database;
     late NodeCacheRepository cache;

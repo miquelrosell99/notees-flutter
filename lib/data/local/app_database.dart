@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 38,
+          version: 39,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 38,
+      version: 39,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -132,6 +132,7 @@ class AppDatabase {
     await _migrateV36(db);
     await _migrateV37(db);
     await _migrateV38(db);
+    await _migrateV39(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -249,6 +250,9 @@ class AppDatabase {
     }
     if (oldVersion < 38) {
       await _migrateV38(db);
+    }
+    if (oldVersion < 39) {
+      await _migrateV39(db);
     }
   }
 
@@ -855,7 +859,9 @@ class AppDatabase {
   }
 
   /// Class → property-schema bindings (SCHEMA.md "Class properties"): the
-  /// genuinely per-class mechanic ONLY — `active`, the soft-unbind flag.
+  /// genuinely per-class mechanics ONLY — `active`, the soft-unbind flag, and
+  /// `pinned` (2026-10-27), the binary tier flag (pinned bindings render FIRST
+  /// in class property lists; a stored/configurable ORDER stays retired).
   /// The render contracts moved to the property schema (owner review
   /// 2026-10-05); `required`/`defaultValue` left the binding entirely
   /// (`required` retired outright, `defaultValue`
@@ -872,6 +878,7 @@ class AppDatabase {
         class_id TEXT NOT NULL,
         property_schema_id TEXT NOT NULL,
         active INTEGER NOT NULL DEFAULT 1,
+        pinned INTEGER NOT NULL DEFAULT 0,
         hlc_physical INTEGER NOT NULL DEFAULT 0,
         hlc_logical INTEGER NOT NULL DEFAULT 0,
         actor_id TEXT,
@@ -1113,6 +1120,24 @@ class AppDatabase {
   /// idempotent for databases that already carry it (a fresh v38 create).
   Future<void> _migrateV38(Database db) async {
     await _addColumnIfMissing(db, 'class_cache', 'parentless_role', 'TEXT');
+  }
+
+  /// v39 — the binding row's `pinned` binary tier flag (2026-10-27 lockstep
+  /// with the TS store schema v33→v34, SCHEMA.md "Class properties"):
+  /// `class_property` gains `pinned INTEGER NOT NULL DEFAULT 0` — pinned
+  /// bindings render FIRST in class property lists (alphabetical within each
+  /// tier; a stored/configurable ORDER stays retired, `sequence` never
+  /// returns). Purely additive — a guarded ALTER, the v22 `active` precedent;
+  /// existing rows backfill to 0 (the unpinned default). The column guard
+  /// keeps the migration idempotent for databases that already carry it (a
+  /// fresh v39 create).
+  Future<void> _migrateV39(Database db) async {
+    await _addColumnIfMissing(
+      db,
+      'class_property',
+      'pinned',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
   }
 
   /// Derived reference index (never authored): mention/typed_link edges
@@ -1674,6 +1699,7 @@ class AppDatabase {
     await _migrateV36(db);
     await _migrateV37(db);
     await _migrateV38(db);
+    await _migrateV39(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

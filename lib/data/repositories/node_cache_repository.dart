@@ -3905,15 +3905,19 @@ class NodeCacheRepository {
 
   /// Upserts a binding row. Omitted fields KEEP their stored values (partial
   /// patch, port of the SQL COALESCE). [active] (PC4) is the soft-unbind
-  /// flag: omitted keeps the stored flag; a NEW row defaults to active. The
-  /// row carries ONLY the per-class mechanic (active) — `required` retired
-  /// outright and `defaultValue` moved to the property schema, `sequence` retired outright (
-  /// class panels render alphabetically by property name).
+  /// flag: omitted keeps the stored flag; a NEW row defaults to active.
+  /// [pinned] (2026-10-27) is the binary tier flag: omitted keeps the stored
+  /// flag; a NEW row defaults to unpinned. The row carries ONLY the
+  /// per-class mechanics (active, pinned) — `required` retired
+  /// outright and `defaultValue` moved to the property schema, `sequence`
+  /// retired outright (class panels render in two pin tiers, a read-time
+  /// derivation).
   Future<void> upsertClassPropertyBinding({
     required String classId,
     required String schemaId,
     required LwwWinner incoming,
     bool? active,
+    bool? pinned,
   }) async {
     final db = await _database.database;
     final existing = await db.query(
@@ -3931,6 +3935,9 @@ class NodeCacheRepository {
         'active': active == null
             ? (stored['active'] as num?) ?? 1
             : (active ? 1 : 0),
+        'pinned': pinned == null
+            ? (stored['pinned'] as num?) ?? 0
+            : (pinned ? 1 : 0),
         'hlc_physical': incoming.physical,
         'hlc_logical': incoming.logical,
         'actor_id': incoming.actor,
@@ -4075,6 +4082,13 @@ class NodeCacheRepository {
 
     bool? flag(dynamic value) => value == null ? null : value == 1;
 
+    /// The winning ACTIVE binding's tier flag per schema (absent = unpinned) —
+    /// pinned bindings render FIRST in class property lists (2026-10-27).
+    final pinnedBySchema = <String, bool>{
+      for (final entry in winnerBySchema.entries)
+        entry.key: entry.value.binding['pinned'] == 1,
+    };
+
     // Sanitize the stored display position — only 'bullet'/'inline'
     // surface (NULL/'panel'/unknown = null, the 'panel' default read).
     String? displayOf(dynamic value) =>
@@ -4175,6 +4189,7 @@ class NodeCacheRepository {
         metadata: metadata == null ? null : _decodeJsonOrRaw(metadata),
         source: 'authored',
         boundBy: winner?.classId,
+        pinned: pinnedBySchema[schemaId] ?? false,
         hideWhenEmpty: schema?.hideWhenEmpty,
         display: schema?.display,
         // Authored rows SURVIVE scope narrowing (never retroactive) — the
@@ -4217,6 +4232,7 @@ class NodeCacheRepository {
         metadata: null,
         source: 'default',
         boundBy: winner.classId,
+        pinned: pinnedBySchema[entry.key] ?? false,
         hideWhenEmpty: schema?.hideWhenEmpty,
         display: schema?.display,
         // A derived default only exists for an eligible node (the R4 gate
@@ -4225,9 +4241,10 @@ class NodeCacheRepository {
       );
     }
 
-    // 6. Deterministic presentation order: PURE ALPHABETICAL by property
-    //    name (binding `sequence` retired; class
-    //    panels have no configurable order), unbound authored rows last;
+    // 6. Deterministic presentation order: pinned-tier FIRST (the winning
+    //    binding's `pinned` flag — a binary classification, never a stored
+    //    order; alphabetical by property name within EACH tier), unbound
+    //    authored rows last;
     //    (idx, element id) as the tiebreak (PG5: concurrent adds may share
     //    an idx — the element id orders them identically on every replica).
     final result = rows.values.toList();
@@ -4237,6 +4254,9 @@ class NodeCacheRepository {
       final boundDelta =
           (a.boundBy == null ? 1 : 0) - (b.boundBy == null ? 1 : 0);
       if (boundDelta != 0) return boundDelta;
+      final pinnedDelta =
+          (a.pinned ? 1 : 0) - (b.pinned ? 1 : 0);
+      if (pinnedDelta != 0) return -pinnedDelta;
       final nameDelta = nameOf(a).compareTo(nameOf(b));
       if (nameDelta != 0) return nameDelta;
       final idxDelta = a.idx - b.idx;
@@ -5263,6 +5283,7 @@ class EffectiveProperty {
     required this.metadata,
     required this.source,
     required this.boundBy,
+    this.pinned = false,
     required this.hideWhenEmpty,
     required this.display,
     this.eligible = true,
@@ -5280,6 +5301,13 @@ class EffectiveProperty {
   final dynamic metadata;
   final String source; // 'authored' | 'default'
   final String? boundBy;
+
+  /// The winning binding's binary TIER flag (2026-10-27): pinned properties
+  /// render FIRST in class property lists (alphabetical within each tier) —
+  /// a classification, never a stored or configurable ORDER; false when no
+  /// current class binds the schema (an authored value whose binding went
+  /// away stays visible, unpinned).
+  final bool pinned;
   final bool? hideWhenEmpty;
 
   /// The PROPERTY-level render contracts — 'bullet' rides the block
