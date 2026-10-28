@@ -6,6 +6,7 @@
 library;
 
 import '../../core/constants/system.dart';
+import '../../core/utils/date_uuid.dart';
 import '../../data/repositories/node_cache_repository.dart';
 import 'srs.dart';
 
@@ -84,80 +85,6 @@ List<String> buildReviewQueue(List<CardScheduleRow> rows, String todayIso) {
 }
 
 // --- datetime value slots (SCHEMA.md "Datetime") ---------------------------------
-
-enum DateNodePrecision { year, month, day }
-
-class ParsedDateNodeId {
-  const ParsedDateNodeId({
-    required this.precision,
-    required this.year,
-    required this.month,
-    required this.day,
-  });
-
-  final DateNodePrecision precision;
-  final int year;
-  final int month;
-  final int day;
-}
-
-const _dayPrefix = '00000000-0000-0000-00dd-';
-const _monthPrefix = '00000000-0000-0000-00aa-';
-const _yearPrefix = '00000000-0000-0000-00bb-';
-const _dateUuidMinYear = 1900;
-const _dateUuidMaxYear = 2200;
-
-int? _readDateDigits(String data, int start, int end) {
-  final slice = data.substring(start, end);
-  if (!RegExp(r'^\d+$').hasMatch(slice)) return null;
-  return int.tryParse(slice);
-}
-
-/// `parse_date_uuid` port: extract precision + date components from a
-/// date-node id, or null when the id is not a date UUID (or falls outside
-/// the 1900..2200 window). Round-trips with the deterministic encoders in
-/// `core/utils/date_uuid.dart`.
-ParsedDateNodeId? parseDateNodeId(String id) {
-  if (id.length != 36) return null;
-  final data = id.substring(24); // trailing 12-digit payload
-  if (id.startsWith(_dayPrefix)) {
-    final year = _readDateDigits(data, 0, 4);
-    final month = _readDateDigits(data, 4, 6);
-    final day = _readDateDigits(data, 6, 8);
-    if (year != null &&
-        month != null &&
-        day != null &&
-        year >= _dateUuidMinYear &&
-        year <= _dateUuidMaxYear &&
-        month >= 1 &&
-        month <= 12 &&
-        day >= 1 &&
-        day <= 31) {
-      return ParsedDateNodeId(precision: DateNodePrecision.day, year: year, month: month, day: day);
-    }
-    return null;
-  }
-  if (id.startsWith(_monthPrefix)) {
-    final year = _readDateDigits(data, 0, 4);
-    final month = _readDateDigits(data, 4, 6);
-    if (year != null &&
-        month != null &&
-        year >= _dateUuidMinYear &&
-        year <= _dateUuidMaxYear &&
-        month >= 1 &&
-        month <= 12) {
-      return ParsedDateNodeId(precision: DateNodePrecision.month, year: year, month: month, day: 1);
-    }
-    return null;
-  }
-  if (id.startsWith(_yearPrefix)) {
-    final year = _readDateDigits(data, 0, 4);
-    if (year != null && year >= _dateUuidMinYear && year <= _dateUuidMaxYear) {
-      return ParsedDateNodeId(precision: DateNodePrecision.year, year: year, month: 1, day: 1);
-    }
-  }
-  return null;
-}
 
 String _pad2(int value) => value.toString().padLeft(2, '0');
 
