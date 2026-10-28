@@ -65,9 +65,10 @@ lives in git history.
   `searchWithFilters(classUuids: [card], limit: 500)`, the family
   self-heal (`ensureCardFamily` — the web `cardFamily.ts` port: the six
   schemas + card-class bindings authored idempotently over `emitLocal`, a
-  no-op once present, the binding pass skipped when the card class node is
-  absent, the whole thing skipped for local workspaces where the seed
-  authors the family; the bound-set read is the op-log `class_property`
+  no-op once present — binding-row PRESENCE, not the active flag, so a
+  soft-unbound binding stays unbound and is never re-authored — the
+  binding pass skipped when the card class node is absent, the whole
+  thing skipped for local workspaces where the seed authors the family; the bound-set read is the op-log `class_property`
   table, not the snapshot-mirror edge table), the bucket strip (Review N
   due · M new, disabled at 0; fresh/later pills), FleetCard rows
   (one-line title, due-day caption, per-row play → a "Single card"

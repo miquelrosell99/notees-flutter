@@ -318,6 +318,33 @@ void main() {
       expect((await outboxEnvelopes()).length, before);
     });
 
+    test('a soft-unbound binding counts as present (no re-author)', () async {
+      await hub.load(); // converge the family first
+      // The user soft-unbinds one property (active = 0, the row survives).
+      await service.emitLocal(
+        opType: 'class.property.set',
+        payload: OperationPayloads.classPropertySet(
+          classId: SystemClassUuids.card,
+          propertySchemaId: SystemPropertyUuids.cardEase,
+          active: false,
+        ),
+        affectedNodeIds: [SystemClassUuids.card],
+      );
+      expect(
+        await repo.fetchClassPropertyBindingActive(SystemClassUuids.card, SystemPropertyUuids.cardEase),
+        isFalse,
+      );
+
+      // Presence, not the active flag: the self-heal must NOT re-author the
+      // unbound binding on the next open (the web cardFamilyPresent parity).
+      final bindingOpsBefore =
+          (await outboxEnvelopes()).where((e) => e['opType'] == 'class.property.set').length;
+      await hub.load();
+      final bindingOpsAfter =
+          (await outboxEnvelopes()).where((e) => e['opType'] == 'class.property.set').length;
+      expect(bindingOpsAfter, bindingOpsBefore);
+    });
+
     test('skips the binding pass when the card class node is absent', () async {
       // Remove the card class, keep another class so fetchClasses never pulls.
       final db = await database.database;

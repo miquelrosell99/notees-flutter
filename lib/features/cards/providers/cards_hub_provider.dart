@@ -107,11 +107,16 @@ class CardsHubProvider extends ChangeNotifier {
 
   /// Author the six card property schemas + card-class bindings when
   /// missing; a complete no-op once present (idempotent — safe on every
-  /// open, `cardFamily.ts` parity). The schemas land GLOBAL-scoped with an
-  /// empty binding-fields object (all seed unpinned); the card class node
-  /// is an always-on system seed — never fabricated here, and the binding
-  /// pass is skipped when it is absent (the bindings would attach to
-  /// nothing and re-author on every open).
+  /// open, `cardFamily.ts` parity). PRESENCE is the binding contract (the
+  /// web `cardFamilyPresent` checks `getClassBindings` with NO active
+  /// filter): a soft-unbound row (active = 0) counts as present — the user
+  /// unbound it on purpose and the self-heal must NOT re-author it on
+  /// every open. The schemas land GLOBAL-scoped with an empty
+  /// binding-fields object (all seed unpinned; the schema arm stays
+  /// active-only, the web `listPropertySchemas` filter); the card class
+  /// node is an always-on system seed — never fabricated here, and the
+  /// binding pass is skipped when it is absent (the bindings would attach
+  /// to nothing and re-author on every open).
   Future<void> ensureCardFamily() async {
     final present = await Future.wait(
       cardFamilySpecs.map(
@@ -120,8 +125,8 @@ class CardsHubProvider extends ChangeNotifier {
             await _repository.fetchClassPropertyBindingActive(
                   SystemClassUuids.card,
                   spec.schemaId,
-                ) ==
-                true,
+                ) !=
+                null,
       ),
     );
     if (present.every((isPresent) => isPresent)) {
@@ -144,8 +149,9 @@ class CardsHubProvider extends ChangeNotifier {
       return;
     }
     for (final spec in cardFamilySpecs) {
-      if (await _repository.fetchClassPropertyBindingActive(SystemClassUuids.card, spec.schemaId) ==
-          true) {
+      // Row presence, not the active flag (see the method doc).
+      if (await _repository.fetchClassPropertyBindingActive(SystemClassUuids.card, spec.schemaId) !=
+          null) {
         continue;
       }
       await _syncService.emitLocal(
