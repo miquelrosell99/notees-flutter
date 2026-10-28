@@ -157,6 +157,26 @@ lives in git history.
   block ids, the scalar/unpinned specs, the renamed title + icon, and the
   59-op emission. Verified: `flutter analyze` clean + `flutter test` green.
 
+- **feat(seed): the `project` property constant joins the task UUID block
+  (plain-seed convergence follow-up).** Lockstep with the monorepo's
+  `project` property seed (TS ships first): the task→project membership
+  relation (`…0003-000000000012`) — object-typed `{nodeId}` refs, MULTI,
+  `targetClassFilter ["project"]` (extends-aware apply-time validation, the
+  `linkedAuthors` precedent), GLOBAL scope with the class-local BINDING ROW
+  on `task` the only task-specific piece (the `url`→source precedent),
+  UNPINNED (no declared pin set carries it), and the first seed to carry the
+  schema-level `hideWhenEmpty` contract (true — a task with no project shows
+  no empty row). The weblink-extends precedent's depth, no more: the mobile
+  app authors NO local row for it — the local seed's property-schema axis
+  stays the source creator slice (the documented divergence) and the
+  applier-side family ensure mirrors the TS `TASK_FAMILY_SEED` six (the TS
+  applier-side ensure kept six too; the seventh schema rides the server
+  seed + the web `ensureTaskFamily`); a server attach or the web ensure
+  converges the schema + binding through the shared log. Coverage: the seed
+  parity suite's task-block UUID pin gains the constant (block-clean
+  `…0003-` assertion covers it). The `workspace_features` family-ensure
+  pins stay at the six authored rows. Verified: `flutter analyze` clean +
+  `flutter test` green.
 - **feat(protocol)!: accept the retired `url` property type (url → text).**
   Lockstep with the monorepo's url-type-retirement slice (TS ships first; the
   Flutter branch is `url-type-retirement`, unmerged by design). The strict

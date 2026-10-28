@@ -175,6 +175,24 @@ class SystemPropertyUuids {
   static const String cardEase = '00000000-0000-0000-0004-000000000004';
   static const String cardDifficulty = '00000000-0000-0000-0004-000000000005';
   static const String cardStability = '00000000-0000-0000-0004-000000000006';
+
+  // The task→project membership relation (lockstep with the TS seed
+  // manifest `SYSTEM_PROPERTY_SPECS`, 2026-10-28): object-typed {nodeId}
+  // refs, MULTI (a task may span several projects; a project collects many
+  // tasks), targetClassFilter ["project"] (extends-aware apply-time
+  // validation — the linkedAuthors precedent), GLOBAL scope with the
+  // class-local BINDING ROW on `task` the only task-specific piece (the
+  // url→source precedent) and the binding UNPINNED (it lands in no declared
+  // pin set). The first seed to carry the schema-level hideWhenEmpty
+  // contract (true — a task with no project shows no empty row). The
+  // mobile app authors no local row for it — the local seed's
+  // property-schema axis stays the source creator slice (the documented
+  // divergence) and the applier-side family ensure mirrors the TS
+  // `TASK_FAMILY_SEED` six — a server attach or the web ensure converges
+  // the schema + binding through the shared log. The next genuinely-free
+  // slot in the workflow-properties block (…001–…011 used; no withdrawal
+  // markers in this block).
+  static const String project = '00000000-0000-0000-0003-000000000012';
 }
 
 /// Deterministic select-option ids for the applier-side task-family

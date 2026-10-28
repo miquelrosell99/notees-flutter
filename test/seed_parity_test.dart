@@ -97,6 +97,12 @@ void main() {
         SystemPropertyUuids.taskPriority,
         SystemPropertyUuids.taskClosedDate,
         SystemPropertyUuids.taskRecurrence,
+        // The task→project membership relation (the weblink-extends
+        // plain-seed follow-up, 2026-10-28): the constant joins the block;
+        // the row itself converges through the shared log (the local seed
+        // authors no task-family property rows — the documented
+        // creator-slice divergence).
+        SystemPropertyUuids.project,
       ];
       const card = <String>[
         SystemPropertyUuids.cardDue,
