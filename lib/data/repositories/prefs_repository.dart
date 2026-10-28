@@ -29,12 +29,22 @@ class PrefsRepository {
       parseSrsAlgorithm(_prefs.getString(_deviceKey)) ?? SrsAlgorithm.fsrs;
 
   /// The active scheduler — server-authoritative, device-local fallback.
+  ///
+  /// An offline write flushes BEFORE the GET's answer is derived: the GET's
+  /// body may still hold the pre-flush value, so once the pending PUT lands
+  /// the pending value IS the server state — it answers, clears, and writes
+  /// through. Answering the GET's own value instead would write the stale
+  /// pre-flush value over the device copy (the device copy would disagree
+  /// with both the server and the user's last write until the next load).
   Future<SrsAlgorithm> getCardsAlgorithm() async {
     try {
       final response = await _dio.get<Map<String, dynamic>>('/me/prefs');
-      // The server answered — flush any offline write first (the
-      // converge-on-next-successful-call contract).
-      await _flushPending();
+      final pending = _pending;
+      if (pending != null && await _push(pending)) {
+        _pending = null;
+        await _prefs.setString(_deviceKey, pending.wire);
+        return pending;
+      }
       final raw = response.data?['cardsAlgorithm'];
       final algorithm = parseSrsAlgorithm(raw);
       if (algorithm == null) {
@@ -53,30 +63,26 @@ class PrefsRepository {
   /// server push; a failed push stays queued for the next successful call.
   Future<void> setCardsAlgorithm(SrsAlgorithm algorithm) async {
     await _prefs.setString(_deviceKey, algorithm.wire);
-    try {
-      await _dio.put<Map<String, dynamic>>(
-        '/me/prefs',
-        data: <String, dynamic>{'cardsAlgorithm': algorithm.wire},
-      );
+    if (await _push(algorithm)) {
       _pending = null;
-    } catch (_) {
+    } else {
       _pending = algorithm;
     }
   }
 
   SrsAlgorithm? _pending;
 
-  Future<void> _flushPending() async {
-    final pending = _pending;
-    if (pending == null) return;
+  /// One server push; true when the PUT landed.
+  Future<bool> _push(SrsAlgorithm algorithm) async {
     try {
       await _dio.put<Map<String, dynamic>>(
         '/me/prefs',
-        data: <String, dynamic>{'cardsAlgorithm': pending.wire},
+        data: <String, dynamic>{'cardsAlgorithm': algorithm.wire},
       );
-      _pending = null;
+      return true;
     } catch (_) {
       // Still offline — the next successful call retries.
+      return false;
     }
   }
 }

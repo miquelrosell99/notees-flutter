@@ -141,7 +141,7 @@ void main() {
             }
             if (options.method == 'PUT') {
               putBodies.add((options.data as Map<String, dynamic>)['cardsAlgorithm'] as String);
-              handler.resolve(Response(requestOptions: options, statusCode: 200, data: const {}));
+              handler.resolve(Response(requestOptions: options, statusCode: 200, data: const <String, dynamic>{}));
               return;
             }
             handler.resolve(Response(
@@ -161,6 +161,45 @@ void main() {
       online = true;
       expect(await repo.getCardsAlgorithm(), SrsAlgorithm.sm2);
       expect(putBodies, ['sm2']); // the pending write flushed on the next successful call
+    });
+
+    test('a pending write answers OVER the stale GET and the device copy is '
+        'not regressed to the pre-flush value', () async {
+      // The GET's body still holds the PRE-FLUSH server value; the flush
+      // lands before the answer is derived.
+      var online = false;
+      final dio = Dio(BaseOptions(baseUrl: 'https://notees.example.com/api'));
+      final putBodies = <String>[];
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (!online) {
+              handler.reject(DioException(requestOptions: options, error: 'no connectivity'));
+              return;
+            }
+            if (options.method == 'PUT') {
+              putBodies.add((options.data as Map<String, dynamic>)['cardsAlgorithm'] as String);
+              handler.resolve(Response(requestOptions: options, statusCode: 200, data: const <String, dynamic>{}));
+              return;
+            }
+            handler.resolve(Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: const {'cardsAlgorithm': 'fsrs'}, // stale — the flush hasn't landed
+            ));
+          },
+        ),
+      );
+      final repo = PrefsRepository(dio: dio, prefs: prefs);
+
+      await repo.setCardsAlgorithm(SrsAlgorithm.sm2); // offline — queued + device copy sm2
+      online = true;
+
+      // The pending write IS the server state once the PUT lands — it
+      // answers, and the device copy is not overwritten by the pre-flush fsrs.
+      expect(await repo.getCardsAlgorithm(), SrsAlgorithm.sm2);
+      expect(putBodies, ['sm2']);
+      expect(prefs.getString(deviceKey), 'sm2');
     });
   });
 }
