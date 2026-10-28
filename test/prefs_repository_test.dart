@@ -201,5 +201,51 @@ void main() {
       expect(putBodies, ['sm2']);
       expect(prefs.getString(deviceKey), 'sm2');
     });
+
+    test('a pending write survives a repository rebuild (new instance over the '
+        'same prefs store) and is not re-flushed once it has landed', () async {
+      var online = false;
+      final dio = Dio(BaseOptions(baseUrl: 'https://notees.example.com/api'));
+      final putBodies = <String>[];
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (!online) {
+              handler.reject(DioException(requestOptions: options, error: 'no connectivity'));
+              return;
+            }
+            if (options.method == 'PUT') {
+              putBodies.add((options.data as Map<String, dynamic>)['cardsAlgorithm'] as String);
+              handler.resolve(Response(requestOptions: options, statusCode: 200, data: const <String, dynamic>{}));
+              return;
+            }
+            handler.resolve(Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: const {'cardsAlgorithm': 'fsrs'}, // stale — the flush hasn't landed
+            ));
+          },
+        ),
+      );
+
+      // Offline write, then an app restart: a brand-new repository instance
+      // over the same prefs store. Without the persisted pending key the
+      // restart would drop the queued write and the stale GET value would
+      // clobber the device copy.
+      var repo = PrefsRepository(dio: dio, prefs: prefs);
+      await repo.setCardsAlgorithm(SrsAlgorithm.sm2);
+      repo = PrefsRepository(dio: dio, prefs: prefs);
+
+      online = true;
+      expect(await repo.getCardsAlgorithm(), SrsAlgorithm.sm2);
+      expect(putBodies, ['sm2']);
+      expect(prefs.getString(deviceKey), 'sm2');
+
+      // A further restart does not re-flush: the pending key cleared on the
+      // successful flush.
+      repo = PrefsRepository(dio: dio, prefs: prefs);
+      expect(await repo.getCardsAlgorithm(), SrsAlgorithm.fsrs); // the GET is fresh now
+      expect(putBodies, ['sm2']);
+    });
   });
 }

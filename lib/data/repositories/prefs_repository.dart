@@ -16,14 +16,19 @@ import '../../domain/services/srs.dart';
 ///   `readDevicePrefScalar` contract);
 /// - offline reads answer from the device copy, else the `fsrs` default;
 /// - offline writes persist the device copy and are pushed to the server on
-///   the next successful call.
+///   the next successful call;
+/// - a queued offline write is itself persisted (the `_pendingKey` scalar),
+///   so an app restart cannot drop it: the next successful call flushes it
+///   exactly as if the restart never happened (the flush clears the key).
 class PrefsRepository {
-  PrefsRepository({required this._dio, required this._prefs});
+  PrefsRepository({required this._dio, required this._prefs})
+      : _pending = parseSrsAlgorithm(_prefs.getString(_pendingKey));
 
   final Dio _dio;
   final SharedPreferences _prefs;
 
   static const _deviceKey = 'notees.cardsAlgorithm';
+  static const _pendingKey = 'notees.cardsAlgorithm.pending';
 
   SrsAlgorithm get _deviceCopy =>
       parseSrsAlgorithm(_prefs.getString(_deviceKey)) ?? SrsAlgorithm.fsrs;
@@ -42,6 +47,7 @@ class PrefsRepository {
       final pending = _pending;
       if (pending != null && await _push(pending)) {
         _pending = null;
+        await _prefs.remove(_pendingKey);
         await _prefs.setString(_deviceKey, pending.wire);
         return pending;
       }
@@ -60,13 +66,16 @@ class PrefsRepository {
   }
 
   /// Persists [algorithm] — the device copy first (optimistic), then the
-  /// server push; a failed push stays queued for the next successful call.
+  /// server push; a failed push stays queued (persisted under [__pendingKey])
+  /// for the next successful call.
   Future<void> setCardsAlgorithm(SrsAlgorithm algorithm) async {
     await _prefs.setString(_deviceKey, algorithm.wire);
     if (await _push(algorithm)) {
       _pending = null;
+      await _prefs.remove(_pendingKey);
     } else {
       _pending = algorithm;
+      await _prefs.setString(_pendingKey, algorithm.wire);
     }
   }
 
