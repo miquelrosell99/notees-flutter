@@ -116,7 +116,7 @@ class _MainShellScreenState extends State<MainShellScreen> {
       case StaticCommand(action: CommandPaletteAction.settings):
         context.push(Routes.settings);
       case NodeCommand(node: final node):
-        context.push('${Routes.editor}/${node.id}');
+        context.push('${Routes.editor}/${node.uuid}');
     }
   }
 
