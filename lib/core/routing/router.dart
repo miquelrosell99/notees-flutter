@@ -7,6 +7,7 @@ import '../api/error_reporter.dart';
 import '../../data/repositories/node_repository.dart';
 import '../../domain/models/search_filters.dart';
 import '../../features/auth/providers/auth_provider.dart';
+import '../../features/cards/screens/review_session_screen.dart';
 import '../../features/settings/screens/about_screen.dart';
 import '../../features/auth/screens/api_keys_screen.dart';
 import '../../features/library/screens/archived_screen.dart';
@@ -35,6 +36,8 @@ abstract class Routes {
   static const settings = '/settings';
   static const about = '/about';
   static const archived = '/archived';
+  static const cards = '/cards';
+  static const cardsReview = '/cards/review';
   static const editor = '/editor';
   static const trash = '/trash';
   static const journal = '/journal';
@@ -234,7 +237,26 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       ),
       GoRoute(
         path: Routes.library,
-        builder: (context, state) => const MainShellScreen(initialIndex: 3),
+        builder: (context, state) => const MainShellScreen(initialIndex: 4),
+      ),
+      GoRoute(
+        path: Routes.cards,
+        builder: (context, state) => const MainShellScreen(initialIndex: 2),
+      ),
+      GoRoute(
+        path: Routes.cardsReview,
+        pageBuilder: (context, state) {
+          // The session hand-off rides state.extra; a missing/corrupt extra
+          // resolves every card member instead (the web deep-link fallback).
+          final handOff = CardsSessionHandOff.fromExtra(state.extra);
+          return _pushTransitionPage(
+            key: state.pageKey,
+            child: ReviewSessionScreen(
+              cardIds: handOff?.cardIds,
+              label: handOff?.label,
+            ),
+          );
+        },
       ),
       GoRoute(
         path: Routes.journals,

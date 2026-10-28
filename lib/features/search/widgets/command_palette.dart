@@ -11,6 +11,7 @@ import '../../../shared/widgets/bottom_sheet_drag_handle.dart';
 enum CommandPaletteAction {
   inbox,
   tasks,
+  cards,
   library,
   journals,
   journalToday,
@@ -137,6 +138,11 @@ class _CommandPaletteState extends State<CommandPalette> {
         icon: MdiIcons.checkCircleOutline,
         label: 'Go to tasks',
         item: StaticCommand(CommandPaletteAction.tasks),
+      ),
+      _CommandEntry(
+        icon: MdiIcons.cardsPlayingOutline,
+        label: 'Go to cards',
+        item: StaticCommand(CommandPaletteAction.cards),
       ),
       _CommandEntry(
         icon: MdiIcons.bookshelf,

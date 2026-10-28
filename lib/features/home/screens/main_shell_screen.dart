@@ -9,6 +9,7 @@ import '../../../data/repositories/node_repository.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../search/widgets/command_palette.dart';
 import '../../capture/widgets/quick_capture_sheet.dart';
+import '../../cards/screens/cards_screen.dart';
 import './home_screen.dart';
 import '../../editor/screens/journal_continuous_screen.dart';
 import '../../library/screens/library_screen.dart';
@@ -32,7 +33,7 @@ class MainShellScreen extends StatefulWidget {
 class _MainShellScreenState extends State<MainShellScreen> {
   late int _currentIndex = widget.initialIndex;
   final _homeKey = GlobalKey<HomeScreenState>();
-  final _scrollControllers = List.generate(4, (_) => ScrollController());
+  final _scrollControllers = List.generate(5, (_) => ScrollController());
 
   final _destinations = <_NavDestination>[
     _NavDestination(
@@ -44,6 +45,11 @@ class _MainShellScreenState extends State<MainShellScreen> {
       label: 'Tasks',
       icon: MdiIcons.checkCircleOutline,
       selectedIcon: MdiIcons.checkCircle,
+    ),
+    _NavDestination(
+      label: 'Cards',
+      icon: MdiIcons.cardsPlayingOutline,
+      selectedIcon: MdiIcons.cardsPlaying,
     ),
     _NavDestination(
       label: 'Journal',
@@ -99,10 +105,12 @@ class _MainShellScreenState extends State<MainShellScreen> {
         setState(() => _currentIndex = 0);
       case StaticCommand(action: CommandPaletteAction.tasks):
         setState(() => _currentIndex = 1);
-      case StaticCommand(action: CommandPaletteAction.journals):
+      case StaticCommand(action: CommandPaletteAction.cards):
         setState(() => _currentIndex = 2);
-      case StaticCommand(action: CommandPaletteAction.library):
+      case StaticCommand(action: CommandPaletteAction.journals):
         setState(() => _currentIndex = 3);
+      case StaticCommand(action: CommandPaletteAction.library):
+        setState(() => _currentIndex = 4);
       case StaticCommand(action: CommandPaletteAction.journalToday):
         context.push(Routes.journal);
       case StaticCommand(action: CommandPaletteAction.settings):
@@ -220,8 +228,9 @@ class _MainShellScreenState extends State<MainShellScreen> {
     final child = switch (_currentIndex) {
       0 => HomeScreen(key: _homeKey),
       1 => const TasksScreen(),
-      2 => const JournalContinuousScreen(),
-      3 => const LibraryScreen(),
+      2 => const CardsScreen(),
+      3 => const JournalContinuousScreen(),
+      4 => const LibraryScreen(),
       _ => const SizedBox.shrink(),
     };
     return PrimaryScrollController(
