@@ -89,6 +89,17 @@ class CardSrsState {
   @override
   String toString() =>
       'CardSrsState(due: $due, reps: $reps, interval: $interval, ease: $ease, difficulty: $difficulty, stability: $stability)';
+
+  /// The strict `cardSrsState` wire record (SCHEMA.md "Memorization
+  /// cards"): all six keys present, the nullable ones explicit.
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'due': due,
+        'reps': reps,
+        'interval': interval,
+        'ease': ease,
+        'difficulty': difficulty,
+        'stability': stability,
+      };
 }
 
 /// The state of a card that has never been reviewed.

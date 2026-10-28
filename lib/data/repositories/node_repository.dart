@@ -8,7 +8,10 @@ import '../../core/constants/system.dart';
 import '../../core/utils/ast_builder.dart';
 import '../../core/utils/date_uuid.dart';
 import '../../core/utils/uuid7.dart';
+import '../../domain/models/relay/operation_payloads.dart';
+import '../../domain/models/relay/store_errors.dart';
 import '../../domain/models/search_filters.dart';
+import '../../domain/services/srs.dart';
 import '../../domain/services/sync_v2_service.dart';
 import './node_cache_repository.dart';
 import '../models/breadcrumb_item.dart';
@@ -340,6 +343,169 @@ class NodeRepository {
       name: AstBuilder.serialize(AstBuilder.parseInline(formatted)),
       displayName: formatted,
       isDaily: true,
+    );
+  }
+
+  /// The full year → month → day chain for [date] (the web `ensureDateChain`
+  /// port). Ruling 2 (2026-10-28): the `getOrCreateDailyJournal` seam above
+  /// is DAY-ONLY — a day node created without its month would land
+  /// parentless (legal at birth, but divergent from the web's chain shape,
+  /// and the date-chain nodes are parent-locked so nothing repairs it
+  /// later). Every due-date write therefore ensures the whole chain here:
+  /// year (workspace root) → month (under the year) → day (under the
+  /// month), each created only when missing, at its deterministic chain
+  /// parent. Chain nodes carry the compact date label (`YYYYMMDD` et al —
+  /// the web `dateNodeLabel`), never a local-formatted string.
+  ///
+  /// Phase-A divergence (documented, not repaired): the web also RESTORES a
+  /// trashed chain node; this client has no restore op, so a trashed chain
+  /// node reads as missing and the re-issued create is a membership-only
+  /// no-op against the tombstoned row.
+  Future<({String year, String month, String day})> ensureDateChain(DateTime date) async {
+    _requireCache();
+    final year = dateToYearUuid(date);
+    final month = dateToMonthUuid(date);
+    final day = dateToDayUuid(date);
+    final y = date.year.toString().padLeft(4, '0');
+    final m = date.month.toString().padLeft(2, '0');
+    final d = date.day.toString().padLeft(2, '0');
+
+    if (await syncService!.getCachedNode(year) == null) {
+      await syncService!.emitLocal(
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: year,
+          isEmbedded: false,
+          classIds: const [SystemClassUuids.year],
+          name: '${y}0000',
+        ),
+        affectedNodeIds: [year],
+      );
+    }
+    if (await syncService!.getCachedNode(month) == null) {
+      await syncService!.emitLocal(
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: month,
+          isEmbedded: false,
+          classIds: const [SystemClassUuids.month],
+          parentId: year,
+          name: '$y${m}00',
+        ),
+        affectedNodeIds: [month, year],
+      );
+    }
+    if (await syncService!.getCachedNode(day) == null) {
+      await syncService!.emitLocal(
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: day,
+          isEmbedded: false,
+          classIds: const [SystemClassUuids.day],
+          parentId: month,
+          name: '$y$m$d',
+        ),
+        affectedNodeIds: [day, month],
+      );
+    }
+    return (year: year, month: month, day: day);
+  }
+
+  /// The one-gesture grade write (the web `client.ts reviewCard` parity,
+  /// plus the `card.review` append this client folds in — Flutter has no
+  /// undo journal, so "append after the property writes" is simply the
+  /// order here). One gesture:
+  ///
+  /// (a) re-read the card's effective rows; every write addresses the
+  ///     row's EXISTING idx (default 0 — the taskCycle precedent);
+  /// (b) `cardDue` → the full date chain is ensured first (ruling 2, see
+  ///     [ensureDateChain]), then the datetime slot `{'nodeId': dayUuid}`;
+  /// (c) `cardReps`/`cardInterval` numbers;
+  /// (d) sm2 → `cardEase` ONLY; fsrs → `cardDifficulty` + `cardStability`
+  ///     ONLY — the inactive algorithm's fields stay byte-for-byte stale
+  ///     (the srs.ts mid-deck switch contract; hard-coded branch, never a
+  ///     generic write-all);
+  /// (e) the `card.review` envelope appends separately — history-only,
+  ///     never undone, one sessionId per session.
+  ///
+  /// Fails loud on a missing card before any write lands.
+  Future<void> reviewCard({
+    required String cardId,
+    required CardSrsState stateAfter,
+    required SrsAlgorithm algorithm,
+    required String sessionId,
+    required CardGrade grade,
+    required CardSrsState stateBefore,
+    required DateTime reviewedAt,
+  }) async {
+    _requireCache();
+    if (await syncService!.getCachedNode(cardId) == null) {
+      throw NodeNotFoundError('reviewCard: card $cardId does not exist', 'card.review');
+    }
+    final props = await _cache!.getEffectiveProperties(cardId);
+    int idxOf(String schemaId) {
+      for (final row in props) {
+        if (row.propertySchemaId == schemaId) return row.idx;
+      }
+      return 0;
+    }
+
+    final due = stateAfter.due;
+    if (due == null) {
+      throw StateError('reviewCard: stateAfter.due is null — the scheduler always sets a due day');
+    }
+    final chain = await ensureDateChain(DateTime.parse(due));
+    await syncService!.setPropertyValue(
+      objectId: cardId,
+      propertySchemaId: SystemPropertyUuids.cardDue,
+      value: {'nodeId': chain.day},
+      idx: idxOf(SystemPropertyUuids.cardDue),
+    );
+    await syncService!.setPropertyValue(
+      objectId: cardId,
+      propertySchemaId: SystemPropertyUuids.cardReps,
+      value: stateAfter.reps,
+      idx: idxOf(SystemPropertyUuids.cardReps),
+    );
+    await syncService!.setPropertyValue(
+      objectId: cardId,
+      propertySchemaId: SystemPropertyUuids.cardInterval,
+      value: stateAfter.interval,
+      idx: idxOf(SystemPropertyUuids.cardInterval),
+    );
+    if (algorithm == SrsAlgorithm.sm2) {
+      await syncService!.setPropertyValue(
+        objectId: cardId,
+        propertySchemaId: SystemPropertyUuids.cardEase,
+        value: stateAfter.ease,
+        idx: idxOf(SystemPropertyUuids.cardEase),
+      );
+    } else {
+      await syncService!.setPropertyValue(
+        objectId: cardId,
+        propertySchemaId: SystemPropertyUuids.cardDifficulty,
+        value: stateAfter.difficulty,
+        idx: idxOf(SystemPropertyUuids.cardDifficulty),
+      );
+      await syncService!.setPropertyValue(
+        objectId: cardId,
+        propertySchemaId: SystemPropertyUuids.cardStability,
+        value: stateAfter.stability,
+        idx: idxOf(SystemPropertyUuids.cardStability),
+      );
+    }
+    await syncService!.emitLocal(
+      opType: 'card.review',
+      payload: OperationPayloads.cardReview(
+        cardId: cardId,
+        grade: grade.name,
+        algorithm: algorithm.wire,
+        stateBefore: stateBefore.toJson(),
+        stateAfter: stateAfter.toJson(),
+        reviewedAt: reviewedAt.toUtc().toIso8601String(),
+        sessionId: sessionId,
+      ),
+      affectedNodeIds: [cardId],
     );
   }
 
