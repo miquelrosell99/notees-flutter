@@ -93,6 +93,13 @@ class _ReviewSessionScreenState extends State<ReviewSessionScreen> {
   late final String _sessionId = Uuid7.generate();
 
   NodeRepository? _repository;
+
+  /// The scheduler pref source — injected (tests) or self-provisioned from
+  /// the [AuthProvider] exactly like the hub (cards_screen.dart). Without
+  /// the self-provisioned repository the session would silently grade with
+  /// the fsrs default regardless of the hub's toggle.
+  PrefsRepository? _prefsRepository;
+
   List<_LoadedCard>? _cards;
   Object? _error;
   SrsAlgorithm? _algorithm;
@@ -105,8 +112,10 @@ class _ReviewSessionScreenState extends State<ReviewSessionScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.repository != null) {
+    if (widget.repository != null && widget.prefsRepository != null) {
+      // Injected (test) path: both repositories provided.
       _repository = widget.repository;
+      _prefsRepository = widget.prefsRepository;
       _load();
       return;
     }
@@ -116,18 +125,18 @@ class _ReviewSessionScreenState extends State<ReviewSessionScreen> {
       setState(() => _error = 'Review requires a synced workspace.');
       return;
     }
-    _repository = NodeRepository(dio: dio, syncService: auth.syncService);
+    _repository = widget.repository ?? NodeRepository(dio: dio, syncService: auth.syncService);
+    _prefsRepository = widget.prefsRepository ??
+        PrefsRepository(dio: dio, prefs: auth.prefs);
     _load();
   }
 
   Future<void> _load() async {
     final repository = _repository!;
-    final prefsRepository = widget.prefsRepository;
+    final prefsRepository = _prefsRepository!;
     try {
       // The scheduler is read once at mount; the op records which ran.
-      final algorithm = prefsRepository != null
-          ? await prefsRepository.getCardsAlgorithm()
-          : SrsAlgorithm.fsrs;
+      final algorithm = await prefsRepository.getCardsAlgorithm();
       var ids = widget.cardIds;
       if (ids == null) {
         // Deep-link fallback: every card-classed member — the queue takes

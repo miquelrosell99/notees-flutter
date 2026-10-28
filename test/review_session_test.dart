@@ -3,16 +3,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:notees/core/constants/system.dart';
+import 'package:notees/core/secure/secure_storage.dart';
 import 'package:notees/core/utils/ast_builder.dart';
+import 'package:notees/data/local/app_database.dart';
 import 'package:notees/data/models/node.dart';
+import 'package:notees/domain/models/relay/hlc.dart';
+import 'package:notees/domain/models/relay/operation_envelope.dart';
+import 'package:notees/data/models/server_profile.dart';
 import 'package:notees/data/repositories/node_cache_repository.dart';
 import 'package:notees/data/repositories/node_repository.dart';
 import 'package:notees/data/repositories/prefs_repository.dart';
+import 'package:notees/data/repositories/server_repository.dart';
+import 'package:notees/data/repositories/workspace_repository.dart';
 import 'package:notees/domain/models/search_filters.dart';
 import 'package:notees/domain/services/srs.dart';
+import 'package:notees/domain/services/sync_v2_service.dart';
+import 'package:notees/features/auth/providers/auth_provider.dart';
 import 'package:notees/features/cards/screens/review_session_screen.dart';
 import 'package:notees/features/editor/widgets/ast_rich_text.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// The review session (`ReviewSession.tsx` parity): front → reveal →
 /// grade → advance, the front-only empty state, the summary screen, the
@@ -90,6 +101,142 @@ class FakePrefsRepository extends PrefsRepository {
 }
 
 late SharedPreferences _fakePrefs;
+
+// --- The NON-INJECTED production path: a fake cache/service layer over a
+// real (never-queried) ffi database, so the screen self-provisions its
+// repositories from a stubbed AuthProvider without touching sqflite inside
+// the widget zone.
+
+OperationEnvelope _dummyEnvelope(String opType, Map<String, dynamic> payload) =>
+    OperationEnvelope(
+      id: '60000000-0000-4000-8000-000000000001',
+      workspaceId: '10000000-0000-4000-8000-000000000001',
+      actorId: '40000000-0000-4000-8000-000000000001',
+      deviceId: '40000000-0000-4000-8000-000000000001',
+      hlc: const Hlc(physical: 0, logical: 0),
+      affectedNodeIds: const [],
+      opType: opType,
+      payload: payload,
+      timestamp: '2026-10-28T00:00:00.000Z',
+    );
+
+class FakeReviewCache extends NodeCacheRepository {
+  FakeReviewCache() : super(_harnessDb);
+
+  final nodes = <String, Node>{};
+  final props = <String, List<EffectiveProperty>>{};
+  final children = <String, List<Node>>{};
+
+  @override
+  Future<Node?> getByUuid(String uuid) async => nodes[uuid];
+
+  @override
+  Future<List<EffectiveProperty>> getEffectiveProperties(String uuid) async =>
+      props[uuid] ?? const [];
+
+  @override
+  Future<List<Node>> getChildren(String parentUuid) async =>
+      children[parentUuid] ?? const [];
+}
+
+class FakeReviewSyncService extends SyncV2Service {
+  FakeReviewSyncService({required super.dio})
+      : fakeCache = FakeReviewCache(),
+        super(
+          database: _harnessDb,
+          clientId: '40000000-0000-4000-8000-000000000001',
+        );
+
+  final FakeReviewCache fakeCache;
+
+  /// Recorded `property.set` payloads (the idx-addressed grade writes).
+  final sets = <Map<String, dynamic>>[];
+
+  /// Recorded `(opType, payload)` envelopes (chain creates + card.review).
+  final emitted = <(String, Map<String, dynamic>)>[];
+
+  @override
+  NodeCacheRepository get cache => fakeCache;
+
+  @override
+  Future<Node?> getCachedNode(String uuid) async => fakeCache.nodes[uuid];
+
+  @override
+  Future<OperationEnvelope> setPropertyValue({
+    required String objectId,
+    required String propertySchemaId,
+    required dynamic value,
+    int idx = 0,
+  }) async {
+    sets.add(<String, dynamic>{
+      'objectId': objectId,
+      'propertySchemaId': propertySchemaId,
+      'value': value,
+      'idx': idx,
+    });
+    return _dummyEnvelope('property.set', const <String, dynamic>{});
+  }
+
+  @override
+  Future<OperationEnvelope> emitLocal({
+    required String opType,
+    required Map<String, dynamic> payload,
+    required List<String> affectedNodeIds,
+  }) async {
+    emitted.add((opType, payload));
+    return _dummyEnvelope(opType, payload);
+  }
+}
+
+/// A stubbed [AuthProvider] whose dio serves `/me/prefs` and whose
+/// syncService is the fake layer — the production seams the non-injected
+/// screen path self-provisions from.
+class StubbedAuth extends AuthProvider {
+  StubbedAuth({
+    required super.serverRepository,
+    required super.secureStorage,
+    required super.prefs,
+    required this.fakeDio,
+    required this.fakeSync,
+  });
+
+  final Dio fakeDio;
+  final SyncV2Service fakeSync;
+
+  @override
+  bool get loading => false;
+
+  @override
+  bool get isAuthenticated => true;
+
+  @override
+  bool get isLocalMode => false;
+
+  @override
+  ServerProfile? get activeServer => ServerProfile(
+      id: 'server-1', url: 'https://notees.example.com', nickname: 'Test');
+
+  @override
+  Dio? get dio => fakeDio;
+
+  @override
+  SyncV2Service? get syncService => fakeSync;
+
+  @override
+  bool get onboardingCompleted => true;
+
+  @override
+  String? get activeWorkspaceId => 'ws-owner';
+
+  @override
+  List<Workspace>? get workspaces => [Workspace(uuid: 'ws-owner', name: 'Personal', role: 'owner')];
+
+  @override
+  bool get hasValidWorkspace => true;
+}
+
+late AppDatabase _harnessDb;
+
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -282,5 +429,116 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('back-at-hub'), findsOneWidget);
+  });
+  group('non-injected production path (C1)', () {
+    const cardC = '30000000-0000-4000-8000-00000000000c';
+    late FakeReviewSyncService fakeSync;
+    var prefsGets = 0;
+
+    Dio prefsDio() {
+      final dio = Dio(BaseOptions(baseUrl: 'https://notees.example.com/api'));
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            prefsGets += 1;
+            handler.resolve(Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: const {'cardsAlgorithm': 'sm2'},
+            ));
+          },
+        ),
+      );
+      return dio;
+    }
+
+    setUp(() async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      sqfliteFfiInit();
+      final ffiDb = await databaseFactoryFfi.openDatabase(
+        ':memory:',
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      _harnessDb = AppDatabase.fromDatabase(ffiDb);
+      await _harnessDb.initializeSchema();
+      addTearDown(() async {
+        await _harnessDb.close();
+        AppDatabase.reset();
+      });
+      fakeSync = FakeReviewSyncService(dio: prefsDio());
+      prefsGets = 0;
+      // One reviewed-before card: reps 5, no due (a Good grade moves ease).
+      fakeSync.fakeCache.nodes[cardC] = cardNode(cardC, 'Card C front');
+      fakeSync.fakeCache.props[cardC] = [
+        row(SystemPropertyUuids.cardReps, 5),
+        row(SystemPropertyUuids.cardInterval, 21),
+        row(SystemPropertyUuids.cardEase, 1.35),
+      ];
+    });
+
+    testWidgets('the hub pref (sm2) reaches the grade computation — the '
+        'session self-provisions its prefs repository from AuthProvider',
+        (tester) async {
+      final auth = StubbedAuth(
+        serverRepository: ServerRepository(prefs: _fakePrefs),
+        secureStorage: const SecureStorage(),
+        prefs: _fakePrefs,
+        fakeDio: prefsDio(),
+        fakeSync: fakeSync,
+      );
+      final router = GoRouter(
+        initialLocation: '/cards',
+        routes: [
+          GoRoute(
+            path: '/cards',
+            builder: (context, state) => const Scaffold(body: Text('back-at-hub')),
+          ),
+          GoRoute(
+            path: '/review',
+            builder: (context, state) => const ReviewSessionScreen(
+              cardIds: [cardC],
+              label: 'Single card',
+            ),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthProvider>.value(
+          value: auth,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pump();
+      router.push('/review');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+
+      // The session self-provisioned PrefsRepository read the pref.
+      expect(prefsGets, greaterThanOrEqualTo(1));
+      expect(find.text('1 of 1 · Single card'), findsOneWidget);
+
+      await tester.tap(find.text('Reveal'));
+      await tester.pump();
+      await tester.tap(find.text('Good'));
+      await tester.pump();
+      await tester.pump();
+
+      // sm2 evidence in the grade writes: cardEase moves, the fsrs fields
+      // are NEVER written (the mid-deck contract, not inverted).
+      final schemas = fakeSync.sets.map((set) => set['propertySchemaId'] as String).toSet();
+      expect(schemas, contains(SystemPropertyUuids.cardDue));
+      expect(schemas, contains(SystemPropertyUuids.cardReps));
+      expect(schemas, contains(SystemPropertyUuids.cardInterval));
+      expect(schemas, contains(SystemPropertyUuids.cardEase));
+      expect(schemas, isNot(contains(SystemPropertyUuids.cardDifficulty)));
+      expect(schemas, isNot(contains(SystemPropertyUuids.cardStability)));
+
+      // The history envelope records WHICH scheduler ran.
+      final review = fakeSync.emitted.firstWhere((entry) => entry.$1 == 'card.review');
+      expect(review.$2['algorithm'], 'sm2');
+      expect(review.$2['grade'], 'good');
+      expect(find.text('1 card reviewed'), findsOneWidget);
+    });
   });
 }
