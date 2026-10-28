@@ -160,6 +160,21 @@ class SystemPropertyUuids {
   static const String taskPriority = '00000000-0000-0000-0003-000000000004';
   static const String taskClosedDate = '00000000-0000-0000-0003-000000000005';
   static const String taskRecurrence = '00000000-0000-0000-0003-000000000006';
+
+  // The card family (memorization cards slice, 2026-10-28 lockstep with the
+  // TS seed manifest `SYSTEM_PROPERTY_UUIDS`): the six SRS schedule schemas,
+  // class-bound to `card`, at the …0004- property block (…0003- is the
+  // task/meeting/event family). The select-OPTION ids (assetRole …0001–…0007,
+  // task status/priority …0008–…0011) ride the same namespace — options are
+  // nested schema data, never property-schema ids, so the spaces never meet.
+  // All scalar (datetime/number), all seed UNPINNED — the 2026-10-27 pinned
+  // roster is frozen and no card field joins it.
+  static const String cardDue = '00000000-0000-0000-0004-000000000001';
+  static const String cardReps = '00000000-0000-0000-0004-000000000002';
+  static const String cardInterval = '00000000-0000-0000-0004-000000000003';
+  static const String cardEase = '00000000-0000-0000-0004-000000000004';
+  static const String cardDifficulty = '00000000-0000-0000-0004-000000000005';
+  static const String cardStability = '00000000-0000-0000-0004-000000000006';
 }
 
 /// Deterministic select-option ids for the applier-side task-family

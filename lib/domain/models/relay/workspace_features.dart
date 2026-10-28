@@ -161,6 +161,11 @@ const Map<String, String> systemClassUuids = {
 
 /// Icons for the family classes (TS manifest `SYSTEM_CLASS_ICONS` slice).
 const Map<String, String> systemClassIcons = {
+  // RENAMED 2026-10-28 (memorization-cards slice, lockstep with the TS seed
+  // manifest `SYSTEM_CLASS_ICONS`): card's icon moves from the generic
+  // summary glyph to the playing-cards outline (the UUID …0011 is
+  // unchanged; icon strings ride the stored class rows).
+  'card': 'mdiCardsPlayingOutline',
   'task': 'mdiCheckboxMarkedCircleOutline',
   'event': 'mdiCalendar',
   'meeting': 'mdiCalendarClock',
@@ -236,7 +241,11 @@ const Map<String, String> systemClassDisplayNames = {
   'code': 'Code',
   'asset': 'Asset',
   'whiteboard': 'Whiteboard',
-  'card': 'Card',
+  // RENAMED 2026-10-28 (memorization-cards slice, lockstep with the TS seed
+  // manifest `SYSTEM_CLASS_DISPLAY_NAMES` — the UUID …0011 is unchanged, the
+  // key `card` stays code-facing vocabulary): the compact-summary wording
+  // retires in favor of the spaced-repetition recall role.
+  'card': 'Memorization card',
   'task': 'Task',
   'template': 'Template',
   'comment': 'Comment',

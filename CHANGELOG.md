@@ -8,6 +8,48 @@ lives in git history.
 
 ## 2026-10-28
 
+- **feat(protocol,store): memorization cards lockstep — the `card` class
+  rename, the six card-family property schemas, and the `card.review`
+  history op.** Lockstep with the monorepo's `memorization-cards` branch
+  (TS ships first; this branch is `memorization-cards-lockstep`, unmerged by
+  design). (1) The `card` system class is RENAMED to the display title
+  "Memorization card" (UUID …0011 unchanged, the key `card` stays
+  code-facing): `systemClassDisplayNames` + the local seed icon moves to
+  `mdiCardsPlayingOutline` (workspace_features + LocalWorkspaceSeed,
+  exactly the server seed's shape). (2) The six SRS schedule schemas join
+  the seed manifest at the …0004- property block (…0003- is the
+  task/meeting/event family; the select-OPTION ids riding the same
+  namespace never meet schema ids): cardDue (datetime) + cardReps /
+  cardInterval / cardEase / cardDifficulty / cardStability (number),
+  class-bound to `card`, ALL UNPINNED (the 2026-10-27 pinned roster is
+  frozen and no card field joins it) — `SystemPropertyUuids` gains the six
+  constants and the local workspace seed gains six scalar `SeedPropertySpec`
+  entries (59 emitted ops now, pinned). (3) The new `card.review` op
+  (strict payload: cardId/grade again|hard|good|easy/algorithm sm2|fsrs/
+  stateBefore/stateAfter — the strict `cardSrsState` records (due
+  YYYY-MM-DD|null, reps/interval numbers, ease/difficulty/stability
+  nullable numbers)/reviewedAt/sessionId) lands in the op registry with
+  factory + validators (`_cardSrsState` + the `_num` helpers, zod
+  `.strict()` parity) and an applier that is HISTORY-ONLY: one append-only
+  row per graded review in the new derived `card_review` table (local
+  schema v39, lockstep with the TS store schema v34→v35), NO LWW gate, NO
+  superseded path, never writes property values — validation is
+  membership-only (NodeNotFoundError / MoveGuardError, never applied).
+  `NodeCacheRepository` gains `insertCardReview` + `listCardReviews` (HLC
+  order, JSON-parsed snapshots, the TS `Store.listCardReviews` port). The
+  `card-review.json` fixture joins the byte-pinned corpus (sha256
+  `8e3b18c7…defe3`, identical to the monorepo copy — corpus 41→42) and
+  enters the fixtures parity gate; the replay suite pins the fixture's two
+  review rows (the AGAIN→SM-2-ease-2.5 initialization, the GOOD review's
+  2026-10-29 schedule as the surviving stateAfter, both sessions listed in
+  HLC order), the concurrent-reviews-are-ALL-history arm, the fail-loud
+  arms (missing node / non-card node / malformed payloads — none touches
+  state), and the no-property-values-written invariant. Coverage: the
+  payload suite pins the strict schema (each violation rejected
+  independently, protocol.test.ts parity); seed-parity pins the …0004-
+  block ids, the scalar/unpinned specs, the renamed title + icon, and the
+  59-op emission. Verified: `flutter analyze` clean + `flutter test` green.
+
 - **feat(protocol)!: accept the retired `url` property type (url → text).**
   Lockstep with the monorepo's url-type-retirement slice (TS ships first; the
   Flutter branch is `url-type-retirement`, unmerged by design). The strict

@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 38,
+          version: 39,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 38,
+      version: 39,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -132,6 +132,7 @@ class AppDatabase {
     await _migrateV36(db);
     await _migrateV37(db);
     await _migrateV38(db);
+    await _migrateV39(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -249,6 +250,9 @@ class AppDatabase {
     }
     if (oldVersion < 38) {
       await _migrateV38(db);
+    }
+    if (oldVersion < 39) {
+      await _migrateV39(db);
     }
   }
 
@@ -1115,6 +1119,37 @@ class AppDatabase {
     await _addColumnIfMissing(db, 'class_cache', 'parentless_role', 'TEXT');
   }
 
+  /// v39 — the memorization-card review history (2026-10-28 lockstep with
+  /// the TS store schema v34→v35, SCHEMA.md "Memorization cards"): the
+  /// `card.review` op family. One append-only derived row per graded review
+  /// — HISTORY-ONLY, NO LWW gate, NO tombstone/superseded path (every
+  /// envelope lands a row, concurrent reviews are ALL history); the op never
+  /// writes property values (the seeded card-family properties stay the
+  /// current schedule surface). The (card_id, hlc) index is the per-card
+  /// read seam (NodeCacheRepository.listCardReviews), mirroring the TS
+  /// store's `idx_card_review_card`. Purely additive: CREATE IF NOT EXISTS
+  /// is a no-op for fresh v39 creates; an old database gains the empty table
+  /// and collects rows as the log's card.review envelopes replay.
+  Future<void> _migrateV39(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS card_review (
+        card_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        grade TEXT NOT NULL,
+        algorithm TEXT NOT NULL,
+        state_before TEXT NOT NULL,
+        state_after TEXT NOT NULL,
+        reviewed_at TEXT NOT NULL,
+        hlc_physical INTEGER NOT NULL,
+        hlc_logical INTEGER NOT NULL,
+        actor_id TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_card_review_card ON card_review (card_id, hlc_physical, hlc_logical)',
+    );
+  }
+
   /// Derived reference index (never authored): mention/typed_link edges
   /// projected from content tokens plus node-typed property values. Mirrors
   /// the TS store `edge` table.
@@ -1674,6 +1709,7 @@ class AppDatabase {
     await _migrateV36(db);
     await _migrateV37(db);
     await _migrateV38(db);
+    await _migrateV39(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

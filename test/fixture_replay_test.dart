@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:notees/core/constants/system.dart';
 import 'package:notees/data/local/app_database.dart';
 import 'package:notees/data/repositories/node_cache_repository.dart';
 import 'package:notees/domain/models/relay/hlc.dart';
@@ -1156,6 +1157,197 @@ void main() {
       final tombRows =
           await raw('SELECT COUNT(*) AS c FROM external_ref_tombstone');
       expect(tombRows.single['c'], 0);
+    });
+
+    // card-review.json ids (the fixture's exclusive …940 segment).
+    const cardNode = '0192a000-0000-7000-8000-000000000940';
+    const sessionA = '0192a000-0000-7000-8000-000000000944';
+    const sessionB = '0192a000-0000-7000-8000-000000000945';
+
+    /// Hand-built `card.review` envelope (the TS store tests' `env()`
+    /// helper equivalent): the op addresses its card via the payload's
+    /// `cardId`, so affectedNodeIds mirrors it.
+    OperationEnvelope cardReviewOp(
+      Map<String, dynamic> payload,
+      int physical, {
+      String actor = '0192a000-0000-7000-8000-000000000002',
+    }) =>
+        OperationEnvelope(
+          id: '0192a000-0000-7000-8000-0000000006$physical',
+          workspaceId: ws,
+          actorId: actor,
+          deviceId: 'fixture-test-device',
+          hlc: Hlc(physical: physical, logical: 0),
+          affectedNodeIds: [payload['cardId'] as String],
+          opType: 'card.review',
+          payload: payload,
+          timestamp: '2026-10-28T09:00:00.000Z',
+        );
+
+    Map<String, dynamic> reviewPayload(
+      String cardId, {
+      String grade = 'good',
+      String algorithm = 'sm2',
+      String? sessionId = sessionA,
+    }) =>
+        {
+          'cardId': cardId,
+          'grade': grade,
+          'algorithm': algorithm,
+          'stateBefore': <String, dynamic>{
+            'due': null,
+            'reps': 0,
+            'interval': 0,
+            'ease': null,
+            'difficulty': null,
+            'stability': null,
+          },
+          'stateAfter': <String, dynamic>{
+            'due': '2026-10-29',
+            'reps': 1,
+            'interval': 1,
+            'ease': 2.5,
+            'difficulty': null,
+            'stability': null,
+          },
+          'reviewedAt': '2026-10-28T09:05:00.000Z',
+          'sessionId': sessionId,
+        };
+
+    test('card-review: the canonical fixture converges — two HISTORY-ONLY '
+        'rows, both sessions listed in HLC order, no property values '
+        'written', () async {
+      for (final envelope in fixtureEnvelopes('card-review.json')) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+
+      // The fixture's card was created under the card system class.
+      final card = await cache.getByUuid(cardNode);
+      expect(card, isNotNull);
+      expect(card!.classesUuid, [SystemClassUuids.card]);
+
+      // Both graded reviews are history — every review lists back, in HLC
+      // order (the TS store's listCardReviews shape): the AGAIN review
+      // initializes the SM-2 ease at 2.5, the GOOD review schedules the
+      // next day (the surviving stateAfter).
+      final reviews = await cache.listCardReviews(cardNode);
+      expect(reviews, hasLength(2));
+      expect(reviews[0].grade, 'again');
+      expect(reviews[0].algorithm, 'sm2');
+      expect(reviews[0].sessionId, sessionA);
+      expect(reviews[0].stateBefore['ease'], isNull);
+      expect(reviews[0].stateAfter['ease'], 2.5);
+      expect(reviews[1].grade, 'good');
+      expect(reviews[1].sessionId, sessionB);
+      expect(
+        reviews[1].stateAfter,
+        <String, dynamic>{
+          'due': '2026-10-29',
+          'reps': 1,
+          'interval': 1,
+          'ease': 2.5,
+          'difficulty': null,
+          'stability': null,
+        },
+      );
+
+      // HISTORY-ONLY: the op never writes property values — the seeded
+      // card-family properties stay the current schedule surface; the op
+      // is the review journal.
+      final valueRows = await raw(
+        'SELECT COUNT(*) AS c FROM property_value WHERE node_uuid = ?',
+        [cardNode],
+      );
+      expect(valueRows.single['c'], 0);
+    });
+
+    test('card.review: concurrent reviews from different actors are ALL '
+        'history (no LWW gate)', () async {
+      // The fixture's create + the AGAIN review, then two hand-built
+      // reviews racing from different actors at HIGHER clocks (the
+      // fixture's own HLCs ride 1727200020xxx — the listing is HLC-ordered).
+      final fixture = fixtureEnvelopes('card-review.json');
+      await appliers.apply(fixture[0]);
+      await appliers.apply(fixture[1]);
+      await appliers.apply(
+          cardReviewOp(reviewPayload(cardNode), 1727200021000));
+      await appliers.apply(cardReviewOp(
+          reviewPayload(cardNode, grade: 'easy', sessionId: sessionB),
+          1727200022000,
+          actor: '0192a000-0000-7000-8000-000000000003'));
+      final reviews = await cache.listCardReviews(cardNode);
+      expect(reviews.map((r) => r.grade).toList(), ['again', 'good', 'easy']);
+    });
+
+    test('card.review: fail loud — a missing node or a non-card node never '
+        'applies', () async {
+      const missing = '0192a000-0000-7000-8000-000000000c99';
+      const plainPage = '0192a000-0000-7000-8000-000000000c98';
+      await appliers.apply(basePage(plainPage, 0));
+
+      await expectLater(
+        appliers.apply(cardReviewOp(reviewPayload(missing), 100)),
+        throwsA(isA<NodeNotFoundError>()),
+      );
+      await expectLater(
+        appliers.apply(cardReviewOp(reviewPayload(plainPage), 101)),
+        throwsA(isA<MoveGuardError>()),
+      );
+
+      // Neither arm touched the history table.
+      final rows = await raw('SELECT COUNT(*) AS c FROM card_review');
+      expect(rows.single['c'], 0);
+    });
+
+    test('card.review: malformed payloads fail loud at the apply boundary '
+        'and never touch state', () async {
+      await appliers.apply(fixtureEnvelopes('card-review.json')[0]);
+
+      final valid = reviewPayload(cardNode);
+      Future<void> expectRejected(Map<String, dynamic> payload) =>
+          expectLater(
+            appliers.apply(cardReviewOp(payload, 100)),
+            throwsA(isA<EnvelopeValidationError>()),
+          );
+
+      // Unknown grade with everything else valid.
+      await expectRejected({...valid, 'grade': 'great'});
+      // Non-uuid session with everything else valid.
+      await expectRejected({...valid, 'sessionId': 'not-a-uuid'});
+      // Extra key (the strict schema).
+      await expectRejected({...valid, 'deckId': 'some-deck'});
+      // A non-strict state snapshot: unknown key inside stateBefore.
+      await expectRejected({
+        ...valid,
+        'stateBefore': {
+          'due': null,
+          'reps': 0,
+          'interval': 0,
+          'ease': null,
+          'difficulty': null,
+          'stability': null,
+          'lapses': 0,
+        },
+      });
+      // reps is a required number — a string fails.
+      await expectRejected({
+        ...valid,
+        'stateAfter': {
+          'due': '2026-10-29',
+          'reps': 'one',
+          'interval': 1,
+          'ease': 2.5,
+          'difficulty': null,
+          'stability': null,
+        },
+      });
+
+      // The create landed, no review row did.
+      final rows = await raw(
+        'SELECT COUNT(*) AS c FROM card_review WHERE card_id = ?',
+        [cardNode],
+      );
+      expect(rows.single['c'], 0);
     });
 
     test('typed-link mark then deleted lands the final content', () async {      await seedBaseWithBlock();

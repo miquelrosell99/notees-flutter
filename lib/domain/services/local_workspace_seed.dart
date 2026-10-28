@@ -19,12 +19,15 @@ import './sync_v2_service.dart';
 /// 2026-10-07 follow-up): the server seed keeps the full family, so the
 /// local subset mirrors it whole — the workspace-feature cascade (the
 /// applier's archival re-derivation over familyClassNames) then flips real
-/// rows instead of no-opping over absent ones. The property-SCHEMA axis
-/// stays the source family's CREATOR slice only (authors + linkedAuthors +
-/// editors, 2026-10-23 source-library lockstep): the meeting/event/
-/// birthday bindings and the rest of the bibliography pool are not locally
-/// seeded — a server attach converges them through the shared log (the
-/// mobile app reads no event/meeting property surfaces).
+/// rows instead of no-opping over absent ones.
+///
+/// The property-SCHEMA axis seeds the source family's CREATOR slice
+/// (authors + linkedAuthors + editors, 2026-10-23 source-library lockstep)
+/// and the card family's six SRS schedule schemas (2026-10-28
+/// memorization-cards lockstep, class-bound to `card`, all unpinned): the
+/// meeting/event/birthday bindings and the rest of the bibliography pool
+/// are not locally seeded — a server attach converges them through the
+/// shared log (the mobile app reads no event/meeting property surfaces).
 ///
 /// Ops go through the normal outbox/applier path ([SyncV2Service.emitLocal]),
 /// so the local derived state matches what a server-seeded workspace would
@@ -88,8 +91,11 @@ class LocalWorkspaceSeed {
   /// Icons for the seeded classes that carry one (TS manifest
   /// `SYSTEM_CLASS_ICONS` slice — the citations-model revision's four plus
   /// the #14 follow-up five); the rest of the legacy mobile subset seeds
-  /// without icons.
+  /// without icons. card's entry lands 2026-10-28 (memorization-cards
+  /// slice): the renamed class carries the playing-cards outline, exactly
+  /// the server seed's shape.
   static const Map<String, String> systemClassIcons = {
+    'card': 'mdiCardsPlayingOutline',
     'source': 'mdiBookshelf',
     'song': 'mdiMusicNote',
     'tv_series': 'mdiTelevisionClassic',
@@ -129,6 +135,14 @@ class LocalWorkspaceSeed {
   /// multi (…0006-…0002). The rest of the bibliographic pool stays
   /// server-seeded (the documented divergence — a server attach converges
   /// it through the shared log).
+  ///
+  /// The card family joins 2026-10-28 (memorization-cards slice, TS
+  /// manifest `SYSTEM_PROPERTY_SPECS` slice): the six SRS schedule schemas,
+  /// class-bound to `card` at the …0004- block, all UNPINNED (the 2026-10-27
+  /// pinned roster is frozen). `cardDue` is the datetime-typed due date (day
+  /// precision); the five numbers carry the SM-2 ease factor and the FSRS
+  /// difficulty/stability alongside reps/interval. All scalar — multi is
+  /// false on every entry.
   static const List<SeedPropertySpec> systemPropertySpecs = [
     SeedPropertySpec(
       name: 'authors',
@@ -151,6 +165,48 @@ class LocalWorkspaceSeed {
       type: 'text',
       multi: true,
       bindTo: 'source',
+    ),
+    SeedPropertySpec(
+      name: 'Card due',
+      propertySchemaId: SystemPropertyUuids.cardDue,
+      type: 'datetime',
+      multi: false,
+      bindTo: 'card',
+    ),
+    SeedPropertySpec(
+      name: 'Card reps',
+      propertySchemaId: SystemPropertyUuids.cardReps,
+      type: 'number',
+      multi: false,
+      bindTo: 'card',
+    ),
+    SeedPropertySpec(
+      name: 'Card interval',
+      propertySchemaId: SystemPropertyUuids.cardInterval,
+      type: 'number',
+      multi: false,
+      bindTo: 'card',
+    ),
+    SeedPropertySpec(
+      name: 'Card ease',
+      propertySchemaId: SystemPropertyUuids.cardEase,
+      type: 'number',
+      multi: false,
+      bindTo: 'card',
+    ),
+    SeedPropertySpec(
+      name: 'Card difficulty',
+      propertySchemaId: SystemPropertyUuids.cardDifficulty,
+      type: 'number',
+      multi: false,
+      bindTo: 'card',
+    ),
+    SeedPropertySpec(
+      name: 'Card stability',
+      propertySchemaId: SystemPropertyUuids.cardStability,
+      type: 'number',
+      multi: false,
+      bindTo: 'card',
     ),
   ];
 

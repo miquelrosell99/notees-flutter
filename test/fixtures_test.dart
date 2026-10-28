@@ -30,6 +30,7 @@ void main() {
 
   // Fixtures holding {"comment": ..., "envelopes": [...]}.
   const envelopeListFixtures = [
+    'card-review.json',
     'class-convert.json',
     'class-extends-cycle.json',
     'class-extends-m2m.json',

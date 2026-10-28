@@ -99,6 +99,14 @@ import '../models/relay/workspace_features.dart';
 ///    bits; the parent-page guard (_isPageRow) reads the same predicate, so
 ///    a standalone claim under a block-role parentless node fails loud (the
 ///    same MoveGuardError, no new error type);
+///  - card.review (2026-10-28 memorization-cards lockstep, SCHEMA.md
+///    "Memorization cards") is HISTORY-ONLY: one append-only row per graded
+///    review in the derived card_review table — NO LWW gate, NO superseded
+///    path, and the op never writes property values (the seeded card-family
+///    properties stay the current schedule surface; the op is the review
+///    journal). Validation is membership-only: the target must resolve to a
+///    node row carrying the card system class (NodeNotFoundError /
+///    MoveGuardError, the write-time-impossible law — never applied);
 ///  - appliers fail loud with typed [StoreError]s and never swallow a write
 ///    silently. Envelope-id idempotency lives in the sync service
 ///    (relay_operations dedupe), mirroring applied_envelope in the TS store.
@@ -133,12 +141,14 @@ class RelayAppliers {
     // payload objectId). `external_ref.*` keys its state by the payload's
     // `ref` (the set's nodeId is a mapping TARGET, not the op's addressed
     // object — a mapping may name a not-yet-synced node), so both ops
-    // route by op type too.
+    // route by op type too; `card.review` addresses its card via the
+    // payload's `cardId` (not `objectId`), and routes the same way.
     if (objectId.isEmpty &&
         envelope.opType != 'workspace.feature.set' &&
         envelope.opType != 'trash.empty' &&
         envelope.opType != 'external_ref.set' &&
-        envelope.opType != 'external_ref.delete') {
+        envelope.opType != 'external_ref.delete' &&
+        envelope.opType != 'card.review') {
       return false;
     }
 
@@ -217,6 +227,8 @@ class RelayAppliers {
         return _applyExternalRefSet(envelope, payload);
       case 'external_ref.delete':
         return _applyExternalRefDelete(envelope, payload);
+      case 'card.review':
+        return _applyCardReview(envelope, payload);
       case 'activity.record':
       case 'activity.delete':
       case 'link.click':
@@ -2405,6 +2417,57 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       envelope.workspaceId,
       ref,
       incoming,
+    );
+    return true;
+  }
+
+  // --- card.review ----------------------------------------------------------------
+  //
+  // Memorization-card review history (SCHEMA.md "Memorization cards",
+  // 2026-10-28 memorization-cards lockstep): one append-only derived row per
+  // graded review. HISTORY-ONLY — no LWW gate, no superseded path, and the
+  // op never writes property values (the seeded card-family property schemas
+  // stay the current schedule surface; the op is the review journal, the
+  // card_review rows its derived read). Validation is membership-only: the
+  // target must resolve to a node row carrying the card system class (fail
+  // loud otherwise — the write-time-impossible law).
+
+  /// Append one card_review row (the TS store's `applyCardReview` port).
+  /// Every envelope lands — concurrent reviews from different actors are
+  /// ALL history.
+  Future<bool> _applyCardReview(
+    OperationEnvelope envelope,
+    Map<String, dynamic> payload,
+  ) async {
+    const opType = 'card.review';
+    final cardId = payload['cardId'] as String;
+
+    final node = await _cache.getByUuid(cardId);
+    if (node == null) {
+      throw NodeNotFoundError(
+        '$opType: card $cardId does not exist',
+        opType,
+      );
+    }
+    final classIds = await _cache.nodeClassIdsOf(cardId);
+    if (classIds == null || !classIds.contains(SystemClassUuids.card)) {
+      throw MoveGuardError(
+        '$opType: $cardId is not classed memorization card',
+        opType,
+      );
+    }
+
+    await _cache.insertCardReview(
+      cardId: cardId,
+      sessionId: payload['sessionId'] as String,
+      grade: payload['grade'] as String,
+      algorithm: payload['algorithm'] as String,
+      stateBefore: payload['stateBefore'] as Map<String, dynamic>,
+      stateAfter: payload['stateAfter'] as Map<String, dynamic>,
+      reviewedAt: payload['reviewedAt'] as String,
+      hlcPhysical: envelope.hlc.physical,
+      hlcLogical: envelope.hlc.logical,
+      actorId: envelope.actorId,
     );
     return true;
   }

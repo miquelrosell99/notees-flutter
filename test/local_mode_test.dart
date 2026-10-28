@@ -226,12 +226,14 @@ void main() {
       // class.create carries the display-wording title) +
       // 7 class.setExtends (the source family four + meeting/birthday/trip
       // extending event) +
-      // 3 propertySchema.create + 3 class.property.set (the creator-family
+      // 9 propertySchema.create + 9 class.property.set (the creator-family
       // slice — authors text-multi, linkedAuthors object→agent, editors
-      // text-multi; source-library slice 1 task 4) + 1 page (Inbox; the
+      // text-multi; source-library slice 1 task 4 — plus the card family's
+      // six SRS schedule schemas, card-bound + all unpinned,
+      // memorization-cards slice 2026-10-28) + 1 page (Inbox; the
       // scratchpad seed was withdrawn 2026-10-05).
       final emitted = await seed.ensureLocalWorkspace();
-      expect(emitted, 47);
+      expect(emitted, 59);
 
       final taskClass =
           await syncService.cache.getClassByUuid(SystemClassUuids.task);
@@ -252,11 +254,11 @@ void main() {
 
       final db = await database.database;
       // Seed ops stay in the outbox for a later server attach.
-      expect(await db.query('relay_outbox'), hasLength(47));
+      expect(await db.query('relay_outbox'), hasLength(59));
 
       // Re-running emits nothing.
       expect(await seed.ensureLocalWorkspace(), 0);
-      expect(await db.query('relay_outbox'), hasLength(47));
+      expect(await db.query('relay_outbox'), hasLength(59));
     });
   });
 }

@@ -98,9 +98,20 @@ void main() {
         SystemPropertyUuids.taskClosedDate,
         SystemPropertyUuids.taskRecurrence,
       ];
+      const card = <String>[
+        SystemPropertyUuids.cardDue,
+        SystemPropertyUuids.cardReps,
+        SystemPropertyUuids.cardInterval,
+        SystemPropertyUuids.cardEase,
+        SystemPropertyUuids.cardDifficulty,
+        SystemPropertyUuids.cardStability,
+      ];
       expect(general.toSet(), hasLength(general.length));
       expect(task.toSet(), hasLength(task.length));
+      expect(card.toSet(), hasLength(card.length));
       expect(general.toSet().intersection(task.toSet()), isEmpty);
+      expect(general.toSet().intersection(card.toSet()), isEmpty);
+      expect(task.toSet().intersection(card.toSet()), isEmpty);
       for (final uuid in general) {
         expect(
           uuid.startsWith('00000000-0000-0000-0000-'),
@@ -113,6 +124,13 @@ void main() {
           uuid.startsWith('00000000-0000-0000-0003-'),
           isTrue,
           reason: 'task property UUIDs live in the 0003 block: $uuid',
+        );
+      }
+      for (final uuid in card) {
+        expect(
+          uuid.startsWith('00000000-0000-0000-0004-'),
+          isTrue,
+          reason: 'card property UUIDs live in the 0004 block: $uuid',
         );
       }
       expect(SystemPropertyUuids.authors,
@@ -129,7 +147,20 @@ void main() {
         for (final spec in LocalWorkspaceSeed.systemPropertySpecs)
           spec.name: spec,
       };
-      expect(specs.keys, ['authors', 'linkedAuthors', 'editors']);
+      // The creator-family slice keys (the card family's six entries ride
+      // display names — the memorization-cards slice's own group pins
+      // them).
+      expect(specs.keys, [
+        'authors',
+        'linkedAuthors',
+        'editors',
+        'Card due',
+        'Card reps',
+        'Card interval',
+        'Card ease',
+        'Card difficulty',
+        'Card stability',
+      ]);
 
       // authors: object → text, multi (owner retype ruling 2026-10-23) —
       // the UUID …0012 unchanged, the object filter superseded.
@@ -222,6 +253,85 @@ void main() {
     test('seeded class UUIDs in the seed map stay unique', () {
       final uuids = LocalWorkspaceSeed.systemClassNames.values.toList();
       expect(uuids.toSet(), hasLength(uuids.length));
+    });
+  });
+
+  group('memorization card family (2026-10-28)', () {
+    // The card slice record (seeds.ts `CARD_FAMILY_SEED` +
+    // `CARD_PROPERTY_UUIDS` + SYSTEM_PROPERTY_UUIDS): six SRS schedule
+    // schemas at the …0004- block, class-bound to `card`, all UNPINNED (the
+    // 2026-10-27 pinned roster is frozen and no card field joins it);
+    // cardDue is the datetime-typed due date, the five numbers carry the
+    // SM-2 ease factor and the FSRS difficulty/stability alongside
+    // reps/interval. The class itself is RENAMED (display name
+    // "Memorization card", icon mdiCardsPlayingOutline) with its UUID
+    // …0011 unchanged and the key `card` untouched. Pinned here so a
+    // future main-repo seed change that skips this port fails here.
+    const family = <(String, String, String, String)>[
+      // (constant value, uuid, name, type) — the seeds.ts record.
+      (SystemPropertyUuids.cardDue, '00000000-0000-0000-0004-000000000001',
+        'Card due', 'datetime'),
+      (SystemPropertyUuids.cardReps, '00000000-0000-0000-0004-000000000002',
+        'Card reps', 'number'),
+      (SystemPropertyUuids.cardInterval, '00000000-0000-0000-0004-000000000003',
+        'Card interval', 'number'),
+      (SystemPropertyUuids.cardEase, '00000000-0000-0000-0004-000000000004',
+        'Card ease', 'number'),
+      (SystemPropertyUuids.cardDifficulty,
+        '00000000-0000-0000-0004-000000000005', 'Card difficulty', 'number'),
+      (SystemPropertyUuids.cardStability,
+        '00000000-0000-0000-0004-000000000006', 'Card stability', 'number'),
+    ];
+
+    test('fixed ids: block-prefixed, unique, never the option namespace',
+        () {
+      final ids = [for (final entry in family) entry.$2];
+      expect(ids.toSet(), hasLength(ids.length), reason: 'unique schema ids');
+      for (var i = 0; i < family.length; i++) {
+        final suffix = '00000000000${i + 1}';
+        expect(
+          family[i].$2,
+          '00000000-0000-0000-0004-$suffix',
+          reason: 'CARD_FAMILY_SEED order: ${family[i].$3}',
+        );
+      }
+      // The select-option ids (…0004-…0008+) are a different namespace —
+      // options are nested schema data, never property-schema ids.
+      for (final id in ids) {
+        expect(
+          int.parse(id.substring(id.lastIndexOf('-') + 1), radix: 16) <= 7,
+          isTrue,
+          reason: 'schema id never collides with the option slots: $id',
+        );
+      }
+    });
+
+    test('the static maps + seed specs carry the family, all unpinned + '
+        'scalar', () {
+      final specs = {
+        for (final spec in LocalWorkspaceSeed.systemPropertySpecs)
+          spec.name: spec,
+      };
+      for (final entry in family) {
+        expect(entry.$1, entry.$2, reason: 'constant value: ${entry.$3}');
+        expect(specs[entry.$3], isNotNull, reason: 'seed spec: ${entry.$3}');
+        final spec = specs[entry.$3]!;
+        expect(spec.propertySchemaId, entry.$2);
+        expect(spec.name, entry.$3);
+        expect(spec.type, entry.$4);
+        expect(spec.multi, isFalse, reason: '${entry.$3} is scalar');
+        expect(spec.bindTo, 'card');
+        expect(spec.targetClassFilter, isNull);
+      }
+      // The renamed class keeps its UUID and key; the display name + icon
+      // move with the seeds.ts record.
+      expect(SystemClassUuids.card, '00000000-0000-0000-0001-000000000011');
+      expect(LocalWorkspaceSeed.systemClassNames['card'],
+          '00000000-0000-0000-0001-000000000011');
+      expect(systemClassDisplayNames['card'], 'Memorization card');
+      expect(systemClassIcons['card'], 'mdiCardsPlayingOutline');
+      expect(LocalWorkspaceSeed.systemClassIcons['card'],
+          'mdiCardsPlayingOutline');
     });
   });
 
@@ -596,6 +706,10 @@ void main() {
       expect(systemClassDisplayNames['event'], 'Event');
       expect(systemClassDisplayNames['birthday'], 'Birthday');
       expect(systemClassDisplayNames['trip'], 'Trip');
+      // The 2026-10-28 rename: the UUID …0011 is unchanged, only the
+      // display wording moves (the seeds.ts SYSTEM_CLASS_DISPLAY_NAMES
+      // record).
+      expect(systemClassDisplayNames['card'], 'Memorization card');
     });
 
     test('the events family seeds whole: meeting + event + birthday + trip',
@@ -621,13 +735,25 @@ void main() {
         expect(LocalWorkspaceSeed.systemClassNames.containsKey(target), isTrue,
             reason: 'extends target $target is seeded');
       }
-      // The property-schema axis stays the creator-family slice
+      // The property-schema axis seeds the creator-family slice
       // (authors + linkedAuthors + editors — the 2026-10-23 source-library
-      // lockstep); the meeting/event/birthday bindings and the rest of the
-      // bibliography pool are server-seeded (the documented divergence).
+      // lockstep) and the card family's six SRS schedule schemas (the
+      // 2026-10-28 memorization-cards lockstep); the meeting/event/birthday
+      // bindings and the rest of the bibliography pool are server-seeded
+      // (the documented divergence).
       expect(
         LocalWorkspaceSeed.systemPropertySpecs.map((s) => s.name),
-        ['authors', 'linkedAuthors', 'editors'],
+        [
+          'authors',
+          'linkedAuthors',
+          'editors',
+          'Card due',
+          'Card reps',
+          'Card interval',
+          'Card ease',
+          'Card difficulty',
+          'Card stability',
+        ],
       );
     });
 
@@ -699,12 +825,14 @@ void main() {
       // the full events family, 2026-10-07; the #14 follow-up five join,
       // 2026-10-06) + 7 class.setExtends (song, tv_series, conference,
       // web_page — all extend source; meeting, birthday, trip extend event) +
-      // 3 propertySchema.create + 3 class.property.set (the creator-family
+      // 9 propertySchema.create + 9 class.property.set (the creator-family
       // slice — authors retyped text-multi, linkedEditors node-typed to
       // agent, editors text-multi; source-library slice 1 task 4,
-      // 2026-10-23) + 1 object.create (Inbox; the scratchpad seed was
+      // 2026-10-23 — plus the card family's six SRS schedule schemas,
+      // card-bound + all unpinned, memorization-cards slice 2026-10-28) +
+      // 1 object.create (Inbox; the scratchpad seed was
       // withdrawn 2026-10-05).
-      expect(emitted, 47);
+      expect(emitted, 59);
 
       final db = await database.database;
 
@@ -718,6 +846,9 @@ void main() {
         (SystemClassUuids.event, 'Event'),
         (SystemClassUuids.birthday, 'Birthday'),
         (SystemClassUuids.trip, 'Trip'),
+        // The 2026-10-28 rename: the UUID …0011 is unchanged, the display
+        // wording is "Memorization card" (the seeds.ts record).
+        (SystemClassUuids.card, 'Memorization card'),
       ]) {
         final row = await db.rawQuery(
           'SELECT name FROM class_cache WHERE uuid = ?',
@@ -872,6 +1003,42 @@ void main() {
       );
       expect(linkedRow.single['type'], 'object');
       expect(linkedRow.single['multi'], 1);
+
+      // The card family (memorization-cards slice, 2026-10-28): the six
+      // SRS schedule schemas land at the …0004- block, class-bound to
+      // `card`, all unpinned; cardDue is datetime, the five numbers carry
+      // reps/interval/ease/difficulty/stability.
+      const cardFamily = <(String, String, String)>[
+        (SystemPropertyUuids.cardDue, 'Card due', 'datetime'),
+        (SystemPropertyUuids.cardReps, 'Card reps', 'number'),
+        (SystemPropertyUuids.cardInterval, 'Card interval', 'number'),
+        (SystemPropertyUuids.cardEase, 'Card ease', 'number'),
+        (SystemPropertyUuids.cardDifficulty, 'Card difficulty', 'number'),
+        (SystemPropertyUuids.cardStability, 'Card stability', 'number'),
+      ];
+      for (final entry in cardFamily) {
+        final schema = await db.rawQuery(
+          'SELECT name, type, multi FROM property_schema WHERE uuid = ?',
+          [entry.$1],
+        );
+        expect(schema, hasLength(1), reason: entry.$2);
+        expect(schema.single['name'], entry.$2);
+        expect(schema.single['type'], entry.$3);
+        expect(schema.single['multi'], 0, reason: '${entry.$2} is scalar');
+        final binding = await db.rawQuery(
+          'SELECT class_id FROM class_property WHERE property_schema_id = ?',
+          [entry.$1],
+        );
+        expect(binding.single['class_id'], SystemClassUuids.card);
+      }
+
+      // The renamed card class carries the playing-cards icon (the
+      // seeds.ts SYSTEM_CLASS_ICONS record).
+      final cardIcon = await db.rawQuery(
+        'SELECT icon FROM class_cache WHERE uuid = ?',
+        [SystemClassUuids.card],
+      );
+      expect(cardIcon.single['icon'], 'mdiCardsPlayingOutline');
 
       // Idempotent re-run emits nothing.
       expect(

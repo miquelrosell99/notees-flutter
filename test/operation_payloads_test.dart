@@ -1284,6 +1284,157 @@ void main() {
       expect(OperationPayloads.isKnownOpType('external_ref.delete'), isTrue);
     });
 
+    test('card.review is strict: the SRS state records, the grade/algorithm '
+        'enums, each violation rejected independently', () {
+      const unseen = <String, dynamic>{
+        'due': null,
+        'reps': 0,
+        'interval': 0,
+        'ease': null,
+        'difficulty': null,
+        'stability': null,
+      };
+      const seen = <String, dynamic>{
+        'due': '2026-10-29',
+        'reps': 1,
+        'interval': 1,
+        'ease': 2.5,
+        'difficulty': null,
+        'stability': null,
+      };
+      Map<String, dynamic> payload({
+        String grade = 'good',
+        String algorithm = 'sm2',
+        Map<String, dynamic>? stateBefore,
+        Map<String, dynamic>? stateAfter,
+        String reviewedAt = '2026-10-28T10:00:00.000Z',
+        String? sessionId =
+            '0192a000-0000-7000-8000-000000000944',
+        String cardId = '0192a000-0000-7000-8000-000000000940',
+      }) =>
+          {
+            'cardId': cardId,
+            'grade': grade,
+            'algorithm': algorithm,
+            'stateBefore': stateBefore ?? unseen,
+            'stateAfter': stateAfter ?? seen,
+            'reviewedAt': reviewedAt,
+            'sessionId': sessionId,
+          };
+
+      // The fixture-shaped payload validates (null due/ease on the unseen
+      // side, initialized ease on the seen side).
+      final good = payload();
+      expect(
+        () => OperationPayloads.validatePayload('card.review', good),
+        returnsNormally,
+      );
+
+      // The strict schema rejects each violation INDEPENDENTLY (the
+      // protocol.test.ts parity): an unknown grade with everything else
+      // valid fails…
+      expect(
+        () => OperationPayloads.validatePayload(
+            'card.review', payload(grade: 'great')),
+        throwsFormatException,
+      );
+      // …an unknown algorithm fails…
+      expect(
+        () => OperationPayloads.validatePayload(
+            'card.review', payload(algorithm: 'anki')),
+        throwsFormatException,
+      );
+      // …a non-uuid session with everything else valid fails…
+      expect(
+        () => OperationPayloads.validatePayload(
+            'card.review', payload(sessionId: 'not-a-uuid')),
+        throwsFormatException,
+      );
+      // …an unknown top-level key fails (zod .strict() parity)…
+      expect(
+        () => OperationPayloads.validatePayload(
+            'card.review', {...good, 'deckId': 'some-deck'}),
+        throwsFormatException,
+      );
+      // …a non-strict state snapshot fails (the inner strict object)…
+      expect(
+        () => OperationPayloads.validatePayload(
+            'card.review',
+            payload(
+              stateBefore: {...unseen, 'lapses': 0},
+            )),
+        throwsFormatException,
+      );
+      // …a missing state key fails…
+      expect(
+        () => OperationPayloads.validatePayload(
+            'card.review',
+            payload(
+              stateAfter: {
+                'due': '2026-10-29',
+                'reps': 1,
+                'interval': 1,
+                'ease': 2.5,
+                'difficulty': null,
+              },
+            )),
+        throwsFormatException,
+      );
+      // …a wrong-typed scalar fails (reps is a number, not a string)…
+      expect(
+        () => OperationPayloads.validatePayload(
+            'card.review',
+            payload(
+              stateAfter: {
+                'due': '2026-10-29',
+                'reps': 'one',
+                'interval': 1,
+                'ease': 2.5,
+                'difficulty': null,
+                'stability': null,
+              },
+            )),
+        throwsFormatException,
+      );
+      // …and a non-string due fails (null or YYYY-MM-DD text only).
+      expect(
+        () => OperationPayloads.validatePayload(
+            'card.review',
+            payload(
+              stateBefore: {...unseen, 'due': 20261028},
+            )),
+        throwsFormatException,
+      );
+
+      // The factory validates its output through the same gate.
+      final built = OperationPayloads.cardReview(
+        cardId: '0192a000-0000-7000-8000-000000000940',
+        grade: 'again',
+        algorithm: 'sm2',
+        stateBefore: unseen,
+        stateAfter: seen,
+        reviewedAt: '2026-10-28T09:05:00.000Z',
+        sessionId: '0192a000-0000-7000-8000-000000000944',
+      );
+      expect(built['grade'], 'again');
+      expect(() => OperationPayloads.validatePayload('card.review', built),
+          returnsNormally);
+      expect(
+        () => OperationPayloads.cardReview(
+          cardId: 'not-a-uuid',
+          grade: 'good',
+          algorithm: 'sm2',
+          stateBefore: unseen,
+          stateAfter: seen,
+          reviewedAt: '2026-10-28T09:05:00.000Z',
+          sessionId: '0192a000-0000-7000-8000-000000000944',
+        ),
+        throwsFormatException,
+      );
+
+      expect(OperationPayloads.isKnownOpType('card.review'), isTrue);
+    });
+
     test('unknown op type is rejected', () {
       expect(
         () => OperationPayloads.validatePayload('node.archive', {

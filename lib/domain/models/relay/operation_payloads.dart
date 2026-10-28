@@ -80,6 +80,17 @@
 /// writes, present-null clears, exactly like `color`. Strict payloads: the
 /// key is additive, so pre-change clients reject it — the lockstep law
 /// gates mixed writers.
+///
+/// Card-review batch (2026-10-28 memorization-cards lockstep, SCHEMA.md
+/// "Memorization cards"): `card.review` — one op per graded review, strict
+/// `{cardId, grade, algorithm, stateBefore, stateAfter, reviewedAt,
+/// sessionId}`. `grade` is the four-button enum (again|hard|good|easy);
+/// `algorithm` names the scheduler (sm2|fsrs); `stateBefore`/`stateAfter`
+/// are the strict `cardSrsState` records (`due` YYYY-MM-DD or null =
+/// unseen; `reps`/`interval` numbers; `ease`/`difficulty`/`stability`
+/// numbers or null until the chosen algorithm initializes them). HISTORY-ONLY
+/// at the store: append-only derived rows, no LWW gate, never writes
+/// property values.
 library;
 
 import 'colors.dart';
@@ -121,6 +132,7 @@ class OperationPayloads {
     'workspace.feature.set',
     'external_ref.set',
     'external_ref.delete',
+    'card.review',
   ];
 
   static bool isKnownOpType(String opType) => knownOpTypes.contains(opType);
@@ -758,6 +770,42 @@ class OperationPayloads {
   static Map<String, dynamic> externalRefDelete({required String ref}) =>
       _validated('external_ref.delete', {'ref': ref});
 
+  // --- card review (SRS) --------------------------------------------------------
+
+  /// Memorization-card review record (the SRS substrate, 2026-10-28
+  /// memorization-cards lockstep, SCHEMA.md "Memorization cards"): one op
+  /// per graded review, carrying the full SRS state transition
+  /// ([stateBefore]/[stateAfter] — the strict `cardSrsState` records:
+  /// `due` YYYY-MM-DD or null = unseen; `reps`/`interval` numbers;
+  /// `ease`/`difficulty`/`stability` numbers or null until the chosen
+  /// algorithm initializes them) so every replica applies the same
+  /// scheduling outcome without depending on a local algorithm
+  /// implementation. [grade] is the four-button scale (again|hard|good|
+  /// easy); [algorithm] names which scheduler produced the states;
+  /// [reviewedAt] is the ISO timestamp; [sessionId] groups the reviews of
+  /// one study session (uuid, no referential integrity). The store keeps
+  /// HISTORY-ONLY append-only rows — no LWW gate — and the op never writes
+  /// property values (the seeded card-family properties stay the current
+  /// schedule surface; the op is the review journal).
+  static Map<String, dynamic> cardReview({
+    required String cardId,
+    required String grade,
+    required String algorithm,
+    required Map<String, dynamic> stateBefore,
+    required Map<String, dynamic> stateAfter,
+    required String reviewedAt,
+    required String sessionId,
+  }) =>
+      _validated('card.review', {
+        'cardId': cardId,
+        'grade': grade,
+        'algorithm': algorithm,
+        'stateBefore': stateBefore,
+        'stateAfter': stateAfter,
+        'reviewedAt': reviewedAt,
+        'sessionId': sessionId,
+      });
+
   // --- assets & collections ---------------------------------------------------
 
   static Map<String, dynamic> assetAttach({
@@ -846,6 +894,11 @@ class OperationPayloads {
   /// value may claim; NULL/absent = day at the read model).
   static const _datePrecisions = {'year', 'month', 'day'};
   static const _numberRoundings = {'round', 'floor', 'ceil', 'truncate'};
+
+  /// The card-review enums (SCHEMA.md "Memorization cards"): the
+  /// four-button grade scale and the scheduler names.
+  static const _cardReviewGrades = {'again', 'hard', 'good', 'easy'};
+  static const _cardReviewAlgorithms = {'sm2', 'fsrs'};
 
   static final _uuidPattern = RegExp(
     r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
@@ -1153,6 +1206,30 @@ class OperationPayloads {
       case 'external_ref.delete':
         _strict(payload, {'ref'});
         _string(payload, 'ref', min: 1, max: externalRefMaxLength);
+      case 'card.review':
+        // The strict SRS review record (SCHEMA.md "Memorization cards"):
+        // the state snapshots are strict `cardSrsState` records — due is a
+        // YYYY-MM-DD string or null (unseen), reps/interval are plain
+        // numbers, ease/difficulty/stability are numbers or null until the
+        // chosen algorithm initializes them. grade is the four-button enum;
+        // algorithm names the scheduler; sessionId groups one study session
+        // (uuid, no referential integrity).
+        _strict(payload, {
+          'cardId',
+          'grade',
+          'algorithm',
+          'stateBefore',
+          'stateAfter',
+          'reviewedAt',
+          'sessionId',
+        });
+        _uuid(payload, 'cardId');
+        _enum(payload, 'grade', _cardReviewGrades);
+        _enum(payload, 'algorithm', _cardReviewAlgorithms);
+        _cardSrsState(payload, 'stateBefore');
+        _cardSrsState(payload, 'stateAfter');
+        _string(payload, 'reviewedAt', min: 1);
+        _uuid(payload, 'sessionId');
       case 'asset.attach':
         _strict(payload, {
           'objectId',
@@ -1331,6 +1408,67 @@ class OperationPayloads {
         'Field $key must be an int >= $min${max != null ? ' and <= $max' : ''}',
       );
     }
+  }
+
+  /// A plain JSON number (int or double — the wire does not distinguish;
+  /// `z.number()` parity).
+  static void _num(Map<String, dynamic> payload, String key) {
+    final value = payload[key];
+    if (value == null || value is! num) {
+      throw FormatException('Field $key must be a number');
+    }
+  }
+
+  /// A nullable number: null is a valid value (the cardSrsState
+  /// ease/difficulty/stability slots — null = the chosen algorithm has not
+  /// initialized them yet); a present non-number fails loud.
+  static void _numNullable(Map<String, dynamic> payload, String key) {
+    final value = payload[key];
+    if (value != null && value is! num) {
+      throw FormatException('Field $key must be a number or null');
+    }
+  }
+
+  /// The strict `cardSrsState` record (SCHEMA.md "Memorization cards"):
+  /// `{due, reps, interval, ease, difficulty, stability}` — due is a
+  /// YYYY-MM-DD string or null (unseen), reps/interval are plain numbers,
+  /// ease/difficulty/stability are nullable numbers. Unknown keys reject;
+  /// every key is REQUIRED (zod `.strict()` parity — a nullable field is
+  /// present-null, never absent).
+  static void _cardSrsState(Map<String, dynamic> payload, String key) {
+    final value = payload[key];
+    if (value is! Map<String, dynamic>) {
+      throw FormatException('Field $key must be a cardSrsState object');
+    }
+    _strict(value, {
+      'due',
+      'reps',
+      'interval',
+      'ease',
+      'difficulty',
+      'stability',
+    });
+    for (final field in const [
+      'due',
+      'reps',
+      'interval',
+      'ease',
+      'difficulty',
+      'stability',
+    ]) {
+      if (!value.containsKey(field)) {
+        throw FormatException('Field $key.$field is required');
+      }
+    }
+    final due = value['due'];
+    if (due != null && due is! String) {
+      throw FormatException('Field $key.due must be a YYYY-MM-DD string or null');
+    }
+    _num(value, 'reps');
+    _num(value, 'interval');
+    _numNullable(value, 'ease');
+    _numNullable(value, 'difficulty');
+    _numNullable(value, 'stability');
   }
 
   static void _boolNullable(Map<String, dynamic> payload, String key,

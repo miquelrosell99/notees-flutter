@@ -2876,6 +2876,80 @@ class NodeCacheRepository {
     return rows.map((row) => row['ref'] as String).toList();
   }
 
+  // --- card review history (SCHEMA.md "Memorization cards") ---------------------
+
+  /// One append-only `card.review` row (the TS store's `applyCardReview`
+  /// insert): HISTORY-ONLY — the caller (the applier) applies EVERY
+  /// envelope, no LWW gate, no superseded path, and the op never writes
+  /// property values (the seeded card-family properties stay the current
+  /// schedule surface; the rows are the review journal's derived read). The
+  /// state snapshots ride as JSON text, exactly the TS store's
+  /// `JSON.stringify` projection.
+  Future<void> insertCardReview({
+    required String cardId,
+    required String sessionId,
+    required String grade,
+    required String algorithm,
+    required Map<String, dynamic> stateBefore,
+    required Map<String, dynamic> stateAfter,
+    required String reviewedAt,
+    required int hlcPhysical,
+    required int hlcLogical,
+    String? actorId,
+  }) async {
+    final db = await _database.database;
+    await db.insert('card_review', {
+      'card_id': cardId,
+      'session_id': sessionId,
+      'grade': grade,
+      'algorithm': algorithm,
+      'state_before': jsonEncode(stateBefore),
+      'state_after': jsonEncode(stateAfter),
+      'reviewed_at': reviewedAt,
+      'hlc_physical': hlcPhysical,
+      'hlc_logical': hlcLogical,
+      'actor_id': actorId,
+    });
+  }
+
+  /// Review history of a memorization card (the TS store's
+  /// `Store.listCardReviews`): every `card.review` row for the node in HLC
+  /// order, the state snapshots JSON-parsed back to records. The table is
+  /// append-only history — no LWW collapse — so a card reviewed n times
+  /// lists n rows, and the card's current SRS state is the LATEST row's
+  /// stateAfter. Empty for a card never reviewed (or an unknown id).
+  Future<List<CardReviewRow>> listCardReviews(String cardId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'card_review',
+      columns: [
+        'session_id',
+        'grade',
+        'algorithm',
+        'state_before',
+        'state_after',
+        'reviewed_at',
+      ],
+      where: 'card_id = ?',
+      whereArgs: [cardId],
+      orderBy: 'hlc_physical, hlc_logical',
+    );
+    return rows
+        .map(
+          (row) => CardReviewRow(
+            sessionId: row['session_id'] as String,
+            grade: row['grade'] as String,
+            algorithm: row['algorithm'] as String,
+            stateBefore:
+                jsonDecode(row['state_before'] as String) as Map<String, dynamic>,
+            stateAfter:
+                jsonDecode(row['state_after'] as String) as Map<String, dynamic>,
+            reviewedAt: row['reviewed_at'] as String,
+          ),
+        )
+        .toList();
+  }
+
   /// INSERT-or-ignore a class registry row (the task-family seed-ensure):
   /// a client-authored or server-seeded family is never clobbered — first
   /// writer wins, convergent on the single global log.
@@ -5305,4 +5379,26 @@ dynamic _decodeJsonOrRaw(String raw) {
   } catch (_) {
     return raw;
   }
+}
+
+/// One memorization-card review history row (SCHEMA.md "Memorization
+/// cards"): the derived projection of a `card.review` envelope, listed back
+/// through [NodeCacheRepository.listCardReviews]. The state snapshots are
+/// the strict `cardSrsState` records (JSON-parsed from the stored text).
+class CardReviewRow {
+  const CardReviewRow({
+    required this.sessionId,
+    required this.grade,
+    required this.algorithm,
+    required this.stateBefore,
+    required this.stateAfter,
+    required this.reviewedAt,
+  });
+
+  final String sessionId;
+  final String grade;
+  final String algorithm;
+  final Map<String, dynamic> stateBefore;
+  final Map<String, dynamic> stateAfter;
+  final String reviewedAt;
 }
