@@ -8,6 +8,91 @@ lives in git history.
 
 ## 2026-10-28
 
+- **feat(cards): memorization cards — the hub + the review session UI.**
+  Follow-up to the lockstep slice below (the `card` class rename, the six
+  card-family property schemas, and the `card.review` history op all
+  shipped there); this slice is UI + scheduling only — zero wire/model/
+  applier changes. The web app is the source of truth throughout.
+  (1) **Scheduler** — a 1:1 pure-Dart port of the web `packages/domain/src/srs.ts`
+  (`lib/domain/services/srs.dart`): SM-2 (quality map again 1/hard 3/good 4/easy
+  5, initial ease 2.5, floor 1.3, intervals 1 → 6 → `round(interval·ease)`,
+  lapse resets reps 0/interval 1) and FSRS-5 (the fixed 19-weight vector, no
+  fitting — v1), one `CardSrsState` carrying BOTH algorithms' fields so a
+  mid-deck algorithm switch initializes only the active algorithm's fields
+  and the other's stay byte-for-byte stale; UTC day math. The hub/queue
+  scheduling (`lib/domain/services/card_schedule.dart`) ports the web
+  partition (due day-asc by (day, id) / fresh input order / later
+  day-asc), the review queue (due-first then fresh, **future-due dropped
+  never queued**), the datetime slot grammar (`scheduledIsoOf` — point
+  slot day, range start-day falling back to the end-day, day-precision
+  strictness), and the SRS-state read (missing/unparseable fields read as
+  the unseen defaults).
+  (2) **The write path** — `NodeRepository.reviewCard` (the web
+  `client.ts reviewCard` parity, with the `card.review` append folded in —
+  this client has no undo journal, so "append after the property writes"
+  is the order): idx-addressed `property.set` envelopes for the ACTIVE
+  algorithm's fields ONLY (sm2 → `cardEase`; fsrs → `cardDifficulty` +
+  `cardStability`; the inactive fields stay byte-for-byte stale — a
+  hard-coded branch, never a generic write-all), every write addressing
+  the row's existing idx re-read at write time, then the strict
+  `card.review` envelope (one `sessionId` per session). Fails loud on a
+  missing card before any write lands.
+  (3) **Ruling — the date chain is ensured before the due write.** The
+  `getOrCreateDailyJournal` seam is DAY-ONLY (verified by test — it
+  creates the day node, never the month/year, so a day node would land
+  parentless and diverge from the web's parent-locked chain shape);
+  `NodeRepository.ensureDateChain` therefore mirrors the web
+  `ensureDateChain` and creates year (workspace root) → month (under the
+  year) → day (under the month) at the deterministic ids with the compact
+  date labels, each only when missing. The documented Phase-A divergence —
+  no restore op, so a trashed chain node reads as missing — is noted in
+  the method's doc comment.
+  (4) **Prefs** — `PrefsRepository.getCardsAlgorithm/setCardsAlgorithm`
+  over `GET`/`PUT /api/me/prefs` (the server is the authority; a
+  `shared_preferences` device copy carries offline reads — **offline
+  default `fsrs`** — and offline writes flush to the server on the next
+  successful call; an invalid/absent server value falls back to `fsrs`);
+  `CardsPrefsProvider` is a ChangeNotifier with an optimistic toggle.
+  (5) **Navigation (ruling: the fifth bottom-nav destination, Home · Tasks
+  · Cards · Journal · Library)** — `Routes.cards '/cards'` lands on
+  `MainShellScreen(initialIndex: 2)`; `Routes.cardsReview '/cards/review'`
+  is a pushed route taking the session hand-off via `state.extra`
+  (`CardsSessionHandOff`: cardIds + label — the web sessionStorage
+  hand-off's local equivalent; a missing/corrupt extra resolves every
+  card member, the web deep-link fallback); the command palette gains
+  "Go to cards".
+  (6) **The hub** (`CardsScreen`, the Tasks-screen shape): members via
+  `searchWithFilters(classUuids: [card], limit: 500)`, the family
+  self-heal (`ensureCardFamily` — the web `cardFamily.ts` port: the six
+  schemas + card-class bindings authored idempotently over `emitLocal`, a
+  no-op once present, the binding pass skipped when the card class node is
+  absent, the whole thing skipped for local workspaces where the seed
+  authors the family; the bound-set read is the op-log `class_property`
+  table, not the snapshot-mirror edge table), the bucket strip (Review N
+  due · M new, disabled at 0; fresh/later pills), FleetCard rows
+  (one-line title, due-day caption, per-row play → a "Single card"
+  session, row tap → editor), the AppBar SegmentedButton ("FSRS
+  (default)"/"SM-2", the web SelectionButton labels).
+  (7) **The review session** (`ReviewSessionScreen`, the web
+  `ReviewSession.tsx` parity): front = the card node's own content;
+  Reveal → the back = the node row + its embedded children; a front-only
+  card names its emptiness ("No answer on this card") and grading still
+  works; the grade bar is Again (error-styled) / Hard / Good / Easy; lapses
+  counted (Again && reps > 0); the summary screen ("N cards reviewed" +
+  "M lapses", "Back to cards"); the empty queue renders the web copy
+  verbatim ("Nothing to review" / "No cards are due. New cards appear here
+  once the card class is assigned.") with a Back action. Verification:
+  71 new tests across the srs vectors (mirroring `srs.test.ts` exactly
+  plus Dart edge arms whose expected numbers were generated from the TS
+  implementation itself), the partition/queue/slot-grammar pins, the
+  prefs round-trips and fallbacks, the routing/navigation widget tests,
+  the hub (sqflite_ffi harness — bucket counts, hand-off ids, toggle
+  write, the self-heal arms), the write path (envelope order and payload
+  shapes for both algorithms, the stale-fields arms, the fresh/reused
+  chain arms, the seam day-only pin, the fail-loud arm), and the session
+  flows (front→reveal→grade→advance, front-only, summary/lapses, empty,
+  vanished-node drop) — 805 tests green, `flutter analyze` clean.
+
 - **feat(protocol,store): memorization cards lockstep — the `card` class
   rename, the six card-family property schemas, and the `card.review`
   history op.** Lockstep with the monorepo's `memorization-cards` branch
