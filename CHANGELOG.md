@@ -8,6 +8,27 @@ lives in git history.
 
 ## 2026-10-28
 
+- **fix(home): the command palette pushes the editor with the wire uuid.**
+  The palette's `NodeCommand` branch built the editor route from `Node.id`
+  (the local int row id) while every other editor push in the app uses
+  `Node.uuid` — the push landed on a nonexistent node. Now
+  `MainShellScreen` pushes `'${Routes.editor}/${node.uuid}'` like the rest
+  of the app. Pinned by a widget test driving the real shell + palette over
+  a scripted recent-pages cache: the pushed path parameter is asserted
+  uuid-shaped and equal to the node's wire uuid, distinct from the local
+  row id (the test fails against the row-id construction).
+- **fix(prefs): the queued offline cards-algorithm write survives an app
+  restart.** `PrefsRepository`'s pending offline PUT lived in memory only,
+  so a restart dropped it and the next successful GET could clobber the
+  device copy with the server's stale value. The pending scalar now rides a
+  second `shared_preferences` key (`notees.cardsAlgorithm.pending`): written
+  when a push fails, cleared when the flush lands, restored at construction
+  — all existing behaviors unchanged (flush-before-answer ordering,
+  answer-from-pending on flush success, invalid→fsrs, offline read = device
+  copy else fsrs). Verified by a new test arm: a pending write survives a
+  repository rebuild over the same prefs store and is not re-flushed after
+  it has landed (the arm fails against the in-memory-only implementation).
+
 - **feat(cards): memorization cards — the hub + the review session UI.**
   Follow-up to the lockstep slice below (the `card` class rename, the six
   card-family property schemas, and the `card.review` history op all
