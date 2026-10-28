@@ -3977,6 +3977,22 @@ class NodeCacheRepository {
     );
   }
 
+  /// The op-log binding's active flag for [classId]/[schemaId]; null when
+  /// no binding row exists (never bound, or unset — the row is deleted on
+  /// unset). Absent column reads as active (the column defaults to 1).
+  Future<bool?> classPropertyBindingActive(String classId, String schemaId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'class_property',
+      columns: ['active'],
+      where: 'class_id = ? AND property_schema_id = ?',
+      whereArgs: [classId, schemaId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return ((rows.first['active'] as num?) ?? 1) == 1;
+  }
+
   /// Upserts a binding row. Omitted fields KEEP their stored values (partial
   /// patch, port of the SQL COALESCE). [active] (PC4) is the soft-unbind
   /// flag: omitted keeps the stored flag; a NEW row defaults to active. The

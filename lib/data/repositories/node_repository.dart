@@ -635,6 +635,13 @@ class NodeRepository {
     return _cache!.getPropertySchemaRow(uuid);
   }
 
+  /// The op-log class binding's active flag for [classUuid]/[schemaUuid];
+  /// null when no binding row exists.
+  Future<bool?> fetchClassPropertyBindingActive(String classUuid, String schemaUuid) async {
+    _requireCache();
+    return _cache!.classPropertyBindingActive(classUuid, schemaUuid);
+  }
+
   Future<String?> getMostRecentTaskCompletionId(String taskUuid) async {
     _requireCache();
     return _cache!.getMostRecentTaskCompletionId(taskUuid);
