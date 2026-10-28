@@ -405,19 +405,19 @@ void main() {
       }
     });
 
-    test('boolean/url/email/select are typed; multi_select is a string list',
+    test('boolean/email/select are typed; multi_select is a string list',
         () async {
       const boolSchema = '0192a000-0000-7000-8000-000000000206';
-      const urlSchema = '0192a000-0000-7000-8000-000000000207';
+      const emailSchema = '0192a000-0000-7000-8000-000000000207';
       const selectSchema = '0192a000-0000-7000-8000-000000000208';
       const multiSchema = '0192a000-0000-7000-8000-000000000209';
       await createNode(owner);
       await createSchema(boolSchema, 'boolean');
-      await createSchema(urlSchema, 'url');
+      await createSchema(emailSchema, 'email');
       await createSchema(selectSchema, 'select');
       await createSchema(multiSchema, 'multi_select');
       await setValue(boolSchema, true);
-      await setValue(urlSchema, 'https://example.com');
+      await setValue(emailSchema, 'a@example.com');
       await setValue(selectSchema, 'opt-1');
       await setValue(multiSchema, ['a', 'b']);
       expect(
@@ -425,7 +425,7 @@ void main() {
         throwsA(isA<PropertyValueShapeError>()),
       );
       expect(
-        () => setValue(urlSchema, 42),
+        () => setValue(emailSchema, 42),
         throwsA(isA<PropertyValueShapeError>()),
       );
       expect(
@@ -749,7 +749,7 @@ void main() {
   group('R2 validationRules value enforcement', () {
     const numberSchema = '0192a000-0000-7000-8000-000000000301';
     const textSchema = '0192a000-0000-7000-8000-000000000302';
-    const urlSchema = '0192a000-0000-7000-8000-000000000303';
+    const emailSchema = '0192a000-0000-7000-8000-000000000303';
     const keywordsSchema = '0192a000-0000-7000-8000-000000000304';
 
     Future<void> setRules(String schemaId, Map<String, dynamic> rules) => apply(
@@ -797,20 +797,20 @@ void main() {
       expect(jsonDecode(rows.single['value'] as String), 100);
     });
 
-    test('text/url/email full-string-test scalars against the pattern; '
+    test('text/email full-string-test scalars against the pattern; '
         'carrier refs and rule-free schemas ride unchecked', () async {
       await createNode(owner);
       await createNode(target);
       await createSchema(textSchema, 'text');
-      await createSchema(urlSchema, 'url');
+      await createSchema(emailSchema, 'email');
       await setRules(textSchema, {'pattern': '[a-z0-9-]+'});
-      await setRules(urlSchema, {'pattern': 'https://.+'});
+      await setRules(emailSchema, {'pattern': r'[^@\s]+@[^@\s]+'});
       await setValue(textSchema, 'hello-world');
-      await setValue(urlSchema, 'https://example.com');
+      await setValue(emailSchema, 'a@example.com');
       // A substring match is NOT a full-string match (implicit anchors).
       expect(() => setValue(textSchema, 'Hello World'),
           throwsA(isA<PropertyValueShapeError>()));
-      expect(() => setValue(urlSchema, 'ftp://example.com'),
+      expect(() => setValue(emailSchema, 'a@example.com (Alice)'),
           throwsA(isA<PropertyValueShapeError>()));
       // A text carrier ref {nodeId} is not a scalar string — the shape
       // family owns refs; the rule check skips it.

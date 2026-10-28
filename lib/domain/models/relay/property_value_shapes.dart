@@ -31,7 +31,7 @@ import 'store_errors.dart';
 ///  - number: a finite number; a NUMERIC STRING is the migrated legacy
 ///    encoding (live data carries epoch-millis strings) and normalizes to a
 ///    number, anything else is rejected.
-///  - boolean: a boolean. url / email / select: a string. multi_select: an
+///  - boolean: a boolean. email / select: a string. multi_select: an
 ///    array of strings (the option-id list).
 ///  - image: UNCHECKED by design — the type has no defined value shape yet
 ///    (PG14's zombie row): live data carries migrated asset-payload records
@@ -169,7 +169,6 @@ bool isValidDefaultForType(String type, dynamic value) {
   if (value == null) return true;
   switch (type) {
     case 'text':
-    case 'url':
     case 'email':
     case 'image':
     case 'select':
@@ -212,7 +211,6 @@ dynamic assertScalarShapeForType(String type, dynamic value, String opType) {
     case 'boolean':
       if (value is bool) return value;
       break;
-    case 'url':
     case 'email':
     case 'select':
       if (value is String) return value;
@@ -246,7 +244,7 @@ int datePrecisionRank(String? precision) => switch (precision) {
 
 /// The parsed validationRules column (the R2 value enforcement, owner
 /// 2026-10-20 — SCHEMA.md "Properties"): number schemas bound values with
-/// inclusive min/max; text/url/email schemas full-string-test scalar values
+/// inclusive min/max; text/email schemas full-string-test scalar values
 /// against an authored pattern (the HTML pattern semantics — the value check
 /// adds the anchors around the stored source). A null map = no rules.
 class ValidationRules {
@@ -277,7 +275,7 @@ ValidationRules? validationRulesOfRaw(dynamic raw) {
 /// R2 applicability: the update payload is a patch
 /// carrying no type, so validationRules applicability is enforced against
 /// the schema's STORED type — min/max only on `number` schemas, pattern only
-/// on `text`/`url`/`email` (min <= max is a parse-time rule). Fail loud —
+/// on `text`/`email` (min <= max is a parse-time rule). Fail loud —
 /// the rules would be provably inert or wrong-typed.
 void assertValidationRulesApplicable(
   String schemaType,
@@ -293,10 +291,9 @@ void assertValidationRulesApplicable(
   }
   if (rules.pattern != null &&
       schemaType != 'text' &&
-      schemaType != 'url' &&
       schemaType != 'email') {
     throw PropertyValueShapeError(
-      '$opType: validationRules pattern applies to text/url/email schemas '
+      '$opType: validationRules pattern applies to text/email schemas '
       'only — schema type is $schemaType',
       opType,
     );
@@ -327,7 +324,7 @@ void assertValidationPatternCompilable(
 /// The stored validationRules applied to a NORMALIZED value (the R2 value
 /// enforcement): min/max bound a number schema's value (the legacy numeric
 /// string already normalized to a finite number upstream), pattern
-/// full-string-tests a text/url/email schema's SCALAR strings (a text
+/// full-string-tests a text/email schema's SCALAR strings (a text
 /// carrier ref {nodeId} is not a string and rides unchecked — the shape
 /// family owns refs). A multi batch is a property.set per element (PG5), so
 /// every element is validated at its own write. Types outside applicability
@@ -360,7 +357,7 @@ void assertValidationRulesForValue(
     }
     return;
   }
-  if (schemaType == 'text' || schemaType == 'url' || schemaType == 'email') {
+  if (schemaType == 'text' || schemaType == 'email') {
     final pattern = rules.pattern;
     if (pattern == null || typed is! String) return;
     RegExp re;

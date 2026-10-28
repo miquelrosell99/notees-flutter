@@ -194,8 +194,6 @@ class _PropertyValueCellState extends State<PropertyValueCell> {
       case 'float':
       case 'number':
         return _buildTextField(keyboardType: const TextInputType.numberWithOptions(decimal: true));
-      case 'url':
-        return _buildTextField(keyboardType: TextInputType.url);
       case 'email':
         return _buildTextField(keyboardType: TextInputType.emailAddress);
       case 'text':

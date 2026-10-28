@@ -522,7 +522,7 @@ class OperationPayloads {
   ///
   /// [defaultValue] is the property's ONE GLOBAL default (moved from the class binding to the schema, the Logseq
   /// shape): any JSON value, typed per the schema [type] (PC2, validated at
-  /// apply — text/url/email/image/select: string; number: finite number;
+  /// apply — text/email/image/select: string; number: finite number;
   /// boolean: boolean; multi_select: array of strings; datetime/object/asset:
   /// only JSON null, "a default that links a node is meaningless"). Absent =
   /// no default; editing a default in the UI writes an authored property.set
@@ -591,7 +591,7 @@ class OperationPayloads {
   /// none, default to none; an empty targetClassFilter means "no filter").
   /// [validationRules]
   /// is {min?, max?, pattern?} — min/max apply to number schemas only,
-  /// pattern to text/url/email only, min <= max; applicability against the
+  /// pattern to text/email only, min <= max; applicability against the
   /// STORED type and pattern compilability are applier-side checks (the
   /// update payload carries no type), exactly like the defaultValue PC2
   /// type-check. Pass the sentinel-defaulted params
@@ -817,7 +817,13 @@ class OperationPayloads {
     // (slot = `{nodeId, time?}`) anchored to the year/month/day node
     // chain — see SCHEMA.md "Datetime".
     'datetime',
-    'url',
+    // RETIRED 2026-10-28: the dedicated `url` property type is gone — the
+    // seeded `url` property (…0000-000000000024) survives by name/uuid as a
+    // `text`-typed schema and legacy url values render inline as plain text
+    // (bare URLs linkify through the markdownLinks grammar, the only
+    // affordance). Strict schemas reject the retired value outright; live
+    // logs rewrite in place via the monorepo's migrate-url-type-to-text.mts
+    // (Path A). `email` is untouched.
     'email',
     'select',
     'multi_select',

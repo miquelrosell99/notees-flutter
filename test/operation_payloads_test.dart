@@ -341,7 +341,7 @@ void main() {
     });
 
     test('propertySchema.create accepts datetime and rejects the retired '
-        'date/date_range types outright', () {
+        'date/date_range/url types outright', () {
       final payload = OperationPayloads.propertySchemaCreate(
         propertySchemaId: classId,
         name: 'When',
@@ -352,8 +352,9 @@ void main() {
       expect(() => OperationPayloads.validatePayload(
           'propertySchema.create', payload), returnsNormally);
       // The strict enum: the retired values are rejected outright (the
-      // live log rewrites them to datetime before pre-batch clients mix).
-      for (final retired in ['date', 'date_range']) {
+      // live log rewrites them — date/date_range to datetime, url to text —
+      // before pre-batch clients mix).
+      for (final retired in ['date', 'date_range', 'url']) {
         expect(
           () => OperationPayloads.validatePayload('propertySchema.create', {
             'propertySchemaId': classId,

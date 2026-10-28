@@ -6,6 +6,35 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-28
+
+- **feat(protocol)!: accept the retired `url` property type (url → text).**
+  Lockstep with the monorepo's url-type-retirement slice (TS ships first; the
+  Flutter branch is `url-type-retirement`, unmerged by design). The strict
+  `propertySchema.create` type enum loses `url` outright — a url-typed schema
+  payload fails loud at the validation layer (the retirement comment block
+  mirrors `op-types.ts`), mirroring the retired `date`/`date_range` handling.
+  The seeded `url` property (uuid …0000-000000000024) survives by name/uuid as
+  a `text`-typed schema per the TS seed manifest — the mobile seed delta never
+  declared it, so no seed change here. The value-shape arms follow the TS
+  `property-values.ts` port: the `url` cases drop out of
+  `isValidDefaultForType` / `assertScalarShapeForType` / the R2
+  validationRules applicability + pattern value check (text/email cover
+  everything url did; `email` is untouched), and the doc headers reword to
+  text/email. The alive `PropertyValueCell` editor drops its `url` arm (a
+  text-typed schema renders the default text field; bare URLs linkify through
+  the markdownLinks grammar, the only affordance). Coverage: the retired-type
+  rejection test gains `url`; the two PG6/R2 validation tests retype their
+  url schema to `email` (string-scalar coverage unchanged). The two corpus
+  fixtures the slice touches arrive verbatim (byte-pinned):
+  `property-validation-rules.json` (the Homepage schema retypes url → text,
+  its url-shaped pattern riding a text schema) and
+  `property-schema-update-fields.json` (the comment reword). The third
+  monorepo fixture diff, `property-assign.json`, stays unvendored — its
+  `property.assign` wire belongs to the node-property-assignment slice, not
+  yet ported to Flutter (that slice vendors it). Verified: `flutter analyze`
+  clean + `flutter test` green.
+
 ## 2026-10-27
 
 - **test(sync): vendor the `tag-membership` fixture + replay expectations —
