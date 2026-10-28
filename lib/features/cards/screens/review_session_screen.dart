@@ -28,14 +28,17 @@ class CardsSessionHandOff {
   final String label;
 
   /// Parses `state.extra`; null for a missing/corrupt extra (the route then
-  /// falls back to every card member, the web deep-link fallback).
+  /// falls back to every card member, the web deep-link fallback). An
+  /// EXPLICIT empty cardIds list is a valid hand-off — the session renders
+  /// its "Nothing to review" empty state, the web behavior for an empty
+  /// queue.
   static CardsSessionHandOff? fromExtra(Object? extra) {
     if (extra is! Map) return null;
     final rawIds = extra['cardIds'];
     final label = extra['label'];
     if (rawIds is! List) return null;
     final cardIds = rawIds.whereType<String>().toList(growable: false);
-    if (cardIds.isEmpty || label is! String) return null;
+    if (label is! String) return null;
     return CardsSessionHandOff(cardIds: cardIds, label: label);
   }
 }

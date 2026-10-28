@@ -193,14 +193,19 @@ void main() {
       expect(handOff?.label, 'All cards');
     });
 
+    test('an explicit empty cardIds list is a valid (empty) hand-off', () {
+      final handOff = CardsSessionHandOff.fromExtra(<String, dynamic>{
+        'cardIds': <String>[],
+        'label': 'All cards',
+      });
+      expect(handOff?.cardIds, isEmpty);
+      expect(handOff?.label, 'All cards');
+    });
+
     test('rejects a missing/corrupt extra', () {
       expect(CardsSessionHandOff.fromExtra(null), isNull);
       expect(CardsSessionHandOff.fromExtra('garbage'), isNull);
       expect(CardsSessionHandOff.fromExtra(<String, dynamic>{}), isNull);
-      expect(
-        CardsSessionHandOff.fromExtra(<String, dynamic>{'cardIds': <String>[], 'label': 'x'}),
-        isNull,
-      );
       expect(
         CardsSessionHandOff.fromExtra(<String, dynamic>{'cardIds': <String>['a']}),
         isNull,
