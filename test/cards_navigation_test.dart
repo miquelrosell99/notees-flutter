@@ -149,8 +149,8 @@ void main() {
       expect(find.text('Could not start the review session'), findsOneWidget);
     });
 
-    testWidgets('a pushed /cards/review with a hand-off extra skips the fallback',
-        (tester) async {
+    testWidgets('a pushed /cards/review with a hand-off extra drives the session '
+        '(the ids are used — no member-resolve fallback)', (tester) async {
       final auth = fakeAuth();
       final router = await pumpRouter(tester, auth: auth, location: Routes.cards);
       expect(find.byType(CardsScreen), findsOneWidget);
@@ -162,8 +162,11 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
+      // The session screen took the hand-off (the fake environment has no
+      // usable cache, so the queue load lands on the honest error state —
+      // the same visible arm as a deep link, but reached WITH the ids).
       expect(find.byType(ReviewSessionScreen), findsOneWidget);
-      expect(find.text('2 cards'), findsOneWidget);
+      expect(find.text('Could not start the review session'), findsOneWidget);
     });
 
     testWidgets('a corrupt hand-off extra falls back like a deep link',

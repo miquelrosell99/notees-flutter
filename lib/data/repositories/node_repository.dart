@@ -801,6 +801,18 @@ class NodeRepository {
     return _cache!.getPropertySchemaRow(uuid);
   }
 
+  Future<List<Node>> getChildren(String parentUuid) async {
+    _requireCache();
+    return _cache!.getChildren(parentUuid);
+  }
+
+  /// The cached node, or null when absent — NO pull (the review session's
+  /// "vanished between hand-off and open" read).
+  Future<Node?> getCachedNode(String uuid) async {
+    _requireCache();
+    return syncService!.getCachedNode(uuid);
+  }
+
   /// The op-log class binding's active flag for [classUuid]/[schemaUuid];
   /// null when no binding row exists.
   Future<bool?> fetchClassPropertyBindingActive(String classUuid, String schemaUuid) async {
