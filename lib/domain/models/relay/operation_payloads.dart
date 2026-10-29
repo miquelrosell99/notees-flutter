@@ -81,6 +81,16 @@
 /// key is additive, so pre-change clients reject it — the lockstep law
 /// gates mixed writers.
 ///
+/// Class displayTemplate batch (2026-10-29 lockstep, SCHEMA.md):
+/// `class.create`/`class.update` gain the OPTIONAL NULLABLE
+/// `displayTemplate` — a format string render surfaces apply to the derived
+/// titles of the class's members. Tri-state, exactly like `color`: absent =
+/// inherit (a re-issued create PRESERVES the stored value), a non-empty
+/// string = the template, `""` = an explicit opt-out (round-trips as ''
+/// and STOPS extends-inheritance for the class and its subclasses), present
+/// null = clear back to NULL/inherit. Strict payloads: the key is additive,
+/// so pre-change clients reject it — the lockstep law gates mixed writers.
+///
 /// Card-review batch (2026-10-28 memorization-cards lockstep, SCHEMA.md
 /// "Memorization cards"): `card.review` — one op per graded review, strict
 /// `{cardId, grade, algorithm, stateBefore, stateAfter, reviewedAt,
@@ -355,7 +365,10 @@ class OperationPayloads {
   /// [parentlessRole] is the parentless render role of the class's
   /// standalone instances (`"page"` | `"block"`; omitted = absent, an
   /// explicit `null` CLEARS — presence writes, present-null clears, the
-  /// color contract).
+  /// color contract). [displayTemplate] is the class-level displayTemplate
+  /// (the members' derived-title format string; omitted = inherit — a
+  /// re-issued create PRESERVES the stored value, the applier's
+  /// COALESCE arm).
   static Map<String, dynamic> classCreate({
     required String classId,
     String? name,
@@ -364,6 +377,7 @@ class OperationPayloads {
     String? color,
     String? description,
     Object? parentlessRole = _undefined,
+    Object? displayTemplate = _undefined,
   }) {
     final effectiveContent =
         contentAst ??
@@ -380,6 +394,8 @@ class OperationPayloads {
       'description': ?description,
       if (!identical(parentlessRole, _undefined))
         'parentlessRole': parentlessRole,
+      if (!identical(displayTemplate, _undefined))
+        'displayTemplate': displayTemplate,
     });
   }
 
@@ -390,7 +406,9 @@ class OperationPayloads {
   /// always documented). [parentlessRole] is the parentless render role
   /// (`"page"` | `"block"`); pass `null` explicitly to CLEAR back to the
   /// `"page"` default (presence writes, present-null clears, the color
-  /// contract).
+  /// contract). [displayTemplate] is the class-level displayTemplate; pass
+  /// `null` explicitly to CLEAR back to NULL/inherit, `''` to write the
+  /// explicit opt-out (same contract).
   static Map<String, dynamic> classUpdate({
     required String classId,
     String? name,
@@ -399,13 +417,15 @@ class OperationPayloads {
     Object? color = _undefined,
     String? description,
     Object? parentlessRole = _undefined,
+    Object? displayTemplate = _undefined,
   }) {
     if (name == null &&
         contentAst == null &&
         icon == null &&
         identical(color, _undefined) &&
         description == null &&
-        identical(parentlessRole, _undefined)) {
+        identical(parentlessRole, _undefined) &&
+        identical(displayTemplate, _undefined)) {
       throw ArgumentError('class.update requires at least one field');
     }
     final effectiveContent =
@@ -423,6 +443,8 @@ class OperationPayloads {
       'description': ?description,
       if (!identical(parentlessRole, _undefined))
         'parentlessRole': parentlessRole,
+      if (!identical(displayTemplate, _undefined))
+        'displayTemplate': displayTemplate,
     });
   }
 
@@ -1006,7 +1028,15 @@ class OperationPayloads {
       case 'class.create':
         _strict(
           payload,
-          {'classId', 'contentAst', 'icon', 'color', 'description', 'parentlessRole'},
+          {
+            'classId',
+            'contentAst',
+            'icon',
+            'color',
+            'description',
+            'parentlessRole',
+            'displayTemplate',
+          },
         );
         _uuid(payload, 'classId');
         _list(payload, 'contentAst', required: false);
@@ -1016,10 +1046,23 @@ class OperationPayloads {
         // The parentless render role: nullable+optional —
         // presence writes, present-null clears, exactly like `color`.
         _enum(payload, 'parentlessRole', _parentlessRoles, required: false);
+        // The class-level displayTemplate: nullable+optional —
+        // presence writes ("" = the explicit opt-out), present-null clears
+        // back to NULL/inherit, exactly like `color` (the zod
+        // `z.string().max(1024).nullish()` parity).
+        _string(payload, 'displayTemplate', max: 1024, required: false);
       case 'class.update':
         _strict(
           payload,
-          {'classId', 'contentAst', 'icon', 'color', 'description', 'parentlessRole'},
+          {
+            'classId',
+            'contentAst',
+            'icon',
+            'color',
+            'description',
+            'parentlessRole',
+            'displayTemplate',
+          },
         );
         _uuid(payload, 'classId');
         _list(payload, 'contentAst', required: false);
@@ -1027,6 +1070,7 @@ class OperationPayloads {
         _color(payload, 'color');
         _string(payload, 'description', max: 4096, required: false);
         _enum(payload, 'parentlessRole', _parentlessRoles, required: false);
+        _string(payload, 'displayTemplate', max: 1024, required: false);
       case 'class.setExtends':
         // `class.delete` is RETIRED: it left the
         // op registry outright — the strict validator rejects it like any

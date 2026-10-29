@@ -106,6 +106,17 @@ import '../models/relay/workspace_features.dart';
 ///    bits; the parent-page guard (_isPageRow) reads the same predicate, so
 ///    a standalone claim under a block-role parentless node fails loud (the
 ///    same MoveGuardError, no new error type);
+///  - class-level displayTemplate (2026-10-29 lockstep, SCHEMA.md):
+///    `class.create`/`class.update` carry the OPTIONAL NULLABLE
+///    `displayTemplate` (the members' derived-title format string; absent =
+///    inherit, '' = an explicit opt-out that STOPS extends-inheritance,
+///    present null = clear back to NULL/inherit — the color contract). The
+///    local store keeps class config in class_cache only (the parentlessRole
+///    precedent), so the key lands as the registry column
+///    `display_template` (schema v40) and effective-template reads walk
+///    class_cache × class_extends BFS nearest-first (the TS store
+///    `resolveEffectiveDisplayTemplate` parity — no stored-bit projection
+///    here, render is this client's own release);
 ///  - card.review (2026-10-28 memorization-cards lockstep, SCHEMA.md
 ///    "Memorization cards") is HISTORY-ONLY: one append-only row per graded
 ///    review in the derived card_review table — NO LWW gate, NO superseded
@@ -1674,6 +1685,14 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       parentlessRole: payload.containsKey('parentlessRole')
           ? payload['parentlessRole'] as String?
           : await _cache.classParentlessRole(classId),
+      // The displayTemplate: same presence contract (TS `p.displayTemplate
+      // !== undefined` parity) — absent preserves the stored value (a
+      // re-issued create, the seed/ensure re-run, inherits it), a present
+      // "" writes the explicit opt-out, present null clears back to
+      // NULL/inherit.
+      displayTemplate: payload.containsKey('displayTemplate')
+          ? payload['displayTemplate'] as String?
+          : await _cache.classDisplayTemplate(classId),
       createdAt: envelope.timestamp,
       updatedAt: envelope.timestamp,
     );
@@ -1749,6 +1768,12 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       parentlessRole: payload.containsKey('parentlessRole')
           ? payload['parentlessRole'] as String?
           : await _cache.classParentlessRole(classId),
+      // The displayTemplate: same presence contract — absent keeps, a
+      // present "" writes the explicit opt-out, present null clears back
+      // to NULL/inherit (TS `p.displayTemplate !== undefined` parity).
+      displayTemplate: payload.containsKey('displayTemplate')
+          ? payload['displayTemplate'] as String?
+          : await _cache.classDisplayTemplate(classId),
       updatedAt: envelope.timestamp,
     );
     if (payload.containsKey('parentlessRole')) {

@@ -1243,7 +1243,10 @@ class NodeCacheRepository {
   ///: presence writes, present-null clears — the callers
   /// pass the stored value when the payload omits the key (upsertClass is
   /// replace-semantics; an absent key must not wipe the stored flag, the
-  /// icon/color applier pattern).
+  /// icon/color applier pattern). [displayTemplate] is the class-level
+  /// displayTemplate (the members' derived-title format string) with the
+  /// same presence contract: NULL = inherit, '' = the explicit opt-out,
+  /// a non-empty string = the template.
   Future<void> upsertClass({
     required String uuid,
     String? name,
@@ -1251,6 +1254,7 @@ class NodeCacheRepository {
     String? color,
     String? description,
     String? parentlessRole,
+    String? displayTemplate,
     List<String>? extendsUuids,
     bool? active,
     String? createdAt,
@@ -1259,15 +1263,16 @@ class NodeCacheRepository {
     final db = await _database.database;
     await db.rawInsert(
       'INSERT INTO class_cache '
-      '(uuid, name, icon, color, description, parentless_role, extends_uuid, '
+      '(uuid, name, icon, color, description, parentless_role, display_template, extends_uuid, '
       'active, created_at, updated_at) '
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
       'ON CONFLICT(uuid) DO UPDATE SET '
       'name = excluded.name, '
       'icon = excluded.icon, '
       'color = excluded.color, '
       'description = excluded.description, '
       'parentless_role = excluded.parentless_role, '
+      'display_template = excluded.display_template, '
       'extends_uuid = excluded.extends_uuid, '
       'updated_at = excluded.updated_at',
       [
@@ -1277,6 +1282,7 @@ class NodeCacheRepository {
         color,
         description,
         parentlessRole,
+        displayTemplate,
         jsonEncode(extendsUuids ?? const <String>[]),
         (active ?? true) ? 1 : 0,
         createdAt,
@@ -1537,6 +1543,56 @@ class NodeCacheRepository {
     );
     if (rows.isEmpty) return null;
     return rows.first['parentless_role'] as String?;
+  }
+
+  /// The class's own displayTemplate (2026-10-29 lockstep with the TS store
+  /// schema v36, `getClassDisplayTemplate` parity — SCHEMA.md): the raw
+  /// registry column read. NULL = absent (inherit), '' = the explicit
+  /// opt-out, a non-empty string = the template. Read UNFILTERED like
+  /// [classParentlessRole]: the render contract rides the registry row,
+  /// archival never clears it.
+  Future<String?> classDisplayTemplate(String uuid) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'class_cache',
+      columns: ['display_template'],
+      where: 'uuid = ?',
+      whereArgs: [uuid],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['display_template'] as String?;
+  }
+
+  /// The EFFECTIVE display template (extends-aware, the TS store
+  /// `resolveEffectiveDisplayTemplate` parity): [classId]'s own non-empty
+  /// template wins; its own '' is an explicit opt-out and STOPS (null, never
+  /// inherits); absent (NULL) walks the extends-ancestors NEAREST-FIRST (BFS
+  /// over class_extends, within a level the smallest class id decides ties
+  /// so the read is deterministic on every replica) and the first non-NULL
+  /// ancestor value decides — a non-empty string inherits, an ancestor ''
+  /// stops the walk with null. No ancestor value at all = null.
+  Future<String?> resolveEffectiveDisplayTemplate(String classId) async {
+    final own = await classDisplayTemplate(classId);
+    if (own != null) return own.isEmpty ? null : own;
+    final visited = {classId};
+    var frontier = [classId];
+    while (frontier.isNotEmpty) {
+      final next = <String>[];
+      for (final id in frontier) {
+        for (final parent in await classExtendsParentsOf(id)) {
+          if (visited.add(parent)) next.add(parent);
+        }
+      }
+      // Nearest level first; within a level the smallest id decides ties.
+      next.sort();
+      for (final ancestorId in next) {
+        final value = await classDisplayTemplate(ancestorId);
+        if (value != null) return value.isEmpty ? null : value;
+      }
+      frontier = next;
+    }
+    return null;
   }
 
   /// The extends-aware parentlessRole read (SCHEMA.md

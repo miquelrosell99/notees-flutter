@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 39,
+          version: 40,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 39,
+      version: 40,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -133,6 +133,7 @@ class AppDatabase {
     await _migrateV37(db);
     await _migrateV38(db);
     await _migrateV39(db);
+    await _migrateV40(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -253,6 +254,9 @@ class AppDatabase {
     }
     if (oldVersion < 39) {
       await _migrateV39(db);
+    }
+    if (oldVersion < 40) {
+      await _migrateV40(db);
     }
   }
 
@@ -1150,6 +1154,23 @@ class AppDatabase {
     );
   }
 
+  /// v40 — the class-level displayTemplate (2026-10-29 lockstep with the TS
+  /// store schema v35→v36, SCHEMA.md): `class_cache` gains `display_template`
+  /// TEXT — the class registry's copy of the class.create/class.update
+  /// `displayTemplate` payload field (the members' derived-title format
+  /// string; NULL = inherit, '' = the explicit opt-out that STOPS
+  /// extends-inheritance, a non-empty string = the template; presence
+  /// writes, present-null clears, the icon/color precedent). The local store
+  /// keeps class config in `class_cache` ONLY (the v38 precedent), so the TS
+  /// store's registry column lands as this single column; effective-template
+  /// reads walk `class_cache` × `class_extends` BFS nearest-first (the TS
+  /// `resolveEffectiveDisplayTemplate` parity). The column guard keeps the
+  /// migration idempotent for databases that already carry it (a fresh v40
+  /// create).
+  Future<void> _migrateV40(Database db) async {
+    await _addColumnIfMissing(db, 'class_cache', 'display_template', 'TEXT');
+  }
+
   /// Derived reference index (never authored): mention/typed_link edges
   /// projected from content tokens plus node-typed property values. Mirrors
   /// the TS store `edge` table.
@@ -1710,6 +1731,7 @@ class AppDatabase {
     await _migrateV37(db);
     await _migrateV38(db);
     await _migrateV39(db);
+    await _migrateV40(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

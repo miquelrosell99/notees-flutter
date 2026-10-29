@@ -454,6 +454,80 @@ void main() {
       }
     });
 
+    test('class.create/class.update displayTemplate: presence writes, "" '
+        'opt-out round-trips, present-null clears, bad values reject', () {
+      // create carries the template...
+      final created = OperationPayloads.classCreate(
+        classId: classId,
+        name: 'Source',
+        displayTemplate: '@{{citekey}}',
+      );
+      expect(created['displayTemplate'], '@{{citekey}}');
+      expect(
+          () => OperationPayloads.validatePayload('class.create', created),
+          returnsNormally);
+      // ...and stays absent when omitted (inherit — a re-issued create
+      // PRESERVES the stored value).
+      final plain = OperationPayloads.classCreate(
+        classId: classId,
+        name: 'Book',
+      );
+      expect(plain.containsKey('displayTemplate'), isFalse);
+      expect(() => OperationPayloads.validatePayload('class.create', plain),
+          returnsNormally);
+
+      // update: the empty string is the explicit opt-out and rides verbatim.
+      final optedOut = OperationPayloads.classUpdate(
+        classId: classId,
+        displayTemplate: '',
+      );
+      expect(optedOut['displayTemplate'], '');
+      expect(
+          () => OperationPayloads.validatePayload('class.update', optedOut),
+          returnsNormally);
+      // update: present-null CLEARS back to NULL/inherit...
+      final cleared = OperationPayloads.classUpdate(
+        classId: classId,
+        displayTemplate: null,
+      );
+      expect(cleared.containsKey('displayTemplate'), isTrue);
+      expect(cleared['displayTemplate'], isNull);
+      expect(
+          () => OperationPayloads.validatePayload('class.update', cleared),
+          returnsNormally);
+      // ...and a lone displayTemplate satisfies the at-least-one-field guard.
+      expect(optedOut.length, 2);
+
+      // Registry strictness: non-strings and overlong templates reject.
+      for (final opType in ['class.create', 'class.update']) {
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'classId': classId,
+            'displayTemplate': 7,
+          }),
+          throwsFormatException,
+          reason: '$opType rejects a non-string displayTemplate',
+        );
+        expect(
+          () => OperationPayloads.validatePayload(opType, {
+            'classId': classId,
+            'displayTemplate': 'x' * 1025,
+          }),
+          throwsFormatException,
+          reason: '$opType rejects an overlong displayTemplate',
+        );
+        // Object ops reject the class-only key outright (strict payloads).
+        expect(
+          () => OperationPayloads.validatePayload('object.update', {
+            'objectId': classId,
+            'displayTemplate': '@{{citekey}}',
+          }),
+          throwsFormatException,
+          reason: 'object.update rejects the class-only displayTemplate key',
+        );
+      }
+    });
+
     test('class.reorder carries objectId and the full ordered classIds', () {
       final payload = OperationPayloads.classReorder(
         objectId: objectId,

@@ -8,6 +8,33 @@ lives in git history.
 
 ## 2026-10-29
 
+- **feat(store): class-level `displayTemplate` — the members' derived-title
+  format string (lockstep with the TS reference, store schema v35→v36
+  parity).** `class.create`/`class.update` now carry the optional nullable
+  `displayTemplate` payload key (strict-schema acceptance, the zod
+  `z.string().max(1024).nullish()` parity; pre-change clients reject the
+  key, gating mixed writers). Tri-state, exactly like `color`: absent =
+  inherit (a re-issued create PRESERVES the stored value), a non-empty
+  string = the template, `""` = an explicit opt-out (round-trips as `''`,
+  distinct from NULL, and STOPS extends-inheritance for the class and its
+  subclasses), present null = clear back to NULL/inherit. The applier maps
+  the key to a new `class_cache.display_template` TEXT column (schema
+  v39→v40, the registry only — the local store keeps class config in
+  `class_cache`, classes have no node_cache row, the parentlessRole
+  precedent); display reads go through the new
+  `classDisplayTemplate` / `resolveEffectiveDisplayTemplate` repository
+  helpers (the TS store's `getClassDisplayTemplate` /
+  `resolveEffectiveDisplayTemplate` parity — BFS over `class_extends`
+  nearest-first, within-level ties by smallest class id, an own or ancestor
+  `''` stops the walk with null; render is this client's own release, so no
+  stored-bit projection rides along). The `class-display-template.json`
+  fixture is vendored byte-identical (sha256
+  `6d654cb70463bb27d90c6bf05006e262868fdebad2ec5c06df508195763a7d8d`)
+  into `test/fixtures/wire/`, added to the fixture-parity coverage gate,
+  and pinned by a new replay group (create-with-template, inheritance,
+  `""` opt-out stop, present-null clear, the seed/ensure re-issue preserve,
+  and the update write arms) plus payload-shape acceptance tests. Gate:
+  `flutter analyze` clean, `flutter test` all green.
 - **feat(store): date-chain delete lock — object.delete fails loud in both
   arms.** Lockstep port of the monorepo's fourth date-chain lock (beside the
   parent/class/embedding locks): `object.delete` targeting a date-chain node

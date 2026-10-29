@@ -38,6 +38,7 @@ void main() {
     'class-link-assertion.json',
     'class-link.json',
     'class-parentless-role.json',
+    'class-display-template.json',
     'class-property-active.json',
     'class-property-defaults.json',
     'class-unassign.json',

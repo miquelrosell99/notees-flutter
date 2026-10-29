@@ -1879,6 +1879,127 @@ void main() {
       });
     });
 
+    group('class-display-template', () {
+      const sourceClass = '0192a000-0000-7000-8000-000000000821';
+      const memberNode = '0192a000-0000-7000-8000-000000000822';
+      const bookClass = '0192a000-0000-7000-8000-000000000823';
+      const webLinkClass = '0192a000-0000-7000-8000-000000000824';
+      const template = '@{{citekey}}';
+
+      OperationEnvelope op(
+        String opType,
+        Map<String, dynamic> payload,
+        int physical,
+      ) =>
+          OperationEnvelope(
+            id: '0192a000-0000-7000-8000-00000000a3$physical',
+            workspaceId: ws,
+            actorId: '0192a000-0000-7000-8000-000000000002',
+            deviceId: 'fixture-test-device',
+            hlc: Hlc(physical: physical, logical: 0),
+            affectedNodeIds: [payload['objectId'] ?? payload['classId'] ?? ''],
+            opType: opType,
+            payload: payload,
+            timestamp: '2026-09-24T12:00:55.000Z',
+          );
+
+      test('the canonical fixture replays to the template-aware derived '
+          'state', () async {
+        final envelopes = fixtureEnvelopes('class-display-template.json');
+
+        // class.create maps the template to the registry column; the member
+        // object is the population the template renders over.
+        expect(await appliers.apply(envelopes[0]), isTrue);
+        expect(await cache.classDisplayTemplate(sourceClass), template);
+        expect(await appliers.apply(envelopes[1]), isTrue);
+        expect((await cache.getByUuid(memberNode))!.isClass, isFalse);
+
+        // Book extends Source with no own template: NULL own, the EFFECTIVE
+        // read inherits nearest-first through class_extends.
+        expect(await appliers.apply(envelopes[2]), isTrue);
+        expect(await appliers.apply(envelopes[3]), isTrue);
+        expect(await cache.classDisplayTemplate(bookClass), isNull);
+        expect(await cache.resolveEffectiveDisplayTemplate(bookClass), template);
+
+        // Web link extends Source too; the "" opt-out stores '' and STOPS
+        // the inheritance (the own opt-out wins over the still-live
+        // ancestor template)...
+        expect(await appliers.apply(envelopes[4]), isTrue);
+        expect(await appliers.apply(envelopes[5]), isTrue);
+        expect(await cache.resolveEffectiveDisplayTemplate(webLinkClass), template);
+        expect(await appliers.apply(envelopes[6]), isTrue);
+        expect(await cache.classDisplayTemplate(webLinkClass), '');
+        expect(await cache.resolveEffectiveDisplayTemplate(webLinkClass), isNull);
+        // ...while Book still inherits at this point (the '' stop is
+        // per-class, not global).
+        expect(await cache.resolveEffectiveDisplayTemplate(bookClass), template);
+
+        // Source's own clear (present null) NULLs the column: the whole
+        // chain reads plain-title now.
+        expect(await appliers.apply(envelopes[7]), isTrue);
+        expect(await cache.classDisplayTemplate(sourceClass), isNull);
+        expect(await cache.resolveEffectiveDisplayTemplate(sourceClass), isNull);
+        expect(await cache.resolveEffectiveDisplayTemplate(bookClass), isNull);
+        expect(await cache.resolveEffectiveDisplayTemplate(webLinkClass), isNull);
+      });
+
+      test('a re-issued template-less class.create (the seed/ensure re-run) '
+          'preserves the stored template', () async {
+        const source = '0192a000-0000-7000-8000-000000000a31';
+        expect(
+          await appliers.apply(op('class.create', {
+            'classId': source,
+            'contentAst': [
+              {'type': 'text', 'text': 'Source'},
+            ],
+            'displayTemplate': template,
+          }, 100)),
+          isTrue,
+        );
+        expect(
+          await appliers.apply(op('class.create', {
+            'classId': source,
+            'contentAst': [
+              {'type': 'text', 'text': 'Source'},
+            ],
+          }, 200)),
+          isTrue,
+        );
+        expect(await cache.classDisplayTemplate(source), template);
+      });
+
+      test('class.update "" opt-out and present-null clear write the '
+          'registry column directly', () async {
+        const klass = '0192a000-0000-7000-8000-000000000a41';
+        expect(
+          await appliers.apply(op('class.create', {
+            'classId': klass,
+            'contentAst': [
+              {'type': 'text', 'text': 'Source'},
+            ],
+            'displayTemplate': template,
+          }, 100)),
+          isTrue,
+        );
+        expect(
+          await appliers.apply(op('class.update', {
+            'classId': klass,
+            'displayTemplate': '',
+          }, 200)),
+          isTrue,
+        );
+        expect(await cache.classDisplayTemplate(klass), '');
+        expect(
+          await appliers.apply(op('class.update', {
+            'classId': klass,
+            'displayTemplate': null,
+          }, 300)),
+          isTrue,
+        );
+        expect(await cache.classDisplayTemplate(klass), isNull);
+      });
+    });
+
     test('object-list-style lands numbered → alpha → clear, and styles the '
         'page itself', () async {
       const page = '0192a000-0000-7000-8000-00000000056a';
