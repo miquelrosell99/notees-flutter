@@ -3,11 +3,6 @@ name: Android CI
 # The CI artifact APK no longer builds on every push to main — a nightly
 # scheduled run builds it from main's head instead (03:23 UTC). PRs, manual
 # dispatch, and the release.yml workflow_call path are unchanged.
-#
-# SonarQube scanning is opt-in: set the repo variable SONAR_HOST_URL and the
-# repo secret SONAR_TOKEN to enable the `sonar` job. With SONAR_HOST_URL
-# unset the job is skipped entirely, and it runs parallel to (never gating)
-# the APK build, so a SonarQube outage can never block artifacts.
 
 on:
   schedule:
@@ -69,25 +64,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'workflow_call' }}
 
 jobs:
-  sonar:
-    name: SonarQube scan
-    # Skipped entirely unless the repo defines SONAR_HOST_URL (repo variable);
-    # SONAR_TOKEN (repo secret) is required when enabled. On the
-    # workflow_call path a scan failure must not fail the called workflow
-    # (that would block the tag release), so it is tolerated there only.
-    if: ${{ vars.SONAR_HOST_URL != '' }}
-    continue-on-error: ${{ github.event_name == 'workflow_call' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: SonarQube scan
-        uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
-
   build:
     name: Build Android APK
     runs-on: ubuntu-latest
