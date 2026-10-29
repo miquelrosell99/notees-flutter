@@ -8,6 +8,15 @@ lives in git history.
 
 ## 2026-10-29
 
+- **ci(release): pin the release runner to `ubuntu-22.04`.** `release.yml`'s
+  `Create GitHub Release` job now names the exact `ubuntu-22.04` image label
+  instead of the floating `ubuntu-latest` alias, matching the `android.yml`
+  pin (0d9e015) — the production release path no longer drifts when GitHub
+  re-points the alias. The `build` job already runs via the pinned
+  `android.yml` `workflow_call`, so both halves of a tag release now build
+  on the same image. YAML validated with `yaml.safe_load`; local gate
+  (`flutter pub get` + both pub-cache patches + `flutter analyze` +
+  `flutter test`) green.
 - **ci(android): pin the CI runner from `ubuntu-latest` to `ubuntu-22.04`.**
   `android.yml` `runs-on` now names the exact `ubuntu-22.04` image label
   instead of the floating `ubuntu-latest` alias, so the nightly/PR/dispatch
