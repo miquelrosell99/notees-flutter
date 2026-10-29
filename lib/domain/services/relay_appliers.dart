@@ -531,6 +531,21 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     String? newName = node.name;
     var newDisplay = node.displayName;
     if (payload.containsKey('isEmbedded')) {
+      // Date-chain embedding lock (SCHEMA.md "Datetime"): the journal
+      // chain's role is platform-fixed — a date node renders with document
+      // chrome and the embedding flag is not user-reachable state. BOTH
+      // directions fail loud: a demote would nest the journal page as an
+      // inline block in its chain parent's body, a promotion is a
+      // standalone claim the UI never makes. The parent lock lives in
+      // object.move, the class lock in the object.create / class guards —
+      // this closes the last carrier.
+      if (parseDateNodeId(objectId) != null) {
+        throw MoveGuardError(
+          '$opType: date-chain node $objectId has a platform-fixed journal '
+          'role; isEmbedded is not writable on it',
+          opType,
+        );
+      }
       final bit = payload['isEmbedded'] == true;
       if (!bit && node.parentUuid != null) {
         final parent = await _cache.getByUuid(node.parentUuid!);

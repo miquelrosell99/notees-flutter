@@ -66,6 +66,8 @@ void main() {
   /// system-extends lock's reject tail (detach/extra-parent/deviate) after
   /// an accepting prefix; is-embedded-parent-page claims the
   /// standalone role under an embedded block, the parent-page condition;
+  /// is-embedded-date-chain writes the embedding flag on the date chain
+  /// (platform-fixed journal role — demote and promote both fail loud);
   /// property-validation-rules' rejecting tail — below-min/above-max number,
   /// pattern rejects, a bad multi element, an uncompilable pattern — throws
   /// on apply by design, each reject pinned deliberately in the replay
@@ -75,6 +77,7 @@ void main() {
   const replayExcluded = {
     'class-extends-cycle.json',
     'class-extends-system-lock.json',
+    'is-embedded-date-chain.json',
     'is-embedded-parent-page.json',
     'object-delete-class-routing.json',
     'property-validation-rules.json',
@@ -1556,6 +1559,47 @@ void main() {
       final edgeCount =
           await raw('SELECT COUNT(*) AS c FROM class_extends');
       expect(edgeCount.single['c'], 2);
+    });
+
+    test('is-embedded-date-chain: the chain prefix applies cleanly; writing '
+        'the embedding flag on the chain fails loud both directions and '
+        'changes nothing', () async {
+      final envelopes = fixtureEnvelopes('is-embedded-date-chain.json');
+      final yearE = envelopes[0];
+      final monthE = envelopes[1];
+      final dayE = envelopes[2];
+      final demoteDay = envelopes[3];
+      final promoteMonth = envelopes[4];
+      const year = '00000000-0000-0000-00bb-202400000000';
+      const month = '00000000-0000-0000-00aa-202407000000';
+      const day = '00000000-0000-0000-00dd-202407260000';
+
+      // The prefix applies cleanly: the 2024-07-26 chain, each level with
+      // its precision's system class and the standalone claim
+      // (the ensureDateChain shape).
+      expect(await appliers.apply(yearE), isTrue);
+      expect(await appliers.apply(monthE), isTrue);
+      expect(await appliers.apply(dayE), isTrue);
+      final yearNode = await cache.getByUuid(year);
+      expect(yearNode!.parentUuid, isNull);
+      expect(yearNode.isEmbedded, isFalse);
+      final monthNode = await cache.getByUuid(month);
+      expect(monthNode!.parentUuid, year);
+      expect(monthNode.isEmbedded, isFalse);
+      final dayNode = await cache.getByUuid(day);
+      expect(dayNode!.parentUuid, month);
+      expect(dayNode.isEmbedded, isFalse);
+
+      // The embedding flag is platform-fixed on the chain: demoting the day
+      // node (it would nest the journal page as an inline block in the
+      // month's body) and promoting the month node (a standalone claim the
+      // UI never makes) both fail loud, state unchanged.
+      expect(() => appliers.apply(demoteDay),
+          throwsA(isA<MoveGuardError>()));
+      expect(() => appliers.apply(promoteMonth),
+          throwsA(isA<MoveGuardError>()));
+      expect((await cache.getByUuid(day))!.isEmbedded, isFalse);
+      expect((await cache.getByUuid(month))!.isEmbedded, isFalse);
     });
 
     group('class-parentless-role', () {

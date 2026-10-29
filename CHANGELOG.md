@@ -8,6 +8,21 @@ lives in git history.
 
 ## 2026-10-29
 
+- **feat(store): reject isEmbedded writes on date-chain nodes.** Lockstep
+  port of the monorepo's date-chain embedding lock (the last carrier after
+  the object.move parent lock and the object.create / class class lock): an
+  `object.update` carrying `isEmbedded` — either direction — targeting a
+  date-chain node (the deterministic year/month/day id scheme) now throws
+  `MoveGuardError` on apply, before the parent-page checks. A date node's
+  journal role is platform-fixed (document chrome); a demote would nest the
+  journal page as an inline block in its chain parent's body. The
+  `is-embedded-date-chain.json` fixture is re-vendored byte-identical
+  (sha256-verified) into `test/fixtures/wire/`, added to the replay
+  exclusions + the fixture-parity coverage gate, and pinned by a new replay
+  test: the 3-envelope 2024-07-26 chain prefix applies cleanly (parents +
+  standalone claims), both violating envelopes throw, and the rows are
+  unchanged. Gate: `flutter analyze` clean, `flutter test` all green.
+
 - **ci(android): nightly CI artifact replaces the per-push build;
   concurrency.** `android.yml` no longer triggers on
   `push: [main]` — a nightly scheduled run (`23 3 * * *`, main's head)

@@ -46,6 +46,7 @@ void main() {
     'external-ref.json',
     'hr.json',
     'heading-content.json',
+    'is-embedded-date-chain.json',
     'is-embedded-parent-page.json',
     'link-embedded.json',
     'object-color.json',
