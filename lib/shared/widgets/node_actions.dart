@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/routing/router.dart';
+import '../../core/utils/date_uuid.dart';
 import '../../core/utils/node_display_name.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_repository.dart';
@@ -85,7 +86,11 @@ class NodeActions {
   }
 
   /// Archives the node, confirms with a snackbar, then reloads the lists.
+  /// Date-chain nodes are permanent journal scaffolding — the wire delete is
+  /// locked for them, so the archive never leaves the client (the long-press
+  /// sheet already hides its entry; this guards the swipe path).
   Future<void> archive(BuildContext context, Node node) async {
+    if (parseDateNodeId(node.uuid) != null) return;
     final repo = await _repo(context);
     if (repo == null) return;
     try {
@@ -124,14 +129,18 @@ class NodeActions {
                 toggleFavorite(context, node);
               },
             ),
-            ListTile(
-              leading: Icon(MdiIcons.archiveOutline),
-              title: const Text('Archive'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                archive(context, node);
-              },
-            ),
+            // A date-chain node is permanent journal scaffolding — it can
+            // never be archived or deleted (the wire lock fails loud), so
+            // the entry stays off the sheet (no UI for impossible states).
+            if (parseDateNodeId(node.uuid) == null)
+              ListTile(
+                leading: Icon(MdiIcons.archiveOutline),
+                title: const Text('Archive'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  archive(context, node);
+                },
+              ),
             ListTile(
               leading: Icon(
                 node.isJournal ? MdiIcons.fileDocumentEditOutline : MdiIcons.eyeOutline,

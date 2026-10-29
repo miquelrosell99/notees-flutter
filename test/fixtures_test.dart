@@ -51,6 +51,7 @@ void main() {
     'link-embedded.json',
     'object-color.json',
     'object-delete-class-routing.json',
+    'object-delete-date-chain.json',
     'object-is-embedded.json',
     'object-list-style.json',
     'object-move-before.json',

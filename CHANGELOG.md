@@ -8,6 +8,26 @@ lives in git history.
 
 ## 2026-10-29
 
+- **feat(store): date-chain delete lock — object.delete fails loud in both
+  arms.** Lockstep port of the monorepo's fourth date-chain lock (beside the
+  parent/class/embedding locks): `object.delete` targeting a date-chain node
+  (the deterministic year/month/day journal id scheme) now throws
+  `MoveGuardError` on apply in BOTH arms — soft delete (trash) and
+  `permanent: true` (purge) — placed after the node-must-exist check and
+  before the class delete routing and any trash/purge write. A date node is
+  permanent journal scaffolding under the permanent-address model; clearing
+  a day means deleting its content, never the day node. The guard matches
+  node ids only (`parseDateNodeId` is prefix-strict), so the locked-system-
+  class delete arm is untouched. The `object-delete-date-chain.json` fixture
+  is vendored byte-identical (sha256-verified) into `test/fixtures/wire/`,
+  added to the replay exclusions + the fixture-parity coverage gate, and
+  pinned by a new replay test: the 3-envelope 2024-07-26 chain prefix
+  applies cleanly, both delete envelopes throw, and the chain stays live
+  with no trash rows. UI: the node long-press action sheet hides Archive
+  for date-chain nodes and the shared archive helper no-ops for them (no UI
+  for impossible states). Gate: `flutter analyze` clean, `flutter test` all
+  green.
+
 - **ci(release): pin the release runner to `ubuntu-22.04`.** `release.yml`'s
   `Create GitHub Release` job now names the exact `ubuntu-22.04` image label
   instead of the floating `ubuntu-latest` alias, matching the `android.yml`

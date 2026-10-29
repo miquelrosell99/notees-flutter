@@ -84,6 +84,13 @@ import '../models/relay/workspace_features.dart';
 ///    body as `object.delete {permanent: true}`; the root set is an
 ///    apply-time snapshot (restore-before-empty survives, log order
 ///    otherwise), a consumed or nodeless row is swept, never fatal;
+///  - date-chain delete lock (2026-10-29 lockstep, SCHEMA.md "Datetime"): an
+///    object.delete on a deterministic year/month/day journal node id fails
+///    loud with [MoveGuardError] in BOTH arms — soft trash and permanent
+///    purge — before the class routing and any row mutation; the journal
+///    chain is permanent scaffolding (clear the day's content instead), and
+///    the guard matches node ids only (parseDateNodeId is prefix-strict), so
+///    the locked-system-class delete arm is untouched;
 ///  - class-level parentlessRole (2026-10-24 lockstep, SCHEMA.md "Node
 ///    structure"): `class.create`/`class.update` carry the
 ///    OPTIONAL NULLABLE `parentlessRole` ('page' | 'block'; absent/null =
@@ -780,6 +787,31 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     final opType = envelope.opType;
     final permanent = payload['permanent'] == true;
     final nodeRow = await _cache.getByUuid(objectId);
+    // "Node must exist" first (the TS reference's requireNode): a delete of
+    // an id with neither a node row nor a class registry row fails loud
+    // before any routing or trash/purge write.
+    final deletedIsClass =
+        nodeRow?.isClass ?? await _cache.classActiveState(objectId) != null;
+    if (!deletedIsClass && nodeRow == null) {
+      throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
+    }
+    // Date-chain delete lock (SCHEMA.md "Datetime" — the fourth lock, beside
+    // the parent/class/embedding locks): a date node is permanent journal
+    // scaffolding under the permanent-address model — it realizes on first
+    // write and can never leave the graph. Deleting one fails loud
+    // REGARDLESS of `permanent` (the trash-bypass arm must throw before any
+    // purge); clearing a day means deleting its CONTENT, never the day
+    // node. The guard sits above the class routing: it matches node ids,
+    // never class ids (parseDateNodeId is prefix-strict), so the
+    // locked-system-class arm below is untouched.
+    if (parseDateNodeId(objectId) != null) {
+      throw MoveGuardError(
+        '$opType: $objectId is a date-chain node — the journal chain is '
+        'permanent platform scaffolding and can never be deleted (clear '
+        "the day's content instead)",
+        opType,
+      );
+    }
     // Class-node delete routing (the retired
     // class.delete op's routing, moved here; SCHEMA.md "Workspace
     // features"). Classes are nodes: one delete op, four applier-decided
@@ -787,8 +819,6 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // the same branch. MEMBERSHIP RIDES in every arm — `class_member_set`
     // rows are never touched by class removal (archive or trash); stripping
     // a class from nodes stays the explicit per-node `class.unassign`.
-    final deletedIsClass =
-        nodeRow?.isClass ?? await _cache.classActiveState(objectId) != null;
     if (deletedIsClass) {
       // Arm 1 — LOCKED system classes (the date chain + table, asset,
       // query, code, template, comment): platform structure, never
@@ -836,8 +866,6 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       // Arm 4 — a USER class: falls through to the plain trash path below
       // (soft delete with a trash row, restorable from the Trash hub — the
       // whole subtree rides, exactly like any node).
-    } else if (nodeRow == null) {
-      throw NodeNotFoundError('$opType: node $objectId does not exist', opType);
     }
 
     if (!permanent) {

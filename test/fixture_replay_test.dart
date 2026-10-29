@@ -68,6 +68,8 @@ void main() {
   /// standalone role under an embedded block, the parent-page condition;
   /// is-embedded-date-chain writes the embedding flag on the date chain
   /// (platform-fixed journal role — demote and promote both fail loud);
+  /// object-delete-date-chain deletes journal scaffolding — the soft and the
+  /// permanent arms both fail loud regardless of `permanent`;
   /// property-validation-rules' rejecting tail — below-min/above-max number,
   /// pattern rejects, a bad multi element, an uncompilable pattern — throws
   /// on apply by design, each reject pinned deliberately in the replay
@@ -80,6 +82,7 @@ void main() {
     'is-embedded-date-chain.json',
     'is-embedded-parent-page.json',
     'object-delete-class-routing.json',
+    'object-delete-date-chain.json',
     'property-validation-rules.json',
   };
 
@@ -1600,6 +1603,44 @@ void main() {
           throwsA(isA<MoveGuardError>()));
       expect((await cache.getByUuid(day))!.isEmbedded, isFalse);
       expect((await cache.getByUuid(month))!.isEmbedded, isFalse);
+    });
+
+    test('object-delete-date-chain: the chain prefix applies cleanly; '
+        'deleting a chain node fails loud in both arms — soft trash and '
+        'permanent purge — and the chain stays live', () async {
+      final envelopes = fixtureEnvelopes('object-delete-date-chain.json');
+      final yearE = envelopes[0];
+      final monthE = envelopes[1];
+      final dayE = envelopes[2];
+      final softDeleteDay = envelopes[3];
+      final permanentDeleteYear = envelopes[4];
+      const year = '00000000-0000-0000-00bb-202400000000';
+      const month = '00000000-0000-0000-00aa-202407000000';
+      const day = '00000000-0000-0000-00dd-202407260000';
+
+      // The prefix applies cleanly: the 2024-07-26 chain (the
+      // ensureDateChain shape — year at the root, month under year, day
+      // under month, each with its precision's system class).
+      expect(await appliers.apply(yearE), isTrue);
+      expect(await appliers.apply(monthE), isTrue);
+      expect(await appliers.apply(dayE), isTrue);
+
+      // A date node is permanent journal scaffolding: the soft arm (trash)
+      // and the permanent arm (purge — the trash bypass) both fail loud,
+      // before any trash/purge write.
+      expect(() => appliers.apply(softDeleteDay),
+          throwsA(isA<MoveGuardError>()));
+      expect(() => appliers.apply(permanentDeleteYear),
+          throwsA(isA<MoveGuardError>()));
+
+      // The chain stays live and active: no trash rows, no archived nodes,
+      // all three rows still present.
+      expect((await cache.getByUuid(year))!.isArchived, isFalse);
+      expect((await cache.getByUuid(month))!.isArchived, isFalse);
+      expect((await cache.getByUuid(day))!.isArchived, isFalse);
+      expect((await raw('SELECT COUNT(*) AS c FROM trash_root')).single['c'],
+          0);
+      expect(await cache.trashRootIds([year, month, day]), isEmpty);
     });
 
     group('class-parentless-role', () {
