@@ -8,23 +8,19 @@ lives in git history.
 
 ## 2026-10-29
 
-- **ci(android): nightly CI artifact replaces the per-push build; opt-in
-  SonarQube scan; concurrency.** `android.yml` no longer triggers on
+- **ci(android): nightly CI artifact replaces the per-push build;
+  concurrency.** `android.yml` no longer triggers on
   `push: [main]` — a nightly scheduled run (`23 3 * * *`, main's head)
   produces the CI artifact APK instead, keeping `pull_request`,
   `workflow_dispatch`, and the `workflow_call` path release.yml relies on.
   A `concurrency` block cancels superseded PR/dispatch/scheduled runs while
   excluding `workflow_call` from both the group and cancellation (group is
   unique per caller run), so a tag release build can never be cancelled by
-  an overlapping CI run. All existing action SHA pins are untouched. A new
-  `sonar` job runs SonarSource/sonarqube-scan-action (pinned v8.4.0) only
-  when the repo defines `SONAR_HOST_URL` (repo variable), parallel to the
-  APK build so a SonarQube outage never blocks artifacts, with a minimal
-  `sonar-project.properties` (project key `notees-flutter`, sources `lib`).
+  an overlapping CI run. All existing action SHA pins are untouched.
   Doc sync: AGENTS.md "Build" section + the operations skill's
   `references/releases.md` now describe the nightly/PR/dispatch/call
-  triggers and the opt-in sonar job (PKGBUILD stays local-only, never CI,
-  not on AUR — no drift found).
+  triggers (PKGBUILD stays local-only, never CI, not on AUR — no drift
+  found).
 
 ## 2026-10-28
 
