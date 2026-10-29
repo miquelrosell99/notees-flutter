@@ -8,6 +8,14 @@ lives in git history.
 
 ## 2026-10-29
 
+- **ci(android): pin the CI runner from `ubuntu-latest` to `ubuntu-22.04`.**
+  `android.yml` `runs-on` now names the exact `ubuntu-22.04` image label
+  instead of the floating `ubuntu-latest` alias, so the nightly/PR/dispatch
+  CI artifact build no longer drifts when GitHub re-points the alias (the
+  runner label selects the VM image only — no interaction with the job's
+  steps, caches, or the workflow_call path from release.yml). YAML validated
+  with `yaml.safe_load`; local gate (`flutter pub get` + both pub-cache
+  patches + `flutter analyze` + `flutter test`) green.
 - **ci(android): fail-loud guard tying production signing to v* tag refs.**
   `android.yml` already builds from an explicit `git-ref` on manual dispatch
   (checkout takes `ref: ${{ inputs.git-ref || github.ref }}`); a new
