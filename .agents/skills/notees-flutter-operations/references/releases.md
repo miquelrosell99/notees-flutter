@@ -2,13 +2,17 @@
 
 ## Workflows
 
-- `.github/workflows/android.yml` — "Android CI". Triggers: push/PR to
-  `main`, manual `workflow_dispatch`, and `workflow_call` (from release.yml).
+- `.github/workflows/android.yml` — "Android CI". Triggers: a nightly
+  scheduled run (cron `23 3 * * *`, building main's head), PRs to `main`,
+  manual `workflow_dispatch`, and `workflow_call` (from release.yml).
   Inputs for dispatch: `build-mode` (release|debug|profile), `git-ref`
   (default `main`), `sign-release`. Builds an unsigned release APK, signs it
   with `apksigner` when `sign-release` (production keystore from secrets),
   uploads the APK as the `notees-android-apk` artifact. CI artifact name:
-  `notees-android-ci-<sha>.apk` (debug-signed, pubspec `1.0.0+1`).
+  `notees-android-ci-<sha>.apk` (debug-signed, pubspec `1.0.0+1`). An
+  opt-in `sonar` job (repo variable `SONAR_HOST_URL` + secret
+  `SONAR_TOKEN`) runs SonarQube analysis parallel to the build and never
+  gates the artifact.
 - `.github/workflows/release.yml` — "Android Tag Release". Trigger: push of a
   `v*` tag. Calls android.yml with `build-mode: release, sign-release: true`,
   then downloads the artifact and runs `gh release create` with the APK and a

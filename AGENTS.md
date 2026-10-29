@@ -65,14 +65,15 @@ notees-flutter/
 Two kinds of APK come out of CI — never confuse them:
 
 - **Release APKs** (`.github/workflows/release.yml`, runs on `v*` tags): production-signed, versioned from the tag (see below), published as a GitHub Release. **This is the only APK to install on a real device.**
-- **CI artifacts** (`.github/workflows/android.yml`, runs on every push/PR to `main`): a testing build named `notees-android-ci-<sha>.apk`, debug-signed, pubspec version `1.0.0+1` — for trying out main or a PR on an emulator or clean install. It can never update over a release (signature and versionCode differ by design).
+- **CI artifacts** (`.github/workflows/android.yml`, runs nightly on a schedule + on PRs to `main`): a testing build named `notees-android-ci-<sha>.apk`, debug-signed, pubspec version `1.0.0+1` — for trying out main or a PR on an emulator or clean install. It can never update over a release (signature and versionCode differ by design).
 
-The Android CI workflow builds, signs, and uploads the APK on every push to
-`main` or pull request targeting `main`.
+The Android CI workflow builds, signs, and uploads the APK on a nightly
+schedule (building main's head) and on every pull request targeting `main`.
+
+The scheduled run produces the CI artifact APK from main's head, so a manual
+trigger is usually unnecessary.
 
 CI uses directly-installed tooling (`actions/setup-java`, `subosito/flutter-action`, `android-actions/setup-android`) with cached `~/.pub-cache` and Gradle homes, following the same pattern as Logseq's Android workflow. It builds an unsigned release APK and then signs it with `apksigner` using the production keystore.
-
-Pushing to `main` automatically triggers the Android Build workflow, so a manual trigger is usually unnecessary.
 
 To request a CI build manually (optional):
 
