@@ -8,6 +8,20 @@ lives in git history.
 
 ## 2026-10-29
 
+- **ci(android): fail-loud guard tying production signing to v* tag refs.**
+  `android.yml` already builds from an explicit `git-ref` on manual dispatch
+  (checkout takes `ref: ${{ inputs.git-ref || github.ref }}`); a new
+  "Guard signed builds to tag refs" step now fails the run loudly when
+  `sign-release` is set but the run is not from a pushed `v*` tag —
+  previously a dispatch could pass `git-ref: some-branch` with
+  `sign-release: true` and walk away with a production-signed APK that no
+  release pipeline ever vetted. The guard only fires when sign-release is
+  on, so the existing flows are untouched: nightly/PR builds and
+  `trigger-ci-build.sh` dispatches (sign-release defaults false) skip it,
+  and the release.yml `workflow_call` path (sign-release true on a `v*`
+  tag push, ref_type=tag) keeps working. Header comment documents the
+  contract. YAML validated with `yaml.safe_load`; `flutter pub get` + both
+  pub-cache patches + `flutter analyze` + `flutter test` are green.
 - **feat(store): reject isEmbedded writes on date-chain nodes.** Lockstep
   port of the monorepo's date-chain embedding lock (the last carrier after
   the object.move parent lock and the object.create / class class lock): an

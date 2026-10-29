@@ -3,6 +3,11 @@ name: Android CI
 # The CI artifact APK no longer builds on every push to main — a nightly
 # scheduled run builds it from main's head instead (03:23 UTC). PRs, manual
 # dispatch, and the release.yml workflow_call path are unchanged.
+#
+# Production signing is tag-only: when sign-release is set (the release.yml
+# workflow_call default), the "Guard signed builds to tag refs" step fails
+# the run unless the checked-out ref is a pushed v* tag — an arbitrary
+# branch/SHA must never carry a production-signed APK.
 
 on:
   schedule:
@@ -72,6 +77,16 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.git-ref || github.event.inputs.git-ref || github.ref }}
+
+      - name: Guard signed builds to tag refs
+        if: ${{ inputs.sign-release == true || github.event.inputs.sign-release == 'true' }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" != "tag" ] || [[ "${{ github.ref }}" != refs/tags/v* ]]; then
+            echo "::error::sign-release is enabled but this run is not from a pushed v* tag (ref: ${{ github.ref }}). Production-signed APKs are only built from v* tags — push the tag to cut a release, or re-dispatch with sign-release disabled for a debug-signed CI artifact."
+            exit 1
+          fi
+          echo "Production signing from tag ${{ github.ref_name }} — release build proceeds."
 
       - name: Resolve version
         id: version
