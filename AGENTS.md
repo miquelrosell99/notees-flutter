@@ -13,6 +13,7 @@ The mobile app is a **first-class native Flutter app** for Notees. It provides n
 - **Functional accent**: Advance Green `#2E5E46` (Margin Green brand identity)
 - **Architecture**: feature-first Flutter with Provider + ChangeNotifier, Dio, go_router, sqflite
 - **Native features**: biometric app lock, offline quick-capture queue, share receiver, native block editor with inline styles and node/class/tag links, native list/card/table views, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management, local task due-date reminders with snooze actions and boot reschedule, Android home-screen widgets (today's tasks, favorites, Inbox preview)
+- **displayTemplate render consumption is PENDING (store done, schema v40, 2026-10-29).** The local store accepts and resolves the class-level `displayTemplate` wire key (fixture `class-display-template.json`), but no Flutter surface renders it yet — the web reference chrome (mentions, pickers, breadcrumbs, search rows) does. When building class-aware titles, follow the contract in the main repo's `packages/protocol/SCHEMA.md` (reference-chrome only, the tri-state, the dual-key/folded placeholder rule, the equal-rank first-index-wins alias precedence).
 
 ## Key Files
 
