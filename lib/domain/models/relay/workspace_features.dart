@@ -157,6 +157,13 @@ const Map<String, String> systemClassUuids = {
   'statute': SystemClassUuids.statute,
   'tv_broadcast': SystemClassUuids.tvBroadcast,
   'video_recording': SystemClassUuids.videoRecording,
+  // Workflows slice 2 (2026-10-30 — the everyday `question`/`plan` classes
+  // the research workflow reuses; the TS manifest `SYSTEM_CLASS_UUIDS`
+  // parity). Plain seeds exactly like the #14 follow-up four: unmanaged (no
+  // gating, not a family base — features.ts parity, absent from the TS
+  // ALWAYS_ON_SYSTEM_CLASSES too), no extends edge, no parentlessRole flag.
+  'question': SystemClassUuids.question,
+  'plan': SystemClassUuids.plan,
 };
 
 /// Icons for the family classes (TS manifest `SYSTEM_CLASS_ICONS` slice).
@@ -221,6 +228,10 @@ const Map<String, String> systemClassIcons = {
   'statute': 'mdiScaleBalance',
   'tv_broadcast': 'mdiTelevision',
   'video_recording': 'mdiVideoOutline',
+  // Workflows slice 2 (2026-10-30 — the everyday `question`/`plan` classes;
+  // the seeds.ts `SYSTEM_CLASS_ICONS` slice).
+  'question': 'mdiHelpCircleOutline',
+  'plan': 'mdiClipboardTextOutline',
 };
 
 /// The display titles the server seed authors into the class nodes' text
@@ -316,6 +327,9 @@ const Map<String, String> systemClassDisplayNames = {
   'statute': 'Statute',
   'tv_broadcast': 'TV broadcast',
   'video_recording': 'Video recording',
+  // Workflows slice 2 (2026-10-30 — the everyday `question`/`plan` classes).
+  'question': 'Question',
+  'plan': 'Plan',
 };
 
 /// Canonical `extends` edges between the family classes (TS manifest
@@ -460,6 +474,12 @@ const Map<String, String> systemClassSeedUuids = {
   'statute': SystemClassUuids.statute,
   'tv_broadcast': SystemClassUuids.tvBroadcast,
   'video_recording': SystemClassUuids.videoRecording,
+  // Workflows slice 2 (2026-10-30 — the everyday `question`/`plan` classes
+  // join the frozen-extends authority: the system lock must know EVERY
+  // system class UUID or a server-origined class.setExtends on one of them
+  // would be treated as a user-class op; both map to the empty parent set).
+  'question': SystemClassUuids.question,
+  'plan': SystemClassUuids.plan,
 };
 
 /// The seeded `extends` edges the feature-cascade slice [systemClassExtends]

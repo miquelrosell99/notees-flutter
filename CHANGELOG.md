@@ -8,6 +8,29 @@ lives in git history.
 
 ## 2026-10-30
 
+- **feat(seed): the `question`/`plan` deploy-catalog pair — the workflows
+  slice-2 sibling manifest (lockstep with the TS reference's seeds.ts).** The
+  monorepo's `packages/domain/src/seeds.ts` (commit 0728d80d8) lands two new
+  deploy-catalog system classes — `question` (…0001-000000000066) and `plan`
+  (…0001-000000000067) — the everyday classes the research workflow reuses,
+  in the exact definition/idea/place/project/trip precedent: plain seeds,
+  zero wire cost, seed convergence only (five seeds.ts maps; no extends, no
+  parentlessRole flag, no displayTemplate, in no pinned roster; enabled by
+  default). `SystemClassUuids` gains the two fixed ids; the manifest maps
+  resolve them (`systemClassUuids` / `systemClassIcons` /
+  `systemClassDisplayNames` — mdiHelpCircleOutline / "Question",
+  mdiClipboardTextOutline / "Plan") and the frozen-extends authority's
+  `systemClassSeedUuids` carries both (empty parent set — the system lock
+  must know every system class UUID). The local workspace seed (serverless
+  mode) emits the pair like the #14 follow-up four, so a locally seeded
+  workspace no longer misses classes the server seed authors. The parity
+  suites pin the manifest so the drift cannot recur:
+  `seed_parity_test.dart` gains the workflows-slice-2 group (fixed ids, the
+  roster-end slots after …0065, static-map coverage, the plain-seed no-extends
+  / no-flag pins, the features.ts gating mirror) and the seed-emission count
+  moves 59 → 61; `local_mode_test.dart` pins the new local-seed totals. No
+  fixture change (the seed change is server-side).
+
 - **feat(fixtures): the `propertySchema.delete` canonical fixture lands in
   the vendored wire corpus (lockstep with the TS reference's meetingDate
   retirement).** The TS monorepo withdraws the `meetingDate` property (a

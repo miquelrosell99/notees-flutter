@@ -122,6 +122,16 @@ class SystemClassUuids {
   static const String statute = '00000000-0000-0000-0001-000000000063';
   static const String tvBroadcast = '00000000-0000-0000-0001-000000000064';
   static const String videoRecording = '00000000-0000-0000-0001-000000000065';
+
+  // Workflows slice 2 (2026-10-30, lockstep with the TS seed manifest
+  // `SYSTEM_CLASS_UUIDS`): the everyday `question`/`plan` classes the
+  // research workflow reuses — deploy-catalog plain seeds per the
+  // definition/idea/place/project/trip precedent (zero wire cost, seed
+  // convergence only; the next two genuinely-free slots after the roster's
+  // …0065, brief order). No extends (neither IS anything else), no
+  // parentlessRole flag, no displayTemplate. Fixed ids, never reuse.
+  static const String question = '00000000-0000-0000-0001-000000000066';
+  static const String plan = '00000000-0000-0000-0001-000000000067';
 }
 
 class SystemPropertyUuids {

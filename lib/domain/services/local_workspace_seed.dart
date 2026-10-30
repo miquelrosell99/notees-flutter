@@ -86,12 +86,20 @@ class LocalWorkspaceSeed {
     'place': SystemClassUuids.place,
     'project': SystemClassUuids.project,
     'trip': SystemClassUuids.trip,
+    // Workflows slice 2 (2026-10-30 — the everyday `question`/`plan` classes
+    // the research workflow reuses; seeds.ts …0066/…0067): plain seeds, no
+    // extends, no parentlessRole flag — the server seed authors them enabled
+    // by default, so the local subset mirrors them like the #14 follow-up
+    // four.
+    'question': SystemClassUuids.question,
+    'plan': SystemClassUuids.plan,
   };
 
   /// Icons for the seeded classes that carry one (TS manifest
   /// `SYSTEM_CLASS_ICONS` slice — the citations-model revision's four plus
-  /// the #14 follow-up five); the rest of the legacy mobile subset seeds
-  /// without icons. card's entry lands 2026-10-28 (memorization-cards
+  /// the #14 follow-up five plus the 2026-10-30 question/plan pair); the
+  /// rest of the legacy mobile subset seeds without icons. card's entry
+  /// lands 2026-10-28 (memorization-cards
   /// slice): the renamed class carries the playing-cards outline, exactly
   /// the server seed's shape.
   static const Map<String, String> systemClassIcons = {
@@ -106,6 +114,8 @@ class LocalWorkspaceSeed {
     'place': 'mdiMapMarkerOutline',
     'project': 'mdiBriefcaseOutline',
     'trip': 'mdiAirplane',
+    'question': 'mdiHelpCircleOutline',
+    'plan': 'mdiClipboardTextOutline',
   };
 
   /// Canonical extends edges for the seeded classes that carry one (TS

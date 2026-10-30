@@ -446,6 +446,90 @@ void main() {
     });
   });
 
+  group('workflows slice 2: the question/plan pair (2026-10-30)', () {
+    // The workflows-mechanism seed convergence (main-repo commit 0728d80d8,
+    // 2026-10-30): the everyday `question`/`plan` classes the research
+    // workflow reuses — deploy-catalog plain seeds in the exact #14
+    // follow-up precedent (seeds.ts …0066/…0067, the next genuinely-free
+    // slots after the roster's …0065), enabled by default, no extends (no
+    // cascade), no parentlessRole flag, no displayTemplate, in no pinned
+    // roster. Pinned here so a future main-repo seed change that skips this
+    // port fails here (seed law 10's sibling-manifest follow-up).
+    const pair = <(String, String, String, String)>[
+      // (seed key, uuid, mdi icon, display title) — the seeds.ts record.
+      ('question', '00000000-0000-0000-0001-000000000066',
+        'mdiHelpCircleOutline', 'Question'),
+      ('plan', '00000000-0000-0000-0001-000000000067',
+        'mdiClipboardTextOutline', 'Plan'),
+    ];
+
+    test('fixed ids: block-prefixed, unique, the roster-end slots', () {
+      final ids = [for (final entry in pair) entry.$2];
+      expect(ids.toSet(), hasLength(ids.length), reason: 'unique class UUIDs');
+      for (var i = 0; i < pair.length; i++) {
+        expect(
+          pair[i].$2,
+          '00000000-0000-0000-0001-0000000000${66 + i}',
+          reason: 'brief order: ${pair[i].$1}',
+        );
+      }
+      // The roster ends at …0065 and no withdrawal markers follow it — the
+      // pair takes the next two slots and never a dead one.
+      final hexSuffixes = [for (final id in ids) id.substring(id.lastIndexOf('-') + 1)];
+      for (final suffix in hexSuffixes) {
+        expect(int.parse(suffix, radix: 16) > 0x65, isTrue,
+            reason: 'slot after the source-library roster end: $suffix');
+      }
+    });
+
+    test('the static maps carry the pair with the seeds.ts icons + display '
+        'titles', () {
+      const constants = <String, String>{
+        'question': SystemClassUuids.question,
+        'plan': SystemClassUuids.plan,
+      };
+      for (final entry in pair) {
+        final name = entry.$1;
+        expect(constants[name], entry.$2, reason: 'SystemClassUuids.$name');
+        expect(systemClassUuids[name], entry.$2,
+            reason: 'workspace_features systemClassUuids.$name');
+        expect(systemClassSeedUuids[name], entry.$2,
+            reason: 'workspace_features systemClassSeedUuids.$name');
+        expect(LocalWorkspaceSeed.systemClassNames[name], entry.$2,
+            reason: 'local seed systemClassNames.$name');
+        expect(systemClassIcons[name], entry.$3, reason: 'icons.$name');
+        expect(LocalWorkspaceSeed.systemClassIcons[name], entry.$3,
+            reason: 'local seed icons.$name');
+        expect(systemClassDisplayNames[name], entry.$4,
+            reason: 'display names.$name');
+        // Plain seeds: neither IS anything else — no extends edge anywhere.
+        expect(systemClassExtends[name], isNull, reason: '$name is a plain seed');
+        expect(LocalWorkspaceSeed.systemClassExtends[name], isNull,
+            reason: '$name is a plain seed');
+        // The frozen-extends lock resolves the pair to the empty parent set.
+        expect(systemClassExtendsIds[entry.$2], isEmpty, reason: name);
+        expect(isSystemClassId(entry.$2), isTrue, reason: name);
+        // No parentlessRole "block" flag (the TS manifest roster is exactly
+        // the 14 — the pair stays out of it).
+        expect(systemClassParentlessRoleBlock.contains(name), isFalse,
+            reason: name);
+      }
+    });
+
+    test('gating and family groupings mirror features.ts', () {
+      // features.ts parity: the pair is unmanaged — exactly like the TS
+      // record, where they are absent from ALWAYS_ON_SYSTEM_CLASSES and
+      // gate on nothing; no family set changes.
+      for (final entry in pair) {
+        expect(systemClassAncestors(entry.$1), isEmpty, reason: entry.$1);
+        expect(gatingFeaturesForClass(entry.$1), isEmpty, reason: entry.$1);
+        expect(featureForManagedClass(entry.$2), isNull, reason: entry.$1);
+      }
+      expect(familyClassNames('events'),
+          ['event', 'birthday', 'meeting', 'trip']);
+    });
+  });
+
   group('source-library roster ', () {
     // The 30-new source type-classes (seeds.ts `SYSTEM_CLASS_UUIDS` slots
     // …0048–…0065, assigned ALPHABETICALLY BY KEY for determinism — the
@@ -826,10 +910,10 @@ void main() {
         () async {
       final emitted =
           await LocalWorkspaceSeed(syncService).ensureLocalWorkspace();
-      // 33 class.create (the seeded `class` meta class retired 2026-10-07;
+      // 35 class.create (the seeded `class` meta class retired 2026-10-07;
       // web_page joins the source family; meeting + event + birthday join as
       // the full events family, 2026-10-07; the #14 follow-up five join,
-      // 2026-10-06) + 7 class.setExtends (song, tv_series, conference,
+      // 2026-10-06; the question/plan pair join, 2026-10-30) + 7 class.setExtends (song, tv_series, conference,
       // web_page — all extend source; meeting, birthday, trip extend event) +
       // 9 propertySchema.create + 9 class.property.set (the creator-family
       // slice — authors retyped text-multi, linkedEditors node-typed to
@@ -838,7 +922,7 @@ void main() {
       // card-bound + all unpinned, memorization-cards slice 2026-10-28) +
       // 1 object.create (Inbox; the scratchpad seed was
       // withdrawn 2026-10-05).
-      expect(emitted, 59);
+      expect(emitted, 61);
 
       final db = await database.database;
 

@@ -219,10 +219,11 @@ void main() {
     test('seeds system classes and default pages, idempotently', () async {
       final seed = LocalWorkspaceSeed(syncService);
 
-      // 33 system classes (21 legacy + source + song/tv_series/conference
+      // 35 system classes (21 legacy + source + song/tv_series/conference
       // from the citations revision + web_page joining the source family +
       // meeting + event + birthday as the full events family + the #14
-      // follow-up five; the seeded `class` meta class retired 2026-10-07 —
+      // follow-up five + the question/plan pair; the seeded `class` meta
+      // class retired 2026-10-07 —
       // class.create carries the display-wording title) +
       // 7 class.setExtends (the source family four + meeting/birthday/trip
       // extending event) +
@@ -233,7 +234,7 @@ void main() {
       // memorization-cards slice 2026-10-28) + 1 page (Inbox; the
       // scratchpad seed was withdrawn 2026-10-05).
       final emitted = await seed.ensureLocalWorkspace();
-      expect(emitted, 59);
+      expect(emitted, 61);
 
       final taskClass =
           await syncService.cache.getClassByUuid(SystemClassUuids.task);
@@ -254,11 +255,11 @@ void main() {
 
       final db = await database.database;
       // Seed ops stay in the outbox for a later server attach.
-      expect(await db.query('relay_outbox'), hasLength(59));
+      expect(await db.query('relay_outbox'), hasLength(61));
 
       // Re-running emits nothing.
       expect(await seed.ensureLocalWorkspace(), 0);
-      expect(await db.query('relay_outbox'), hasLength(59));
+      expect(await db.query('relay_outbox'), hasLength(61));
     });
   });
 }
