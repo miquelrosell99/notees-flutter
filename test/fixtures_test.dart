@@ -64,6 +64,7 @@ void main() {
     'property-asset-type.json',
     'property-date-qualifier.json',
     'property-datetime.json',
+    'property-schema-delete.json',
     'property-schema-scope.json',
     'property-schema-update-fields.json',
     'property-set-lww.json',

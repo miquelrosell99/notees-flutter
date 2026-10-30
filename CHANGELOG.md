@@ -6,6 +6,34 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-10-30
+
+- **feat(fixtures): the `propertySchema.delete` canonical fixture lands in
+  the vendored wire corpus (lockstep with the TS reference's meetingDate
+  retirement).** The TS monorepo withdraws the `meetingDate` property (a
+  meeting IS-A event and carries the inherited `eventDate`; the class-local
+  date duplicate rendered twice) and ships
+  `scripts/migrate-meeting-date-retirement.mts`, whose cleanup appends
+  `propertySchema.delete` — the schema's soft delete (`active = 0`), an op
+  this port's `relay_appliers.dart` has applied since the v2 promotion but
+  which never had a canonical fixture. The corpus gains
+  `property-schema-delete.json` (byte-identical, sha256
+  `90fc9502bfaffc59cd99f3888ccfee3f1d18de742e5e9e7bbeac2f3fdc202d3c`),
+  added to `fixtures_test.dart`'s envelope-list round-trip set; the
+  auto-discovered replay suite (`fixture_replay_test.dart`) picks it up
+  without a hand-written block. The fixture pins arms this port already
+  implements: soft delete keeps the row (surviving values still validate
+  against the stored type — `PropertySchemaValidationRow`'s deliberate
+  no-active-filter parity), a post-delete `property.set` succeeds, and a
+  delete of an unknown id is a lenient no-op. **VERIFICATION PENDING: no
+  Flutter toolchain on the reference host — `flutter test
+  test/fixtures_test.dart test/fixture_replay_test.dart` must run where the
+  SDK lives before this slice counts as converged** (the GTK port's pytest
+  replay is green against the same bytes). No app code change — the applier
+  already soft-deletes exactly like the fixture pins; the port carries no
+  `meetingDate` seed constant (sibling-manifest check, the retirement's
+  lockstep law).
+
 ## 2026-10-29
 
 - **feat(store): class-level `displayTemplate` — the members' derived-title
