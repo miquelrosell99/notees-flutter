@@ -25,11 +25,12 @@ lives in git history.
   implements: soft delete keeps the row (surviving values still validate
   against the stored type — `PropertySchemaValidationRow`'s deliberate
   no-active-filter parity), a post-delete `property.set` succeeds, and a
-  delete of an unknown id is a lenient no-op. **VERIFICATION PENDING: no
-  Flutter toolchain on the reference host — `flutter test
-  test/fixtures_test.dart test/fixture_replay_test.dart` must run where the
-  SDK lives before this slice counts as converged** (the GTK port's pytest
-  replay is green against the same bytes). No app code change — the applier
+  delete of an unknown id is a lenient no-op. **LOCKSTEP SHIPPED
+  2026-10-30** — verified with the Flutter 3.50.0-0.3.pre SDK (Dart 3.14,
+  satisfying the pubspec's `^3.12.0`): `flutter test
+  test/fixtures_test.dart test/fixture_replay_test.dart` → 103 tests, all
+  passed (the GTK port's pytest replay is green against the same bytes). No
+  app code change — the applier
   already soft-deletes exactly like the fixture pins; the port carries no
   `meetingDate` seed constant (sibling-manifest check, the retirement's
   lockstep law).
