@@ -23,10 +23,19 @@ the other way around. AGENTS.md at the repo root is the canonical orientation
    is gated; replay fixtures through the appliers
    (`test/fixture_replay_test.dart`, `test/fixtures_test.dart`,
    `test/content_lockstep_test.dart`) to prove convergence.
-3. **The gate is green or the change is not done.** Before claiming anything:
-   `flutter pub get && python3 scripts/patch_kgp_plugins.py && python3 scripts/patch_mdi_icons.py && flutter analyze && flutter test`.
-   The two patches are mandatory after every `pub get` (they patch the pub
-   cache; see AGENTS.md "Avoiding CI failures").
+3. **The gate is green or the change is not done.** Two tiers:
+   - **Scoped (the per-task loop):** `flutter analyze` (fast, always) +
+     `flutter test test/<touched-files>` on the tests covering the change.
+     Red-green rides those files.
+   - **Full:** `flutter pub get && python3 scripts/patch_kgp_plugins.py && python3 scripts/patch_mdi_icons.py && flutter analyze && flutter test` —
+     blocking at pre-landing, after a rebase onto a moved main, and when the
+     change touches the wire models, appliers, or sync engine (the lockstep
+     surfaces). The two patches are mandatory after every `pub get` (they
+     patch the pub cache; see AGENTS.md "Avoiding CI failures").
+   Host memory discipline: one suite at a time — never parallel full gates
+   (two concurrent gates OOM the dev host); sequential dispatches whose gates
+   overlap; a red that vanishes on an unloaded re-run is a load symptom —
+   root-cause before retrying.
 4. **The changelog is the record.** One entry per shipped slice in
    `CHANGELOG.md` (repo root), newest first. Docs/comment updates ride in the
    same change; a change without its changelog entry is not done.

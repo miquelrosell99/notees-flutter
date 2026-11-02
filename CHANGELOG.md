@@ -6,6 +6,19 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-11-02
+
+- **docs(agents): gate economics + host memory discipline in the development
+  skill.** Two-tier gate (mirroring the notees monorepo's 2026-10-30 ruling):
+  `flutter analyze` + `flutter test` on the touched files are the per-task
+  loop; the full gate (pub get + both patch scripts + analyze + full test) is
+  blocking at pre-landing, after a rebase onto a moved main, and for
+  wire/applier/sync changes. Same pass records the host discipline: one suite
+  at a time (never parallel full gates — two OOM the dev host), sequential
+  overlapping dispatches, and the load-symptom rule. Files:
+  `.agents/skills/notees-flutter-development/SKILL.md`. Docs-only; no code
+  surface.
+
 ## 2026-10-30
 
 - **feat(seed): the `question`/`plan` deploy-catalog pair — the workflows
