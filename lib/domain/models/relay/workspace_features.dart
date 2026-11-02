@@ -665,7 +665,10 @@ List<WorkspaceFeature> gatingFeaturesForClass(String name) {
 /// [display] (PROPERTY-level after the owner review) rides the
 /// SCHEMA entry — the Status schema defaults to 'bullet' (its value rides
 /// the block bullet as an icon button), the rest stay in the properties
-/// panel (null). The binding row carries only the soft-unbind flag.
+/// panel (null). [defaultValue] (schema-level, seeds.ts parity 2026-11-02)
+/// rides the SCHEMA entry the same way — only the Status schema carries
+/// one (the Pending option id, a derived read). The binding row carries
+/// only the soft-unbind flag.
 class TaskFamilySeedEntry {
   const TaskFamilySeedEntry({
     required this.schemaId,
@@ -673,6 +676,7 @@ class TaskFamilySeedEntry {
     required this.type,
     this.options = const [],
     this.display,
+    this.defaultValue,
   });
 
   final String schemaId;
@@ -680,6 +684,12 @@ class TaskFamilySeedEntry {
   final String type; // 'select' | 'datetime'
   final List<Map<String, String>> options; // [{id, label, icon?, color?}]
   final String? display; // 'panel' | 'bullet' | 'inline'
+  // The schema-level default (seeds.ts `defaultValue`: the option id for
+  // select types; null = absent, NULL at the row). Only the Status schema
+  // carries one — the Pending option id — the task class supplies "Pending"
+  // as a DERIVED read (never materialized into property values), so removing
+  // the class drops an unchanged status without a compensating write.
+  final String? defaultValue;
 }
 
 /// The task-family seed-ensure manifest (TS manifest `TASK_FAMILY_SEED`):
@@ -692,6 +702,10 @@ const List<TaskFamilySeedEntry> taskFamilySeed = [
     name: 'Status',
     type: 'select',
     display: 'bullet',
+    // seeds.ts `TASK_FAMILY_SEED.defaultValue` (2026-11-02): the Status
+    // schema's Pending default derives at read time — the class supplies
+    // it, never materialized.
+    defaultValue: TaskFamilyOptionUuids.pending,
     options: [
       {
         'id': TaskFamilyOptionUuids.backlog,

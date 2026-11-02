@@ -1364,14 +1364,13 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
     );
     if (!mounted) return;
 
+    // The Status schema's Pending default (seeds.ts `defaultValue` parity,
+    // 2026-11-02) derives at READ time once the task class binds it — the
+    // assign arm authors NO status row (the web taskCycle parity): an
+    // unchanged status disappears with the class instead of surviving as an
+    // orphaned authored row. The local copy below still carries 'Pending'
+    // optimistically — it mirrors the derived read for the immediate render.
     const pendingStatus = 'Pending';
-    await repo.setNodeProperty(
-      created.uuid,
-      SystemPropertyUuids.taskStatus,
-      pendingStatus,
-    );
-    if (!mounted) return;
-
     final taskNode = _copyNodeAsTask(created, status: pendingStatus);
 
     if (isEmpty) {

@@ -277,6 +277,26 @@ void main() {
             [List<Object?>? args]) async =>
         (await database.database).rawQuery(sql, args);
 
+    OperationEnvelope env(
+      String opType,
+      Map<String, dynamic> payload,
+      int physical, {
+      int idNonce = 0,
+      List<String> affected = const [],
+    }) =>
+        OperationEnvelope(
+          id: '0192a000-0000-7000-8000-'
+              '${(physical * 10 + idNonce).toString().padLeft(12, '0')}',
+          workspaceId: ws,
+          actorId: actor,
+          deviceId: 'feature-test-device',
+          hlc: Hlc(physical: physical, logical: 0),
+          affectedNodeIds: affected,
+          opType: opType,
+          payload: payload,
+          timestamp: '2026-09-24T12:00:00.000Z',
+        );
+
     test('absent row reads enabled (F2); the toggle LWW-writes the row',
         () async {
       expect(await cache.featureEnabledNow(ws, 'tasks'), isTrue);
@@ -362,6 +382,160 @@ void main() {
       expect(
         columns.map((c) => c['name']),
         isNot(contains('display')),
+      );
+    });
+
+    test('only the Status manifest entry carries a default_value (seeds.ts '
+        'parity)', () {
+      // The 2026-11-02 seeds.ts `TASK_FAMILY_SEED.defaultValue` parity: the
+      // Status schema seeds the Pending option id — the task class supplies
+      // "Pending" as a derived read, never materialized; every other entry
+      // keeps null (absent = no default).
+      expect(taskFamilySeed.first.schemaId, SystemPropertyUuids.taskStatus);
+      expect(
+        taskFamilySeed.first.defaultValue,
+        TaskFamilyOptionUuids.pending,
+      );
+      expect(
+        taskFamilySeed.skip(1).map((e) => e.defaultValue),
+        everyElement(isNull),
+      );
+    });
+
+    test('the ensure writes the Pending default JSON-encoded; the rest of '
+        'the family stays NULL', () async {
+      await appliers.apply(toggle('tasks', true, 1000));
+      final rows = await raw(
+        'SELECT uuid, default_value FROM property_schema '
+        "WHERE uuid LIKE '00000000-0000-0000-0003-%' ORDER BY uuid",
+      );
+      // The column stores JSON (the propertySchema.create/update appliers'
+      // contract — the '"<uuid>"' text), exactly like `options`.
+      expect(rows.map((r) => '${r['uuid']}:${r['default_value']}'), [
+        '${SystemPropertyUuids.taskStatus}:"${TaskFamilyOptionUuids.pending}"',
+        '${SystemPropertyUuids.taskDeadline}:null',
+        '${SystemPropertyUuids.taskScheduled}:null',
+        '${SystemPropertyUuids.taskPriority}:null',
+        '${SystemPropertyUuids.taskClosedDate}:null',
+        '${SystemPropertyUuids.taskRecurrence}:null',
+      ]);
+    });
+
+    test('assigning the task class derives Pending without a write; an '
+        'authored transition shadows it', () async {
+      await appliers.apply(toggle('tasks', true, 1000));
+      const member = '0192a000-0000-7000-8000-0000000000a1';
+      await appliers.apply(env(
+        'object.create',
+        OperationPayloads.objectCreate(
+          objectId: member,
+          classIds: [SystemClassUuids.task],
+          name: 'Buy milk',
+        ),
+        2000,
+        affected: [member],
+      ));
+
+      var rows = await cache.getEffectiveProperties(member);
+      expect(
+        rows.map((r) => (r.value, r.source, r.boundBy)),
+        [(TaskFamilyOptionUuids.pending, 'default', SystemClassUuids.task)],
+      );
+      // Derived only: no authored property_value rows exist.
+      final authored = await raw(
+        'SELECT COUNT(*) AS c FROM property_value '
+        'WHERE node_uuid = ? AND property_schema_id = ?',
+        [member, SystemPropertyUuids.taskStatus],
+      );
+      expect(authored.single['c'], 0);
+
+      // An authored transition (Done) shadows the derived default.
+      await appliers.apply(env(
+        'property.set',
+        OperationPayloads.propertySet(
+          objectId: member,
+          propertySchemaId: SystemPropertyUuids.taskStatus,
+          value: TaskFamilyOptionUuids.done,
+        ),
+        3000,
+        affected: [member],
+      ));
+      rows = await cache.getEffectiveProperties(member);
+      expect(
+        rows.map((r) => (r.value, r.source)),
+        [(TaskFamilyOptionUuids.done, 'authored')],
+      );
+    });
+
+    test('a dangling select default derives nothing; restoring the option '
+        'resurfaces it', () async {
+      // Read-side option membership (the 2026-11-02 effective.ts rule): a
+      // select default whose value is no longer among the schema's stored
+      // options yields no default — write-time validation stays type-only,
+      // so a drifted workspace never fails loud and never derives a
+      // dangling option id.
+      const cls = '0192a000-0000-7000-8000-0000000000b1';
+      const schemaId = '0192a000-0000-7000-8000-0000000000b2';
+      const node = '0192a000-0000-7000-8000-0000000000b3';
+      await appliers.apply(env(
+        'class.create',
+        OperationPayloads.classCreate(classId: cls, name: 'Stage'),
+        1000,
+        affected: [cls],
+      ));
+      await appliers.apply(env(
+        'propertySchema.create',
+        OperationPayloads.propertySchemaCreate(
+          propertySchemaId: schemaId,
+          name: 'stage',
+          type: 'select',
+          options: [
+            {'id': 'b', 'label': 'B'},
+          ],
+          defaultValue: 'a',
+        ),
+        1010,
+        affected: [schemaId],
+      ));
+      await appliers.apply(env(
+        'class.property.set',
+        OperationPayloads.classPropertySet(
+          classId: cls,
+          propertySchemaId: schemaId,
+        ),
+        1020,
+        affected: [cls],
+      ));
+      await appliers.apply(env(
+        'object.create',
+        OperationPayloads.objectCreate(
+          objectId: node,
+          classIds: [cls],
+          name: 'N',
+        ),
+        1030,
+        affected: [node],
+      ));
+      expect(await cache.getEffectiveProperties(node), isEmpty);
+
+      // The default IS among the options again (update restores it): the
+      // derived row resurfaces.
+      await appliers.apply(env(
+        'propertySchema.update',
+        OperationPayloads.propertySchemaUpdate(
+          propertySchemaId: schemaId,
+          options: [
+            {'id': 'a', 'label': 'A'},
+            {'id': 'b', 'label': 'B'},
+          ],
+        ),
+        1040,
+        affected: [schemaId],
+      ));
+      final rows = await cache.getEffectiveProperties(node);
+      expect(
+        rows.map((r) => (r.value, r.source)),
+        [('a', 'default')],
       );
     });
 

@@ -872,6 +872,12 @@ void main() {
           name: 'Stage',
           type: 'select',
           display: 'bullet',
+          // The default rides the effective read only while it is among the
+          // schema's options (the read-side option-membership rule) — the
+          // option list keeps 'x' derivable.
+          options: [
+            {'id': 'x', 'label': 'X'},
+          ],
           defaultValue: 'x',
         ),
         timestamp: '2026-09-24T12:00:00.000Z',

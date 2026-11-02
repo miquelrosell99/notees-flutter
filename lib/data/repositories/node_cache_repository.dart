@@ -4233,11 +4233,15 @@ class NodeCacheRepository {
       ...winnerBySchema.keys,
     };
     final schemas = <String, EffectivePropertySchema>{};
+    // The schema's options (parsed; the derived-default membership check —
+    // a select/multi_select default whose value is no longer among the
+    // schema's options derives nothing).
+    final schemaOptions = <String, List<String>>{};
     if (schemaIds.isNotEmpty) {
       final placeholders = schemaIds.map((_) => '?').join(',');
       final rows = await db.rawQuery(
         'SELECT uuid, name, type, multi, display, hide_when_empty, '
-        'scope_class_ids, default_value FROM property_schema WHERE uuid IN ($placeholders)',
+        'scope_class_ids, default_value, options FROM property_schema WHERE uuid IN ($placeholders)',
         schemaIds.toList(),
       );
       for (final row in rows) {
@@ -4250,6 +4254,9 @@ class NodeCacheRepository {
         } catch (_) {
           scopeClassIds = null;
         }
+        schemaOptions[row['uuid'] as String] = _parseOptionIds(
+          row['options'] as String?,
+        );
         schemas[row['uuid'] as String] = EffectivePropertySchema(
           id: row['uuid'] as String,
           name: row['name'] as String,
@@ -4348,6 +4355,17 @@ class NodeCacheRepository {
       // type (written before validation, or after a delete+recreate changed
       // the type) yields no default rather than a wrong-typed value.
       if (schema != null && !isValidDefaultForType(schema.type, defaultValue)) {
+        continue;
+      }
+      // Read-side option membership (the effective.ts rule): a select-typed
+      // default whose value is no longer among the schema's options (the
+      // option deleted after the default was written) yields no default
+      // rather than a dangling option id. Write-time validation stays
+      // type-only, so a drifted workspace never fails loud.
+      if (schema != null &&
+          (schema.type == 'select' || schema.type == 'multi_select') &&
+          defaultValue is String &&
+          !(schemaOptions[schemaId] ?? const <String>[]).contains(defaultValue)) {
         continue;
       }
       final key = '$schemaId:0';
@@ -5450,6 +5468,25 @@ dynamic _decodeJsonOrRaw(String raw) {
     return jsonDecode(raw);
   } catch (_) {
     return raw;
+  }
+}
+
+/// Parse a stored options column (JSON array of {id, ...} objects)
+/// defensively — the derived-default membership check only needs the ids
+/// (effective.ts `parseOptions`).
+List<String> _parseOptionIds(String? raw) {
+  if (raw == null) return const [];
+  try {
+    final parsed = jsonDecode(raw);
+    if (parsed is! List) return const [];
+    return [
+      for (final option in parsed)
+        if (option is Map &&
+            option['id'] is String)
+          option['id'] as String,
+    ];
+  } catch (_) {
+    return const [];
   }
 }
 

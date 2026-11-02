@@ -8,6 +8,32 @@ lives in git history.
 
 ## 2026-11-02
 
+- **feat(seed): the task Status schema-level Pending default — lockstep with
+  the TS reference's `TASK_FAMILY_SEED.defaultValue` (the 2026-11-02
+  derived-default slice).** The `taskFamilySeed` Status entry now carries
+  `defaultValue` = the Pending option id (`…0004-…0009`); the
+  `workspace.feature.set {feature:"tasks", enabled:true}` seed-ensure writes
+  it to the `property_schema.default_value` column JSON-encoded (the
+  `'"<uuid>"'` text, the `propertySchema.create/update` appliers' contract).
+  Semantics: assigning the task class derives "Pending" at READ time (never
+  materialized into property values), so removing the class drops an
+  unchanged status automatically; a user-changed status survives as an
+  authored row. The effective read (`getEffectiveProperties`) gains the
+  read-side option-membership rule (the TS `effective.ts` / query-compiler
+  parity): a select/multi_select-typed default whose string value is not
+  among the schema's stored options (dangling id after option deletion)
+  derives no default row. The editor's `_convertToTask` assign arm stops
+  authoring a Pending property write (the web `taskCycle` parity) — the
+  block's local copy still carries "Pending" optimistically, mirroring the
+  derived read; the reopen/complete toggles keep writing real transitions.
+  Files: `lib/domain/models/relay/workspace_features.dart`,
+  `lib/domain/services/relay_appliers.dart`,
+  `lib/data/repositories/node_cache_repository.dart`,
+  `lib/features/editor/screens/node_editor_screen.dart`,
+  `test/workspace_features_test.dart` (four new acceptance tests: the
+  manifest default, the JSON-encoded ensure write, the derived Pending with
+  zero authored rows, the dangling select default).
+
 - **docs(agents): gate economics + host memory discipline in the development
   skill.** Two-tier gate (mirroring the notees monorepo's 2026-10-30 ruling):
   `flutter analyze` + `flutter test` on the touched files are the per-task

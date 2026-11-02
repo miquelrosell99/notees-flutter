@@ -2384,6 +2384,12 @@ List<String> _contentClassLinkIds(dynamic tokens) {
           // value rides the block bullet as an icon button); the rest stay
           // in the properties panel (null).
           display: entry.display,
+          // The schema-level default rides the SCHEMA entry (seeds.ts
+          // `defaultValue` parity 2026-11-02 — only Status carries one, the
+          // Pending option id). The column stores JSON (the row encoder
+          // stringifies, the propertySchema.create/update appliers'
+          // contract) — the ensure must match or reads parse the raw string.
+          defaultValue: entry.defaultValue,
           createdAt: envelope.timestamp,
           updatedAt: envelope.timestamp,
         ),
