@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 40,
+          version: 41,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 40,
+      version: 41,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -134,6 +134,7 @@ class AppDatabase {
     await _migrateV38(db);
     await _migrateV39(db);
     await _migrateV40(db);
+    await _migrateV41(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -257,6 +258,9 @@ class AppDatabase {
     }
     if (oldVersion < 40) {
       await _migrateV40(db);
+    }
+    if (oldVersion < 41) {
+      await _migrateV41(db);
     }
   }
 
@@ -880,6 +884,7 @@ class AppDatabase {
         class_id TEXT NOT NULL,
         property_schema_id TEXT NOT NULL,
         active INTEGER NOT NULL DEFAULT 1,
+        pinned INTEGER NOT NULL DEFAULT 0,
         hlc_physical INTEGER NOT NULL DEFAULT 0,
         hlc_logical INTEGER NOT NULL DEFAULT 0,
         actor_id TEXT,
@@ -888,6 +893,28 @@ class AppDatabase {
     ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_class_property_schema ON class_property(property_schema_id)',
+    );
+  }
+
+  /// Node-level property ASSIGNMENT: the (node, property) pair declaration
+  /// WITHOUT a value (SCHEMA.md "Class properties", the effective read's
+  /// assigned-empty synthesis). Presence row, LWW by (hlc, actor);
+  /// `property.unassign` deletes the row (the class.property.unset
+  /// precedent); zero availability semantics — scope stays the sole
+  /// locality authority, enforced at the applier.
+  Future<void> _createNodeProperty(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS node_property (
+        node_uuid TEXT NOT NULL,
+        property_schema_id TEXT NOT NULL,
+        hlc_physical INTEGER NOT NULL DEFAULT 0,
+        hlc_logical INTEGER NOT NULL DEFAULT 0,
+        actor_id TEXT,
+        PRIMARY KEY (node_uuid, property_schema_id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_node_property_node ON node_property(node_uuid)',
     );
   }
 
@@ -1169,6 +1196,28 @@ class AppDatabase {
   /// create).
   Future<void> _migrateV40(Database db) async {
     await _addColumnIfMissing(db, 'class_cache', 'display_template', 'TEXT');
+  }
+
+  /// v41 — the E2EE-fixture re-vendor batch (2026-11-03 lockstep with the
+  /// TS store schema v34 `pinned` tier flag + the node-level assignment
+  /// `node_property` table, SCHEMA.md "Class properties"):
+  ///  - `class_property.pinned`: the binding row's binary tier flag — a
+  ///    pinned binding's property renders in the FIRST tier of class
+  ///    property lists (alphabetical within each tier; a stored/configurable
+  ///    order stays retired). Backfill default 0 (the unpinned tier);
+  ///  - `node_property`: the (node, property) pair PRESENCE declaration
+  ///    (property.assign/unassign/empty) — the effective read synthesizes an
+  ///    empty row for a live assignment whose schema has no authored/default
+  ///    rows. Purely additive — both guards keep the step idempotent for
+  ///    databases that already carry them.
+  Future<void> _migrateV41(Database db) async {
+    await _addColumnIfMissing(
+      db,
+      'class_property',
+      'pinned',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await _createNodeProperty(db);
   }
 
   /// Derived reference index (never authored): mention/typed_link edges
@@ -1732,6 +1781,7 @@ class AppDatabase {
     await _migrateV38(db);
     await _migrateV39(db);
     await _migrateV40(db);
+    await _migrateV41(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

@@ -47,6 +47,7 @@ sealed class ContentToken {
       'query' => QueryToken.fromJson(json),
       'whiteboard' => WhiteboardToken.fromJson(json),
       'quote' => QuoteToken.fromJson(json),
+      'heading' => HeadingToken.fromJson(json),
       'code_block' => CodeBlockToken.fromJson(json),
       'hr' => HrToken.fromJson(json),
       _ => UnsupportedToken(json),
@@ -464,6 +465,32 @@ class QuoteToken extends ContentToken {
   );
 }
 
+/// Block-scale heading (content-mark.ts `headingTokenSchema`): the
+/// document-structure marker carrying the same inline union as a quote.
+/// NOT a promotion survivor — stringify flattens it to its prose — and the
+/// excerpt recurses into it exactly like a quote.
+class HeadingToken extends ContentToken {
+  const HeadingToken({this.children = const []});
+
+  final List<ContentToken> children;
+
+  @override
+  String get type => 'heading';
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'type': 'heading',
+    'children': [for (final child in children) child.toJson()],
+  };
+
+  factory HeadingToken.fromJson(Map<String, dynamic> json) => HeadingToken(
+    children: [
+      for (final child in (json['children'] as List<dynamic>? ?? const []))
+        if (child is Map<String, dynamic>) ContentToken.fromJson(child),
+    ],
+  );
+}
+
 /// A token type this client does not know (forward compatibility): renders
 /// as a labeled placeholder.
 class UnsupportedToken extends ContentToken {
@@ -526,6 +553,8 @@ String plainTextExcerpt(ContentAst? tokens) {
         case MathToken(expression: final expression):
           parts.add(expression);
         case QuoteToken(children: final children):
+          walk(children);
+        case HeadingToken(children: final children):
           walk(children);
         case HardBreakToken():
           parts.add(' ');

@@ -8,6 +8,63 @@ lives in git history.
 
 ## 2026-11-03
 
+- **feat(protocol): E2EE fixture lockstep — the encrypted corpus joins the
+  gate (decrypt module + gate/replay branches) + the re-vendor's lockstep
+  debt (binding `pinned` tier, node-level property assignment, the heading
+  token's excerpt recursion).** The wire
+  corpus re-vendored 46 → 50 fixtures (sha256-verified byte-identical to
+  `packages/protocol/fixtures/`; commit `d9cb6d2`). New module
+  `lib/domain/models/relay/payload_crypto.dart`: a `package:cryptography`
+  port of `packages/protocol/src/crypto.ts` — unpadded-b64u helpers, the
+  `{"$e": {iv, ct}}` slot open with the TAG-FIRST ct layout (`mac =
+  raw.sublist(0,16)`, `cipherText = raw.sublist(16)`), AAD
+  `${envelope.id}.${envelope.workspaceId}`, and a plaintext passthrough.
+  `test/fixtures_test.dart` gains the four new fixtures in the coverage
+  lists and the `$e` branch: the raw slot is SHAPE-validated only (the
+  apply-time rejection STAYS — sibling custody is plan 04), the decrypted
+  plaintext MUST pass the strict op registry. `test/fixture_replay_test.dart`
+  decrypts crypto-carrying fixtures before replay (auto-glob included — the
+  encrypted fixture is deliberately NOT in `replayExcluded`), with a
+  dedicated acceptance test asserting the decrypted replay's derived state
+  (page content + icon). The re-vendor also surfaced two undebted protocol
+  batches, ported in the same slice: (1) `class.property.set`'s `pinned`
+  binary tier flag — the binding row gains the column (schema v41), the
+  payload registry/applier persist it (row LWW, omitted keeps, COALESCE
+  patch), and the effective read sorts the pinned tier FIRST (alphabetical
+  within each tier, unbound authored rows last); (2) the node-level
+  assignment ops `property.assign` / `property.unassign` / `property.empty`
+  — the `node_property` presence table (schema v41, LWW by the full (hlc,
+  actor) tuple, R3 scope eligibility on assign, plain-delete unassign that
+  never touches authored values, empty clearing every authored value through
+  BOTH tombstone families while keeping the assignment) and the effective
+  read's empty-row synthesis (an assigned schema with no rows renders the
+  `assigned` empty row; a winning active binding with no rows renders the
+  `bound` empty row — scalar types included), which moved four existing
+  effective-read test expectations to the TS reference's current semantics
+  (a surviving active binding renders valueless after its default is
+  cleared / type-drifts / dangles — effective.ts 5c). Also completing the
+  committed heading-token slice: `HeadingToken` joins the content model
+  (content-mark.ts `headingTokenSchema` port — the excerpt and the
+  promotion stringify now recurse into it, fixing the red
+  `ast_stringifier_test` heading case the slice left behind), and two
+  sync-lifecycle tests now wait on the drain's LAST write (the
+  applied-envelope `relay_operations` record lands after the apply's
+  derived projections — waiting only for the node row raced the unawaited
+  WS drain's tail against tearDown's DB close, deterministic under full-suite
+  load), with a shared `waitForAsync` helper. Verification: new
+  `test/payload_crypto_test.dart` (11: the fixture vector deep-equals the
+  pinned plaintexts, opened payloads pass the strict registry, wrong-AAD /
+  tamper / ct‖tag-misread / malformed-slot negatives); +2 acceptance tests
+  in `test/fixture_replay_test.dart` (54 in the file: the pinned-row LWW +
+  pin-tier ordering, the assignment LWW both orders + unassign-keeps-values
+  + empty-keeps-assignment end state); `test/fixtures_test.dart` 56 green
+  (coverage lists + the `$e` branch); `test/ast_stringifier_test.dart` 22
+  green; `test/realtime_lifecycle_test.dart` 6 + `test/sync_v2_realtime_test.dart`
+  5 green. Full gate green (`flutter pub get` + both pub-cache patches +
+  `flutter analyze` + `flutter test`). Lockstep context: plan 03
+  (`.plans/2026-11-03-0911-e2ee-core/`), the GTK track converges on the
+  same `envelope-encrypted.json` bytes.
+
 - **fix(store): heading tokens — flat-grammar recognition + edge derivation (two pre-existing divergences from the TS reference, found during the tags-are-links port).** (1) `isFlatTokenStream` did not list `heading`, so ANY stored document with a top-level heading token was misclassified as a legacy nested document and run through `legacyAstToTokens` — the `quote` containers were dropped entirely (their mentions lost) and the heading flattened; with `heading` in the flat set the document round-trips verbatim. (2) The edge derivation's content walk recursed into `quote` children but not `heading` children (the TS `edges.ts` walk covers both — mentions inside headings now derive edges). Verification: +1 case in `test/relay_appliers_test.dart` (mentions inside quote AND heading both derive edge rows; 57 in the file, green); `test/content_tokens_test.dart` + `content_lockstep_test.dart` + `tag_unassign_test.dart` re-run clean (58); `flutter analyze` clean.
 
 - **feat(store): tags are links — tag membership joins the edge index (lockstep with the TS reference's 2026-11-03 ruling).** `rebuildEdges` gains the fourth vocabulary kind: one `type='tag'` edge per tag, derived from the node's derived tag list (`tagsUuid`), so a tagged node links to its tag exactly like a content mention — the tag page's backlinks list every tagged source. The two tag write paths now re-derive edges in the same apply: `tag.unassign` (previously re-derived the tag list only) and the re-issued `object.create` add carrier (previously skipped every tree side effect). The fresh `object.create` also re-derives once after the membership OR-Sets land — closing a TS-parity gap where a new node's edges (content mentions on embedded blocks, property values, tags) were never derived until an `object.update` touched it. Class assignment and `class_link` chips stay OUT of the index (the paired ruling — a class marker, not a node link). Verification: +2 cases in `test/tag_unassign_test.dart` (derive/untag/re-add edge rows; the tag page backlinks the tagged source; 9 in the file, green); `flutter analyze` clean on the touched files. GTK aligns with no change (its derived store never built the reference edge index — no backlinks surface to feed). The web side ships the backlinks/graph surfaces (`backlinksWithRollup`, the Links/Link path query arms, a graph Tags family); the mobile UI's backlink surfaces read the same `edge` table and pick the rows up on their next read-model pass.

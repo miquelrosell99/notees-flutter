@@ -59,12 +59,19 @@ import '../models/relay/workspace_features.dart';
 ///    ancestor) and drops a stored default that no longer matches the
 ///    schema type;
 ///  - the binding row (class.property.set) carries ONLY the genuinely
-///    per-class mechanic (active): `required` retired outright and
+///    per-class mechanics (active, pinned): `required` retired outright and
 ///    `defaultValue` MOVED to the property schema (one global default per property, the Logseq shape),
 ///    `sequence` retired outright (class panels
-///    render alphabetically by property name, a read-time derivation);
+///    render alphabetically by property name within each pin tier, a
+///    read-time derivation);
 ///    PC2 validates the default against the payload type at create and the
 ///    stored type at update (a schema-less write stores unchecked);
+///  - node-level ASSIGNMENT (property.assign/unassign/empty) declares the
+///    (node, property) pair with no value (presence-row LWW on
+///    node_property; unassign plain-deletes the row and never touches
+///    authored values; empty clears every authored value through both
+///    tombstone families while keeping the assignment — the effective read
+///    synthesizes the assigned/bound empty rows);
 ///  - per-workspace feature toggles (workspace.feature.set) LWW by HLC on
 ///    (workspace, feature) derive the membership-preserving archival of the
 ///    five managed class families (F2 absent-row=ON, F3 keep-data; the
@@ -201,6 +208,13 @@ class RelayAppliers {
         return _applyPropertySet(envelope, objectId, payload);
       case 'property.unset':
         return _applyPropertyUnset(envelope, objectId, payload);
+      case 'property.assign':
+        return _applyPropertyAssign(envelope, objectId, payload);
+      case 'property.unassign':
+        await _applyPropertyUnassign(objectId, payload);
+        return true;
+      case 'property.empty':
+        return _applyPropertyEmpty(envelope, objectId, payload);
       case 'class.create':
         await _applyClassCreate(envelope, payload);
         return true;
@@ -1457,6 +1471,143 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     return true;
   }
 
+  /// Node-level property ASSIGNMENT (the v1 `node_property` lineage): the
+  /// (node, property) pair declaration WITHOUT a value. Presence row, LWW by
+  /// the full (hlc, actor) tuple (the class_property row precedent — an
+  /// older or equal causal stamp is dropped, so concurrent assigns converge
+  /// on one row). Assignment carries zero availability semantics, but scope
+  /// stays the sole locality authority: the R3 eligibility check from
+  /// _applyPropertySet runs here too — a scoped schema rejects a node whose
+  /// class closure misses the list, fail loud. Schema-less writes (unknown
+  /// schema id) stay unchecked, exactly like property.set.
+  Future<bool> _applyPropertyAssign(
+    OperationEnvelope envelope,
+    String objectId,
+    Map<String, dynamic> payload,
+  ) async {
+    final opType = envelope.opType;
+    final schemaId = payload['propertySchemaId'] as String;
+    final incoming = _incoming(envelope);
+
+    final existing = await _cache.nodePropertyWinner(objectId, schemaId);
+    if (existing != null && compareLww(incoming, existing) <= 0) {
+      return false;
+    }
+
+    final schema = await _cache.propertySchemaValidationRow(schemaId);
+    if (schema != null && schema.scopeClassIds != null) {
+      final carried = await _cache.nodeClassIdsOf(objectId);
+      final eligible = await _cache.classClosureIntersectsScope(
+        carried ?? const <String>[],
+        schema.scopeClassIds,
+      );
+      if (!eligible) {
+        throw MoveGuardError(
+          '$opType: node $objectId is not eligible for schema $schemaId '
+          "(its classes — extends-aware — do not intersect the schema's "
+          'scopeClassIds)',
+          opType,
+        );
+      }
+    }
+
+    await _cache.upsertNodeProperty(
+      nodeUuid: objectId,
+      schemaId: schemaId,
+      incoming: incoming,
+    );
+    return true;
+  }
+
+  /// Assignment removal: plain DELETE — a presence declaration, last write
+  /// wins, no tombstone (the class.property.unset precedent). Authored
+  /// property_value rows are untouched by design: enforcement is never
+  /// retroactive, an unassigned node's values render as ordinary unbound
+  /// authored rows.
+  Future<void> _applyPropertyUnassign(
+    String objectId,
+    Map<String, dynamic> payload,
+  ) async {
+    await _cache.deleteNodeProperty(
+      objectId,
+      payload['propertySchemaId'] as String,
+    );
+    await _cache.projectNodeProperties(objectId);
+  }
+
+  /// CLEAR every authored value of one property on a node while KEEPING the
+  /// assignment (the property.assign companion; the context menu's "Empty
+  /// property" gesture). Addressed at (node, schema) — ALL values, every idx
+  /// and every PG5 element.
+  ///
+  /// Causality mirrors the per-value removes, applied to each live row:
+  /// BOTH tombstone families upsert at the empty's (hlc, actor) — the PG5
+  /// element tombstone (element-addressed adds stay dead) and the legacy
+  /// slot tombstone (positional adds stay dead) — and the live row is
+  /// deleted only when the empty is the strictly newer writer (a concurrent
+  /// newer set survives). Add-wins on exact HLC ties, exactly like
+  /// property.unset. Orphaned exclusive text carriers ride the unset's
+  /// trash contract.
+  Future<bool> _applyPropertyEmpty(
+    OperationEnvelope envelope,
+    String objectId,
+    Map<String, dynamic> payload,
+  ) async {
+    final schemaId = payload['propertySchemaId'] as String;
+    final incoming = _incoming(envelope);
+
+    final rows = (await _cache.visiblePropertyValueRows(objectId))
+        .where((row) => row['property_schema_id'] == schemaId)
+        .toList();
+
+    for (final row in rows) {
+      final elementId = row['id'] as String;
+      final idx = (row['idx'] as num?)?.toInt() ?? 0;
+
+      final elementTombstone =
+          await _cache.propertyElementTombstoneWinner(elementId);
+      if (elementTombstone == null ||
+          compareLww(incoming, elementTombstone) > 0) {
+        await _cache.upsertPropertyElementTombstone(
+          elementId: elementId,
+          nodeUuid: objectId,
+          schemaId: schemaId,
+          incoming: incoming,
+        );
+      }
+
+      final slotTombstone =
+          await _cache.propertyTombstoneWinner(objectId, schemaId, idx);
+      if (slotTombstone == null || compareLww(incoming, slotTombstone) > 0) {
+        await _cache.upsertPropertyTombstone(
+          objectId,
+          schemaId,
+          idx,
+          incoming,
+        );
+      }
+
+      final rowWinner = (
+        physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+        logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+        actor: row['actor_id'] as String? ?? '',
+      );
+      if (compareLww(incoming, rowWinner) <= 0) continue;
+      await _cache.deletePropertyValueById(elementId);
+      // Unsetting a node-backed text value deletes the carrier block
+      // under the same guards as the per-value remove.
+      await _trashTextCarrierIfOrphaned(
+        objectId,
+        schemaId,
+        row['value'] as String,
+        envelope.timestamp,
+      );
+    }
+
+    await _cache.projectNodeProperties(objectId);
+    return true;
+  }
+
   /// PG5 OR-Set element REMOVE: records the remove's causality on the
   /// element tombstone (callers gate the strictly-greater upsert — on an
   /// exact tie the earlier add sticks, add-wins) and deletes the live row
@@ -1922,8 +2073,9 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // `required` retired outright — both reject at the strict payload gate
     // before this applier runs. `sequence` followed them with the owner
     // ruling 2026-10-21 (class panels render alphabetically by property
-    // name — panel order no longer exists to configure). The row carries
-    // active only.
+    // name within each pin tier — panel order no longer exists to
+    // configure). The row carries active + pinned only; both ride the row
+    // LWW, omitted fields keep their stored values (the COALESCE patch).
 
     await _cache.upsertClassPropertyBinding(
       classId: classId,
@@ -1931,6 +2083,8 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       incoming: incoming,
       // PC4: the soft-unbind flag rides the row LWW (absent = keep).
       active: payload['active'] as bool?,
+      // The binary tier flag rides the same row LWW (absent = keep).
+      pinned: payload['pinned'] as bool?,
     );
     return true;
   }

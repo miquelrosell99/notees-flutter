@@ -7,6 +7,7 @@ import 'package:notees/data/local/app_database.dart';
 import 'package:notees/data/repositories/node_cache_repository.dart';
 import 'package:notees/domain/models/relay/hlc.dart';
 import 'package:notees/domain/models/relay/operation_envelope.dart';
+import 'package:notees/domain/models/relay/payload_crypto.dart';
 import 'package:notees/domain/models/relay/store_errors.dart';
 import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -18,7 +19,10 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// replay: class-extends-cycle's final two envelopes close cycles and MUST
 /// throw CycleError on apply, class-extends-system-lock's tail deviates from
 /// the seeded system-extends sets and MUST throw SystemExtendsLockError
-/// (see the dedicated tests).
+/// (see the dedicated tests). Crypto-carrying fixtures (envelope-encrypted)
+/// are NOT excluded: the harness decrypts their `$e` payloads with the
+/// fixture's public workspace key before replay — a raw `$e` envelope is
+/// apply-time-rejected by design.
 ///
 /// Expected outcomes mirror `tests/test_store_fixtures.py` (GTK) and
 /// `packages/store/test/store.test.ts` (monorepo).
@@ -61,8 +65,7 @@ void main() {
   const refDef456 = 'gcal:event:def456@google.com';
   const refGhi789 = 'gcal:event:ghi789@google.com';
 
-  /// Fixtures whose application must throw — never part of the replay set
-  /// (class-extends-cycle closes a cycle; class-extends-system-lock pins the
+  /// Fixtures whose application must throw — never part of the replay set  /// (class-extends-cycle closes a cycle; class-extends-system-lock pins the
   /// system-extends lock's reject tail (detach/extra-parent/deviate) after
   /// an accepting prefix; is-embedded-parent-page claims the
   /// standalone role under an embedded block, the parent-page condition;
@@ -97,7 +100,26 @@ void main() {
   List<OperationEnvelope> fixtureEnvelopes(String name) =>
       loadFixture(name).map(OperationEnvelope.fromJson).toList();
 
-  List<OperationEnvelope> allFixtureEnvelopes() {
+  /// The replay path for crypto-carrying fixtures: envelopes carrying the
+  /// `$e` slot are DECRYPTED with the fixture's public
+  /// `crypto.workspaceKey` before they reach the appliers (the raw slot is
+  /// apply-time-rejected by design — sibling custody is pending; only the
+  /// fixture harnesses open it). Plaintext fixtures pass through.
+  Future<List<OperationEnvelope>> replayableEnvelopes(String name) async {
+    final fixtureJson =
+        jsonDecode(File('$fixturesDir/$name').readAsStringSync())
+            as Map<String, dynamic>;
+    final raws = loadFixture(name);
+    final crypto = fixtureJson['crypto'];
+    if (crypto is! Map<String, dynamic>) return fixtureEnvelopes(name);
+    final key = importWorkspaceKey(crypto['workspaceKey'] as String);
+    return [
+      for (final raw in raws)
+        await decryptEnvelope(key, OperationEnvelope.fromJson(raw)),
+    ];
+  }
+
+  Future<List<OperationEnvelope>> allFixtureEnvelopes() async {
     final names = Directory(fixturesDir)
         .listSync()
         .whereType<File>()
@@ -105,7 +127,9 @@ void main() {
         .where((name) => name.endsWith('.json') && !replayExcluded.contains(name))
         .toList()
       ..sort();
-    return [for (final name in names) ...fixtureEnvelopes(name)];
+    return [
+      for (final name in names) ...await replayableEnvelopes(name),
+    ];
   }
 
   OperationEnvelope basePage(String nodeId, int physical) => OperationEnvelope(
@@ -202,8 +226,7 @@ void main() {
       return db.rawQuery(sql, args);
     }
 
-    test('object.create fixtures land content and OR-Set class ids', () async {
-      for (final envelope in <OperationEnvelope>[
+    test('object.create fixtures land content and OR-Set class ids', () async {      for (final envelope in <OperationEnvelope>[
         ...fixtureEnvelopes('envelope-minimal.json'),
         ...fixtureEnvelopes('object-create.json'),
       ]) {
@@ -234,6 +257,32 @@ void main() {
         [nodeBook, bookClass],
       );
       expect(member.single['present'], 1);
+    });
+
+    test('envelope-encrypted: the harness decrypts the \$e payloads before '
+        'replay and the derived state matches the plaintext expectation',
+        () async {
+      // The decrypted create carries the page's contentAst; the decrypted
+      // update lands the icon. This is the E2EE lockstep claim: the same
+      // fixture the TS reference and the GTK client open byte-identically
+      // replays to the same derived state here.
+      const page = '0192a000-0000-7000-8000-0000000000fc';
+      final envelopes = await replayableEnvelopes('envelope-encrypted.json');
+      expect(envelopes, hasLength(2));
+      expect(envelopes.every((e) => !e.payload.containsKey(r'$e')), isTrue);
+      for (final envelope in envelopes) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      final node = await cache.getByUuid(page);
+      expect(node, isNotNull);
+      expect(
+        jsonDecode(node!.name),
+        [
+          {'type': 'text', 'text': 'Encrypted fixture page'},
+        ],
+      );
+      expect(node.displayName, 'Encrypted fixture page');
+      expect(node.icon, 'book');
     });
 
     test('object-color lands token → hex → null-clear; class token → null',
@@ -2399,8 +2448,208 @@ void main() {
       expect(await cache.classActiveState(year), isTrue);
     });
 
+    test('class-property-pinned: the tier flag rides the binding row LWW '
+        '(partial patches keep the stored flag), and the effective read '
+        'sorts the pinned tier first', () async {
+      final envelopes = fixtureEnvelopes('class-property-pinned.json');
+      const cls = '0192a000-0000-7000-8000-000000000f0c';
+      const schema = '0192a000-0000-7000-8000-000000000f0b';
+
+      Future<({int? pinned, int? active})> bindingRow() async {
+        final rows = await raw(
+          'SELECT pinned, active FROM class_property WHERE class_id = ? '
+          'AND property_schema_id = ?',
+          [cls, schema],
+        );
+        if (rows.isEmpty) return (pinned: null, active: null);
+        return (
+          pinned: (rows.single['pinned'] as num?)?.toInt(),
+          active: (rows.single['active'] as num?)?.toInt(),
+        );
+      }
+
+      // Through the phone's interleaved pin (a HIGHER HLC than the web's
+      // first pin): the stored flag tracks the newest envelope's write.
+      for (final envelope in envelopes.take(4)) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      expect(await bindingRow(), (pinned: 1, active: 1));
+
+      // The web's later pin=false flips the tier off.
+      expect(await appliers.apply(envelopes[4]), isTrue);
+      expect(await bindingRow(), (pinned: 0, active: 1));
+
+      // An active-only patch keeps the stored pinned flag (COALESCE patch).
+      expect(await appliers.apply(envelopes[5]), isTrue);
+      expect(await bindingRow(), (pinned: 0, active: 1));
+
+      // A later pin flips the tier back.
+      expect(await appliers.apply(envelopes[6]), isTrue);
+      expect(await bindingRow(), (pinned: 1, active: 1));
+
+      // The effective read orders the PINNED TIER FIRST: a second schema
+      // whose name sorts BEFORE 'impact' but binds unpinned renders after.
+      const otherSchema = '0192a000-0000-7000-8000-000000000f0a';
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-000000000f1a',
+        workspaceId: ws,
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'fixture-test-device',
+        hlc: const Hlc(physical: 1727240022650, logical: 0),
+        affectedNodeIds: const [cls],
+        opType: 'propertySchema.create',
+        payload: {
+          'propertySchemaId': otherSchema,
+          'name': 'aaa unpinned',
+          'type': 'text',
+        },
+        timestamp: '2026-09-24T12:00:22.650Z',
+      ));
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-000000000f1b',
+        workspaceId: ws,
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'fixture-test-device',
+        hlc: const Hlc(physical: 1727240022660, logical: 0),
+        affectedNodeIds: const [cls],
+        opType: 'class.property.set',
+        payload: {
+          'classId': cls,
+          'propertySchemaId': otherSchema,
+        },
+        timestamp: '2026-09-24T12:00:22.660Z',
+      ));
+      const member = '0192a000-0000-7000-8000-000000000f0d';
+      await appliers.apply(OperationEnvelope(
+        id: '0192a000-0000-7000-8000-000000000f1c',
+        workspaceId: ws,
+        actorId: '0192a000-0000-7000-8000-000000000002',
+        deviceId: 'fixture-test-device',
+        hlc: const Hlc(physical: 1727240022670, logical: 0),
+        affectedNodeIds: const [member],
+        opType: 'object.create',
+        payload: {
+          'objectId': member,
+          'classIds': [cls],
+        },
+        timestamp: '2026-09-24T12:00:22.670Z',
+      ));
+      final effective = await cache.getEffectiveProperties(member);
+      expect(
+        effective.map((r) => r.propertySchemaId).toList(),
+        [schema, otherSchema],
+        reason: 'pinned tier first, alphabetical only within each tier',
+      );
+      expect(effective.first.source, 'bound');
+      expect(effective.first.boundBy, cls);
+
+      // The unset removes the row (no tombstone — the config-row contract).
+      expect(await appliers.apply(envelopes[7]), isTrue);
+      expect(await bindingRow(), (pinned: null, active: null));
+      expect(
+        (await cache.getEffectiveProperties(member))
+            .map((r) => r.propertySchemaId)
+            .toList(),
+        [otherSchema],
+      );
+    });
+
+    test('property-assign: presence-row LWW converges both orders; unassign '
+        'keeps authored values; empty clears every value but keeps the '
+        'assignment (the effective read shows the assigned-empty row)', () async {
+      final envelopes = fixtureEnvelopes('property-assign.json');
+      const node = '0192a000-0000-7000-8000-000000000902';
+      const schema = '0192a000-0000-7000-8000-000000000901';
+
+      Future<({int count, String? actor})> assignmentRow() async {
+        final rows = await raw(
+          'SELECT actor_id FROM node_property WHERE node_uuid = ? '
+          'AND property_schema_id = ?',
+          [node, schema],
+        );
+        return (count: rows.length, actor: rows.isEmpty ? null : rows.single['actor_id'] as String?);
+      }
+
+      Future<List<Map<String, dynamic>>> valueRows() => raw(
+            'SELECT id FROM property_value WHERE node_uuid = ? AND '
+            'property_schema_id = ?',
+            [node, schema],
+          );
+
+      // Prefix through the value write (schema, node, assign, assign, set).
+      for (final envelope in envelopes.take(5)) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      // One presence row; the phone's strictly-newer assign wins the row.
+      final assigned = await assignmentRow();
+      expect(assigned.count, 1);
+      expect(assigned.actor, '0192a000-0000-7000-8000-000000000003');
+      expect(await valueRows(), hasLength(1));
+
+      // Reverse order converges to the same single row + winner.
+      await database.close();
+      final ffiDb2 = await databaseFactoryFfi.openDatabase(
+        ':memory:',
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      database = AppDatabase.fromDatabase(ffiDb2);
+      await database.initializeSchema();
+      cache = NodeCacheRepository(database);
+      appliers = RelayAppliers(cache);
+      for (final envelope in [
+        ...envelopes.take(3),
+        envelopes[3],
+        envelopes[2],
+        envelopes[4],
+      ]) {
+        await appliers.apply(envelope);
+      }
+      final reversed = await assignmentRow();
+      expect(reversed.count, 1);
+      expect(reversed.actor, '0192a000-0000-7000-8000-000000000003');
+
+      // Continue the canonical tail: unassign (declaration dies, the
+      // authored value SURVIVES), re-assign (newer HLC, declaration back),
+      // empty (every authored value dies, the assignment survives).
+      expect(await appliers.apply(envelopes[5]), isTrue);
+      expect((await assignmentRow()).count, 0);
+      expect(await valueRows(), hasLength(1));
+      expect(
+        (await cache.propertyValuesFor(node)).single.value,
+        'https://example.org',
+      );
+
+      expect(await appliers.apply(envelopes[6]), isTrue);
+      expect((await assignmentRow()).count, 1);
+
+      expect(await appliers.apply(envelopes[7]), isTrue);
+      expect((await assignmentRow()).count, 1);
+      expect(await valueRows(), isEmpty);
+      // Both tombstone families carry the empty's causality.
+      final slotTomb = await raw(
+        'SELECT hlc_physical FROM property_value_tombstone '
+        'WHERE node_uuid = ? AND property_schema_id = ? AND idx = 0',
+        [node, schema],
+      );
+      expect(slotTomb.single['hlc_physical'], 1727200013000);
+      final elementTomb = await raw(
+        'SELECT COUNT(*) AS c FROM property_value_element_tombstone '
+        'WHERE node_uuid = ? AND property_schema_id = ?',
+        [node, schema],
+      );
+      expect(elementTomb.single['c'], 1);
+
+      // End state: assigned, valueless — the effective read synthesizes the
+      // assigned-empty row.
+      final effective = await cache.getEffectiveProperties(node);
+      expect(effective, hasLength(1));
+      expect(effective.single.source, 'assigned');
+      expect(effective.single.value, isNull);
+      expect(effective.single.boundBy, isNull); // no class binds the schema.
+    });
+
     test('re-applying the whole fixture set is state-idempotent', () async {
-      final envelopes = allFixtureEnvelopes();
+      final envelopes = await allFixtureEnvelopes();
       // The typed-link updates (physical 2000/3000) lose the row-LWW race to
       // the object-move fixture (physical 7000+, which creates their target
       // ...020 = "Move Fixture" earlier in the alphabetical order) — the

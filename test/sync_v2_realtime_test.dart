@@ -198,6 +198,10 @@ void main() {
       expect(catchUpCalls, isEmpty);
 
       // A remote op lands over the socket and applies to the local cache.
+      // The wait targets the drain's LAST write (the applied-envelope
+      // record lands after the apply's derived projections) — waiting only
+      // for the node row races the drain's tail against tearDown's DB
+      // close under load.
       ws.serverSends(jsonEncode({
         'type': 'ops',
         'wsProtocolVersion': 2,
@@ -207,6 +211,13 @@ void main() {
       await waitForAsync(
         () async => (await service.cache.getByUuid(node1)) != null,
         reason: 'ops frame applied',
+      );
+      await waitForAsync(
+        () async => (await (await database.database).query('relay_operations',
+                where: 'id = ?',
+                whereArgs: const ['0192a000-0000-7000-8000-000000000001']))
+            .isNotEmpty,
+        reason: 'drain finished (applied-envelope record)',
       );
       final node = await service.cache.getByUuid(node1);
       expect(node, isNotNull);

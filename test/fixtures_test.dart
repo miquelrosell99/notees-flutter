@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notees/domain/models/relay/operation_envelope.dart';
 import 'package:notees/domain/models/relay/operation_payloads.dart';
+import 'package:notees/domain/models/relay/payload_crypto.dart';
 
 /// Cross-implementation parity gate for the Notees protocol v2.
 ///
@@ -41,15 +43,18 @@ void main() {
     'class-display-template.json',
     'class-property-active.json',
     'class-property-defaults.json',
+    'class-property-pinned.json',
     'class-unassign.json',
     'code-block.json',
     'embed-ref-view.json',
+    'envelope-encrypted.json',
     'external-ref.json',
     'hr.json',
     'heading-content.json',
     'is-embedded-date-chain.json',
     'is-embedded-parent-page.json',
     'link-embedded.json',
+    'mention-custom-label.json',
     'object-color.json',
     'object-delete-class-routing.json',
     'object-delete-date-chain.json',
@@ -62,6 +67,7 @@ void main() {
     'trash-empty.json',
     'object-wire-fields.json',
     'property-asset-type.json',
+    'property-assign.json',
     'property-date-qualifier.json',
     'property-datetime.json',
     'property-schema-delete.json',
@@ -79,19 +85,52 @@ void main() {
   List<Map<String, dynamic>> envelopesOf(Map<String, dynamic> fixture) =>
       (fixture['envelopes'] as List<dynamic>).cast<Map<String, dynamic>>();
 
-  void expectEnvelopeRoundTrips(Map<String, dynamic> raw, String fixtureName) {
+  /// The public test key behind `envelope-encrypted.json`'s `crypto` block
+  /// (b64u 32 bytes). Raw `$e` payloads are SHAPE-validated only
+  /// (`OperationEnvelope.fromJson`); the strict op registry runs on the
+  /// OPENED plaintext.
+  late final SecretKey _fixtureWorkspaceKey = importWorkspaceKey(
+    loadFixture('envelope-encrypted.json')['crypto']['workspaceKey'] as String,
+  );
+
+  Future<void> expectEnvelopeRoundTrips(
+    Map<String, dynamic> raw,
+    String fixtureName,
+  ) async {
     final envelope = OperationEnvelope.fromJson(raw);
     expect(
       envelope.toJson(),
       raw,
       reason: '$fixtureName drifted from the wire models',
     );
-    expect(
-      () => OperationPayloads.validatePayload(envelope.opType, envelope.payload),
-      returnsNormally,
-      reason: '$fixtureName payload failed registry validation '
-          '(${envelope.opType})',
-    );
+    if (envelope.payload.containsKey(r'$e')) {
+      // The E2EE slot: the app runtime rejects `$e` at apply time
+      // (sibling custody is pending), so the strict registry must NOT
+      // schema-validate the raw slot — but the decrypted plaintext MUST
+      // validate, lockstep with the GTK gate.
+      expect(
+        () => OperationPayloads.validatePayload(
+            envelope.opType, envelope.payload),
+        throwsFormatException,
+        reason: '$fixtureName raw \$e payload must not be schema-validated',
+      );
+      final opened = await decryptEnvelope(_fixtureWorkspaceKey, envelope);
+      expect(
+        () =>
+            OperationPayloads.validatePayload(opened.opType, opened.payload),
+        returnsNormally,
+        reason: '$fixtureName opened payload failed registry validation '
+            '(${envelope.opType})',
+      );
+    } else {
+      expect(
+        () =>
+            OperationPayloads.validatePayload(envelope.opType, envelope.payload),
+        returnsNormally,
+        reason: '$fixtureName payload failed registry validation '
+            '(${envelope.opType})',
+      );
+    }
     expect(
       OperationPayloads.isKnownOpType(envelope.opType),
       isTrue,
@@ -101,15 +140,15 @@ void main() {
 
   group('fixture parity (monorepo canonical fixtures)', () {
     for (final name in singleEnvelopeFixtures) {
-      test('$name parses and re-serializes exactly', () {
-        expectEnvelopeRoundTrips(loadFixture(name), name);
+      test('$name parses and re-serializes exactly', () async {
+        await expectEnvelopeRoundTrips(loadFixture(name), name);
       });
     }
 
     for (final name in envelopeListFixtures) {
-      test('$name envelopes parse and re-serialize exactly', () {
+      test('$name envelopes parse and re-serialize exactly', () async {
         for (final raw in envelopesOf(loadFixture(name))) {
-          expectEnvelopeRoundTrips(raw, name);
+          await expectEnvelopeRoundTrips(raw, name);
         }
       });
     }

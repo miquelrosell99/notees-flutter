@@ -437,9 +437,28 @@ void main() {
       ));
 
       var rows = await cache.getEffectiveProperties(member);
+      final statusRow = rows.singleWhere(
+        (r) => r.propertySchemaId == SystemPropertyUuids.taskStatus,
+      );
       expect(
-        rows.map((r) => (r.value, r.source, r.boundBy)),
-        [(TaskFamilyOptionUuids.pending, 'default', SystemClassUuids.task)],
+        (statusRow.value, statusRow.source, statusRow.boundBy),
+        (TaskFamilyOptionUuids.pending, 'default', SystemClassUuids.task),
+      );
+      // The family's other bound schemas (no defaults, no values) render
+      // the bound-but-empty rows (effective.ts 5c).
+      expect(
+        rows
+            .where((r) => r.propertySchemaId != SystemPropertyUuids.taskStatus)
+            .map((r) => (r.value, r.source, r.boundBy)),
+        isNotEmpty,
+        reason: 'the sibling task-family bindings synthesize bound-empty rows',
+      );
+      expect(
+        rows
+            .where((r) => r.propertySchemaId != SystemPropertyUuids.taskStatus)
+            .map((r) => (r.value, r.source, r.boundBy))
+            .toSet(),
+        {(null, 'bound', SystemClassUuids.task)},
       );
       // Derived only: no authored property_value rows exist.
       final authored = await raw(
@@ -461,9 +480,12 @@ void main() {
         affected: [member],
       ));
       rows = await cache.getEffectiveProperties(member);
+      final authoredStatus = rows.singleWhere(
+        (r) => r.propertySchemaId == SystemPropertyUuids.taskStatus,
+      );
       expect(
-        rows.map((r) => (r.value, r.source)),
-        [(TaskFamilyOptionUuids.done, 'authored')],
+        (authoredStatus.value, authoredStatus.source),
+        (TaskFamilyOptionUuids.done, 'authored'),
       );
     });
 
@@ -516,10 +538,17 @@ void main() {
         1030,
         affected: [node],
       ));
-      expect(await cache.getEffectiveProperties(node), isEmpty);
+      // The dangling default derives no VALUE — the surviving ACTIVE
+      // binding still synthesizes the bound-but-empty row (effective.ts 5c).
+      var rows = await cache.getEffectiveProperties(node);
+      expect(rows, hasLength(1));
+      expect(
+        (rows.single.value, rows.single.source, rows.single.boundBy),
+        (null, 'bound', cls),
+      );
 
       // The default IS among the options again (update restores it): the
-      // derived row resurfaces.
+      // derived row resurfaces (replacing the bound-empty row).
       await appliers.apply(env(
         'propertySchema.update',
         OperationPayloads.propertySchemaUpdate(
@@ -532,7 +561,7 @@ void main() {
         1040,
         affected: [schemaId],
       ));
-      final rows = await cache.getEffectiveProperties(node);
+      rows = await cache.getEffectiveProperties(node);
       expect(
         rows.map((r) => (r.value, r.source)),
         [('a', 'default')],

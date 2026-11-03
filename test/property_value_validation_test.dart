@@ -735,14 +735,19 @@ void main() {
       expect(rows.single.value, 'not-a-number');
 
       // Recreate the schema at the same id with a different type: the
-      // create replaces the row (default cleared), so nothing derives.
+      // create replaces the row (default cleared), so no VALUE derives —
+      // the surviving ACTIVE binding still synthesizes the bound-but-empty
+      // row (effective.ts 5c).
       await apply(env(
         'propertySchema.delete',
         OperationPayloads.propertySchemaDelete(propertySchemaId: textSchema),
       ));
       await createSchema(textSchema, 'number');
       rows = await cache.getEffectiveProperties(owner);
-      expect(rows, isEmpty);
+      expect(rows, hasLength(1));
+      expect(rows.single.source, 'bound');
+      expect(rows.single.value, isNull);
+      expect(rows.single.boundBy, klass);
     });
   });
 

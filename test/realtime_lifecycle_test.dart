@@ -154,6 +154,16 @@ void main() {
         'seqs': const {},
       }));
       await waitForAsyncNode(service, node1);
+      // The node row lands BEFORE the drain's derived projections finish;
+      // the applied-envelope record is the drain's LAST write — wait for it
+      // so tearDown's DB close never races the drain's tail.
+      await waitForAsync(
+        () async => (await (await database.database).query('relay_operations',
+                where: 'id = ?',
+                whereArgs: const ['0192a000-0000-7000-8000-000000000001']))
+            .isNotEmpty,
+        reason: 'drain finished (applied-envelope record)',
+      );
     });
 
     test('stop during the workspace lookup: no connection is established',
@@ -224,6 +234,19 @@ Future<void> waitForAsyncNode(SyncV2Service service, String uuid) async {
   while ((await service.cache.getByUuid(uuid)) == null) {
     if (stopwatch.elapsed > const Duration(seconds: 5)) {
       throw StateError('waitFor timed out: node $uuid');
+    }
+    await Future.delayed(const Duration(milliseconds: 10));
+  }
+}
+
+Future<void> waitForAsync(
+  Future<bool> Function() condition, {
+  String? reason,
+}) async {
+  final stopwatch = Stopwatch()..start();
+  while (!await condition()) {
+    if (stopwatch.elapsed > const Duration(seconds: 5)) {
+      throw StateError('waitFor timed out${reason != null ? ': $reason' : ''}');
     }
     await Future.delayed(const Duration(milliseconds: 10));
   }

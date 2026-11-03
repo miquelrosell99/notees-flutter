@@ -35,7 +35,12 @@
 ///  - `property.set`/`property.unset` gain the optional PG5 `elementId`
 ///    (UUID) — the OR-Set add/remove carrier for multi-value slots;
 ///  - `class.property.set` gains the optional PC4 `active` soft-unbind flag
-///    (omitted = keep the stored flag);
+///    (omitted = keep the stored flag) and the `pinned` binary tier flag
+///    (pinned properties render first, alphabetical within each tier);
+///  - `property.assign`/`property.unassign`/`property.empty` — the node-level
+///    (node, property) pair declaration: presence-row LWW, plain-delete
+///    removal, and the clear-every-authored-value gesture that keeps the
+///    assignment;
 ///  - `propertySchema.create`/`update` gain the SCHEMA.md "Datetime" fields
 ///    `datePrecision` (year|month|day) and `dateQualified` (PC6: values may
 ///    carry date-node qualifier refs in metadata startDate/endDate).
@@ -135,6 +140,9 @@ class OperationPayloads {
     'propertySchema.delete',
     'property.set',
     'property.unset',
+    'property.assign',
+    'property.unassign',
+    'property.empty',
     'asset.attach',
     'asset.detach',
     'collection.member.add',
@@ -481,11 +489,13 @@ class OperationPayloads {
     required String classId,
     required String propertySchemaId,
     bool? active,
+    bool? pinned,
   }) =>
       _validated('class.property.set', {
         'classId': classId,
         'propertySchemaId': propertySchemaId,
         'active': ?active,
+        'pinned': ?pinned,
       });
 
   /// Binding removal: deletes the `class_property` row. No tombstone — a
@@ -737,6 +747,42 @@ class OperationPayloads {
         'propertySchemaId': propertySchemaId,
         'elementId': ?elementId,
         'idx': idx,
+      });
+
+  /// Node-level ASSIGNMENT: declares the (node, property) pair with NO value
+  /// (a presence row, LWW by the full (hlc, actor) tuple — the binding-row
+  /// precedent). Carries zero availability semantics; the effective read
+  /// synthesizes an empty row until the property is valued or unassigned.
+  static Map<String, dynamic> propertyAssign({
+    required String objectId,
+    required String propertySchemaId,
+  }) =>
+      _validated('property.assign', {
+        'objectId': objectId,
+        'propertySchemaId': propertySchemaId,
+      });
+
+  /// Assignment removal: deletes the presence row (no tombstone — the
+  /// class.property.unset precedent). Authored values survive by design.
+  static Map<String, dynamic> propertyUnassign({
+    required String objectId,
+    required String propertySchemaId,
+  }) =>
+      _validated('property.unassign', {
+        'objectId': objectId,
+        'propertySchemaId': propertySchemaId,
+      });
+
+  /// CLEARs every authored value of one property on a node while KEEPING the
+  /// assignment (the "Empty property" gesture): both tombstone families are
+  /// stamped at the empty's causality, exactly like per-value removes.
+  static Map<String, dynamic> propertyEmpty({
+    required String objectId,
+    required String propertySchemaId,
+  }) =>
+      _validated('property.empty', {
+        'objectId': objectId,
+        'propertySchemaId': propertySchemaId,
       });
 
   // --- workspace features ----------------------------------------------------
@@ -1080,22 +1126,25 @@ class OperationPayloads {
         _uuid(payload, 'classId');
         _uuidList(payload, 'parentClassIds');
       case 'class.property.set':
-        // The binding carries ONLY the genuinely per-class mechanic
-        // (active) — `required` retired outright and `defaultValue` moved
-        // to the property schema, `sequence`
+        // The binding carries ONLY the genuinely per-class mechanics
+        // (active, pinned) — `required` retired outright and
+        // `defaultValue` moved to the property schema, `sequence`
         // retired outright (class panels render
-        // alphabetically by property name); all reject here like any
-        // retired key, as do the PROPERTY-level render contracts
+        // alphabetically by property name within each pin tier); all reject
+        // here like any retired key, as do the PROPERTY-level render
+        // contracts
         // (hideWhenEmpty/display; `readonly` retired outright 2026-10-21 —
         // derived from the system list, not stored).
         _strict(payload, {
           'classId',
           'propertySchemaId',
           'active',
+          'pinned',
         });
         _uuid(payload, 'classId');
         _uuid(payload, 'propertySchemaId');
         _bool(payload, 'active', required: false);
+        _bool(payload, 'pinned', required: false);
       case 'class.property.unset':
         _strict(payload, {'classId', 'propertySchemaId'});
         _uuid(payload, 'classId');
@@ -1228,6 +1277,29 @@ class OperationPayloads {
         _uuid(payload, 'propertySchemaId');
         _uuid(payload, 'elementId', required: false);
         _int(payload, 'idx', min: 0, required: false);
+      case 'property.assign':
+        // The (node, property) pair declaration WITHOUT a value
+        // (SCHEMA.md "Class properties"): a presence row, LWW by the full
+        // (hlc, actor) tuple; zero availability semantics like the binding
+        // rows — scope stays the sole locality authority (applier-side R3).
+        _strict(payload, {'objectId', 'propertySchemaId'});
+        _uuid(payload, 'objectId');
+        _uuid(payload, 'propertySchemaId');
+      case 'property.unassign':
+        // Assignment removal: plain DELETE of the presence row — no
+        // tombstone (the class.property.unset precedent); authored values
+        // are untouched by design.
+        _strict(payload, {'objectId', 'propertySchemaId'});
+        _uuid(payload, 'objectId');
+        _uuid(payload, 'propertySchemaId');
+      case 'property.empty':
+        // CLEAR every authored value of one property on a node while
+        // KEEPING the assignment (the context menu's "Empty property"
+        // gesture): the removes ride BOTH tombstone families at the
+        // empty's causality, exactly like per-value property.unset.
+        _strict(payload, {'objectId', 'propertySchemaId'});
+        _uuid(payload, 'objectId');
+        _uuid(payload, 'propertySchemaId');
       case 'workspace.feature.set':
         // The strict six-toggle enum (five families + journal,
         // surfaces-only); the retired pre-reshape ids

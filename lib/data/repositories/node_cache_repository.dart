@@ -4051,15 +4051,18 @@ class NodeCacheRepository {
 
   /// Upserts a binding row. Omitted fields KEEP their stored values (partial
   /// patch, port of the SQL COALESCE). [active] (PC4) is the soft-unbind
-  /// flag: omitted keeps the stored flag; a NEW row defaults to active. The
-  /// row carries ONLY the per-class mechanic (active) — `required` retired
+  /// flag: omitted keeps the stored flag; a NEW row defaults to active.
+  /// [pinned] is the binary tier flag: omitted keeps the stored flag; a NEW
+  /// row defaults to the unpinned tier. The row carries ONLY the per-class
+  /// mechanics (active, pinned) — `required` retired
   /// outright and `defaultValue` moved to the property schema, `sequence` retired outright (
-  /// class panels render alphabetically by property name).
+  /// class panels render alphabetically by property name within each tier).
   Future<void> upsertClassPropertyBinding({
     required String classId,
     required String schemaId,
     required LwwWinner incoming,
     bool? active,
+    bool? pinned,
   }) async {
     final db = await _database.database;
     final existing = await db.query(
@@ -4077,11 +4080,71 @@ class NodeCacheRepository {
         'active': active == null
             ? (stored['active'] as num?) ?? 1
             : (active ? 1 : 0),
+        'pinned': pinned == null
+            ? (stored['pinned'] as num?) ?? 0
+            : (pinned ? 1 : 0),
         'hlc_physical': incoming.physical,
         'hlc_logical': incoming.logical,
         'actor_id': incoming.actor,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Winner of a node-level ASSIGNMENT row, if any (property.assign's
+  /// presence-row LWW gate — the class_property binding precedent).
+  Future<LwwWinner?> nodePropertyWinner(
+    String nodeUuid,
+    String schemaId,
+  ) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'node_property',
+      columns: ['hlc_physical', 'hlc_logical', 'actor_id'],
+      where: 'node_uuid = ? AND property_schema_id = ?',
+      whereArgs: [nodeUuid, schemaId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    return (
+      physical: (row['hlc_physical'] as num?)?.toInt() ?? 0,
+      logical: (row['hlc_logical'] as num?)?.toInt() ?? 0,
+      actor: row['actor_id'] as String? ?? '',
+    );
+  }
+
+  /// INSERT/UPDATE the (node, property) pair presence row (property.assign).
+  Future<void> upsertNodeProperty({
+    required String nodeUuid,
+    required String schemaId,
+    required LwwWinner incoming,
+  }) async {
+    final db = await _database.database;
+    await db.insert(
+      'node_property',
+      {
+        'node_uuid': nodeUuid,
+        'property_schema_id': schemaId,
+        'hlc_physical': incoming.physical,
+        'hlc_logical': incoming.logical,
+        'actor_id': incoming.actor,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Assignment removal: plain DELETE of the presence row — no tombstone
+  /// (the class.property.unset precedent); authored values are untouched.
+  Future<void> deleteNodeProperty(
+    String nodeUuid,
+    String schemaId,
+  ) async {
+    final db = await _database.database;
+    await db.delete(
+      'node_property',
+      where: 'node_uuid = ? AND property_schema_id = ?',
+      whereArgs: [nodeUuid, schemaId],
     );
   }
 
@@ -4134,6 +4197,19 @@ class NodeCacheRepository {
     //    slot tombstones minus element tombstones — the same rule the
     //    applier enforces on write.
     final authoredRows = await visiblePropertyValueRows(nodeId);
+
+    // 1b. Node-level ASSIGNMENT rows (property.assign): the (node,
+    //     property) pair declarations. An assigned schema with no authored
+    //     rows and no derived default synthesizes an empty row in step 5b.
+    final assignedSchemaIds = <String>{
+      for (final row in await (await _database.database).query(
+        'node_property',
+        columns: ['property_schema_id'],
+        where: 'node_uuid = ?',
+        whereArgs: [nodeId],
+      ))
+        row['property_schema_id'] as String,
+    };
 
     // 2. The node's classes in assignment order: OR-Set add HLC ascending,
     //    ties by class id.
@@ -4231,6 +4307,7 @@ class NodeCacheRepository {
     final schemaIds = <String>{
       for (final row in authoredRows) row['property_schema_id'] as String,
       ...winnerBySchema.keys,
+      ...assignedSchemaIds,
     };
     final schemas = <String, EffectivePropertySchema>{};
     // The schema's options (parsed; the derived-default membership check —
@@ -4389,18 +4466,98 @@ class NodeCacheRepository {
       );
     }
 
-    // 6. Deterministic presentation order: PURE ALPHABETICAL by property
-    //    name (binding `sequence` retired; class
-    //    panels have no configurable order), unbound authored rows last;
+    bool hasRows(String schemaId) =>
+        rows.keys.any((k) => k.startsWith('$schemaId:'));
+
+    // 5b. Node-level ASSIGNMENT (property.assign): an assigned schema with
+    //     NO rows at all (neither authored nor a derived default)
+    //     synthesizes an EMPTY row — the panel renders it and the row's own
+    //     editor authors the first value via an ordinary property.set. A
+    //     schema-less assignment (schema deleted after the assign —
+    //     enforcement is never retroactive) renders nothing; hideWhenEmpty
+    //     schemas stay hidden (the render contract is property-level).
+    for (final schemaId in assignedSchemaIds) {
+      if (hasRows(schemaId)) continue;
+      final schema = schemas[schemaId];
+      if (schema == null) continue;
+      if (schema.hideWhenEmpty == true) continue;
+      rows['assigned:$schemaId'] = EffectiveProperty(
+        propertySchemaId: schemaId,
+        idx: 0,
+        elementId: 'assigned:$schemaId',
+        schema: schema,
+        value: null,
+        metadata: null,
+        source: 'assigned',
+        // The class still supplies the property — the pin is the node's
+        // own, but boundBy names the winning binder so the panel's
+        // "from a class" flag covers assigned rows on bound schemas (null
+        // only when no class binds the schema: a purely node-added
+        // property).
+        boundBy: winnerBySchema[schemaId]?.classId,
+        hideWhenEmpty: schema.hideWhenEmpty,
+        display: schema.display,
+        eligible: eligibleOf(schemaId, schema),
+      );
+    }
+
+    // 5c. BOUND-but-empty: a winning ACTIVE binding with NO rows at all (no
+    //     authored value, no derived default, no assignment) synthesizes an
+    //     EMPTY row — the VIRTUAL property shows as coming from the class
+    //     (boundBy names the binder) until realized (property.assign) or
+    //     valued. Scalar types included: the effective read is the single
+    //     authority for what a node carries. Same gates as the assigned
+    //     row: schema deleted → nothing renders; hideWhenEmpty stays
+    //     hidden; an ineligible node (R4, scope narrowed after the bind)
+    //     shows neither the row nor a default. Assigned rows (5b) win the
+    //     slot — the declaration is the node's own.
+    for (final entry in winnerBySchema.entries) {
+      final schemaId = entry.key;
+      if (hasRows(schemaId)) continue;
+      final schema = schemas[schemaId];
+      if (schema == null) continue;
+      if (schema.hideWhenEmpty == true) continue;
+      if (!eligibleOf(schemaId, schema)) continue;
+      rows['bound:$schemaId'] = EffectiveProperty(
+        propertySchemaId: schemaId,
+        idx: 0,
+        elementId: 'bound:$schemaId',
+        schema: schema,
+        value: null,
+        metadata: null,
+        source: 'bound',
+        boundBy: entry.value.classId,
+        hideWhenEmpty: schema.hideWhenEmpty,
+        display: schema.display,
+        eligible: true,
+      );
+    }
+
+    // 6. Deterministic presentation order: PINNED TIER FIRST (the winning
+    //    ACTIVE binding's `pinned` flag — a binary classification, never a
+    //    stored order: alphabetical by property name within EACH tier),
+    //    unbound AUTHORED rows last (assigned-empty rows join the main
+    //    block — the declaration is the node's own, not an orphan);
     //    (idx, element id) as the tiebreak (PG5: concurrent adds may share
     //    an idx — the element id orders them identically on every replica).
     final result = rows.values.toList();
     String nameOf(EffectiveProperty row) =>
         row.schema?.name ?? row.propertySchemaId;
+    bool unboundAuthoredLast(EffectiveProperty row) =>
+        row.boundBy == null && row.source == 'authored';
+    final pinnedBySchema = <String, bool>{
+      for (final entry in winnerBySchema.entries)
+        entry.key: (entry.value.binding['pinned'] as num?) == 1,
+    };
+    bool pinnedOf(EffectiveProperty row) =>
+        pinnedBySchema[row.propertySchemaId] ?? false;
     result.sort((a, b) {
-      final boundDelta =
-          (a.boundBy == null ? 1 : 0) - (b.boundBy == null ? 1 : 0);
+      final boundDelta = (unboundAuthoredLast(a) ? 1 : 0) -
+          (unboundAuthoredLast(b) ? 1 : 0);
       if (boundDelta != 0) return boundDelta;
+      final pinnedDelta =
+          (pinnedOf(a) ? 1 : 0) - (pinnedOf(b) ? 1 : 0);
+      if (pinnedDelta != 0) return -pinnedDelta;
       final nameDelta = nameOf(a).compareTo(nameOf(b));
       if (nameDelta != 0) return nameDelta;
       final idxDelta = a.idx - b.idx;
@@ -5459,7 +5616,10 @@ class EffectiveProperty {
   final EffectivePropertySchema? schema;
   final dynamic value;
   final dynamic metadata;
-  final String source; // 'authored' | 'default'
+  /// 'authored' | 'default' | 'assigned' | 'bound' — the merge step that
+  /// produced the row (assigned/bound rows are the empty synthesized rows:
+  /// value is null).
+  final String source;
   final String? boundBy;
   final bool? hideWhenEmpty;
 

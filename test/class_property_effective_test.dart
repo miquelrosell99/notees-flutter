@@ -352,11 +352,15 @@ void main() {
         timestamp: '2026-09-24T12:00:13.200Z',
       ));
       expect(await storedDefault(), isNull);
-      expect(
-        (await cache.getEffectiveProperties(nodeId))
-            .where((r) => r.propertySchemaId == schema),
-        isEmpty,
-      );
+      // The default is gone, but the ACTIVE binding survives — the
+      // bound-but-empty synthesis renders the property (valueless) until it
+      // is valued or the binding goes away (effective.ts 5c).
+      final cleared = await cache.getEffectiveProperties(nodeId);
+      expect(cleared, hasLength(1));
+      expect(cleared.single.propertySchemaId, schema);
+      expect(cleared.single.source, 'bound');
+      expect(cleared.single.value, isNull);
+      expect(cleared.single.boundBy, taskClass);
     });
 
     test('binding row LWW: a stale set is dropped', () async {
