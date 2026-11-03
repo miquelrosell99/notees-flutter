@@ -69,6 +69,40 @@ class RelayClient {
     return CatchUpResponse.fromJson(data);
   }
 
+  /// Fetches the workspace's E2EE wrapped key (user-custody surface,
+  /// `GET /workspaces/:id/key`). Returns null when the server holds no key
+  /// (404 — key existence is not revealed to non-members either). A 403
+  /// (API-key principal — keys are user custody, not operator) propagates.
+  Future<String?> fetchWorkspaceKey(String workspaceId) async {
+    try {
+      final response = await dio.get<Map<String, dynamic>>(
+        '/workspaces/$workspaceId/key',
+      );
+      final data = response.data;
+      if (data == null) {
+        throw const RelayException('Empty workspace key response');
+      }
+      return data['wrappedKey'] as String?;
+    } on DioException catch (err) {
+      if (err.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// Stores the workspace's E2EE wrapped key (`PUT /workspaces/:id/key`).
+  /// First write wins server-side: a 409 means a concurrent device stored
+  /// its key first — the caller re-fetches and adopts the winner (plan-02
+  /// semantics, never a blind upsert that would split the workspace's keys).
+  Future<void> storeWorkspaceKey(
+    String workspaceId,
+    String wrappedKey,
+  ) async {
+    await dio.put<void>(
+      '/workspaces/$workspaceId/key',
+      data: {'wrappedKey': wrappedKey},
+    );
+  }
+
   /// Fetch the newest derived-state snapshot for [workspaceId].
   Future<LatestSnapshotResponse> latestSnapshot(String workspaceId) async {
     final response = await dio.get<Map<String, dynamic>>(

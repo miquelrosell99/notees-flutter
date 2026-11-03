@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show MissingPluginException;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/api/api_client.dart';
+import '../../../core/crypto/crypto_custody.dart';
 import '../../../core/secure/secure_storage.dart';
 import '../../../core/utils/client_id.dart';
 import '../../../core/utils/uuid7.dart';
@@ -252,6 +253,25 @@ class AuthProvider extends ChangeNotifier {
     await prefs.setString(
         _activeWorkspaceKey(server.id, user.uuid), workspaceId);
     await _syncService?.setWorkspaceId(workspaceId);
+    await _applyWorkspaceCrypto(workspaceId);
+  }
+
+  /// Installs the workspace's E2EE key on the sync service (fetch-or-ensure
+  /// against the relay, first-write-wins adoption inside). Best-effort by
+  /// design: offline starts, keyless sessions (no master key held), and
+  /// relay errors leave the workspace locked — the locked semantic keeps
+  /// sync green with local writes plaintext until a key arrives.
+  Future<void> _applyWorkspaceCrypto(String workspaceId) async {
+    final sync = _syncService;
+    final dio = _dio;
+    if (sync == null || dio == null || !hasMasterKey) return;
+    try {
+      sync.workspaceKey = await ensureWorkspaceKey(dio, workspaceId);
+    } catch (e) {
+      sync.workspaceKey = null;
+      debugPrint(
+          'AuthProvider: workspace key unavailable; syncing locked: $e');
+    }
   }
 
   /// Fire-and-forget convergence pull after entering a workspace (the web
@@ -294,6 +314,8 @@ class AuthProvider extends ChangeNotifier {
     // A local session replaces any server session: its realtime stream must
     // not outlive the swap.
     await _syncService?.stopRealtime();
+    _syncService?.workspaceKey = null;
+    clearCryptoCustody();
     _user = User(
       id: uuid,
       uuid: uuid,
@@ -370,6 +392,7 @@ class AuthProvider extends ChangeNotifier {
     // The old sync service (and its realtime stream) belongs to the old
     // server/session: stop it before the replacement drops the reference.
     await _syncService?.stopRealtime();
+    clearCryptoCustody();
     await serverRepository.setActiveServerId(server.id);
     _activeServer = server;
     _dio = createApiClient(
@@ -514,6 +537,10 @@ class AuthProvider extends ChangeNotifier {
       _clearWorkspaceState();
       _applyActorId();
       _twoFactorChallenge = null;
+      // E2EE custody is memory-only: sign-out drops the master key and
+      // every workspace key (the sync service re-locks).
+      clearCryptoCustody();
+      _syncService?.workspaceKey = null;
       await _applyRealtimeSession();
       notifyListeners();
     }

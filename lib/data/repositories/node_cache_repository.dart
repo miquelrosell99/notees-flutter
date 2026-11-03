@@ -500,7 +500,7 @@ class NodeCacheRepository {
 
     Database? snapshotDb;
     try {
-      snapshotDb = await openDatabase(tempPath);
+      snapshotDb = await snapshotDbOpener(tempPath);
       final snapshot = await readSnapshot(snapshotDb, workspaceId);
       final db = await _database.database;
       await db.transaction((txn) async {
@@ -1069,6 +1069,13 @@ class NodeCacheRepository {
     Database db,
     String workspaceId,
   ) async {
+    // The client-built v2 snapshot schema has no class_property table (the
+    // bindings ride in the main store only); older server-built bytes may
+    // predate it too — absent means "no edges" (the _snapshotHasTable
+    // tolerance contract).
+    if (!await _snapshotHasTable(db, 'class_property')) {
+      return const [];
+    }
     final info = await db.rawQuery('PRAGMA table_info(class_property)');
     final names = info.map((c) => c['name'] as String).toSet();
     final hasLegacy = names.contains('default_value') && names.contains('required');

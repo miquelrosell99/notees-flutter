@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import '../../core/crypto/crypto_custody.dart';
 import '../../core/secure/secure_storage.dart';
 import '../models/user.dart';
 
@@ -37,7 +38,7 @@ class AuthRepository {
         purpose: data['purpose'] as String? ?? 'verify',
       );
     }
-    return LoginSuccess(_handleTokenResponse(data));
+    return LoginSuccess(await _handleTokenResponse(data, password: password));
   }
 
   /// Completes a login that returned a [TwoFactorChallenge].
@@ -55,7 +56,7 @@ class AuthRepository {
           'code': code,
         },
       );
-      return _handleTokenResponse(response.data!);
+      return await _handleTokenResponse(response.data!);
     } on DioException catch (e) {
       throw AuthException(_serverMessage(e, 'Verification failed'));
     }
@@ -90,7 +91,7 @@ class AuthRepository {
         if (adminPassword != null) 'admin_password': adminPassword,
       },
     );
-    return _handleTokenResponse(response.data!);
+    return _handleTokenResponse(response.data!, password: password);
   }
 
   Future<User?> checkSession() async {
@@ -160,7 +161,10 @@ class AuthRepository {
     await dio.delete('/auth/api-keys/$keyId');
   }
 
-  User _handleTokenResponse(Map<String, dynamic> data) {
+  Future<User> _handleTokenResponse(
+    Map<String, dynamic> data, {
+    String? password,
+  }) async {
     // The server returns the session as `token` (plus expiresAt/user/kdf);
     // there is no refresh-token cookie surface.
     final accessToken = data['token'] as String?;
@@ -168,6 +172,25 @@ class AuthRepository {
 
     if (accessToken == null || userJson == null) {
       throw const AuthException('Invalid response from server');
+    }
+
+    // E2EE custody: unwrap + hold the account master key from the kdf
+    // record while the password is at hand. A verifier mismatch means the
+    // stored record does not open under the authenticated password — a
+    // login-level error, never a silent keyless session (and the token is
+    // not persisted for a session that failed custody). Sessions without a
+    // kdf record (keyless operator setups) drop any previous account's
+    // custody; a 2FA-completed session has no password at this point and
+    // stays locked until a password sign-in derives the master.
+    final kdf = data['kdf'];
+    if (password != null && kdf is Map<String, dynamic>) {
+      try {
+        await deriveMasterKey(password, kdf);
+      } on StateError catch (e) {
+        throw AuthException(e.message);
+      }
+    } else if (kdf == null) {
+      clearCryptoCustody();
     }
 
     secureStorage.writeAccessToken(accessToken);

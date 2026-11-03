@@ -8,6 +8,60 @@ lives in git history.
 
 ## 2026-11-03
 
+- **feat(e2ee): sibling custody — full decrypt/encrypt at the sync boundary
+  (plan-04 Flutter track F1-F6).** The mobile client becomes a full custody
+  citizen of the E2EE core, converging with the TS reference and the GTK
+  client on the plan-01 `crypto.ts` custody half and the shared locked-sync
+  semantic. `pointycastle` (pure Dart, no native code) joins the deps for
+  scrypt — `package:cryptography` has none; the KDF wrapper
+  (`deriveScryptKeyBytes`, N=131072/r=8/p=1/dkLen=32) lives in
+  `lib/domain/models/relay/payload_crypto.dart` alongside the ported custody
+  half: `KdfRecord` create/unwrap with the fail-fast verifier
+  (HMAC-SHA256 over the DERIVED key, "notees-key-check"), workspace-key
+  wrap/unwrap (`iv ‖ tag ‖ ct` b64u — the payload slot's ct stays TAG-FIRST,
+  the documented opposite), `encryptPayload`/`encryptEnvelope`/
+  `encryptBytes`/`decryptBytes`, and `exportWorkspaceKey`. The plan-01 TS
+  golden vector ports with EXACT-string equality — the expected
+  salt/wrapped-record/verifier strings were produced independently with
+  node:crypto (`test/payload_crypto_test.dart`).
+  `RelayClient` gains the custody routes (`GET/PUT /workspaces/:id/key`,
+  404 ⇒ null on the GET) and `SyncV2Service` gains the engine boundary:
+  decrypt-before-apply at the single remote-apply chokepoint
+  (`_applyServerEnvelopes`, catch-up + WS drain both funnel there), a
+  sealed COPY at push in `flush()` (outbox row + `_applyLocalAndRecord`
+  stay plaintext — encrypt-a-copy), snapshot seal on `uploadSnapshot` and
+  decrypt at the restore shortcut (a wrong key fails loud as real
+  corruption, `decryptSnapshotOrThrow` parity). The LOCKED semantic matches
+  the web/GTK: with no key, remote `$e` envelopes are skipped with a
+  counted warning (`lockedSkipCount`), never applied, never thrown — the
+  plaintext batch-mates apply and the seq cursor still advances over the
+  skipped envelopes (no re-fetch loop). Custody wiring
+  (`lib/core/crypto/crypto_custody.dart`, the `crypto-custody.ts` port):
+  the login/register kdf record derives the account master key into a
+  module-level in-memory slot (never `flutter_secure_storage` — the web's
+  memory-only threat model); a verifier mismatch is a login-level error,
+  never a silent keyless session, and the token is not persisted for a
+  session that failed custody. Workspace open fetch-or-ensures the key
+  (shared in-flight flight; a PUT 409 re-fetches and adopts the winner —
+  first write wins, no split keys) and installs it on the sync service;
+  sign-out / local mode / server switch drop custody. A 2FA-completed
+  session has no password at hand and starts locked until a password
+  sign-in derives the master (the web's unlock re-prompt is the web
+  track's scope). Two real bugs surfaced by the new boundary tests and
+  fixed in the same slice: `_applyServerEnvelopes` now iterates the
+  decrypted/filtered batch (it re-read the raw list, so ciphertext reached
+  the appliers), and snapshot RESTORE routes through the
+  `snapshotDbOpener` test seam like the build path; the restore reader
+  also gains the documented absent-table tolerance for `class_property`
+  (the client-built snapshot schema never carries it, so a client-uploaded
+  snapshot previously could not restore). New suites: `sync_v2_e2ee_test`
+  (wire ciphertext + plaintext local echo, locked mixed batch, two-device
+  convergence, snapshot seal/decrypt round-trip), `relay_key_routes_test`,
+  `crypto_custody_test` (login kdf consumption, fetch-or-ensure, 409
+  adopt, wrong-master loud error). One Dart async trap pinned along the
+  way: a `whenComplete` arrow body returning the map entry it removes
+  deadlocks the future on itself — the cleanup callback is a block body.
+
 - **feat(protocol): E2EE fixture lockstep — the encrypted corpus joins the
   gate (decrypt module + gate/replay branches) + the re-vendor's lockstep
   debt (binding `pinned` tier, node-level property assignment, the heading

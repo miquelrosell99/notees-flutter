@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
@@ -18,6 +19,7 @@ import '../../data/repositories/sync_watermark_repository.dart';
 import '../models/relay/hlc.dart';
 import '../models/relay/operation_envelope.dart';
 import '../models/relay/operation_payloads.dart';
+import '../models/relay/payload_crypto.dart';
 import '../models/relay/property_value_shapes.dart';
 import '../models/relay/store_errors.dart';
 import '../models/sync_v2.dart';
@@ -101,6 +103,24 @@ class SyncV2Service {
   /// The authenticated user's uuid, used as the relay envelope actor id.
   /// Null until the auth layer wires in the signed-in user.
   String? _actorId;
+
+  /// The workspace's raw E2EE key (memory-only, same threat model as the web
+  /// client — never persisted). Null while the workspace is locked: remote
+  /// `$e` envelopes are then skipped with a counted warning (the locked
+  /// semantic) instead of failing the batch, and local writes stay plaintext.
+  SecretKey? _workspaceKey;
+
+  /// Session count of encrypted envelopes skipped because no workspace key
+  /// was installed (the locked semantic; `lockedSkipTotal` in the TS engine).
+  int lockedSkipCount = 0;
+
+  /// Installs (or clears, with null) the workspace's E2EE key at the sync
+  /// boundary: decrypt-before-apply at [_applyServerEnvelopes], encrypt-a-copy
+  /// at [flush], snapshot seal/decrypt. Clearing re-locks the workspace.
+  set workspaceKey(SecretKey? key) => _workspaceKey = key;
+
+  /// Whether a workspace key is installed (the workspace is unlocked).
+  bool get hasWorkspaceKey => _workspaceKey != null;
 
   String get clientId => _clientId;
 
@@ -330,7 +350,15 @@ class SyncV2Service {
 
       await _outbox.markInFlight(ids);
       try {
-        await _relay.pushBatch(envelopes);
+        // E2EE: encrypt a COPY at the push boundary — the outbox row and the
+        // local echo below stay plaintext (encrypt-a-copy, spec §2). With no
+        // key (locked) the wire carries plaintext, matching the TS engine.
+        final wireEnvelopes = _workspaceKey != null
+            ? await Future.wait(
+                envelopes.map((e) => encryptEnvelope(_workspaceKey!, e)),
+              )
+            : envelopes;
+        await _relay.pushBatch(wireEnvelopes);
         await _applyLocalAndRecord(envelopes);
         await _outbox.removeAll(ids);
       } on DioException catch (e) {
@@ -485,7 +513,13 @@ class SyncV2Service {
     if (snapshotIsNewer) {
       final bytes = await _relay.latestSnapshotData(workspaceId);
       if (bytes != null && bytes.isNotEmpty) {
-        await _cache.restoreFromSnapshot(bytes, workspaceId);
+        // E2EE: sealed snapshots open here, at the engine boundary; a decrypt
+        // failure with a key installed is real corruption (wrong key/tamper)
+        // and fails loud (`decryptSnapshotOrThrow` in the TS engine).
+        final restored = _workspaceKey != null
+            ? await _decryptSnapshot(bytes)
+            : bytes;
+        await _cache.restoreFromSnapshot(restored, workspaceId);
         lastReceived = snapshot.hlc;
         // Snapshots recorded before the seq cursor existed report null; catch
         // up from 0 and rely on operation-id dedupe.
@@ -568,16 +602,44 @@ class SyncV2Service {
   /// envelopes (is_local = 1) are NOT deduped here: they are applied to the
   /// cache on flush, and re-applying the echo is harmless — the appliers are
   /// row-LWW / first-create-wins idempotent.
+  ///
+  /// E2EE boundary (the single remote-apply chokepoint): with a workspace key
+  /// installed, `$e` envelopes are decrypted before the appliers see them (a
+  /// decrypt failure is real corruption and throws). With NO key (locked) the
+  /// encrypted envelopes are filtered out with a counted warning — the
+  /// plaintext batch-mates apply and the caller still advances the seq cursor
+  /// over the skipped envelopes (`skipEncryptedWithoutKey` in the TS engine).
   Future<_ApplyStats> _applyServerEnvelopes(
     RelayAppliers appliers,
     List<OperationEnvelope> envelopes,
   ) async {
     var applied = 0;
     var maxHlc = const Hlc(physical: 0, logical: 0);
+    List<OperationEnvelope> batch = envelopes;
+    if (_workspaceKey != null) {
+      batch = await Future.wait(
+        envelopes.map((e) => decryptEnvelope(_workspaceKey!, e)),
+      );
+    } else {
+      final plain = envelopes
+          .where((e) => !e.payload.containsKey(r'$e'))
+          .toList(growable: false);
+      final skipped = envelopes.length - plain.length;
+      if (skipped > 0) {
+        lockedSkipCount += skipped;
+        debugPrint(
+          'SyncV2Service: workspace key unavailable: skipped $skipped '
+          'encrypted envelope(s) ($lockedSkipCount this session); local '
+          'writes stay plaintext until unlocked. Plaintext envelopes in '
+          'the batch applied normally.',
+        );
+      }
+      batch = plain;
+    }
     final knownIds = await _appliedOperationIds(
-      envelopes.map((e) => e.id).toList(),
+      batch.map((e) => e.id).toList(),
     );
-    for (final envelope in envelopes) {
+    for (final envelope in batch) {
       if (knownIds.contains(envelope.id)) continue;
       try {
         final didApply = await appliers.apply(envelope);
@@ -762,11 +824,34 @@ class SyncV2Service {
     final hlc = await _watermarks.getPushed(workspaceId) ??
         await _watermarks.getReceived(workspaceId) ??
         const Hlc(physical: 0, logical: 0);
+    // E2EE: seal a copy at the boundary — the local cache keeps the raw
+    // projection (a restore decrypts symmetrically in _pullGeneration).
+    final wireBytes = _workspaceKey != null
+        ? await encryptBytes(_workspaceKey!, bytes)
+        : bytes;
     await _relay.uploadSnapshot(
       workspaceId: workspaceId,
-      bytes: bytes,
+      bytes: wireBytes,
       hlc: hlc,
     );
+  }
+
+  /// Opens a sealed snapshot blob, translating any decrypt failure into a
+  /// clear [SyncV2Exception] (wrong workspace key or corrupted snapshot —
+  /// `decryptSnapshotOrThrow` in the TS engine).
+  Future<Uint8List> _decryptSnapshot(Uint8List bytes) async {
+    try {
+      return await decryptBytes(_workspaceKey!, bytes);
+    } on SecretBoxAuthenticationError catch (e) {
+      throw SyncV2Exception(
+        'snapshot decryption failed: wrong workspace key or corrupted '
+        'snapshot ($e)',
+      );
+    } on FormatException catch (e) {
+      throw SyncV2Exception(
+        'snapshot decryption failed: malformed sealed snapshot ($e)',
+      );
+    }
   }
 
   /// Ids from [ids] already recorded as applied from the server.
