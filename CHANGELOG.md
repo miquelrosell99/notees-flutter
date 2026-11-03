@@ -8,6 +8,27 @@ lives in git history.
 
 ## 2026-11-03
 
+- **fix(e2ee): skip sealed snapshots when locked (no more keyless restore
+  crash) + the lockfile floor checked against CI.** The snapshot restore
+  shortcut opened every downloaded blob when no workspace key was installed
+  — a sealed (encrypted) snapshot blob then hit `restoreFromSnapshot` as
+  garbage and broke the whole pull. The locked state now probes the blob
+  for the `SQLite format 3\0` magic first: a sealed blob is skipped with a
+  counted warning (the locked `$e` skip semantics — the counter and the
+  debugPrint ride the same session count) and the seq cursor stays put so
+  catch-up replays the full log; with a key installed the decrypt path is
+  unchanged (a decrypt failure stays a loud corruption error). The
+  pubspec.lock Dart floor (`>=3.13.0-0`, an artifact of resolving under the
+  pre-release SDK — no locked package requires it) was verified against CI:
+  the scheduled Android CI resolved it green on a fresh stable 3.47.9
+  install this morning, so the floor stays. Verification: +2 cases in
+  `test/sync_v2_e2ee_test.dart` (9 in the file: locked + sealed blob ⇒
+  green pull, plaintext catch-up applies, the sealed envelope skips, the
+  counter reads 2, the cursor lands on the replayed log rather than the
+  snapshot's upToSeq shortcut; locked + plaintext snapshot still restores
+  via the magic probe); full gate green (pub get + both pub-cache patches +
+  analyze + test).
+
 - **feat(e2ee): sibling custody — full decrypt/encrypt at the sync boundary
   (plan-04 Flutter track F1-F6).** The mobile client becomes a full custody
   citizen of the E2EE core, converging with the TS reference and the GTK

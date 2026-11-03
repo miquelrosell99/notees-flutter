@@ -513,23 +513,40 @@ class SyncV2Service {
     if (snapshotIsNewer) {
       final bytes = await _relay.latestSnapshotData(workspaceId);
       if (bytes != null && bytes.isNotEmpty) {
-        // E2EE: sealed snapshots open here, at the engine boundary; a decrypt
-        // failure with a key installed is real corruption (wrong key/tamper)
-        // and fails loud (`decryptSnapshotOrThrow` in the TS engine).
-        final restored = _workspaceKey != null
-            ? await _decryptSnapshot(bytes)
-            : bytes;
-        await _cache.restoreFromSnapshot(restored, workspaceId);
-        lastReceived = snapshot.hlc;
-        // Snapshots recorded before the seq cursor existed report null; catch
-        // up from 0 and rely on operation-id dedupe.
-        cursorSeq = snapshot.upToSeq ?? 0;
-        await _watermarks.setReceived(
-          workspaceId,
-          lastReceived,
-          restoreEpoch: snapshot.restoreEpoch,
-          cursorSeq: cursorSeq,
-        );
+        // E2EE: sealed snapshots open here, at the engine boundary. With a
+        // key installed a decrypt failure is real corruption (wrong
+        // key/tamper) and fails loud (`decryptSnapshotOrThrow` in the TS
+        // engine). With NO key (locked) a sealed blob cannot be restored:
+        // skip it with a counted warning and continue to seq catch-up —
+        // the locked $e skip semantics — leaving the cursor put so catch-up
+        // replays the full log.
+        Uint8List? restored;
+        if (_workspaceKey != null) {
+          restored = await _decryptSnapshot(bytes);
+        } else if (_hasSqliteMagic(bytes)) {
+          restored = bytes;
+        } else {
+          lockedSkipCount++;
+          debugPrint(
+            'SyncV2Service: workspace key unavailable: skipped a sealed '
+            'snapshot ($lockedSkipCount this session); catching up from '
+            'seq $cursorSeq instead. Local writes stay plaintext until '
+            'unlocked.',
+          );
+        }
+        if (restored != null) {
+          await _cache.restoreFromSnapshot(restored, workspaceId);
+          lastReceived = snapshot.hlc;
+          // Snapshots recorded before the seq cursor existed report null; catch
+          // up from 0 and rely on operation-id dedupe.
+          cursorSeq = snapshot.upToSeq ?? 0;
+          await _watermarks.setReceived(
+            workspaceId,
+            lastReceived,
+            restoreEpoch: snapshot.restoreEpoch,
+            cursorSeq: cursorSeq,
+          );
+        }
       }
     }
 
@@ -834,6 +851,23 @@ class SyncV2Service {
       bytes: wireBytes,
       hlc: hlc,
     );
+  }
+
+  /// The SQLite database-file magic a PLAINTEXT snapshot blob starts with
+  /// ("SQLite format 3\0"). A sealed snapshot is AES-GCM output and never
+  /// carries it — the cheap locked-state probe (a keyed client never reads
+  /// it: the decrypt path is authoritative there).
+  static const List<int> _sqliteMagic = [
+    0x53, 0x51, 0x4C, 0x69, 0x74, 0x65, 0x20, //
+    0x66, 0x6F, 0x72, 0x6D, 0x61, 0x74, 0x20, 0x33, 0x00,
+  ];
+
+  bool _hasSqliteMagic(Uint8List bytes) {
+    if (bytes.length < _sqliteMagic.length) return false;
+    for (var i = 0; i < _sqliteMagic.length; i++) {
+      if (bytes[i] != _sqliteMagic[i]) return false;
+    }
+    return true;
   }
 
   /// Opens a sealed snapshot blob, translating any decrypt failure into a

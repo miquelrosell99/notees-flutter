@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
@@ -471,6 +470,87 @@ void main() {
         service.pull(),
         throwsA(isA<SyncV2Exception>()),
       );
+    });
+
+    test('locked: a sealed snapshot blob is skipped with a counted warning; '
+        'catch-up covers the content and sync stays green', () async {
+      // A keyed device produced the sealed snapshot (uploads are
+      // keyed-only); the log below it carries a plaintext and a sealed op.
+      relay.snapshotBlob = await encryptBytes(
+        workspaceKey,
+        Uint8List.fromList(latin1.encode('sealed snapshot bytes')),
+      );
+      // The snapshot claims to cover seq 5 — a restore would shortcut the
+      // cursor there; the skip must NOT adopt that shortcut.
+      relay.snapshotUpToSeq = 5;
+      relay.envelopes
+        ..add({
+          ...envelopeJson(
+            '0192a000-0000-7000-8000-000000000001',
+            createPayload(node1, 'plain page'),
+          ),
+          'seq': 1,
+        })
+        ..add({
+          ...await sealedEnvelopeJson(
+            '0192a000-0000-7000-8000-000000000002',
+            createPayload(node2, 'sealed page'),
+          ),
+          'seq': 2,
+        });
+      relay.nextSeq = 2;
+
+      final service = await buildService(database, relay);
+      expect(service.hasWorkspaceKey, isFalse);
+      await service.pull();
+
+      // The sealed snapshot did NOT restore; catch-up covered the log:
+      // plaintext applied, the sealed envelope skipped — both counted.
+      expect((await service.cache.getByUuid(node1))!.displayName, 'plain page');
+      expect(await service.cache.getByUuid(node2), isNull);
+      expect(service.lockedSkipCount, 2);
+      // The cursor advanced only over the replayed log, not the snapshot's
+      // upToSeq shortcut.
+      expect(await cursorSeq(database), 2);
+    });
+
+    test('locked: a plaintext snapshot still restores (the magic probe '
+        'passes through)', () async {
+      // A locked device uploads a PLAINTEXT snapshot (legacy/keyless
+      // workspace); a locked restore must keep restoring it — only blobs
+      // lacking the SQLite magic are treated as sealed.
+      final serviceA = await buildService(database, relay);
+      await serviceA.enqueue(
+        type: 'create',
+        nodeUuid: node1,
+        contentAst: const [
+          {'type': 'text', 'text': 'legacy snapshot page'},
+        ],
+        isPage: true,
+      );
+      await serviceA.flush();
+      relay.snapshotUpToSeq = 1;
+      await serviceA.uploadSnapshot();
+      // The blob is a real plaintext SQLite image.
+      expect(relay.snapshotBlob, isNotNull);
+      expect(latin1.decode(relay.snapshotBlob!.toList(), allowInvalid: true)
+          .contains('legacy snapshot page'), isTrue);
+      await database.close();
+      AppDatabase.reset();
+
+      final databaseB = await freshDatabase();
+      addTearDown(() async {
+        await databaseB.close();
+        AppDatabase.reset();
+      });
+      final serviceB = await buildService(databaseB, relay);
+      expect(serviceB.hasWorkspaceKey, isFalse);
+      await serviceB.pull();
+
+      expect((await serviceB.cache.getByUuid(node1))!.displayName,
+          'legacy snapshot page');
+      expect(await cursorSeq(databaseB), 1);
+      expect(serviceB.lockedSkipCount, 0);
     });
   });
 }
