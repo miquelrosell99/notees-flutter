@@ -8,6 +8,23 @@ lives in git history.
 
 ## 2026-11-03
 
+- **feat(protocol): query-AST v2 fixture lockstep — the 51st corpus fixture
+  re-vendored (opaque query AST, count pins only).** The monorepo's
+  query-AST v2 grammar slice adds `query-ast-v2.json` to the byte-pinned
+  corpus: an `object.create` envelope whose content carries a `query` token
+  with a v2 `queryAst` (the 64-variant flat condition union folded into 6
+  types — one of every v2 condition shape, `version` the literal 2). Clients
+  carry query ASTs OPAQUELY, so this arm is corpus re-vendor + gate pins
+  only: the fixture lands sha256-verified byte-identical to
+  `packages/protocol/fixtures/` (`6a958166…e33e10ff66`, `cmp`-verified) —
+  corpus 50 → 51 — and enters `test/fixtures_test.dart`'s envelope-list
+  round-trip set (the on-disk-vs-gate coverage test is the count pin). The
+  auto-glob all-fixtures replay in `test/fixture_replay_test.dart` picks the
+  fixture up unchanged: the `QueryToken` model holds `queryAst` as an
+  opaque `Map<String, dynamic>`, so the v2 grammar replays through the
+  appliers with no parser/model work. Verification: `flutter analyze` clean
+  (0 errors/warnings) + full gate green — 882 tests, all passed.
+
 - **fix(e2ee): skip sealed snapshots when locked (no more keyless restore
   crash) + the lockfile floor checked against CI.** The snapshot restore
   shortcut opened every downloaded blob when no workspace key was installed
