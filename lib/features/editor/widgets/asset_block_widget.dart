@@ -66,13 +66,10 @@ class _AssetBlockWidgetState extends State<AssetBlockWidget> {
         if (!mounted) return;
         setState(() {
           _asset = Asset(
-            uuid: widget.uuid,
-            nodeUuid: widget.uuid,
+            assetId: widget.uuid,
             filename: local.originalName,
-            contentType: local.mimeType,
-            category: local.category,
+            mimeType: local.mimeType,
             sizeBytes: local.sizeBytes,
-            url: localFile.path,
           );
           _loading = false;
         });

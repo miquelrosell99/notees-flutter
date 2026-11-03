@@ -4,6 +4,20 @@ Known divergences from the Notees monorepo (the TS reference is the source
 of truth; this app adapts to it — never the other way around). Entries are
 removed when the corresponding lockstep slice ships. Newest first.
 
+## 2026-11-03 — GTK asset-UI boundary follow-up (GTK repo owns its side)
+
+Plan 05's Flutter slice ships the full asset channel against the shipped
+server routes: `AssetRepository` posts `POST /api/assets` (declaring
+`encrypted`/`mimeType`/`iv` on the sealed arm, `objectId` for the attach)
+and downloads via `GET /api/assets/:id` with the `x-notees-asset-iv`
+header → /info IV resolution, opening sealed bytes through the custody
+cache's active workspace key. The GTK port has the matching transport
+(`NoteesClient.post_asset`/`get_asset`/`get_asset_info`) and the
+`seal_asset_if_keyed`/`open_asset_if_sealed` helpers, but no UI caller wires
+them into GTK's asset upload/download surfaces yet — that boundary slice is
+the GTK repo's own follow-up; this app tracks it here so the cross-client
+contract stays visible.
+
 ## 2026-11-03 — Flutter locked-state UI is missing
 
 Reloaded / 2FA-completed / API-key sessions have no master key and sync in

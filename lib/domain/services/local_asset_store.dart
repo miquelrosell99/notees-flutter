@@ -233,8 +233,9 @@ class LocalAssetService {
   /// server, against the asset nodes the replayed ops created. Mirrors the
   /// web client's adoption step (`defaultUploadAssetBytes` in
   /// `frontend/src/core/adoption.ts`): one upload per distinct content hash,
-  /// posted as multipart with `existing_node_uuid`. Returns per-asset errors;
-  /// failures do not abort the remaining uploads.
+  /// posted as multipart to `POST /api/assets` with the `objectId` attach
+  /// field. Returns per-asset errors; failures do not abort the remaining
+  /// uploads.
   Future<List<String>> uploadPendingAssets(Dio dio) async {
     final errors = <String>[];
     final seenHashes = <String>{};
@@ -250,9 +251,11 @@ class LocalAssetService {
         }
         // Same seal rule as AssetRepository.uploadFile: keyed sessions seal
         // and declare (`encrypted`/`mimeType`/`iv`); keyless sessions post
-        // the plaintext bytes and the server sniffs as today.
+        // the plaintext bytes and the server sniffs as today. The replayed
+        // asset node already exists — attach via the `objectId` multipart
+        // field the shipped POST /api/assets accepts.
         final key = activeWorkspaceKey;
-        final fields = <String, dynamic>{};
+        final fields = <String, dynamic>{'objectId': asset.nodeId};
         var payload = bytes;
         if (key != null) {
           final sealed = await encryptAssetBytes(key, bytes);
@@ -269,12 +272,9 @@ class LocalAssetService {
           ),
           ...fields,
         });
-        // `existing_node_uuid` is a query parameter in the FastAPI signature
-        // (only `content` is a Form field), so it cannot go in the form body.
         await dio.post<Map<String, dynamic>>(
-          '/assets/upload',
+          '/api/assets',
           data: formData,
-          queryParameters: {'existing_node_uuid': asset.nodeId},
         );
       } catch (e) {
         errors.add('${asset.nodeId}: $e');

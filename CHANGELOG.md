@@ -8,6 +8,31 @@ lives in git history.
 
 ## 2026-11-03
 
+- **fix(assets): align the asset channel with the shipped server routes
+  (`POST /api/assets`, `GET /api/assets/:id`, `/info`).** Review follow-up:
+  the plan-05 sealing wiring was correct per its own channel, but the
+  channel itself predated the shipped Fastify routes and had drifted — it
+  posted the retired `/assets/upload` and parsed the retired snake_case row.
+  `AssetRepository` now posts `POST /api/assets` (multipart; attach rides as
+  the `objectId` field — `existingNodeUuid`/`parentUuid` both spell "attach
+  to this node", the block itself is created by the node-creation path) and
+  parses the camelCase response `{assetId, hash, mimeType, size,
+  originalName, refs, iv}`; the sealed arm keeps declaring
+  `encrypted`/`mimeType`/`iv`. Downloads go through `GET /api/assets/:id`
+  with the IV resolving from the caller, then the `x-notees-asset-iv`
+  header, then a /info fallback (hash-addressed downloads carry no header);
+  `Asset` is the camelCase info row with the category derived client-side
+  (the server no longer categorizes); the dead `content` upload field and
+  the server's-nonexistent `DELETE` route are dropped; the local-mode
+  adoption upload (`LocalAssetService.uploadPendingAssets`) posts the same
+  route with `objectId`. The plan-05 crypto rules are untouched: keyed
+  uploads seal (tag‖ct, external IV), sealed downloads open through custody,
+  keyless stays plaintext, sealed-without-key stays the honest error. A
+  `docs/lockstep-debt.md` entry tracks the GTK asset-UI boundary follow-up
+  (its `seal_asset_if_keyed`/`open_asset_if_sealed` helpers await a UI
+  caller; the GTK repo owns that side). Verification: `flutter analyze`
+  clean (0 errors) + full gate green — 896 tests, all passed.
+
 - **feat(e2ee): CAS asset encryption (plan 05, Flutter track) — uploads
   seal and declare, downloads open through custody, keyless stays
   plaintext.** New `lib/domain/models/relay/asset_crypto.dart`

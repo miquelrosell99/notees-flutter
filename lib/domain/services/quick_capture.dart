@@ -70,8 +70,9 @@ class QuickCaptureService {
     }
   }
 
-  /// Uploads [file] as an asset block under [parentUuid], or converts
-  /// [existingNodeUuid] into an asset when given.
+  /// Uploads [file] as an asset attached to [parentUuid] or
+  /// [existingNodeUuid] (both spell "attach to this node"; the node itself
+  /// is created by the node-creation path, not the upload).
   ///
   /// In local (serverless) mode the bytes go to the on-device
   /// [LocalAssetStore] and the canonical asset ops are emitted locally, so a
@@ -80,7 +81,6 @@ class QuickCaptureService {
     File file, {
     String? parentUuid,
     String? existingNodeUuid,
-    String? content,
   }) async {
     final sync = syncService;
     if (sync != null && sync.serverless) {
@@ -88,7 +88,6 @@ class QuickCaptureService {
         file,
         parentUuid: parentUuid,
         existingNodeUuid: existingNodeUuid,
-        content: content,
       );
       return;
     }
@@ -96,7 +95,6 @@ class QuickCaptureService {
       file,
       parentUuid: parentUuid,
       existingNodeUuid: existingNodeUuid,
-      content: content,
     );
   }
 

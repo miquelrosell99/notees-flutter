@@ -258,14 +258,12 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
 
     setState(() => _isSaving = true);
     try {
-      final text = _controller.text.trim();
       await QuickCaptureService(
         dio: auth.dio!,
         syncService: auth.syncService,
       ).uploadAsset(
         _imageFile!,
         existingNodeUuid: page.uuid,
-        content: text.isEmpty ? null : text,
       );
       if (mounted) {
         Navigator.of(context).pop();
