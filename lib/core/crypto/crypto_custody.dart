@@ -22,6 +22,10 @@ import '../../domain/models/relay/payload_crypto.dart';
 
 SecretKey? _masterKey;
 
+/// The workspace the session currently has open (noted by the auth provider
+/// on every active-workspace switch, keyless sessions included).
+String? _activeWorkspaceId;
+
 /// Raw workspace keys, in memory only, keyed by workspace id.
 final _workspaceKeys = <String, SecretKey>{};
 
@@ -32,6 +36,22 @@ final _inFlightEnsures = <String, Future<SecretKey>>{};
 
 /// Whether this session holds an account master key.
 bool get hasMasterKey => _masterKey != null;
+
+/// Notes the session's active workspace (called on every workspace switch).
+/// With no master held the key cache stays empty, so asset I/O keeps the
+/// honest plaintext path regardless.
+void noteActiveWorkspace(String workspaceId) {
+  _activeWorkspaceId = workspaceId;
+}
+
+/// The raw workspace key for the active workspace, or null when the
+/// workspace is locked (keyless session, or the ensure failed/offline).
+/// Asset I/O seals uploads and opens sealed downloads through this — the
+/// web client's asset layer reads its custody cache the same way.
+SecretKey? get activeWorkspaceKey {
+  final id = _activeWorkspaceId;
+  return id == null ? null : _workspaceKeys[id];
+}
 
 /// Unwraps the account master key from the login kdf record and holds it in
 /// the session slot, replacing any previous account's key. Throws
@@ -51,6 +71,7 @@ Future<SecretKey> deriveMasterKey(
 /// a sign-in whose response carries no kdf record).
 void clearCryptoCustody() {
   _masterKey = null;
+  _activeWorkspaceId = null;
   _workspaceKeys.clear();
 }
 

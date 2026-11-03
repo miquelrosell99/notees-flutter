@@ -8,9 +8,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/constants/system.dart';
+import '../../core/crypto/crypto_custody.dart';
 import '../../core/utils/ast_builder.dart';
 import '../../core/utils/uuid7.dart';
+import '../models/relay/asset_crypto.dart';
 import '../models/relay/operation_payloads.dart';
+import '../models/relay/payload_crypto.dart' show b64uEncode;
 import './sync_v2_service.dart';
 
 /// Metadata sidecar for a locally stored asset, mirroring the server's
@@ -245,12 +248,26 @@ class LocalAssetService {
             'asset bytes missing locally (hash ${asset.assetHash})',
           );
         }
+        // Same seal rule as AssetRepository.uploadFile: keyed sessions seal
+        // and declare (`encrypted`/`mimeType`/`iv`); keyless sessions post
+        // the plaintext bytes and the server sniffs as today.
+        final key = activeWorkspaceKey;
+        final fields = <String, dynamic>{};
+        var payload = bytes;
+        if (key != null) {
+          final sealed = await encryptAssetBytes(key, bytes);
+          payload = sealed.blob;
+          fields['encrypted'] = '1';
+          fields['mimeType'] = asset.mimeType;
+          fields['iv'] = b64uEncode(sealed.iv);
+        }
         final formData = FormData.fromMap(<String, dynamic>{
           'file': MultipartFile.fromBytes(
-            bytes,
+            payload,
             filename: asset.originalName,
             contentType: DioMediaType.parse(asset.mimeType),
           ),
+          ...fields,
         });
         // `existing_node_uuid` is a query parameter in the FastAPI signature
         // (only `content` is a Form field), so it cannot go in the form body.

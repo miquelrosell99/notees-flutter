@@ -61,7 +61,8 @@ class KdfRecord {
       };
 }
 
-Uint8List _randomBytes(int length) {
+/// Cryptographically secure random bytes (shared by every seal helper).
+Uint8List randomBytes(int length) {
   final random = Random.secure();
   return Uint8List.fromList(
     List<int>.generate(length, (_) => random.nextInt(256)),
@@ -110,14 +111,14 @@ Future<List<int>> keyVerifierBytes(List<int> derivedKeyBytes) async {
 }
 
 /// A fresh random 256-bit master key (`generateMasterKey` in crypto.ts).
-SecretKey generateMasterKey() => SecretKey(_randomBytes(32));
+SecretKey generateMasterKey() => SecretKey(randomBytes(32));
 
 /// Wraps [masterKey] with the password-derived key into a [KdfRecord]
 /// (`createKdfRecord` in crypto.ts).
 Future<KdfRecord> createKdfRecord(SecretKey masterKey, String password) async {
-  final salt = _randomBytes(16);
+  final salt = randomBytes(16);
   final wrapKeyBytes = deriveScryptKeyBytes(password, salt);
-  final iv = _randomBytes(12);
+  final iv = randomBytes(12);
   final box = await AesGcm.with256bits().encrypt(
     await masterKey.extractBytes(),
     secretKey: SecretKey(wrapKeyBytes),
@@ -166,7 +167,7 @@ Future<SecretKey> unwrapMasterKey(String password, KdfRecord record) async {
 }
 
 /// A fresh random 256-bit workspace key (`generateWorkspaceKey` in crypto.ts).
-SecretKey generateWorkspaceKey() => SecretKey(_randomBytes(32));
+SecretKey generateWorkspaceKey() => SecretKey(randomBytes(32));
 
 /// Wraps [workspaceKey] with the account [masterKey]: b64u of
 /// `iv ‖ tag ‖ ct` (`wrapWorkspaceKey` in crypto.ts — the same layout as the
@@ -175,7 +176,7 @@ Future<String> wrapWorkspaceKey(
   SecretKey masterKey,
   SecretKey workspaceKey,
 ) async {
-  final iv = _randomBytes(12);
+  final iv = randomBytes(12);
   final box = await AesGcm.with256bits().encrypt(
     await workspaceKey.extractBytes(),
     secretKey: masterKey,
@@ -212,7 +213,7 @@ Future<Map<String, dynamic>> encryptPayload(
   String aad,
   Map<String, dynamic> payload,
 ) async {
-  final iv = _randomBytes(12);
+  final iv = randomBytes(12);
   final box = await AesGcm.with256bits().encrypt(
     utf8.encode(jsonEncode(payload)),
     secretKey: workspaceKey,
@@ -246,7 +247,7 @@ Future<OperationEnvelope> encryptEnvelope(
 /// Seals a snapshot blob: raw bytes `iv ‖ tag ‖ ct` (`encryptBytes` in
 /// crypto.ts).
 Future<Uint8List> encryptBytes(SecretKey workspaceKey, Uint8List bytes) async {
-  final iv = _randomBytes(12);
+  final iv = randomBytes(12);
   final box = await AesGcm.with256bits().encrypt(
     bytes,
     secretKey: workspaceKey,

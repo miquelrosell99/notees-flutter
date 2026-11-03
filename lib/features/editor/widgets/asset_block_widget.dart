@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -80,20 +81,18 @@ class _AssetBlockWidgetState extends State<AssetBlockWidget> {
 
       final repo = AssetRepository(dio: widget.dio);
       final info = await repo.fetchAssetInfo(widget.uuid);
-      final url = '${widget.dio.options.baseUrl}${repo.assetUrl(widget.uuid)}';
 
       if (info.category == 'image') {
-        final response = await widget.dio.get<List<int>>(
-          url,
-          options: Options(responseType: ResponseType.bytes),
-        );
-        _imageBytes = Uint8List.fromList(response.data!);
+        // Sealed assets (info.iv) open through the custody cache; keyless
+        // sessions surface the existing error text below, never ciphertext.
+        _imageBytes = await repo.downloadBytes(widget.uuid, iv: info.iv);
       } else if (info.category == 'audio') {
         final tempDir = await getTemporaryDirectory();
         final name = info.filename;
         final ext = name.contains('.') ? name.split('.').last : 'm4a';
         final path = '${tempDir.path}/notees_asset_${widget.uuid}.$ext';
-        await widget.dio.download(url, path);
+        final bytes = await repo.downloadBytes(widget.uuid, iv: info.iv);
+        await File(path).writeAsBytes(bytes);
         _audioPath = path;
       }
 

@@ -264,6 +264,9 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _applyWorkspaceCrypto(String workspaceId) async {
     final sync = _syncService;
     final dio = _dio;
+    // Asset I/O resolves the active workspace's key through custody; note
+    // the id even when the ensure below cannot run (keyless, offline).
+    noteActiveWorkspace(workspaceId);
     if (sync == null || dio == null || !hasMasterKey) return;
     try {
       sync.workspaceKey = await ensureWorkspaceKey(dio, workspaceId);

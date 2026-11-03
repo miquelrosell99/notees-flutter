@@ -78,15 +78,12 @@ class _CoverImageWidgetState extends State<CoverImageWidget> {
         setState(() => _loading = false);
         return;
       }
-      final url =
-          '${widget.dio.options.baseUrl}${repo.assetUrl(widget.assetUuid)}';
-      final response = await widget.dio.get<List<int>>(
-        url,
-        options: Options(responseType: ResponseType.bytes),
-      );
+      // Sealed assets (info.iv) open through the custody cache; failures
+      // (locked workspace, tampered blob) render nothing, as before.
+      final bytes = await repo.downloadBytes(widget.assetUuid, iv: info.iv);
       if (!mounted) return;
       setState(() {
-        _imageBytes = Uint8List.fromList(response.data!);
+        _imageBytes = bytes;
         _loading = false;
       });
     } catch (_) {

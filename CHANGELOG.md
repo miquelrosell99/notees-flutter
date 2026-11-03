@@ -8,6 +8,28 @@ lives in git history.
 
 ## 2026-11-03
 
+- **feat(e2ee): CAS asset encryption (plan 05, Flutter track) — uploads
+  seal and declare, downloads open through custody, keyless stays
+  plaintext.** New `lib/domain/models/relay/asset_crypto.dart`
+  (`encryptAssetBytes`/`decryptAssetBytes`, pure package:cryptography, no
+  KDF) implements the shared blob layout contract byte-for-byte with the
+  TS/GTK ports: stored bytes = tag(16) ‖ ct, the IV external as server-side
+  asset metadata (the `asset.iv` column, b64u on the wire) — no wire/protocol
+  change, the fixture corpus is untouched. `Asset` gains the `iv` field and
+  `AssetRepository` seals the rules: `uploadFile` encrypts when the custody
+  cache holds the active workspace's key and declares the upload
+  (`encrypted`, declared `mimeType`, `iv`) so the server skips magic-byte
+  sniffing; keyless sessions keep the historical plaintext path. A new
+  `downloadBytes` opens sealed bytes through the custody key, throws an
+  honest `StateError` for sealed-without-key (the widgets' existing error
+  text), and lets the GCM authenticity error propagate — never a corrupted
+  render. `crypto_custody` gains active-workspace tracking
+  (`noteActiveWorkspace` from the auth provider's single workspace-crypto
+  write path, `activeWorkspaceKey` for asset I/O); the local-mode adoption
+  upload (`LocalAssetService.uploadPendingAssets`) seals under the same
+  rule. Verification: `flutter analyze` clean (0 errors) + full gate green —
+  892 tests, all passed.
+
 - **feat(protocol): query-AST v2 fixture lockstep — the 51st corpus fixture
   re-vendored (opaque query AST, count pins only).** The monorepo's
   query-AST v2 grammar slice adds `query-ast-v2.json` to the byte-pinned
