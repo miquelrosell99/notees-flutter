@@ -4472,6 +4472,9 @@ class NodeCacheRepository {
               metadata: metadata.isEmpty ? null : jsonEncode(metadata),
             ));
           case 'quote':
+          case 'heading':
+            // Both nested containers recurse (TS edges.ts walks quote AND
+            // heading children — mentions inside headings derive edges).
             final children = token['children'];
             if (children is List) {
               walk([

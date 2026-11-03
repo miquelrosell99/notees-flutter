@@ -61,6 +61,7 @@ bool isFlatTokenStream(List<dynamic> ast) {
     'query',
     'whiteboard',
     'quote',
+    'heading',
     'code_block',
     'hr',
   };

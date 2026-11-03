@@ -286,6 +286,49 @@ void main() {
       expect(node.displayName, 'Meet Ada at noon');
     });
 
+    test('mentions inside quote AND heading tokens derive edge rows', () async {
+      const pageUuid = '00000000-0000-0000-0000-000000000108';
+      const targetUuid = '00000000-0000-0000-0000-000000000199';
+
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f7',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(objectId: pageUuid),
+      ));
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-0000000000f8',
+        opType: 'object.update',
+        payload: OperationPayloads.objectUpdate(
+          objectId: pageUuid,
+          contentAst: const [
+            {
+              'type': 'quote',
+              'children': [
+                {'type': 'mention', 'targetNodeId': targetUuid},
+              ],
+            },
+            {
+              'type': 'heading',
+              'children': [
+                {'type': 'mention', 'targetNodeId': targetUuid},
+              ],
+            },
+          ],
+        ),
+        physical: 2,
+      ));
+
+      // Both nested containers recurse (TS edges.ts parity — the heading
+      // arm was missing until 2026-11-03).
+      final db = await database.database;
+      final edges = await db.rawQuery(
+        "SELECT type, target_id FROM edge WHERE source_id = ? AND type = 'mention'",
+        [pageUuid],
+      );
+      expect(edges.length, 2);
+      expect(edges.every((r) => r['target_id'] == targetUuid), isTrue);
+    });
+
     test('applies property.set and property.unset by propertySchemaId',
         () async {
       const nodeUuid = '00000000-0000-0000-0000-000000000102';
