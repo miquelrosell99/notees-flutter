@@ -277,5 +277,68 @@ void main() {
         throwsA(isA<EnvelopeValidationError>()),
       );
     });
+
+    // --- tag edges (the "tags are links" ruling, 2026-11-03) -------------
+
+    Future<List<Map<String, Object?>>> tagEdges() async {
+      final db = await database.database;
+      return db.rawQuery(
+        'SELECT target_id, type, verb FROM edge WHERE source_id = ? ORDER BY target_id',
+        [pageId],
+      );
+    }
+
+    test('tagging derives one tag edge per tag; untag drops it; re-add restores', () async {
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000511',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: pageId,
+          tagIds: const [tagA, tagB],
+        ),
+        physical: 200,
+      ));
+      expect(await tagEdges(), [
+        {'target_id': tagA, 'type': 'tag', 'verb': null},
+        {'target_id': tagB, 'type': 'tag', 'verb': null},
+      ]);
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000512',
+        opType: 'tag.unassign',
+        payload: OperationPayloads.tagUnassign(objectId: pageId, tagId: tagA),
+        physical: 300,
+      ));
+      expect(await tagEdges(), [
+        {'target_id': tagB, 'type': 'tag', 'verb': null},
+      ]);
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000513',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: pageId,
+          tagIds: const [tagA],
+        ),
+        physical: 400,
+      ));
+      expect(await tagEdges(), [
+        {'target_id': tagA, 'type': 'tag', 'verb': null},
+        {'target_id': tagB, 'type': 'tag', 'verb': null},
+      ]);
+    });
+
+    test('the tag page backlinks the tagged source through the edge index', () async {
+      await appliers.apply(envelope(
+        id: '0192a000-0000-7000-8000-000000000514',
+        opType: 'object.create',
+        payload: OperationPayloads.objectCreate(
+          objectId: pageId,
+          tagIds: const [tagA],
+        ),
+        physical: 200,
+      ));
+      final rows = await cache.backlinks(tagA);
+      expect(rows.map((r) => r['source_id']), [pageId]);
+      expect(rows.single['type'], 'tag');
+    });
   });
 }

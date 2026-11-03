@@ -423,7 +423,14 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       if (classIds.isNotEmpty || linkClassIds.isNotEmpty) {
         await _cache.recomputeClassIds(objectId);
       }
-      if (tagIds.isNotEmpty) await _cache.recomputeTagIds(objectId);
+      if (tagIds.isNotEmpty) {
+        await _cache.recomputeTagIds(objectId);
+        // Tags project into the edge index (the "tags are links" ruling):
+        // a tag add on the convergence carrier re-derives the node's edges
+        // even though every other tree side effect stays skipped here
+        // (the TS appliers' 2026-11-03 ruling).
+        await _cache.rebuildEdges(objectId, at: envelope.timestamp);
+      }
       return false;
     }
 
@@ -493,6 +500,11 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       await _cache.recomputeClassIds(objectId);
     }
     if (tagIds.isNotEmpty) await _cache.recomputeTagIds(objectId);
+    // Edge index parity with the TS reference's object.create: the fresh
+    // create re-derives the new node's edges once, after the membership
+    // OR-Sets land — content mentions (blocks keep the rich token stream),
+    // node-typed property values (none yet on a fresh node), and tag edges.
+    await _cache.rebuildEdges(objectId, at: envelope.timestamp);
     return true;
   }
 
@@ -2022,6 +2034,10 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       await _cache.upsertTagMember(objectId, tagId, false, incoming);
     }
     await _cache.recomputeTagIds(objectId);
+    // Tags project into the edge index (the "tags are links" ruling): the
+    // untag re-derives the node's edges — port of the TS appliers' 2026-11-03
+    // change (tag.unassign previously re-derived tag_ids only).
+    await _cache.rebuildEdges(objectId, at: envelope.timestamp);
     return true;
   }
 

@@ -4421,7 +4421,12 @@ class NodeCacheRepository {
   ///    resolution is deferred); verb is the free string or the bound
   ///    propertySchemaId; metadata carries locator/candidateSpans + text;
   ///  - `property` — node-typed property values (`{"nodeId": ...}`), with
-  ///    verb = propertySchemaId.
+  ///    verb = propertySchemaId;
+  ///  - `tag` — tag membership, one edge per tag derived from the node's
+  ///    derived tag list (the "tags are links" ruling, 2026-11-03 — a
+  ///    tagged node links to its tag like a content mention; the appliers
+  ///    recompute the list before every rebuild). Class assignment and
+  ///    class_link chips deliberately stay OUT of the index.
   ///
   /// Edge ids are deterministic (sha256 over source/type/target/verb/
   /// metadata/occurrence), so wipe -> replay converges to identical rows.
@@ -4495,6 +4500,15 @@ class NodeCacheRepository {
                 : null,
           ));
         }
+      }
+    }
+
+    // Tag membership projects into the edge index too (the "tags are links"
+    // ruling — port of the TS store's tag arm): one tag edge per tag, from
+    // the node's derived tag list.
+    for (final tagId in node.tagsUuid) {
+      if (tagId.isNotEmpty) {
+        desired.add(_DesiredEdge(targetId: tagId, type: 'tag'));
       }
     }
 

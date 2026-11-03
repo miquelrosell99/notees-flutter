@@ -6,6 +6,10 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-11-03
+
+- **feat(store): tags are links — tag membership joins the edge index (lockstep with the TS reference's 2026-11-03 ruling).** `rebuildEdges` gains the fourth vocabulary kind: one `type='tag'` edge per tag, derived from the node's derived tag list (`tagsUuid`), so a tagged node links to its tag exactly like a content mention — the tag page's backlinks list every tagged source. The two tag write paths now re-derive edges in the same apply: `tag.unassign` (previously re-derived the tag list only) and the re-issued `object.create` add carrier (previously skipped every tree side effect). The fresh `object.create` also re-derives once after the membership OR-Sets land — closing a TS-parity gap where a new node's edges (content mentions on embedded blocks, property values, tags) were never derived until an `object.update` touched it. Class assignment and `class_link` chips stay OUT of the index (the paired ruling — a class marker, not a node link). Verification: +2 cases in `test/tag_unassign_test.dart` (derive/untag/re-add edge rows; the tag page backlinks the tagged source; 9 in the file, green); `flutter analyze` clean on the touched files. GTK aligns with no change (its derived store never built the reference edge index — no backlinks surface to feed). The web side ships the backlinks/graph surfaces (`backlinksWithRollup`, the Links/Link path query arms, a graph Tags family); the mobile UI's backlink surfaces read the same `edge` table and pick the rows up on their next read-model pass.
+
 ## 2026-11-02
 
 - **feat(seed): the task Status schema-level Pending default — lockstep with
