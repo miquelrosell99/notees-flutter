@@ -4,6 +4,15 @@ Known divergences from the Notees monorepo (the TS reference is the source
 of truth; this app adapts to it — never the other way around). Entries are
 removed when the corresponding lockstep slice ships. Newest first.
 
+## 2026-11-03 — Flutter locked-state UI is missing
+
+Reloaded / 2FA-completed / API-key sessions have no master key and sync in
+the locked semantic (remote `$e` envelopes skip with a counted `debugPrint`
+warning — invisible in release builds; local writes stay plaintext). The
+web client's W1 EncryptedLockedBanner + W2 unlock modal (the notees main
+repo) are the reference design for the future Flutter banner/unlock slice,
+which should also surface the skip counter the sync engine already counts.
+
 ## 2026-11-03 — Mention token model drifts from the TS reference
 
 The monorepo's content grammar retired the mention token's captured-text

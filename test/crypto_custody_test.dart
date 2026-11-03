@@ -122,6 +122,46 @@ void main() {
 
       expect(hasMasterKey, isFalse);
     });
+
+    test('a 2FA-completed response has no password: a stale master slot '
+        'drops even when the response carries a kdf record', () async {
+      // First establish custody (a previous account/session), then complete
+      // a 2FA challenge — the response carries the kdf record but the client
+      // has no password at this point, so it cannot derive; the stale slot
+      // must not serve the new session.
+      await deriveMasterKey(password, masterAndKdf.record.toJson());
+      expect(hasMasterKey, isTrue);
+
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.path == '/auth/2fa/verify') {
+              handler.resolve(Response(
+                requestOptions: options,
+                data: {
+                  'token': 'tok',
+                  'user': userJson,
+                  'kdf': masterAndKdf.record.toJson(),
+                },
+                statusCode: 200,
+              ));
+              return;
+            }
+            handler.reject(DioException(
+              requestOptions: options,
+              type: DioExceptionType.connectionError,
+              error: 'unexpected request: ${options.path}',
+            ));
+          },
+        ),
+      );
+      final repo =
+          AuthRepository(dio: dio, secureStorage: secureStorage);
+      await repo.verifyTwoFactor(preauthToken: 'pre', code: '123456');
+
+      expect(hasMasterKey, isFalse);
+    });
   });
 
   // Distinct workspace ids per ensure test: the custody cache is
