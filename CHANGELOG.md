@@ -61,9 +61,8 @@ lives in git history.
   (coverage lists + the `$e` branch); `test/ast_stringifier_test.dart` 22
   green; `test/realtime_lifecycle_test.dart` 6 + `test/sync_v2_realtime_test.dart`
   5 green. Full gate green (`flutter pub get` + both pub-cache patches +
-  `flutter analyze` + `flutter test`). Lockstep context: plan 03
-  (`.plans/2026-11-03-0911-e2ee-core/`), the GTK track converges on the
-  same `envelope-encrypted.json` bytes.
+  `flutter analyze` + `flutter test`). Lockstep context: plan 03, the GTK
+  track converges on the same `envelope-encrypted.json` bytes.
 
 - **fix(store): heading tokens — flat-grammar recognition + edge derivation (two pre-existing divergences from the TS reference, found during the tags-are-links port).** (1) `isFlatTokenStream` did not list `heading`, so ANY stored document with a top-level heading token was misclassified as a legacy nested document and run through `legacyAstToTokens` — the `quote` containers were dropped entirely (their mentions lost) and the heading flattened; with `heading` in the flat set the document round-trips verbatim. (2) The edge derivation's content walk recursed into `quote` children but not `heading` children (the TS `edges.ts` walk covers both — mentions inside headings now derive edges). Verification: +1 case in `test/relay_appliers_test.dart` (mentions inside quote AND heading both derive edge rows; 57 in the file, green); `test/content_tokens_test.dart` + `content_lockstep_test.dart` + `tag_unassign_test.dart` re-run clean (58); `flutter analyze` clean.
 

@@ -65,7 +65,8 @@ void main() {
   const refDef456 = 'gcal:event:def456@google.com';
   const refGhi789 = 'gcal:event:ghi789@google.com';
 
-  /// Fixtures whose application must throw — never part of the replay set  /// (class-extends-cycle closes a cycle; class-extends-system-lock pins the
+  /// Fixtures whose application must throw — never part of the replay set
+  /// (class-extends-cycle closes a cycle; class-extends-system-lock pins the
   /// system-extends lock's reject tail (detach/extra-parent/deviate) after
   /// an accepting prefix; is-embedded-parent-page claims the
   /// standalone role under an embedded block, the parent-page condition;
@@ -226,7 +227,8 @@ void main() {
       return db.rawQuery(sql, args);
     }
 
-    test('object.create fixtures land content and OR-Set class ids', () async {      for (final envelope in <OperationEnvelope>[
+    test('object.create fixtures land content and OR-Set class ids', () async {
+      for (final envelope in <OperationEnvelope>[
         ...fixtureEnvelopes('envelope-minimal.json'),
         ...fixtureEnvelopes('object-create.json'),
       ]) {
