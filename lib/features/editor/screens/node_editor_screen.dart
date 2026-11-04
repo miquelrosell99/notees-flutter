@@ -17,9 +17,11 @@ import '../../../core/utils/class_icon_resolver.dart';
 import '../../../core/utils/color_presets.dart';
 import '../../../core/utils/node_display_name.dart';
 import '../../../core/utils/node_icon.dart';
+import '../../../core/utils/query_tokens.dart';
 import '../../../data/models/breadcrumb_item.dart';
 import '../../../data/models/linked_reference.dart';
 import '../../../data/models/node.dart';
+import '../../../domain/query/query_ast.dart';
 import '../../../data/models/property.dart';
 import '../../../data/repositories/node_cache_repository.dart';
 import '../../../data/repositories/node_repository.dart';
@@ -160,6 +162,39 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       return;
     }
     _save();
+  }
+
+  /// The query builder's write-back (slice 4): splice the committed AST
+  /// into the block's FIRST `query` token — appending the payload token
+  /// when the class-marked block carries none yet (the web's
+  /// `updateQueryTokenAst` / `appendQueryToken` seam) — and land it through
+  /// the SAME content-update op path the autosave rides (`update_content` →
+  /// `object.update {contentAst}`, applied locally, flushed, store-bus
+  /// notified). The in-memory block updates in step: the section re-runs on
+  /// the new AST, and the controller's `[query]` placeholder keeps the
+  /// token anchored through later text edits (the parse-preserving save
+  /// funnels re-attach the payloads).
+  Future<void> _commitQueryAst(BlockNode block, QueryAst ast) async {
+    final auth = context.read<AuthProvider>();
+    final service = auth.syncService;
+    if (service == null) return;
+
+    final tokens = contentTokensFromSource(block.node.name);
+    final index = firstQueryTokenIndex(tokens);
+    final next = index >= 0
+        ? withQueryTokenAst(tokens, index, ast.toJson())
+        : appendQueryToken(tokens, ast.toJson());
+    await service.enqueue(
+      type: 'update_content',
+      nodeUuid: block.node.uuid,
+      contentAst: next,
+    );
+    await service.flush();
+    if (!mounted) return;
+    setState(() {
+      block.node = _copyNodeWithName(block.node, jsonEncode(next));
+      block.controller.text = AstBuilder.toMarkdown(next);
+    });
   }
 
   Future<void> _loadPage() async {
@@ -597,7 +632,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
 
   void _syncAllBlockNames() {
     for (final block in _allBlocks()) {
-      final ast = AstBuilder.parseInline(block.controller.text);
+      final ast = AstBuilder.parseInlinePreservingQuery(
+        block.controller.text,
+        queryTokensOf(contentTokensFromSource(block.node.name)),
+      );
       block.node = _copyNodeWithName(block.node, AstBuilder.serialize(ast));
     }
   }
@@ -645,7 +683,10 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
   ) async {
     for (final block in nodes) {
       final parentUuid = block.parent?.node.uuid ?? widget.nodeUuid;
-      final contentAst = AstBuilder.parseInline(block.controller.text);
+      final contentAst = AstBuilder.parseInlinePreservingQuery(
+        block.controller.text,
+        queryTokensOf(contentTokensFromSource(block.node.name)),
+      );
       if (newBlocks.contains(block)) {
         await service.enqueue(
           type: 'create',
@@ -2527,6 +2568,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       queryService: context.read<QueryService>(),
       hostNodeUuid: widget.nodeUuid,
       onOpenQueryResult: (uuid) => context.push('${Routes.editor}/$uuid'),
+      queryFactsLoader: () => context.read<QueryService>().buildFacts(),
+      queryNodePicker: (mode) => NodePicker.show(context, mode: mode),
+      onCommitQuery: _commitQueryAst,
     );
   }
 

@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import '../../core/utils/node_display_name.dart';
 import '../../data/local/app_database.dart';
 import '../../data/models/node.dart';
 import '../../data/repositories/node_cache_repository.dart';
+import '../../domain/query/builder_facts.dart';
 import '../../domain/query/query_ast.dart';
 import '../../domain/query/query_dsl.dart' as query_dsl;
 import '../../domain/query/query_placeholders.dart';
@@ -55,6 +58,86 @@ class QueryService {
     CompileOptions options = const CompileOptions(),
   }) async =>
       (await _queryRunner).runAggregate(ast, options);
+
+  /// The builder's picker-source facts (the web `builderFacts.ts` useMemo
+  /// twin, derived per open): the active classes plus the bound properties
+  /// across all class bindings, enriched with each schema row's select
+  /// options and node-typed target filter.
+  Future<BuilderFacts> buildFacts() async {
+    final db = await _database.database;
+    final classRows = await db.query(
+      'class_cache',
+      columns: ['uuid', 'name'],
+      where: 'active = 1',
+      orderBy: 'name',
+    );
+    final bindingRows = await db.query(
+      'class_property',
+      columns: ['class_id', 'property_schema_id'],
+      where: 'active = 1',
+    );
+    final schemaRows = await db.query(
+      'property_schema',
+      columns: ['uuid', 'name', 'type', 'options', 'class_filter_uuids'],
+      where: 'active = 1',
+    );
+
+    final schemasById = <String, Map<String, dynamic>>{
+      for (final row in schemaRows) row['uuid'] as String: row,
+    };
+    final boundIds = <String>{};
+    for (final row in bindingRows) {
+      boundIds.add(row['property_schema_id'] as String);
+    }
+
+    return BuilderFacts(
+      classes: [
+        for (final row in classRows)
+          BuilderClassInfo(
+            id: row['uuid'] as String,
+            name: deriveDisplayName(row['name'] as String? ?? ''),
+          ),
+      ],
+      boundProperties: [
+        for (final schemaId in boundIds)
+          if (schemasById[schemaId] case final schema?)
+            BuilderPropertyInfo(
+              id: schemaId,
+              name: schema['name'] as String? ?? '',
+              type: schema['type'] as String? ?? 'text',
+              options: _schemaOptions(schema['options']),
+              targetClassFilter: _schemaClassFilter(schema['class_filter_uuids']),
+            ),
+      ],
+    );
+  }
+
+  List<BuilderPropertyOption>? _schemaOptions(Object? raw) {
+    try {
+      final decoded = jsonDecode(raw as String? ?? '[]') as List<dynamic>;
+      if (decoded.isEmpty) return null;
+      return [
+        for (final option in decoded.cast<Map<String, dynamic>>())
+          BuilderPropertyOption(
+            id: (option['selection_line_uuid'] as String?) ??
+                (option['uuid'] as String? ?? ''),
+            label: option['name'] as String? ?? '',
+          ),
+      ];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<String>? _schemaClassFilter(Object? raw) {
+    try {
+      final decoded = jsonDecode(raw as String? ?? '[]') as List<dynamic>;
+      if (decoded.isEmpty) return null;
+      return decoded.cast<String>();
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Parses a query-language string into the AST, resolving class/schema/
   /// node names against the local derived store (the web `/resolve` twin's

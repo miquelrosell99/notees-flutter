@@ -8,6 +8,101 @@ lives in git history.
 
 ## 2026-11-04
 
+- **feat(query): the query-builder sheet over the v2 AST — the
+  register-driven condition model port, the mobile builder chrome, and
+  authoring through the content-update op path (P3 slice 4).** A faithful
+  port of the web's `FilterBlockBuilder` MODEL
+  (`apps/web/src/features/collection/filterBlockModel.ts` +
+  `filterQuery.ts`), adapted to the mobile idioms (bottom sheet + chips per
+  the repo's design system, not a pixel port of the web's flat column
+  rows):
+  - `lib/domain/query/query_filter_model.dart` — the Odoo register
+    ([family][operator][value][target mode]) as pure functions over the v2
+    draft AST: `blockView` (the not-wrap sugar view), `familyOf` (the
+    19-family taxonomy — `name` joins `content`), the per-member-family
+    `memberRegisterOf` (positives/canonical/negatives/set-bit), the
+    `operatorOptions` per family (the property family's list adapts to the
+    SELECTED schema's type; `type`/`placement` carry NO operator column —
+    the boolean single-selector ruling), `operatorOf` (the operator
+    column's read + its negation), and the operator-application morphs —
+    `applyOperator`, `applyBooleanValue` — implementing the orthogonality
+    law: a member operator choice flips ONLY `op` (`in` ⇄ `not-in`) with
+    the target riding VERBATIM (ids/query/self — the mode axis never moves),
+    the set bits re-materialize `exists`/`not-exists` (no target), the
+    content/property/date negatives and the isClass/isEmbedded polarity
+    wrap in `not`, and every value payload (picked ids / text / bounds /
+    timestamps) carries across the morphs.
+  - `lib/domain/query/query_filter_query.dart` — the draft layer
+    (`FilterQuery`, `draftOrFactoryAst`, `isFilterInactive`), the
+    draft → composed group prune (`filterQueryToGroup` — half-typed rows
+    drop, set bits / self target / node fields / `within` survive, emptied
+    nested groups and not-wraps drop), the 22-entry add-menu register
+    (19 condition families + the AND/OR/NOT constructors, the web's
+    FILTER_KIND_OPTIONS 1:1), and `createCondition` (the half-typed
+    defaults per family).
+  - `lib/domain/query/builder_facts.dart` — the picker-source read model
+    (the web `builderFacts.ts` shape): classes + bound properties
+    (deduped by schema id) enriched with select options and the
+    node-typed target filter; `QueryService.buildFacts` derives it per
+    open from the local derived store (`class_cache` + `class_property` +
+    `property_schema`).
+  - `lib/features/editor/widgets/query_builder_sheet.dart` — the builder
+    chrome: the head row carries BOTH switches (the root Match ALL/ANY
+    logic toggle + the blocks ⇄ JSON exchange toggle, the web's
+    `nt-fb__head`), condition rows are outlined cards (family label /
+    property schema pick, the operator dropdown — skipped when the
+    register is empty, the typed value control, the target-mode chip
+    switch Manual/Query/Self — Self offered only with a hosting page, the
+    query mode nesting a recursive group editor), nested groups indent
+    under a hairline with their own ALL/ANY header + count, the NOT
+    wrapper rides a badge, and the add menu offers the full register.
+    Apply composes the draft through the prune (`draftOrFactoryAst`). The
+    JSON arm edits the WHOLE token AST verbatim (scope/root/sort/
+    aggregation) — the exchange format doubles as the mobile
+    AGGREGATION-AUTHORING escape hatch: the full pivot-style aggregation
+    builder is deliberately scoped out (slice 3 already renders
+    aggregation ASTs; the JSON arm authors them), a documented deviation
+    from the web's group-only raw arm (mobile has no saved-views hub).
+  - Authoring lands through the existing content-update op path: the
+    section gains the tappable "Set a query to see results." affordance
+    (and an edit button over the result states) when the seam is threaded;
+    `BlockTreeEditor` mounts the live section for a block the query
+    system class marks EVEN WITHOUT a payload token (the web's
+    QueryNodeSection contract — the class marks the block, the first
+    Apply creates the token) and threads `queryFactsLoader` /
+    `queryNodePicker` / `onCommitQuery`; `node_editor_screen` commits via
+    `update_content` (→ `object.update {contentAst}`, local apply + flush
+    + store-bus notify), splicing the AST into the first `query` token or
+    appending it (`lib/core/utils/query_tokens.dart`, the web
+    `queryTokens.ts` port), updating the in-memory block in step so the
+    section re-runs. `AstBuilder.parseInlinePreservingQuery` closes the
+    text-form round-trip: the editor's save funnels re-attach the
+    preserved `query` tokens at their `[query]` placeholder labels by
+    occurrence order, so an autosave never flattens a query token (and
+    deleting the label drops the token — the placeholder IS its
+    text-form presence).
+  - The search feature's existing FilterBottomSheet/FilterChipBar are
+    UNTOUCHED: they are the transient search-filter layer (a different
+    web surface), while the query builder edits a persisted query token's
+    AST — extending them onto the full register model would have bolted
+    persistence onto a transient state; the new sheet is the smaller
+    coherent change.
+  - Verification: `test/query_filter_model_test.dart` — 49 pure-Dart pins
+    over the matrix (taxonomy, per-family operator registers, the
+    orthogonality law per target mode, the boolean rulings, the prune
+    parity, the registers' integrity, the draft state);
+    `test/query_token_write_test.dart` — the token splice helpers + the
+    round-trip preservation; `test/query_builder_sheet_test.dart` — 14
+    widget pins over the faked facts/picker seams (head chrome, the
+    add-menu register, operator morphs, the mode switch, AND/OR, the
+    prune-on-Apply, the boolean ruling, the NOT badge, the boolean
+    property fold, manual + single-slot picks, the JSON arm's aggregation
+    round-trip and its error surface); `test/query_node_section_authoring_test.dart`
+    — the Set a query affordance, the edit button, and the class-marked
+    no-token mount. `flutter analyze` 0 errors / 0 warnings (the beta
+    SDK's repo-wide material.dart deprecation infos); `flutter test` all
+    green.
+
 - **feat(query): live `query` content-token views in the editor — the
   query-node section with coalesced re-runs on store changes (P3 slice 3).**
   The editor now renders a block's `query` content token as a live result

@@ -10,10 +10,15 @@ import '../../../core/utils/ast_builder.dart';
 import '../../../core/utils/ast_stringifier.dart';
 import '../../../core/utils/color_presets.dart';
 import '../../../core/utils/node_icon.dart';
+import '../../../core/utils/query_tokens.dart';
 import '../../../data/models/node.dart';
+import '../../../domain/query/builder_facts.dart';
+import '../../../domain/query/query_ast.dart';
 import '../../../domain/services/query_service.dart';
+import '../../../shared/widgets/node_picker.dart';
 import './asset_block_widget.dart';
 import './ast_rich_text.dart';
+import './query_builder_sheet.dart';
 import './query_node_section.dart';
 import './tag_pills.dart';
 
@@ -181,6 +186,9 @@ class BlockTreeEditor extends StatefulWidget {
     this.hostNodeUuid,
     this.onOpenQueryResult,
     this.storeChanges,
+    this.queryFactsLoader,
+    this.queryNodePicker,
+    this.onCommitQuery,
   });
 
   final List<BlockNode> roots;
@@ -289,6 +297,20 @@ class BlockTreeEditor extends StatefulWidget {
   /// The store-change stream the live query sections ride. Null = the
   /// global [StoreChangeBus] (tests inject a controllable stream).
   final Stream<void>? storeChanges;
+
+  /// The builder's picker-source loader (slice 4) — the query builder's
+  /// facts derivation over the local store. Threaded alongside
+  /// [queryNodePicker] and [onCommitQuery]; all three or none.
+  final Future<BuilderFacts> Function()? queryFactsLoader;
+
+  /// The node-pick seam the builder's value controls ride (the production
+  /// surface opens the fleet NodePicker).
+  final Future<Node?> Function(NodePickerMode mode)? queryNodePicker;
+
+  /// The builder's write-back (slice 4): commit the popped AST for
+  /// [BlockNode] through the content-update op path (the caller owns the
+  /// op enqueue, the flush, and the in-memory block update).
+  final Future<void> Function(BlockNode block, QueryAst ast)? onCommitQuery;
 
   @override
   BlockTreeEditorState createState() => BlockTreeEditorState();
@@ -618,12 +640,18 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
 
     // Query token: the live result section rides below the block row (web
     // QueryNodeSection parity — the block stays a normal row, the first
-    // `query` token's AST renders as the section below it). Only with the
-    // service seam AND the hosting page id — the `self` anchor is part of
-    // every run's identity, so both thread together or not at all.
+    // `query` token's AST renders as the section below it). The section
+    // mounts for a block the query system class MARKS too, even without a
+    // payload token: that is the unspecified state ("Set a query to see
+    // results." — the class marks the block, the first Apply creates the
+    // token). Only with the service seam AND the hosting page id — the
+    // `self` anchor is part of every run's identity, so both thread
+    // together or not at all.
+    final isQuerySurface = _hasQueryToken(node) ||
+        _hasSystemClass(node, 'query');
     if (widget.queryService != null &&
         widget.hostNodeUuid != null &&
-        _hasQueryToken(node)) {
+        isQuerySurface) {
       content = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -636,6 +664,7 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
               selfNodeId: widget.hostNodeUuid!,
               queryService: widget.queryService!,
               onOpenNode: widget.onOpenQueryResult,
+              onEditQuery: _hasQueryAuthoring ? () => _editQuery(node) : null,
               storeChanges: widget.storeChanges,
             ),
           ),
@@ -911,6 +940,50 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       return false;
     }
     return tokens.any((token) => token['type'] == 'query');
+  }
+
+  /// The authoring seam's presence: the builder rides only when the loader,
+  /// the picker, AND the commit callback are all threaded (the three travel
+  /// together, like the service seam and the host id).
+  bool get _hasQueryAuthoring =>
+      widget.queryFactsLoader != null &&
+      widget.queryNodePicker != null &&
+      widget.onCommitQuery != null;
+
+  /// The slice-4 authoring flow: load the picker facts, open the query
+  /// builder over the block's first query token (a fresh draft when the
+  /// block carries no payload yet), and commit the popped AST through the
+  /// caller's op-path write-back.
+  Future<void> _editQuery(BlockNode node) async {
+    final loader = widget.queryFactsLoader;
+    final picker = widget.queryNodePicker;
+    final commit = widget.onCommitQuery;
+    if (loader == null || picker == null || commit == null) return;
+
+    final facts = await loader();
+    if (!mounted) return;
+
+    final tokens = contentTokensFromSource(node.node.name);
+    final index = firstQueryTokenIndex(tokens);
+    QueryAst? initial;
+    if (index >= 0) {
+      try {
+        initial = QueryAst.parse(tokens[index]['queryAst']);
+      } catch (_) {
+        initial = null; // A malformed token opens a fresh draft.
+      }
+    }
+
+    if (!context.mounted) return;
+    final result = await QueryBuilderSheet.show(
+      context,
+      facts: facts,
+      pickNode: picker,
+      initialAst: initial,
+      selfNodeId: widget.hostNodeUuid,
+    );
+    if (result == null || !mounted) return;
+    await commit(node, result);
   }
 
   void _showBlockMenu(BlockNode node) {

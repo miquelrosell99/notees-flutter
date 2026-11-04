@@ -36,6 +36,38 @@ class AstBuilder {
     return tokens;
   }
 
+  /// Parses [text] and re-attaches the preserved `query` tokens at their
+  /// `[query]` placeholder labels (the editor text form's round-trip): the
+  /// text projection of a query token is the bare label
+  /// (`_writeMarkdown`'s block-scale placeholder), and the inline parser
+  /// merges adjacent text runs — so the split happens on the raw text,
+  /// each segment parses on its own, and the payloads interleave in
+  /// occurrence order. An autosave therefore never silently flattens a
+  /// query token; a label the user deleted from the text drops its token
+  /// with it (the placeholder IS the token's text-form presence); a label
+  /// with no preserved payload rides as its literal text.
+  static List<Map<String, dynamic>> parseInlinePreservingQuery(
+    String text,
+    List<Map<String, dynamic>> preserved,
+  ) {
+    if (preserved.isEmpty || !text.contains('[query]')) {
+      return parseInline(text);
+    }
+    final segments = text.split('[query]');
+    final out = <Map<String, dynamic>>[];
+    for (var i = 0; i < segments.length; i += 1) {
+      if (segments[i].isNotEmpty) out.addAll(parseInline(segments[i]));
+      if (i < segments.length - 1) {
+        if (i < preserved.length) {
+          out.add(preserved[i]);
+        } else {
+          out.add(const {'type': 'text', 'text': '[query]'});
+        }
+      }
+    }
+    return out;
+  }
+
   /// Serializes a token stream to JSON.
   static String serialize(List<Map<String, dynamic>> ast) => jsonEncode(ast);
 

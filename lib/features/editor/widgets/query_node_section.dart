@@ -40,6 +40,7 @@ class QueryNodeSection extends StatefulWidget {
     required this.selfNodeId,
     required this.queryService,
     this.onOpenNode,
+    this.onEditQuery,
     this.storeChanges,
   });
 
@@ -57,6 +58,12 @@ class QueryNodeSection extends StatefulWidget {
 
   /// Render-cascade navigation: a result-row tap opens the node's page.
   final ValueChanged<String>? onOpenNode;
+
+  /// The authoring affordance (slice 4): when threaded, the unspecified
+  /// state renders a tappable "Set a query" affordance and the result
+  /// states carry an edit button opening the query builder; null = the
+  /// read-only projection (no builder chrome).
+  final VoidCallback? onEditQuery;
 
   /// The store-change subscription the coalesced re-run rides. Defaults to
   /// [StoreChangeBus.instance] (every local apply funnel notifies).
@@ -245,9 +252,71 @@ class _QueryNodeSectionState extends State<QueryNodeSection> {
     final token = _firstQueryToken();
     final rawAst = token == null ? null : token['queryAst'];
     if (token == null || _isUnspecifiedQueryAst(rawAst)) {
-      return Text('Set a query to see results.', style: dimStyle);
+      final text = Text('Set a query to see results.', style: dimStyle);
+      // The authoring seam turns the resting state into the builder's door
+      // (the web's "Set a query" intent — the class marks the block, the
+      // first Apply creates the payload token).
+      if (widget.onEditQuery == null) return text;
+      return InkWell(
+        onTap: widget.onEditQuery,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              Expanded(child: text),
+              Tooltip(
+                message: 'Set a query',
+                child: Icon(
+                  MdiIcons.pencilOutline,
+                  size: 16,
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
     }
     final error = _error;
+    final body = _buildBody(colors, dimStyle, bodyStyle, rawAst, error);
+    if (widget.onEditQuery == null) return body;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            const Spacer(),
+            Tooltip(
+              message: 'Edit query',
+              child: InkWell(
+                onTap: widget.onEditQuery,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    MdiIcons.pencilOutline,
+                    size: 16,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        body,
+      ],
+    );
+  }
+
+  Widget _buildBody(
+    ColorScheme colors,
+    TextStyle? dimStyle,
+    TextStyle? bodyStyle,
+    Object? rawAst,
+    String? error,
+  ) {
     if (error != null) {
       return Tooltip(
         message: error,
