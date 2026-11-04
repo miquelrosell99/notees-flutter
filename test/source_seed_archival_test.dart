@@ -78,7 +78,11 @@ void main() {
   Future<void> archive(String classId) => appliers.apply(env(
         'object.update',
         OperationPayloads.objectUpdate(objectId: classId, active: false),
-        1,
+        // A DISTINCT, higher HLC than the class.create: with the class-node
+        // projection the update rides the node row's LWW gate (the TS
+        // parity — a tied (hlc, actor) write drops), so the archival flip
+        // must genuinely beat the declaration.
+        2,
       ));
 
   Future<List<String>> closureOf(String classId) async {

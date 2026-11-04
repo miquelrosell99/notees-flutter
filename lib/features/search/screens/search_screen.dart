@@ -13,11 +13,13 @@ import '../../../core/utils/node_display_name.dart';
 import '../../../core/utils/view_mode_store.dart';
 import '../../../data/models/node.dart';
 import '../../../data/repositories/node_repository.dart';
+import '../../../domain/services/query_service.dart';
 import '../../../domain/models/search_filters.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../../shared/views/node_collection.dart';
 import '../../../shared/views/node_view_mode.dart';
+import '../search_query_ast.dart';
 import '../widgets/filter_bottom_sheet.dart';
 import '../widgets/filter_chip_bar.dart';
 import '../../../shared/widgets/fleet_card.dart';
@@ -243,7 +245,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _search({bool append = false}) async {
-    final auth = context.read<AuthProvider>();
+    final queryService = context.read<QueryService>();
     final query = _controller.text.trim();
 
     final page = append ? _currentPage + 1 : 1;
@@ -261,29 +263,33 @@ class _SearchScreenState extends State<SearchScreen> {
     });
 
     try {
-      if (auth.dio != null) {
-        final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
-        final results = await repo.searchWithFilters(searchFilters);
-        if (!mounted) return;
-        setState(() {
-          if (append) {
-            _results.addAll(results);
-            _currentPage = page;
-          } else {
-            _results = results;
-            _currentPage = 1;
-          }
-          _hasMore = results.length >= searchFilters.limit;
-          _error = null;
-        });
-      } else {
-        if (mounted) {
-          setState(() {
-            _results = [];
-            _hasMore = false;
-          });
+      // Local execution over the derived store (the query-AST v2 surface):
+      // the full result set runs once per search, the page slices it
+      // client-side. Offline search works; online search no longer depends
+      // on the server endpoint.
+      final ast = searchFiltersToQueryAst(searchFilters);
+      final all = await queryService.runNodes(ast);
+      if (!mounted) return;
+      final start = (page - 1) * searchFilters.limit;
+      final slice = start >= all.length
+          ? const <Node>[]
+          : all.sublist(
+              start,
+              start + searchFilters.limit > all.length
+                  ? all.length
+                  : start + searchFilters.limit,
+            );
+      setState(() {
+        if (append) {
+          _results.addAll(slice);
+          _currentPage = page;
+        } else {
+          _results = slice;
+          _currentPage = 1;
         }
-      }
+        _hasMore = page * searchFilters.limit < all.length;
+        _error = null;
+      });
       if (query.isNotEmpty) {
         await _addSearchHistory(query);
       }

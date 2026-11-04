@@ -294,6 +294,7 @@ class NodeCacheRepository {
         'DELETE FROM search_index WHERE node_uuid IN ($placeholders)',
         ids,
       );
+      await _deleteFtsRowsInTxn(txn, ids);
       await txn.rawDelete(
         'DELETE FROM user_favorite WHERE node_uuid IN ($placeholders)',
         ids,
@@ -395,6 +396,8 @@ class NodeCacheRepository {
     final db = await _database.database;
     await db.transaction((txn) async {
       await txn.delete('node_cache');
+      await txn.delete('search_index_fts');
+      await txn.delete('search_index_fts_docid');
       await txn.delete('class_member_set');
       await txn.delete('tag_member_set');
       await txn.delete('class_extends');
@@ -1722,6 +1725,7 @@ class NodeCacheRepository {
         children: node.children,
         createDate: node.createDate,
         writeDate: node.writeDate,
+        updatedDate: node.updatedDate,
         extendsUuid: node.extendsUuid,
         title: node.title,
         isClass: node.isClass,
@@ -1851,6 +1855,7 @@ class NodeCacheRepository {
         children: node.children,
         createDate: node.createDate,
         writeDate: node.writeDate,
+        updatedDate: node.updatedDate,
         extendsUuid: node.extendsUuid,
         title: node.title,
         isClass: node.isClass,
@@ -2609,6 +2614,7 @@ class NodeCacheRepository {
         children: node.children,
         createDate: node.createDate,
         writeDate: node.writeDate,
+        updatedDate: node.updatedDate,
         extendsUuid: node.extendsUuid,
         title: node.title,
         isClass: node.isClass,
@@ -4824,6 +4830,8 @@ class NodeCacheRepository {
     final db = await _database.database;
     await db.transaction((txn) async {
       await txn.delete('search_index');
+      await txn.delete('search_index_fts');
+      await txn.delete('search_index_fts_docid');
       await _indexNodesInTxn(txn, nodes);
     });
   }
@@ -4835,12 +4843,16 @@ class NodeCacheRepository {
     final indexRows = await db.rawQuery(
       'SELECT COUNT(*) as count FROM search_index',
     );
+    final ftsRows = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM search_index_fts',
+    );
     final cacheRows = await db.rawQuery(
       'SELECT COUNT(*) as count FROM node_cache',
     );
     final indexCount = indexRows.first['count'] as int? ?? 0;
+    final ftsCount = ftsRows.first['count'] as int? ?? 0;
     final cacheCount = cacheRows.first['count'] as int? ?? 0;
-    return indexCount == 0 && cacheCount > 0;
+    return (indexCount == 0 || ftsCount == 0) && cacheCount > 0;
   }
 
   Future<void> _upsertNodeInTxn(DatabaseExecutor txn, Node node) async {
@@ -4888,6 +4900,14 @@ class NodeCacheRepository {
       'aliased_node_id': node.aliasedNodeId,
       'description': node.description,
       'list_style': node.listStyle,
+      // v42 — the query-surface projections: created/updated ride the Node
+      // row's create/write dates (object.create stamps both; the mutating
+      // ops bump writeDate, the delete/restore arms touch updated_at
+      // explicitly), tag_ids rides the derived tagsUuid list
+      // (recomputeTagIds maintains both).
+      'created_at': node.createDate,
+      'updated_at': node.updatedDate ?? node.writeDate,
+      'tag_ids': jsonEncode(node.tagsUuid),
     };
   }
 
@@ -4918,6 +4938,46 @@ class NodeCacheRepository {
       }
     }
     await batch.commit(noResult: true);
+
+    // The plaintext FTS backend (schema v42 — the query compiler's content
+    // conditions probe): same delete-then-rebuild rhythm as the term index.
+    await _deleteFtsRowsInTxn(txn, uuids);
+    for (final node in nodes) {
+      if (node.isDeleted || node.isArchived) continue;
+      final docid = await txn.insert(
+        'search_index_fts',
+        {'content': searchPlaintextFor(node)},
+      );
+      await txn.insert('search_index_fts_docid', {
+        'node_id': node.uuid,
+        'docid': docid,
+      });
+    }
+  }
+
+  /// Drops the plaintext FTS rows for [uuids] (the docid map first lookup,
+  /// then the FTS rows by rowid).
+  Future<void> _deleteFtsRowsInTxn(
+    DatabaseExecutor txn,
+    List<String> uuids,
+  ) async {
+    if (uuids.isEmpty) return;
+    final placeholders = uuids.map((_) => '?').join(',');
+    final rows = await txn.rawQuery(
+      'SELECT docid FROM search_index_fts_docid WHERE node_id IN ($placeholders)',
+      uuids,
+    );
+    await txn.rawDelete(
+      'DELETE FROM search_index_fts_docid WHERE node_id IN ($placeholders)',
+      uuids,
+    );
+    final docids = [for (final row in rows) row['docid'] as int];
+    if (docids.isEmpty) return;
+    final docidPlaceholders = docids.map((_) => '?').join(',');
+    await txn.rawDelete(
+      'DELETE FROM search_index_fts WHERE rowid IN ($docidPlaceholders)',
+      docids,
+    );
   }
 
   bool _isClosedTask(Node node) {

@@ -33,6 +33,7 @@ class Node {
     this.children = const [],
     this.createDate,
     this.writeDate,
+    this.updatedDate,
     this.extendsUuid = const [],
     this.title,
     this.position,
@@ -57,6 +58,13 @@ class Node {
   final String? color;
   final String? createDate;
   final String? writeDate;
+
+  /// The `updated_at` projection's own payload slot (schema v42): rides the
+  /// TS store's delete-time bump (`UPDATE node SET is_active = 0,
+  /// updated_at = ?` — writeDate stays the row-LWW winner and must NOT be
+  /// bumped), so the column survives the full-row rewrites. Null = the
+  /// writeDate fallback (the create/update/move stamps).
+  final String? updatedDate;
   final int? parentId;
   final String? parentUuid;
   final int? pageId;
@@ -95,8 +103,11 @@ class Node {
 
   /// Revision-11 render-state model: [isClass] is the ONLY identity marker
   /// — classes are always roots (`CHECK (is_class = 0 OR parent_id IS NULL)`)
-  /// and may have non-class children. A class renders from class_cache; the
-  /// editor never sees class rows in node_cache.
+  /// and may have non-class children. Since the schema-v42 class-node
+  /// projection every class carries a node_cache row (the TS store parity);
+  /// its render config still comes from class_cache, and the editor chrome
+  /// for a class row renders the Class view like the converted-classes
+  /// precedent.
   final bool isClass;
 
   /// Embedding flag, read only by the third cascade branch: `is_class` →
@@ -220,6 +231,7 @@ class Node {
           const [],
       createDate: json['create_date'] as String?,
       writeDate: json['write_date'] as String?,
+      updatedDate: json['updated_date'] as String?,
       extendsUuid:
           (json['extends_uuid'] as List<dynamic>?)?.cast<String>() ??
           (json['extends'] as List<dynamic>?)?.cast<String>() ??
@@ -280,6 +292,7 @@ class Node {
       children: children,
       createDate: createDate,
       writeDate: writeDate,
+      updatedDate: updatedDate,
       extendsUuid: extendsUuid,
       title: title,
       position: position,
@@ -330,6 +343,7 @@ class Node {
       children: children,
       createDate: createDate,
       writeDate: writeDate,
+      updatedDate: updatedDate,
       extendsUuid: extendsUuid,
       title: title,
       position: position,
@@ -384,6 +398,7 @@ class Node {
       children: children,
       createDate: createDate,
       writeDate: writeDate,
+      updatedDate: updatedDate,
       extendsUuid: extendsUuid,
       title: title,
       position: position,
@@ -432,6 +447,7 @@ class Node {
     'children': children.map((e) => e.toJson()).toList(),
     'create_date': createDate,
     'write_date': writeDate,
+    'updated_date': updatedDate,
     'extends_uuid': extendsUuid,
     'title': title,
     'position': position,

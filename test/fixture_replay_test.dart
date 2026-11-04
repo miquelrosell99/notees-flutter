@@ -674,10 +674,15 @@ void main() {
       // A fresh id still declares a brand-new class.
       expect(await appliers.apply(envelopes[6]), isTrue);
       expect((await cache.getClassByUuid(fresh))!.displayName, 'Fresh genre');
-      // The fresh class has no local node row (classes live in class_cache
-      // locally); it still answers class-identity reads and carries its
-      // hierarchy self-row.
-      expect(await cache.getByUuid(fresh), isNull);
+      // The v42 class-node projection: the fresh class HAS a local node row
+      // (the TS store's INSERT OR IGNORE INTO node parity — classes are
+      // nodes there) carrying its text-only title; it still answers
+      // class-identity reads and carries its hierarchy self-row.
+      final freshNode = await cache.getByUuid(fresh);
+      expect(freshNode, isNotNull);
+      expect(freshNode!.isClass, isTrue);
+      expect(freshNode.parentUuid, isNull);
+      expect(freshNode.displayName, 'Fresh genre');
       expect(await cache.isClassNode(fresh), isTrue);
       final selfRow = await raw(
         'SELECT 1 FROM class_hierarchy WHERE class_id = ? AND ancestor_id = ?',

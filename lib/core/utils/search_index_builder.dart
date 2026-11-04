@@ -77,6 +77,15 @@ List<SearchIndexRow> buildSearchIndexRows(Node node) {
   return rows;
 }
 
+/// The derived search PLAINTEXT for [node] — the diacritic-folded
+/// flattening of the content AST, the same text the query compiler's
+/// content conditions probe through `search_index_fts` (the web store's
+/// `foldSearchText(extractSearchPlaintext(...))` mirror: combining-mark
+/// stripping only — case folding rides the FTS tokenizer and LIKE's ASCII
+/// insensitivity at match time).
+String searchPlaintextFor(Node node) =>
+    removeDiacritics(astToPlainText(node.name));
+
 /// Ranks [rows] by relevance to [query] using the same scoring rule as the
 /// local SQL search: each matching term contributes its rank, and nodes with
 /// the highest total score come first.

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'domain/services/query_service.dart';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -58,6 +59,7 @@ class NoteesApp extends StatelessWidget {
         ),
         Provider(create: (_) => secureStorage),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
+        Provider(create: (_) => QueryService()),
         ChangeNotifierProvider(create: (_) => SettingsProvider(prefs)),
         ChangeNotifierProvider(create: (_) => EncryptionProvider(prefs: prefs)),
         ChangeNotifierProxyProvider2<EncryptionProvider, SecureStorage,

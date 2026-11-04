@@ -501,6 +501,7 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         isAsset: flags.isAsset,
         isComment: flags.isComment,
         properties: const {},
+        createDate: envelope.timestamp,
         writeDate: envelope.timestamp,
         isClass: false,
         isEmbedded: isEmbedded,
@@ -915,7 +916,19 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       final ids = await _cache.subtreeUuids(objectId);
       for (final id in ids) {
         final node = await _cache.getByUuid(id);
-        if (node != null) await _cache.upsert(node.copyWithIsArchived(true));
+        if (node != null) {
+          // The updated_at bump rides the delete THROUGH THE PAYLOAD SLOT
+          // (TS parity: `UPDATE node SET is_active = 0, updated_at = ?` —
+          // writeDate stays the row-LWW winner, untouched): the slot
+          // survives the restore/full-row-rewrite re-upserts.
+          await _cache.upsert(
+            _copyWith(
+              node,
+              isArchived: true,
+              updatedDate: envelope.timestamp,
+            ),
+          );
+        }
       }
       if (deletedIsClass) {
         await _cache.deleteClass(objectId);
@@ -1044,6 +1057,12 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       if (node != null && node.isArchived) {
         await _cache.upsert(node.copyWithIsArchived(false));
       }
+    }
+    // The registry projection follows a class node row out of the trash
+    // (the v42 class-node projection made every class a node row — without
+    // the mirror the picker reads would keep the class deactivated).
+    if (root.isClass) {
+      await _cache.setClassActive(objectId, true);
     }
     await _cache.consumeTrashRoot(objectId);
     return true;
@@ -1881,6 +1900,44 @@ List<String> _contentClassLinkIds(dynamic tokens) {
         ),
       );
     }
+    // Class-node projection (schema v42, the query-surface parity arm): the
+    // TS store's class.create does INSERT OR IGNORE INTO node — classes are
+    // nodes there (their title IS their text-only content; the registry
+    // row's config home is class_cache locally). A fresh declaration with
+    // no node row projects one so the isClass conditions and the
+    // class-targeted nested queries see the class (the node row is read by
+    // the editor's read helpers like any other node row — its render comes
+    // from class_cache, the converted-classes precedent).
+    if (node == null) {
+      final contentAst = payload['contentAst'];
+      final flatAst = contentAst is List<dynamic>
+          ? stringifyContentAst(normalizeContentAst(contentAst))
+          : const <Map<String, dynamic>>[];
+      final name = AstBuilder.serialize(flatAst);
+      final incoming = _incoming(envelope);
+      await _cache.upsert(
+        Node(
+          id: 0,
+          uuid: classId,
+          name: name,
+          displayName: deriveDisplayName(name),
+          icon: payload['icon'] as String?,
+          color: payload['color'] as String?,
+          parentUuid: null,
+          classesUuid: const [],
+          tagsUuid: const [],
+          isPage: false,
+          isClass: true,
+          isEmbedded: false,
+          createDate: envelope.timestamp,
+          writeDate: envelope.timestamp,
+          updatedDate: envelope.timestamp,
+          hlcPhysical: incoming.physical,
+          hlcLogical: incoming.logical,
+          actorId: incoming.actor,
+        ),
+      );
+    }
     // Hierarchy self-row: the closure queries match through it, so every
     // class needs (id, id) even before any setExtends runs.
     await _cache.insertClassHierarchySelfRow(classId);
@@ -1939,6 +1996,53 @@ List<String> _contentClassLinkIds(dynamic tokens) {
           : await _cache.classDisplayTemplate(classId),
       updatedAt: envelope.timestamp,
     );
+    // Class-node projection (schema v42): a content/icon/color write
+    // mirrors to the class's node row, gated by the ROW-level LWW exactly
+    // like the TS class.update node-field arm (the registry upsert above
+    // keeps its own replace semantics and stays unconditional). A
+    // present-null icon does not clear the node row's icon (_copyWith's
+    // plain nullable slot — cosmetic-only divergence, the registry row is
+    // the icon authority for class chrome).
+    final node = await _cache.getByUuid(classId);
+    if (node != null && node.isClass) {
+      final incoming = _incoming(envelope);
+      final rowWinner = (
+        physical: node.hlcPhysical,
+        logical: node.hlcLogical,
+        actor: node.actorId ?? '',
+      );
+      if (compareLww(incoming, rowWinner) > 0) {
+        String? newName = node.name;
+        String? newDisplay = node.displayName;
+        if (payload.containsKey('contentAst')) {
+          final contentAst = payload['contentAst'];
+          if (contentAst is List<dynamic>) {
+            newName = AstBuilder.serialize(
+              stringifyContentAst(normalizeContentAst(contentAst)),
+            );
+            newDisplay = deriveDisplayName(newName);
+          }
+        }
+        await _cache.upsert(
+          _copyWith(
+            node,
+            name: newName,
+            displayName: newDisplay,
+            icon: payload.containsKey('icon')
+                ? (payload['icon'] as String? ?? node.icon)
+                : node.icon,
+            color: payload.containsKey('color')
+                ? payload['color'] as String?
+                : node.color,
+            writeDate: envelope.timestamp,
+            updatedDate: envelope.timestamp,
+            hlcPhysical: incoming.physical,
+            hlcLogical: incoming.logical,
+            actorId: incoming.actor,
+          ),
+        );
+      }
+    }
     if (payload.containsKey('parentlessRole')) {
       await _cache.rederiveParentlessNodePageBits(classId);
     }
@@ -2864,6 +2968,7 @@ Node _copyWith(
   Object? position = _undefined,
   double? sequence,
   String? writeDate,
+  String? updatedDate,
   int? hlcPhysical,
   int? hlcLogical,
   String? actorId,
@@ -2921,6 +3026,7 @@ Node _copyWith(
   children: node.children,
   createDate: node.createDate,
   writeDate: writeDate ?? node.writeDate,
+  updatedDate: updatedDate ?? node.updatedDate,
   extendsUuid: node.extendsUuid,
   title: node.title,
   isClass: isClass ?? node.isClass,

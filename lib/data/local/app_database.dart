@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 41,
+          version: 42,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 41,
+      version: 42,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -135,6 +135,7 @@ class AppDatabase {
     await _migrateV39(db);
     await _migrateV40(db);
     await _migrateV41(db);
+    await _migrateV42(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -261,6 +262,9 @@ class AppDatabase {
     }
     if (oldVersion < 41) {
       await _migrateV41(db);
+    }
+    if (oldVersion < 42) {
+      await _migrateV42(db);
     }
   }
 
@@ -1220,6 +1224,78 @@ class AppDatabase {
     await _createNodeProperty(db);
   }
 
+  /// v42 — the query-surface batch (2026-11-04, the P3 slice-1 schema the
+  /// query-AST v2 compiler ports against):
+  ///  - `node_cache.created_at` / `node_cache.updated_at`: the direct
+  ///    projections of the TS store `node.created_at` / `node.updated_at`
+  ///    (object.create stamps both; every mutating op bumps updated —
+  ///    the appliers write them through the Node row). Existing rows
+  ///    backfill from `write_date` / the payload's createDate (the column
+  ///    is derived state: a wipe → replay converges it).
+  ///  - `node_cache.tag_ids`: the OR-Set tag membership projected as a
+  ///    JSON id list (recomputeTagIds maintains it, one more column write;
+  ///    the `tags` query family probes it through json_each). Existing
+  ///    rows backfill from the tag_member_set present rows.
+  ///  - `search_index_fts` (+ `search_index_fts_docid`): the derived
+  ///    search PLAINTEXT backend the query compiler's content conditions
+  ///    probe (the web store's FTS5 `search_index` mirror; the pre-existing
+  ///    `search_index` term inverted index is a different table and stays
+  ///    untouched — v35 already DELETEs it for reindex sweeps, so its name
+  ///    was not reusable). Populated next to the term index in the
+  ///    repository's indexer from the same diacritic-folded plaintext
+  ///    source. The FTS5 → FTS4 probe keeps old SQLCipher/Android builds
+  ///    working (the TS ftsModule fallback precedent; MATCH syntax is
+  ///    identical). Existing rows backfill through the sync service's
+  ///    reindex path (shouldReindexSearch sees the empty FTS table).
+  Future<void> _migrateV42(Database db) async {
+    await _addColumnIfMissing(db, 'node_cache', 'created_at', 'TEXT');
+    await _addColumnIfMissing(db, 'node_cache', 'updated_at', 'TEXT');
+    await _addColumnIfMissing(
+      db,
+      'node_cache',
+      'tag_ids',
+      "TEXT NOT NULL DEFAULT '[]'",
+    );
+    await db.execute(
+      "UPDATE node_cache SET updated_at = write_date WHERE updated_at IS NULL",
+    );
+    await db.execute(
+      "UPDATE node_cache SET created_at = COALESCE(json_extract(payload, '\$.createDate'), write_date) WHERE created_at IS NULL",
+    );
+    final tagRows = await db.rawQuery(
+      'SELECT node_uuid, json_group_array(tag_id) AS tag_ids FROM '
+      '(SELECT node_uuid, tag_id FROM tag_member_set WHERE present = 1 '
+      'ORDER BY node_uuid, tag_id) GROUP BY node_uuid',
+    );
+    if (tagRows.isNotEmpty) {
+      final batch = db.batch();
+      for (final row in tagRows) {
+        batch.update(
+          'node_cache',
+          {'tag_ids': row['tag_ids']},
+          where: 'uuid = ?',
+          whereArgs: [row['node_uuid']],
+        );
+      }
+      await batch.commit(noResult: true);
+    }
+    try {
+      await db.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS search_index_fts USING fts5(content, tokenize='unicode61')",
+      );
+    } catch (_) {
+      // FTS5 missing on this SQLCipher/SQLite build — the FTS4 fallback
+      // (same MATCH syntax, the TS ftsModule precedent).
+      await db.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS search_index_fts USING fts4(content, tokenize='unicode61')",
+      );
+    }
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS search_index_fts_docid ('
+      'node_id TEXT PRIMARY KEY, docid INTEGER NOT NULL)',
+    );
+  }
+
   /// Derived reference index (never authored): mention/typed_link edges
   /// projected from content tokens plus node-typed property values. Mirrors
   /// the TS store `edge` table.
@@ -1782,6 +1858,7 @@ class AppDatabase {
     await _migrateV39(db);
     await _migrateV40(db);
     await _migrateV41(db);
+    await _migrateV42(db);
   }
 
   Future<int> enqueue(String method, String payload) async {
