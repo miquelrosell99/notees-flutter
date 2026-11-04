@@ -203,7 +203,7 @@ void main() {
         final want = expectedRow[j];
         final got = actual[i][j];
         if (want is num && got is num) {
-          expect((got as num) - want, lessThan(1e-9),
+          expect(got - want, lessThan(1e-9),
               reason: 'aggregate cell [$i][$j]');
         } else {
           expect(got, want, reason: 'aggregate cell [$i][$j]');

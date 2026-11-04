@@ -23,7 +23,6 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   const found = '10000000-0000-7000-8000-0000000000a1';
-  const other = '10000000-0000-7000-8000-0000000000a2';
 
   Node node(String uuid, String title) => Node(
         id: 0,

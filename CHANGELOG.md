@@ -8,6 +8,51 @@ lives in git history.
 
 ## 2026-11-04
 
+- **feat(query): the text query DSL port — `parseQueryLanguage` +
+  `looksLikeQueryLanguage` over the v2 AST, and the search box routing
+  query-language input through it (P3 slice 2).** A strict port of
+  `packages/query/src/dsl.ts` (the README "Text query DSL" contract) and
+  its `dsl.test.ts` case list (42 parity pins, same grammar + error
+  behavior):
+  - `lib/domain/query/query_dsl.dart` — the full grammar: `class:` /
+    `isClass:` / `isEmbedded:` / `text:` / `name:` / `linked:` /
+    `coverAsset:` / `bannerAsset:` / `aliasedNode:` / `prop:<schema><op>val`
+    + the bare-schema shorthand (`year:>2010`), the twelve operator tokens
+    (longest-first scan), `AND OR NOT ( )` with juxtaposition-AND,
+    single/double-quoted phrases with escapes, number coercion, slice-mode
+    values (URLs/DOIs/ISO dates survive whole), the injected
+    `QueryLanguageResolvers` (class/schema/node name → id is the caller's
+    job) and the fail-loud surface: `QueryLanguageError` with the source
+    position, unknown fields listing the known ones, unresolvable names,
+    per-field operator rejections, unterminated strings, missing values.
+    Emits only the slice-1 v2 AST shapes (member ids targets, nodeField
+    eq/exists, content/name, property).
+  - `lib/domain/services/query_service.dart` — `parseQueryLanguage(text)`:
+    the run-site seam building the resolvers from the local derived store
+    (the web `/resolve` twin's policy — case-insensitive EXACT matches:
+    classes from `class_cache`, property schemas from `property_schema`,
+    nodes by the derived display name over active `node_cache` rows,
+    `uuid` order first-wins).
+  - `lib/features/search/search_query_ast.dart` —
+    `searchFiltersToQueryAst(filters, languageAst:)`: the DSL root rides
+    the search AST as ONE AND child instead of the plain content-contains
+    term (an OR-rooted parse keeps its grouping; the structured filters,
+    scope and sort are untouched).
+  - `lib/features/search/screens/search_screen.dart` — the search box
+    gates on `looksLikeQueryLanguage` (field prefix ex-URL schemes,
+    standalone AND/OR/NOT, quoted phrases) and routes query-language input
+    through the DSL; plain text keeps the slice-1 content-contains path.
+    The DSL fails loud: a parse error lands on the screen's error surface,
+    never a silent text-search fallback.
+  - Verification: `test/query_dsl_test.dart` (the ported `dsl.test.ts`
+    case list, 42 tests) + `test/search_query_language_test.dart` (4
+    widget pins: DSL routing, plain-path parity, the fail-loud error
+    surface, the heuristic leaving clock-time/URL input on the plain
+    path). `flutter analyze` 0 errors / 0 warnings; `flutter test` all
+    green. Also clears two latent slice-1 analyze warnings (an unused
+    local in `search_screen_local_test.dart`, an unnecessary cast in
+    `query_golden_test.dart`).
+
 - **feat(query): query-AST v2 surface — strict parse, the full
   `packages/query` compiler + executor port over the local derived store,
   and the search feature riding local execution (P3 slice 1).** The mobile

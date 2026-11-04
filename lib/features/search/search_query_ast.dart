@@ -11,7 +11,11 @@ import '../../domain/models/search_filters.dart';
 ///
 /// The mapping (keeps today's UI verbatim):
 ///  - `query` → `content contains` (substring semantics — the search-box
-///    expectation; the `fts` prefix-AND op surprises in a plain box);
+///    expectation; the `fts` prefix-AND op surprises in a plain box) — OR,
+///    when the caller passes [languageAst] (the query string read as the
+///    text query DSL via `looksLikeQueryLanguage` + `parseQueryLanguage`),
+///    the DSL parse's root group rides INSTEAD of the plain content term
+///    (one AND child — grouping preserved exactly, an OR root included);
 ///  - [SearchKind.page] → the `pages` scope; [SearchKind.task] → `member
 ///    class in ids [task]`; [SearchKind.journal] → `member class in ids
 ///    [year, month, day]`;
@@ -28,11 +32,11 @@ import '../../domain/models/search_filters.dart';
 ///  - sort: `name`/`createDate` map to the AST sort fields; `writeDate`,
 ///    `relevance` and the task-only fields ride the compiler's
 ///    deterministic id tiebreak instead (no AST field exists for them).
-QueryAst searchFiltersToQueryAst(SearchFilters filters) {
+QueryAst searchFiltersToQueryAst(SearchFilters filters, {QueryAst? languageAst}) {
   final children = <QueryAstChild>[];
 
   final query = filters.query.trim();
-  if (query.isNotEmpty) {
+  if (query.isNotEmpty && languageAst == null) {
     children.add(ContentCondition(op: ContentOps.contains, value: query));
   }
 
@@ -145,6 +149,12 @@ QueryAst searchFiltersToQueryAst(SearchFilters filters) {
     children.add(
       DateCondition(field: 'created', op: DateOps.lte, timestamp: _day(to)),
     );
+  }
+
+  if (languageAst != null && languageAst.root.children.isNotEmpty) {
+    // The DSL root rides as ONE AND child so an OR-rooted parse keeps its
+    // grouping (splicing the children would flatten `(a OR b)` wrongly).
+    children.add(languageAst.root);
   }
 
   List<SortSpec>? sort;

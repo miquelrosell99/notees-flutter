@@ -15,6 +15,7 @@ import '../../../data/models/node.dart';
 import '../../../data/repositories/node_repository.dart';
 import '../../../domain/services/query_service.dart';
 import '../../../domain/models/search_filters.dart';
+import '../../../domain/query/query_dsl.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../settings/providers/settings_provider.dart';
 import '../../../shared/views/node_collection.dart';
@@ -266,8 +267,17 @@ class _SearchScreenState extends State<SearchScreen> {
       // Local execution over the derived store (the query-AST v2 surface):
       // the full result set runs once per search, the page slices it
       // client-side. Offline search works; online search no longer depends
-      // on the server endpoint.
-      final ast = searchFiltersToQueryAst(searchFilters);
+      // on the server endpoint. A query-language string (the `word:` field
+      // prefix / AND OR NOT / quoted-phrase heuristic) parses through the
+      // text query DSL with names resolved against the local store —
+      // replacing the plain content-contains term, not adding to it; plain
+      // text keeps the slice-1 path. The DSL fails loud: a parse error
+      // lands on the error surface, never a silent text-search fallback.
+      final languageAst = looksLikeQueryLanguage(query)
+          ? await queryService.parseQueryLanguage(query)
+          : null;
+      final ast =
+          searchFiltersToQueryAst(searchFilters, languageAst: languageAst);
       final all = await queryService.runNodes(ast);
       if (!mounted) return;
       final start = (page - 1) * searchFilters.limit;
