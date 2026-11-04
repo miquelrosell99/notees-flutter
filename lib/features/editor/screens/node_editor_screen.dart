@@ -23,6 +23,7 @@ import '../../../data/models/node.dart';
 import '../../../data/models/property.dart';
 import '../../../data/repositories/node_cache_repository.dart';
 import '../../../data/repositories/node_repository.dart';
+import '../../../domain/services/query_service.dart';
 import '../../../domain/services/sync_v2_service.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../settings/providers/settings_provider.dart';
@@ -2523,6 +2524,9 @@ class _NodeEditorScreenState extends State<NodeEditorScreen> {
       onOpenTag: (tagUuid) => context.push('${Routes.editor}/$tagUuid'),
       onRemoveTag: _removeBlockTag,
       onAddTag: _addBlockTag,
+      queryService: context.read<QueryService>(),
+      hostNodeUuid: widget.nodeUuid,
+      onOpenQueryResult: (uuid) => context.push('${Routes.editor}/$uuid'),
     );
   }
 

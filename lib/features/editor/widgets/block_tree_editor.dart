@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,8 +11,10 @@ import '../../../core/utils/ast_stringifier.dart';
 import '../../../core/utils/color_presets.dart';
 import '../../../core/utils/node_icon.dart';
 import '../../../data/models/node.dart';
+import '../../../domain/services/query_service.dart';
 import './asset_block_widget.dart';
 import './ast_rich_text.dart';
+import './query_node_section.dart';
 import './tag_pills.dart';
 
 /// One select option of a display-positioned property. [icon] is a
@@ -173,6 +177,10 @@ class BlockTreeEditor extends StatefulWidget {
     this.onOpenTag,
     this.onRemoveTag,
     this.onAddTag,
+    this.queryService,
+    this.hostNodeUuid,
+    this.onOpenQueryResult,
+    this.storeChanges,
   });
 
   final List<BlockNode> roots;
@@ -263,6 +271,24 @@ class BlockTreeEditor extends StatefulWidget {
 
   /// Invoked from the block options menu to assign a tag to the block.
   final ValueChanged<BlockNode>? onAddTag;
+
+  /// The query run-site seam (slice 1). When set, a block whose content
+  /// carries a `query` token renders the live [QueryNodeSection] below its
+  /// row; null = read-only projection (no live sections — the existing
+  /// tests and any embed without the seam).
+  final QueryService? queryService;
+
+  /// The HOSTING PAGE's node uuid — the `self` anchor every live query run
+  /// in this tree threads into its compile options (required alongside
+  /// [queryService]).
+  final String? hostNodeUuid;
+
+  /// Render-cascade navigation for a query result row (open the node's page).
+  final ValueChanged<String>? onOpenQueryResult;
+
+  /// The store-change stream the live query sections ride. Null = the
+  /// global [StoreChangeBus] (tests inject a controllable stream).
+  final Stream<void>? storeChanges;
 
   @override
   BlockTreeEditorState createState() => BlockTreeEditorState();
@@ -590,6 +616,33 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       );
     }
 
+    // Query token: the live result section rides below the block row (web
+    // QueryNodeSection parity — the block stays a normal row, the first
+    // `query` token's AST renders as the section below it). Only with the
+    // service seam AND the hosting page id — the `self` anchor is part of
+    // every run's identity, so both thread together or not at all.
+    if (widget.queryService != null &&
+        widget.hostNodeUuid != null &&
+        _hasQueryToken(node)) {
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          content,
+          Padding(
+            padding: EdgeInsets.only(left: indent + 30, top: 2, bottom: 2),
+            child: QueryNodeSection(
+              source: node.node.name,
+              selfNodeId: widget.hostNodeUuid!,
+              queryService: widget.queryService!,
+              onOpenNode: widget.onOpenQueryResult,
+              storeChanges: widget.storeChanges,
+            ),
+          ),
+        ],
+      );
+    }
+
     if (isFocused) {
       content = Container(
         decoration: BoxDecoration(
@@ -845,6 +898,19 @@ class BlockTreeEditorState extends State<BlockTreeEditor> {
       if (widget.classNames[classUuid] == needle) return true;
     }
     return false;
+  }
+
+  /// Whether the block's content stream carries a `query` token (the live
+  /// section's payload). Malformed content degrades to no section — one bad
+  /// block never takes down the page body.
+  bool _hasQueryToken(BlockNode node) {
+    final List<Map<String, dynamic>> tokens;
+    try {
+      tokens = contentTokensFromSource(node.node.name);
+    } catch (_) {
+      return false;
+    }
+    return tokens.any((token) => token['type'] == 'query');
   }
 
   void _showBlockMenu(BlockNode node) {

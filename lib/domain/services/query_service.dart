@@ -48,6 +48,14 @@ class QueryService {
   }) async =>
       (await _queryRunner).count(ast, options);
 
+  /// Runs an aggregation [ast] locally, returning the grouped grid (the
+  /// query-node section's aggregate tab).
+  Future<AggregateResult> runAggregate(
+    QueryAst ast, {
+    CompileOptions options = const CompileOptions(),
+  }) async =>
+      (await _queryRunner).runAggregate(ast, options);
+
   /// Parses a query-language string into the AST, resolving class/schema/
   /// node names against the local derived store (the web `/resolve` twin's
   /// policy: case-insensitive EXACT matches — classes and property schemas

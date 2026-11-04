@@ -8,6 +8,60 @@ lives in git history.
 
 ## 2026-11-04
 
+- **feat(query): live `query` content-token views in the editor — the
+  query-node section with coalesced re-runs on store changes (P3 slice 3).**
+  The editor now renders a block's `query` content token as a live result
+  section, mirroring the web's `QueryNodeSection.tsx` + `queryRun.ts`:
+  - `lib/features/editor/widgets/query_node_section.dart` — the section
+    below the block row: the FIRST `query` token's `queryAst` runs through
+    the slice-1 QueryService/compiler seam, LOCAL execution only (no server
+    reads, offline-correct). The hosting PAGE's node id threads into every
+    run's `CompileOptions.selfNodeId` — the first Flutter surface exercising
+    the `self` member-target mode, whose compiler fails loud without a
+    host. The `useQueryRun` hook ported faithfully: the run identity is
+    (astKey, version, selfNodeId) — an already-current identity is skipped
+    outright; a store notification while a run is in flight marks the
+    section dirty and schedules exactly ONE trailing run (a burst costs at
+    most two executions); the last result caches between runs and
+    deletions/renames converge without a manual refresh. Render states per
+    the web: unspecified (no token / empty match-all) → "Set a query to see
+    results."; malformed AST → the invalid-query line (tooltip names the
+    error); empty → "No results."; rows per the web row chrome (title, open
+    on tap); aggregation ASTs run the new `QueryService.runAggregate` seam
+    and render the grouped grid (null cells read as a dash, the
+    `formatAggregateCell` parity); the 200-row `QUERY_RESULT_CAP` window +
+    "N more — load more".
+  - `lib/domain/services/store_change_bus.dart` — the local derived store's
+    change bus (singleton broadcast stream, the IntentReceiver idiom): the
+    Flutter twin of the web workspace client's `subscribe` notify. Every
+    store mutation funnel in `SyncV2Service` notifies after its batch
+    applies — the local flush, the serverless flush, catch-up/realtime
+    server pages (only when something applied), snapshot restores, and
+    `emitLocal` applies (bullet writes, class reorder).
+  - `lib/domain/services/query_service.dart` — the `runAggregate` run-site
+    addition over the slice-1 runner.
+  - `lib/features/editor/widgets/block_tree_editor.dart` — a block whose
+    content carries a `query` token mounts the live section below its row
+    (indented like the tags row), only when BOTH the service seam AND the
+    hosting page id are threaded — the `self` anchor is part of every run's
+    identity, so they travel together or not at all; malformed content
+    degrades to no section. `lib/features/editor/screens/node_editor_screen.dart`
+    passes the provided QueryService, the page's uuid, and the
+    render-cascade navigation (a result-row tap opens the node's page — a
+    nested query target re-runs through the same path on its own host).
+  - Verification: `test/editor_query_node_section_test.dart` — 10 widget
+    pins over the faked service seam (no sqflite under testWidgets; the
+    DB-backed path is the golden suite's): the render plan (one run
+    request, the token's AST verbatim, `selfNodeId` = the hosting page),
+    re-run on notify replacing the rows (rename + deletion convergence),
+    burst coalescing (two mid-flight notifications → exactly one trailing
+    run), the unchanged-identity skip, `selfNodeId` as run identity, the
+    unspecified/invalid states never running, the aggregate grid, and the
+    BlockTreeEditor mount pins (section under a query-token block with the
+    host threaded; no seam → no section). `flutter analyze` 0 errors / 0
+    warnings (the beta SDK's repo-wide material.dart deprecation infos, two
+    added by the new files); `flutter test` all green.
+
 - **feat(query): the text query DSL port — `parseQueryLanguage` +
   `looksLikeQueryLanguage` over the v2 AST, and the search box routing
   query-language input through it (P3 slice 2).** A strict port of

@@ -25,6 +25,7 @@ import '../models/relay/store_errors.dart';
 import '../models/sync_v2.dart';
 import './hlc_clock.dart';
 import './relay_appliers.dart';
+import './store_change_bus.dart';
 
 /// Exception thrown when the sync protocol encounters an unrecoverable error.
 class SyncV2Exception implements Exception {
@@ -165,6 +166,11 @@ class SyncV2Service {
     if (rows.isEmpty) return null;
     return rows.first['value'] as String?;
   }
+
+  /// The local derived store changed (a batch applied or a snapshot
+  /// restored): notify the change bus so live query views re-run
+  /// (StoreChangeBus — the web workspace client's subscribe notify twin).
+  void _notifyStoreChanged() => StoreChangeBus.instance.notify();
 
   /// Reads a single node from the local cache, if available.
   Future<Node?> getCachedNode(String uuid) => _cache.getByUuid(uuid);
@@ -436,6 +442,7 @@ class SyncV2Service {
     }
     await _recordOperations(envelopes, isLocal: true);
     await _updatePushWatermark(envelopes);
+    _notifyStoreChanged();
   }
 
   /// Pulls server-side relay envelopes since the last pull and applies them
@@ -536,6 +543,7 @@ class SyncV2Service {
         }
         if (restored != null) {
           await _cache.restoreFromSnapshot(restored, workspaceId);
+          _notifyStoreChanged();
           lastReceived = snapshot.hlc;
           // Snapshots recorded before the seq cursor existed report null; catch
           // up from 0 and rely on operation-id dedupe.
@@ -677,6 +685,7 @@ class SyncV2Service {
         maxHlc = envelope.hlc;
       }
     }
+    if (applied > 0) _notifyStoreChanged();
     return (applied: applied, maxHlc: maxHlc);
   }
 
@@ -925,6 +934,7 @@ class SyncV2Service {
     if (await _cache.shouldReindexSearch()) {
       await _cache.reindexAll();
     }
+    _notifyStoreChanged();
   }
 
   /// Ids from [ids] already recorded as applied locally (serverless mode).
@@ -985,6 +995,7 @@ class SyncV2Service {
     await _outbox.enqueue(envelope);
     await RelayAppliers(_cache).apply(envelope);
     await _recordOperations([envelope], isLocal: true);
+    _notifyStoreChanged();
     return envelope;
   }
 
