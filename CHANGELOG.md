@@ -8,6 +8,97 @@ lives in git history.
 
 ## 2026-11-04
 
+- **feat(graph): the graph view — a minimal force-directed graph with
+  query-driven color groups (the deferred Flutter slice).** The app had no
+  graph surface at all; the web's collection graph is the reference and
+  this slice ports its contract at minimal weight:
+  - `lib/domain/graph/graph_model.dart` — the topology model: the node
+    set is classes + standalone (parentless or non-embedded) pages ONLY —
+    blocks never render as graph nodes, deleted/archived/journal rows
+    drop — and the edge families ride the derived `edge` index
+    (mention / property / tag; typed links stay out, their target
+    resolution is deferred by design) plus the structural parent family.
+    An edge endpoint outside the node set rolls up to its nearest
+    node-set ancestor (the web `graph.ts` backlinksWithRollup semantics —
+    load-bearing because a standalone page's own content is text-only by
+    the flatten contract, so the surviving mentions live on embedded
+    blocks). Parallel same-family edges collapse into one weighted edge;
+    rolled-up self-links drop. Nodes and edges carry deterministic sort
+    orders and the incident-edge degree per node. Deliberately not
+    ported: the semantic/temporal co-occurrence projections, the
+    alias-terminal walk, and the web engine's clustered/mass-aware
+    physics.
+  - `lib/domain/graph/graph_layout.dart` — the deterministic
+    force-directed layout: Fruchterman–Reingold at heart (pairwise
+    repulsion, edge attraction toward an ideal distance, a gentle
+    centering pull, linear temperature cooling) over a FIXED iteration
+    count. The only randomness is the seeded mulberry32 initial
+    placement, so the same topology + seed yields identical positions on
+    every run and every device — no run-to-run drift, pure functions, the
+    topology never mutated.
+  - `lib/data/repositories/graph_repository.dart` — the topology's
+    read site over the local derived store (offline-local: no server
+    reads). Pages ride the Page-role predicate the list surfaces use,
+    classes ride `class_cache` (active classes excluded from the page set
+    so a class never double-counts).
+  - `lib/domain/graph/graph_color_group.dart` — the color-group layer,
+    a port of the web's `colorGroups.ts`: each group is a query AST root
+    group plus a color; the persisted list order IS the first-match-wins
+    priority; evaluation wraps the group in the workspace-scope AST and
+    rides the local query runner. The two one-time load migrations port
+    the web effect's precedent — a legacy text-DSL `query` string parses
+    through the DSL (names resolve against the workspace), a stored v1
+    AST rewrites through the pure v1→v2 mapping (no dual-parse); a
+    fail-loud error KEEPS the group listed but paints it nowhere.
+  - `lib/domain/query/query_ast_v1_migration.dart` — the strict Dart
+    port of the monorepo's `scripts/lib/map-query-ast-v1-v2.ts`: the v1
+    family hats (`descendantOf`/`*Any`/`*Query`/`*Self`/the `*Set` bits)
+    become explicit `member` conditions, `contentSet`/`propertyBetween`/
+    `propertyWithin`/the ten created*/updated* types/isClass+isEmbedded
+    fold into their parameterized v2 types, not-wrappers/groups/scope/
+    sort/aggregation pass through, and unknown shapes fail loud with the
+    tree path (v2 input included — double-mapping is a bug, not a no-op).
+    `Condition` gains the abstract `type` discriminator the sealed model
+    always carried implicitly.
+  - `lib/data/repositories/color_group_store.dart` — device-local
+    persistence (SharedPreferences, the ViewModeStore idiom): the
+    migrated rows re-persist at load so legacy shapes rewrite once.
+  - `lib/domain/services/graph_service.dart` — the run site
+    (ChangeNotifier, the QueryService seam's twin): owns the topology +
+    layout + groups + the evaluated nodeId→color assignment, and rides
+    the slice-3 `StoreChangeBus` with a short debounce — every store
+    change rebuilds the topology AND re-evaluates the coloring (the web
+    `useQueryRun` coalesced re-run twin). Group CRUD parses the DSL
+    through the local query surface (fails loud — the sheet shows the
+    error), persists, and recolors live on save.
+  - `lib/features/graph/` — the screen, wired per the repo's routing
+    conventions (`/graph` push route; the command palette gains "Go to
+    graph"): a CustomPainter canvas (nodes as labeled circles — group
+    colors win over the node's own color token, classes read as rings —
+    edges as hairlines, pan/pinch with focal-anchored zoom, tap a node to
+    open the editor) plus the color-groups sheet: the list (order = the
+    first-match-wins priority), add/edit (label + preset color + the
+    query as DSL text — the same grammar the search box accepts), remove,
+    live recolor on save. Monochrome base with the preset swatches as the
+    only intentional hue, per the repo's design system.
+  - Verification: `test/graph_layout_test.dart` (11 pins — run-to-run
+    determinism, input-order insensitivity, seed sensitivity, bounded
+    finite positions, topology purity, degenerate inputs), the
+    `test/graph_topology_test.dart` pins over the seeded ffi store (18 —
+    the node-set contract, the rollup, the collapse/degree counts, the
+    family filters), `test/graph_color_groups_test.dart` (19 — the
+    mapping port's shapes and fail-loud arms, both migrations, the
+    first-match-wins evaluation), and `test/graph_service_test.dart`
+    (8 — the load migrations and re-persist, CRUD round-trips, the
+    live-recolor ride on the store-change bus, the topology rebuild).
+    `flutter analyze` 0 errors / 0 warnings; `flutter test` all green.
+  - Deviations from the web reference (documented): no semantic/temporal
+    edge families, no alias-terminal walk, no clustered physics, and the
+    group editor authors queries as DSL text (the slice-4 builder model
+    stays the editor's surface — wiring it into the group sheet is a
+    follow-up); group rows never carry a DSL string, only the AST, so the
+    sheet's edit form starts empty rather than round-tripping the text.
+
 - **fix(protocol): the mention token grammar aligns on the wire contract —
   `customLabel` is the only text a mention stores (the retired `text`/
   `displayText` keys reject outright), matching the GTK `4f8efc3` slice.**

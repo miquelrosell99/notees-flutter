@@ -113,6 +113,8 @@ class _MainShellScreenState extends State<MainShellScreen> {
         setState(() => _currentIndex = 4);
       case StaticCommand(action: CommandPaletteAction.journalToday):
         context.push(Routes.journal);
+      case StaticCommand(action: CommandPaletteAction.graph):
+        context.push(Routes.graph);
       case StaticCommand(action: CommandPaletteAction.settings):
         context.push(Routes.settings);
       case NodeCommand(node: final node):

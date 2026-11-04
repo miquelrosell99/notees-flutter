@@ -16,6 +16,7 @@ import '../../features/auth/screens/login_screen.dart';
 import '../../features/home/screens/main_shell_screen.dart';
 import '../../features/home/screens/notifications_screen.dart';
 import '../../features/editor/screens/node_editor_screen.dart';
+import '../../features/graph/screens/graph_screen.dart';
 import '../../features/auth/screens/onboarding_screen.dart';
 import '../../features/search/screens/search_screen.dart';
 import '../../features/auth/screens/server_management_screen.dart';
@@ -39,6 +40,7 @@ abstract class Routes {
   static const cards = '/cards';
   static const cardsReview = '/cards/review';
   static const editor = '/editor';
+  static const graph = '/graph';
   static const trash = '/trash';
   static const journal = '/journal';
   static const journals = '/journals';
@@ -217,6 +219,13 @@ GoRouter createRouter({required AuthProvider authProvider}) {
             child: NodeEditorScreen(nodeUuid: nodeUuid),
           );
         },
+      ),
+      GoRoute(
+        path: Routes.graph,
+        pageBuilder: (context, state) => _pushTransitionPage(
+          key: state.pageKey,
+          child: const GraphScreen(),
+        ),
       ),
       GoRoute(
         path: Routes.journal,

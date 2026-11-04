@@ -15,6 +15,7 @@ enum CommandPaletteAction {
   library,
   journals,
   journalToday,
+  graph,
   settings,
 }
 
@@ -158,6 +159,11 @@ class _CommandPaletteState extends State<CommandPalette> {
         icon: MdiIcons.calendarEditOutline,
         label: "Go to journal today",
         item: StaticCommand(CommandPaletteAction.journalToday),
+      ),
+      _CommandEntry(
+        icon: MdiIcons.graphOutline,
+        label: 'Go to graph',
+        item: StaticCommand(CommandPaletteAction.graph),
       ),
       _CommandEntry(
         icon: MdiIcons.cogOutline,

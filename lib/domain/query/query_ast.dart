@@ -348,6 +348,10 @@ abstract final class MemberFamilies {
 sealed class Condition implements QueryAstNode {
   const Condition();
 
+  /// The wire discriminator (`member` | `content` | `name` | `property` |
+  /// `date` | `nodeField`) — every concrete condition carries it.
+  String get type;
+
   factory Condition.fromJson(Object? input) => parseQueryAstCondition(input);
 }
 
@@ -431,6 +435,7 @@ final class MemberCondition extends Condition {
     return MemberCondition._(family: family, op: op);
   }
 
+  @override
   final String type = 'member';
   final String family;
   final String op;
@@ -516,6 +521,7 @@ abstract final class ContentOps {
 final class ContentCondition extends Condition {
   const ContentCondition({required this.op, this.value});
 
+  @override
   final String type = 'content';
   final String op;
   final String? value;
@@ -554,6 +560,7 @@ abstract final class NameOps {
 final class NameCondition extends Condition {
   const NameCondition({required this.op, this.value});
 
+  @override
   final String type = 'name';
   final String op;
   final String? value;
@@ -617,6 +624,7 @@ final class PropertyCondition extends Condition {
     this.includeDefaults,
   });
 
+  @override
   final String type = 'property';
   final String schemaId;
   final String op;
@@ -706,6 +714,7 @@ final class DateCondition extends Condition {
     this.period,
   });
 
+  @override
   final String type = 'date';
   final String field;
   final String op;
@@ -770,6 +779,7 @@ abstract final class NodeFieldOps {
 final class NodeFieldCondition extends Condition {
   const NodeFieldCondition({required this.field, required this.op, this.value});
 
+  @override
   final String type = 'nodeField';
   final String field;
   final String op;
