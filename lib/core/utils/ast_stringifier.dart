@@ -219,7 +219,7 @@ void _convertInline(
         out.add({
           'type': 'mention',
           'targetNodeId': target,
-          'text': label.isEmpty ? target : label,
+          if (label.isNotEmpty) 'customLabel': label,
         });
       }
     case 'user_mention':

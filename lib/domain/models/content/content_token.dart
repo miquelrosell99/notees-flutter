@@ -32,8 +32,8 @@ sealed class ContentToken {
   /// [UnsupportedToken] so a newer stream degrades to placeholders instead
   /// of crashing the renderer. Known types with MALFORMED shapes fail loud
   /// (FormatException) per the strict content grammar —
-  /// `code_block`/`hr`/`embed_ref.view` are strict entries (a malformed known
-  /// token is a wire violation, not a forward-compat case).
+  /// `mention`/`code_block`/`hr`/`embed_ref.view` are strict entries (a
+  /// malformed known token is a wire violation, not a forward-compat case).
   factory ContentToken.fromJson(Map<String, dynamic> json) {
     return switch (json['type']) {
       'text' => TextToken.fromJson(json),
@@ -175,10 +175,14 @@ class TypedLinkToken extends ContentToken {
   );
 }
 
-/// A mention of another node. [text] is the captured surface form
-/// (non-authoritative; display resolves the target's current name).
-/// [linkId] is the optional stable per-link instance id (node_link key).
-/// [isEmbedded] is the manual per-link embedding flag: true = an embedded link — where the link is its block's
+/// A mention of another node. [customLabel] is the ONLY text a mention
+/// stores — a one-off wording ("the Republic"); the link's visible text is
+/// NEVER captured: render computes `customLabel ?? the target's current
+/// display name`, so renames re-resolve and no stored text can drift. Absent
+/// = render the target's current name (auto-rename does not apply to a
+/// custom label). [linkId] is the optional stable per-link instance id
+/// (node_link key). [isEmbedded] is the manual per-link embedding flag:
+/// true = an embedded link — where the link is its block's
 /// sole content, the block presents the target's content in place.
 /// Absent/false = an ordinary inline link (the default; every pre-existing
 /// link reads false). Independent of the node's own is_embedded
@@ -186,17 +190,21 @@ class TypedLinkToken extends ContentToken {
 class MentionToken extends ContentToken {
   const MentionToken({
     required this.targetNodeId,
-    required this.text,
-    this.displayText,
+    this.customLabel,
     this.linkId,
     this.isEmbedded,
   });
 
   final String targetNodeId;
-  final String text;
-  final String? displayText;
+  final String? customLabel;
   final String? linkId;
   final bool? isEmbedded;
+
+  /// Loose uuid shape (8-4-4-4-12 hex), the `z.string().uuid()` parity.
+  static final _uuidPattern = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+    r'[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  );
 
   @override
   String get type => 'mention';
@@ -205,19 +213,53 @@ class MentionToken extends ContentToken {
   Map<String, dynamic> toJson() => {
     'type': 'mention',
     'targetNodeId': targetNodeId,
-    'text': text,
-    if (displayText != null) 'displayText': displayText,
+    if (customLabel != null) 'customLabel': customLabel,
     if (linkId != null) 'linkId': linkId,
     if (isEmbedded != null) 'isEmbedded': isEmbedded,
   };
 
-  factory MentionToken.fromJson(Map<String, dynamic> json) => MentionToken(
-    targetNodeId: json['targetNodeId'] as String? ?? '',
-    text: json['text'] as String? ?? '',
-    displayText: json['displayText'] as String?,
-    linkId: json['linkId'] as String?,
-    isEmbedded: json['isEmbedded'] as bool?,
-  );
+  /// The strict key set (zod .strict() parity, content-mark.ts
+  /// `mentionTokenSchema`): exactly `type`, `targetNodeId`, `customLabel`,
+  /// `linkId`, `isEmbedded`. The retired captured-text keys (`text`,
+  /// `displayText`) are rejected outright as unknown keys — the wire
+  /// captures no link text.
+  factory MentionToken.fromJson(Map<String, dynamic> json) {
+    for (final key in json.keys) {
+      if (key != 'type' &&
+          key != 'targetNodeId' &&
+          key != 'customLabel' &&
+          key != 'linkId' &&
+          key != 'isEmbedded') {
+        throw FormatException('mention: unknown key $key');
+      }
+    }
+    final target = json['targetNodeId'];
+    if (target is! String || !_uuidPattern.hasMatch(target)) {
+      throw FormatException('mention.targetNodeId must be a uuid');
+    }
+    final label = json['customLabel'];
+    if (label != null &&
+        (label is! String || label.isEmpty || label.length > 512)) {
+      throw FormatException(
+        'mention.customLabel must be a string of 1..512 chars',
+      );
+    }
+    final linkId = json['linkId'];
+    if (linkId != null &&
+        (linkId is! String || !_uuidPattern.hasMatch(linkId))) {
+      throw FormatException('mention.linkId must be a uuid');
+    }
+    final isEmbedded = json['isEmbedded'];
+    if (isEmbedded != null && isEmbedded is! bool) {
+      throw FormatException('mention.isEmbedded must be a boolean');
+    }
+    return MentionToken(
+      targetNodeId: target,
+      customLabel: label,
+      linkId: linkId,
+      isEmbedded: isEmbedded,
+    );
+  }
 }
 
 /// RENDER-ONLY reference to a class node: inserting or deleting a chip does
@@ -531,12 +573,19 @@ dynamic _decode(String source) => jsonDecode(source);
 
 /// Plaintext excerpt derivation (port of
 /// `packages/domain/src/node.ts` plainTextExcerpt): text and typed-link
-/// runs contribute their text, mentions their displayText (captured text
-/// when absent), math its expression, quotes recurse, and hard_break becomes
-/// a space; whitespace collapses to single spaces.
+/// runs contribute their text; a mention contributes its one-off
+/// [MentionToken.customLabel] — THE ONLY text a mention stores (the retired
+/// captured-text keys are rejected by the strict grammar) — else the
+/// target's CURRENT display name when [resolveMention] is passed; without a
+/// resolver a bare mention contributes nothing (the caller falls back to its
+/// own placeholder); math its expression, quotes recurse, and hard_break
+/// becomes a space; whitespace collapses to single spaces.
 ///
 /// Plaintext is DERIVED from stored content, never stored as truth.
-String plainTextExcerpt(ContentAst? tokens) {
+String plainTextExcerpt(
+  ContentAst? tokens, {
+  String? Function(String targetNodeId)? resolveMention,
+}) {
   if (tokens == null) return '';
   final parts = <String>[];
   void walk(List<ContentToken> stream) {
@@ -546,10 +595,13 @@ String plainTextExcerpt(ContentAst? tokens) {
           parts.add(text);
         case TypedLinkToken(text: final text):
           parts.add(text);
-        case MentionToken(displayText: final display?):
-          parts.add(display);
-        case MentionToken(text: final text):
-          parts.add(text);
+        case MentionToken(customLabel: final label?):
+          parts.add(label);
+        case MentionToken(targetNodeId: final target):
+          final resolved = resolveMention?.call(target);
+          if (resolved != null && resolved.isNotEmpty) {
+            parts.add(resolved);
+          }
         case MathToken(expression: final expression):
           parts.add(expression);
         case QuoteToken(children: final children):

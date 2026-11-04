@@ -86,7 +86,7 @@ void main() {
       'aaaaaaaa-0000-0000-0000-000000000001',
       '[{"type":"text","text":"plain "},'
       '{"type":"hard_break"},'
-      '{"type":"mention","targetNodeId":"11111111-2222-3333-4444-555555555555","displayText":"Mention"},'
+      '{"type":"mention","targetNodeId":"11111111-2222-3333-4444-555555555555","customLabel":"Mention"},'
       '{"type":"class_link","classId":"11111111-2222-3333-4444-555555555555","displayText":"Chip"},'
       '{"type":"typed_link","text":"Typed"},'
       '{"type":"text","text":"see [Link](https://example.com)"},'

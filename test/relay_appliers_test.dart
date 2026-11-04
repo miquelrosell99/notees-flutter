@@ -205,7 +205,7 @@ void main() {
             {
               'type': 'mention',
               'targetNodeId': '00000000-0000-0000-0000-000000000199',
-              'text': 'shopping',
+              'customLabel': 'shopping',
             },
           ],
         ),
@@ -261,7 +261,7 @@ void main() {
             {
               'type': 'mention',
               'targetNodeId': '00000000-0000-0000-0000-000000000199',
-              'text': 'Ada',
+              'customLabel': 'Ada',
             },
             {'type': 'text', 'text': ' at noon'},
           ],
@@ -278,7 +278,7 @@ void main() {
           {
             'type': 'mention',
             'targetNodeId': '00000000-0000-0000-0000-000000000199',
-            'text': 'Ada',
+            'customLabel': 'Ada',
           },
           {'type': 'text', 'text': ' at noon'},
         ],
@@ -1729,7 +1729,7 @@ void main() {
             {
               'type': 'mention',
               'targetNodeId': '00000000-0000-0000-0000-000000000199',
-              'text': 'ref',
+              'customLabel': 'ref',
             },
           ],
         ),
@@ -2353,7 +2353,7 @@ void main() {
               {
                 'type': 'mention',
                 'targetNodeId': '00000000-0000-0000-0000-000000000199',
-                'text': 'shopping',
+                'customLabel': 'shopping',
               },
             ],
           ),

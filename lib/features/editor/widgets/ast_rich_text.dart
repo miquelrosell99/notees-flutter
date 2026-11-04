@@ -12,9 +12,10 @@ import '../../../domain/models/content/markdown_links.dart';
 /// ([normalizeContentAst]), so rows written before the port render through
 /// the same path. Resolution rules (mirroring the GTK renderer):
 ///
-///  - `mention`: [resolveName]'s current target name wins (auto-rename
-///    free), then the raw target id — the captured `text` is
-///    non-authoritative; `displayText` overrides both;
+///  - `mention`: `customLabel` (the only text a mention stores) wins, then
+///    [resolveName]'s current target name (auto-rename free), then the raw
+///    target id — the wire captures no link text at all
+///    (content-mark.ts `mentionTokenSchema`);
 ///  - `class_link`: render-only — `displayText` ?? resolved class name ??
 ///    raw class id; chips never mutate class assignments;
 ///  - `typed_link`: the marked word renders underlined with the verb (free
@@ -154,7 +155,7 @@ class AstRichText extends StatelessWidget {
         ];
       case 'mention':
         final target = token['targetNodeId'] as String? ?? '';
-        final label = token['displayText'] as String? ?? _resolve(target);
+        final label = token['customLabel'] as String? ?? _resolve(target);
         return [
           _chipSpan(
             context,

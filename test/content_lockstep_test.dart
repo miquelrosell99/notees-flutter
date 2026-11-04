@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:notees/core/utils/ast_builder.dart';
 import 'package:notees/core/utils/ast_stringifier.dart';
 import 'package:notees/data/local/app_database.dart';
 import 'package:notees/data/repositories/node_cache_repository.dart';
@@ -198,6 +199,189 @@ void main() {
     });
   });
 
+  group('mention token grammar (the wire contract)', () {
+    const target = '0192a000-0000-7000-8000-00000000cc10';
+    const bareLinkId = '0192a000-0000-7000-8000-00000000cc20';
+    const labelledLinkId = '0192a000-0000-7000-8000-00000000cc21';
+
+    test('mention-custom-label fixture bytes validate through the strict '
+        'grammar', () {
+      final fixture = jsonDecode(
+              File('$fixturesDir/mention-custom-label.json').readAsStringSync())
+          as Map<String, dynamic>;
+      final envelopes =
+          (fixture['envelopes'] as List<dynamic>).cast<Map<String, dynamic>>();
+      for (final envelope in envelopes) {
+        final contentAst = (envelope['payload'] as Map<String, dynamic>)
+            ['contentAst'];
+        if (contentAst is! List) continue;
+        for (final token in contentAst) {
+          // The corpus's actual bytes validate — this must not throw.
+          ContentToken.fromJson(token as Map<String, dynamic>);
+        }
+      }
+      final secondPayload =
+          envelopes[1]['payload'] as Map<String, dynamic>;
+      final mentions =
+          (secondPayload['contentAst'] as List<dynamic>)
+              .cast<Map<String, dynamic>>();
+      final bare = ContentToken.fromJson(mentions[0]) as MentionToken;
+      expect(bare.customLabel, isNull);
+      expect(bare.linkId, bareLinkId);
+      // The wire shape: exactly {type, targetNodeId, customLabel?, linkId?,
+      // isEmbedded?} — no captured-text key.
+      expect(bare.toJson(), {
+        'type': 'mention',
+        'targetNodeId': target,
+        'linkId': bareLinkId,
+      });
+      final labelled = ContentToken.fromJson(mentions[2]) as MentionToken;
+      expect(labelled.customLabel, 'the Republic');
+      expect(labelled.toJson(), {
+        'type': 'mention',
+        'targetNodeId': target,
+        'customLabel': 'the Republic',
+        'linkId': labelledLinkId,
+      });
+    });
+
+    test('the retired captured-text keys reject outright', () {
+      for (final retired in ['text', 'displayText']) {
+        expect(
+          () => ContentToken.fromJson({
+            'type': 'mention',
+            'targetNodeId': target,
+            retired: 'captured',
+          }),
+          throwsFormatException,
+          reason: 'mention.$retired is retired (content-mark.ts .strict())',
+        );
+      }
+      expect(
+        () => ContentToken.fromJson({
+          'type': 'mention',
+          'targetNodeId': target,
+          'caption': 'x',
+        }),
+        throwsFormatException,
+        reason: 'strict key set (zod .strict() parity)',
+      );
+    });
+
+    test('targetNodeId is required (uuid shape); customLabel is 1..512', () {
+      expect(
+        () => ContentToken.fromJson(const {'type': 'mention'}),
+        throwsFormatException,
+      );
+      expect(
+        () => ContentToken.fromJson(
+            const {'type': 'mention', 'targetNodeId': ''}),
+        throwsFormatException,
+      );
+      expect(
+        () => ContentToken.fromJson(
+            const {'type': 'mention', 'targetNodeId': 'not-a-uuid'}),
+        throwsFormatException,
+      );
+      expect(
+        () => ContentToken.fromJson(
+            {'type': 'mention', 'targetNodeId': target, 'customLabel': ''}),
+        throwsFormatException,
+      );
+      expect(
+        () => ContentToken.fromJson({
+          'type': 'mention',
+          'targetNodeId': target,
+          'customLabel': 'x' * 513,
+        }),
+        throwsFormatException,
+      );
+      final max = ContentToken.fromJson({
+        'type': 'mention',
+        'targetNodeId': target,
+        'customLabel': 'x' * 512,
+      }) as MentionToken;
+      expect(max.customLabel, hasLength(512));
+    });
+
+    test('linkId/isEmbedded are validated when present', () {
+      expect(
+        () => ContentToken.fromJson(
+            {'type': 'mention', 'targetNodeId': target, 'linkId': 42}),
+        throwsFormatException,
+      );
+      expect(
+        () => ContentToken.fromJson({
+          'type': 'mention',
+          'targetNodeId': target,
+          'isEmbedded': 'yes',
+        }),
+        throwsFormatException,
+      );
+      final token = ContentToken.fromJson({
+        'type': 'mention',
+        'targetNodeId': target,
+        'linkId': bareLinkId,
+        'isEmbedded': true,
+      }) as MentionToken;
+      expect(token.isEmbedded, isTrue);
+      expect(token.toJson()['isEmbedded'], isTrue);
+    });
+
+    test('AstBuilder authors the wire shape (customLabel, never text)', () {
+      final labelled =
+          AstBuilder.nodeLink(targetId: target, label: 'the Republic');
+      expect(labelled, {
+        'type': 'mention',
+        'targetNodeId': target,
+        'customLabel': 'the Republic',
+      });
+      expect(labelled.containsKey('text'), isFalse);
+      final bare = AstBuilder.nodeLink(targetId: target);
+      expect(bare, {'type': 'mention', 'targetNodeId': target});
+      // The editor text form round-trips the label.
+      final markdown =
+          AstBuilder.toMarkdown([labelled, const {'type': 'hard_break'}, bare]);
+      expect(markdown, '[[$target|the Republic]]\n[[$target]]');
+      final reparsed = AstBuilder.parseInline(markdown);
+      expect(reparsed[0]['customLabel'], 'the Republic');
+      expect(reparsed[0].containsKey('text'), isFalse);
+      expect(reparsed[2], {'type': 'mention', 'targetNodeId': target});
+    });
+
+    test('plainTextExcerpt: customLabel wins; a bare mention is silent '
+        'without a resolver, resolved with one', () {
+      expect(
+        plainTextExcerpt(parseContentAst([
+          {'type': 'text', 'text': 'Kuhn cites '},
+          {
+            'type': 'mention',
+            'targetNodeId': target,
+            'customLabel': 'the Republic',
+          },
+        ])),
+        'Kuhn cites the Republic',
+      );
+      // The wire captures no mention text: a bare mention excerpts to
+      // nothing on the resolver-less derivation path.
+      expect(
+        plainTextExcerpt(parseContentAst([
+          {'type': 'mention', 'targetNodeId': target},
+        ])),
+        '',
+      );
+      expect(
+        plainTextExcerpt(
+          parseContentAst([
+            {'type': 'mention', 'targetNodeId': target},
+          ]),
+          resolveMention: (id) => 'Current Name($id)',
+        ),
+        'Current Name($target)',
+      );
+    });
+  });
+
   group('content fixtures replay', () {
     late AppDatabase database;
     late NodeCacheRepository cache;
@@ -295,6 +479,31 @@ void main() {
             'view': 'wide_card',
           },
         ],
+      );
+    });
+
+    test('mention-custom-label fixture: the applier path carries the '
+        'mention intact', () async {
+      for (final envelope in fixtureEnvelopes('mention-custom-label.json')) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      const page = '0192a000-0000-7000-8000-00000000cc10';
+      const block = '0192a000-0000-7000-8000-00000000cc11';
+      // Envelope 3 rewrote the stream to the single bare mention: the
+      // wire-shape token rides the derived store byte-intact.
+      expect(jsonDecode((await cache.getByUuid(block))!.name), [
+        {
+          'type': 'mention',
+          'targetNodeId': page,
+          'linkId': '0192a000-0000-7000-8000-00000000cc20',
+        },
+      ]);
+      // The derived edge rides the mention target (the edge miner reads
+      // targetNodeId only — the token's text keys are irrelevant to it).
+      final backlinks = await cache.backlinks(page);
+      expect(
+        backlinks.where((row) => row['type'] == 'mention'),
+        hasLength(1),
       );
     });
   });

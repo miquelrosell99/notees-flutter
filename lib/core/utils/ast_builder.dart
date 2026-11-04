@@ -77,7 +77,10 @@ class AstBuilder {
     'text': value,
   };
 
-  /// Builds a mention token (the node_link replacement).
+  /// Builds a mention token (the node_link replacement): the wire shape is
+  /// exactly `{type, targetNodeId, customLabel?, linkId?, isEmbedded?}` — a
+  /// non-empty [label] becomes the one-off `customLabel`, absent = a bare
+  /// mention rendering the target's current name.
   static Map<String, dynamic> nodeLink({
     required String targetId,
     String? linkUuid,
@@ -94,7 +97,7 @@ class AstBuilder {
     return {
       'type': 'mention',
       'targetNodeId': targetId,
-      'text': label ?? targetId,
+      if (label != null && label.isNotEmpty) 'customLabel': label,
       if (linkUuid != null && linkUuid.isNotEmpty) 'linkId': linkUuid,
     };
   }
@@ -102,7 +105,7 @@ class AstBuilder {
   /// Converts a token stream back to the mobile editor's Markdown-like text.
   ///
   /// hard_break tokens flush the line ('\n'); mention chips round-trip to
-  /// `[[target|text]]`, class chips to `{{classId|displayText}}`.
+  /// `[[target|customLabel]]`, class chips to `{{classId|displayText}}`.
   static String toMarkdown(List<Map<String, dynamic>> ast) {
     final buffer = StringBuffer();
     for (final token in ast) {
@@ -128,8 +131,8 @@ class AstBuilder {
         buffer.write(rendered);
       case 'mention':
         final target = token['targetNodeId'] as String? ?? '';
-        final text = token['text'] as String? ?? '';
-        buffer.write(text.isNotEmpty ? '[[$target|$text]]' : '[[$target]]');
+        final label = token['customLabel'] as String? ?? '';
+        buffer.write(label.isNotEmpty ? '[[$target|$label]]' : '[[$target]]');
       case 'class_link':
         final classId = token['classId'] as String? ?? '';
         final display = token['displayText'] as String?;

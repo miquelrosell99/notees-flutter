@@ -78,18 +78,20 @@ void main() {
 
     test('renders node_link label when present', () {
       const ast = '[{"type":"paragraph","children":['
-          '{"type":"node_link","link_id":"uuid-1","label":"Linked page"}'
+          '{"type":"node_link","link_id":"0192a000-0000-7000-8000-0000000000a1","label":"Linked page"}'
           ']}]';
       expect(astToPlainText(ast), 'Linked page');
     });
 
-    test('node_link without label becomes a mention of the raw target', () {
-      // mentions contribute their captured text; a legacy pill without a
-      // label captures the raw target id (never the legacy '…' placeholder).
+    test('node_link without label becomes a bare mention (no excerpt text)',
+        () {
+      // The wire captures no mention text: a legacy pill without a label
+      // converts to a bare mention, which excerpts to nothing on the
+      // resolver-less derivation path.
       const ast = '[{"type":"paragraph","children":['
-          '{"type":"node_link","link_id":"uuid-1"}'
+          '{"type":"node_link","link_id":"0192a000-0000-7000-8000-0000000000a1"}'
           ']}]';
-      expect(astToPlainText(ast), 'uuid-1');
+      expect(astToPlainText(ast), '');
     });
 
     test('renders user mention with @ prefix', () {

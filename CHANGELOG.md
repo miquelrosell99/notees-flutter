@@ -8,6 +8,47 @@ lives in git history.
 
 ## 2026-11-04
 
+- **fix(protocol): the mention token grammar aligns on the wire contract —
+  `customLabel` is the only text a mention stores (the retired `text`/
+  `displayText` keys reject outright), matching the GTK `4f8efc3` slice.**
+  The strict content grammar's mention branch still mirrored the retired
+  captured-text shape: `MentionToken` REQUIRED a `text` key and carried an
+  optional `displayText`, `AstBuilder.nodeLink` authored `text`, the legacy
+  converter captured the pill label as `text`, and the excerpt derivation +
+  the rich-text renderer read `displayText ?? text`. The wire schema and the
+  corpus (`mention-custom-label.json`) carry `customLabel` only
+  (content-mark.ts `mentionTokenSchema`, zod `.strict()`). Aligned, all
+  sites: `MentionToken` is now exactly `{type, targetNodeId, customLabel?
+  (1..512), linkId? (uuid), isEmbedded?}` with a strict key set — the retired
+  captured-text keys fail loud as unknown keys, like any `.strict()` extra
+  (the fail-loud / no-backward-compatibility law); `AstBuilder.nodeLink`
+  authors `customLabel` when the user sets a label (the editor's `[[id|label]]`
+  text form rides this seam), `toMarkdown` round-trips it; the legacy
+  `node_link` conversion maps the pill label to `customLabel`; the renderer
+  resolves `customLabel ?? the target's current name ?? the raw id`
+  (auto-rename free); `plainTextExcerpt` reads `customLabel`, gains the
+  TS-parallel optional `resolveMention` parameter (a bare mention contributes
+  nothing without a resolver). The applier/registry path stays map-level
+  pass-through by design — `contentAst` rides the derived store byte-intact
+  (pinned by a new fixture-replay arm); the edge miner reads `targetNodeId`
+  only and needed no change. No wire change: the fixture corpus stays
+  byte-pinned, both fixture-count pins untouched.
+  - Verification: `test/content_lockstep_test.dart` gains the mention
+    grammar group — the `mention-custom-label.json` fixture's actual bytes
+    validate through the strict parser with the exact `toJson` wire shape,
+    the rejection pins for `text`/`displayText`/unknown keys, the
+    `targetNodeId`-uuid and `customLabel` 1..512 bounds, the
+    `linkId`/`isEmbedded` type pins, the AstBuilder author-shape pin, and the
+    excerpt arms (customLabel wins; a bare mention silent without a resolver,
+    resolved with one) — plus the seeded-DB replay arm (the mention rides the
+    derived store intact, the edge derives); `test/content_tokens_test.dart`
+    and `test/relay_appliers_test.dart` arms that built mentions with the
+    retired shape move to the wire shape; the renderer gains the
+    customLabel-wins-over-resolver pin. `flutter analyze` 0 errors / 0
+    warnings; `flutter test` all green.
+  - Lockstep: the mention grammar now matches the TS reference and the GTK
+    client exactly; no wire change.
+
 - **perf(query): an invalidation-correct cache for the DSL resolver maps —
   the slice-2 resolver-map caching follow-up.** `QueryService.parseQueryLanguage`
   was rebuilding the three resolver name maps (class registry names,

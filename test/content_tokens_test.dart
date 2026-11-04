@@ -81,16 +81,21 @@ void main() {
       );
     });
 
-    test('mention/class_link round-trip displayText and linkId', () {
+    test('mention/class_link round-trip customLabel and linkId', () {
       final mention = ContentToken.fromJson({
         'type': 'mention',
         'targetNodeId': '0192a000-0000-7000-8000-000000000011',
-        'text': 'The Structure of Scientific Revolutions',
+        'customLabel': 'The Structure of Scientific Revolutions',
         'linkId': '0192a000-0000-7000-8000-0000000000aa',
       }) as MentionToken;
-      expect(mention.displayText, isNull);
-      expect(mention.linkId, '0192a000-0000-7000-8000-0000000000aa');
-      expect(mention.toJson()['linkId'], '0192a000-0000-7000-8000-0000000000aa');
+      expect(mention.customLabel,
+          'The Structure of Scientific Revolutions');
+      expect(mention.toJson(), {
+        'type': 'mention',
+        'targetNodeId': '0192a000-0000-7000-8000-000000000011',
+        'customLabel': 'The Structure of Scientific Revolutions',
+        'linkId': '0192a000-0000-7000-8000-0000000000aa',
+      });
 
       final chip = const ClassLinkToken(
         classId: '00000000-0000-0000-0001-000000000025',
@@ -157,8 +162,7 @@ void main() {
         {
           'type': 'mention',
           'targetNodeId': '0192a000-0000-7000-8000-000000000011',
-          'text': 'The Structure',
-          'displayText': 'the book',
+          'customLabel': 'the book',
         },
         {'type': 'math', 'expression': 'e = mc^2'},
         {
@@ -169,6 +173,18 @@ void main() {
         },
       ]));
       expect(excerpt, 'Kuhn cites the book e = mc^2 nested quote');
+    });
+
+    test('a bare mention excerpts to nothing (no resolver on this path)',
+        () {
+      final excerpt = plainTextExcerpt(parseContentAst([
+        {'type': 'text', 'text': 'see '},
+        {
+          'type': 'mention',
+          'targetNodeId': '0192a000-0000-7000-8000-000000000011',
+        },
+      ]));
+      expect(excerpt, 'see');
     });
 
     test('hard_break becomes a space and whitespace collapses', () {
@@ -264,7 +280,8 @@ void main() {
       final mention = tokens.firstWhere((t) => t['type'] == 'mention');
       expect(mention['targetNodeId'],
           '0192a000-0000-7000-8000-000000000011');
-      expect(mention['text'], 'Book');
+      expect(mention['customLabel'], 'Book');
+      expect(mention.containsKey('text'), isFalse);
       final chip = tokens.firstWhere((t) => t['type'] == 'class_link');
       expect(chip['classId'], '00000000-0000-0000-0001-000000000025');
       expect(chip.containsKey('displayText'), isFalse);
@@ -358,7 +375,7 @@ void main() {
       final mention = tokens.firstWhere((t) => t['type'] == 'mention');
       expect(mention['targetNodeId'],
           '0192a000-0000-7000-8000-000000000011');
-      expect(mention['text'], 'The Book');
+      expect(mention['customLabel'], 'The Book');
       final chip = tokens.firstWhere((t) => t['type'] == 'class_link');
       expect(chip['classId'], '00000000-0000-0000-0001-000000000025');
       expect(chip['displayText'], 'Book');
@@ -540,7 +557,7 @@ void main() {
             {
               'type': 'mention',
               'targetNodeId': bookId,
-              'text': 'The Structure of Scientific Revolutions',
+              'customLabel': 'The Structure of Scientific Revolutions',
             },
           ],
         },
@@ -601,7 +618,7 @@ void main() {
           {
             'type': 'mention',
             'targetNodeId': bookId,
-            'text': 'Book',
+            'customLabel': 'Book',
           },
         ],
       };
@@ -668,22 +685,38 @@ void main() {
           {
             'type': 'mention',
             'targetNodeId': '0192a000-0000-7000-8000-000000000011',
-            'text': 'captured text',
           },
         ]),
         resolveName: (id) => 'Resolved Name',
         onNodeLinkTap: (id) => tapped = id,
       )));
-      // displayText absent -> resolved name, never the captured text.
+      // No customLabel -> the resolver's current name wins (auto-rename
+      // free) — the wire captures no link text to fall back to.
       expect(find.text('Resolved Name'), findsOneWidget);
       await tester.tap(find.text('Resolved Name'));
       expect(tapped, '0192a000-0000-7000-8000-000000000011');
     });
 
+    testWidgets('mention customLabel wins over the resolved name',
+        (tester) async {
+      await tester.pumpWidget(wrap(AstRichText(
+        source: jsonEncode([
+          {
+            'type': 'mention',
+            'targetNodeId': '0192a000-0000-7000-8000-000000000011',
+            'customLabel': 'the Republic',
+          },
+        ]),
+        resolveName: (id) => 'Resolved Name',
+      )));
+      expect(find.text('the Republic'), findsOneWidget);
+      expect(find.text('Resolved Name'), findsNothing);
+    });
+
     testWidgets('mention falls back to the raw id when unresolvable',
         (tester) async {
       await tester.pumpWidget(wrap(const AstRichText(
-        source: '[{"type":"mention","targetNodeId":"0192a000-0000-7000-8000-000000000099","text":"captured"}]',
+        source: '[{"type":"mention","targetNodeId":"0192a000-0000-7000-8000-000000000099"}]',
       )));
       expect(find.text('0192a000-0000-7000-8000-000000000099'), findsOneWidget);
     });
@@ -808,9 +841,11 @@ void main() {
         ]),
         resolveName: (id) => 'Resolved',
       )));
-      // The captured label 'Pill' is non-authoritative: the resolved name
-      // wins for mentions (auto-rename free).
-      expect(find.text('Resolved'), findsOneWidget);
+      // The legacy pill's captured label converts to the mention's one-off
+      // customLabel — the only text a mention stores — so it wins over the
+      // resolver (auto-rename does not apply to a custom label).
+      expect(find.text('Pill'), findsOneWidget);
+      expect(find.text('Resolved'), findsNothing);
       final rich = tester.widgetList<RichText>(find.byType(RichText)).first;
       final spans = (rich.text as TextSpan).children!;
       final bold = spans.firstWhere(
