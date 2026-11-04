@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 
 import '../../core/utils/node_display_name.dart';
 import '../../data/local/app_database.dart';
@@ -9,19 +12,59 @@ import '../../domain/query/query_ast.dart';
 import '../../domain/query/query_dsl.dart' as query_dsl;
 import '../../domain/query/query_placeholders.dart';
 import '../../domain/query/query_runner.dart';
+import 'store_change_bus.dart';
 
 /// The query surface's run-site seam: owns the local derived store and the
 /// query runner, and maps result ids back to node rows. Injected into the
 /// search feature via Provider (the repo's Provider + ChangeNotifier idiom);
 /// the search screen never touches the compiler directly.
 class QueryService {
-  QueryService({AppDatabase? database, NodeCacheRepository? cache})
-      : _database = database ?? AppDatabase(),
-        _cache = cache ?? NodeCacheRepository(AppDatabase());
+  QueryService({
+    AppDatabase? database,
+    NodeCacheRepository? cache,
+    Stream<void>? storeChanges,
+  })  : _database = database ?? AppDatabase(),
+        _cache = cache ?? NodeCacheRepository(AppDatabase()) {
+    // The resolver-map cache rides the store-change bus (the slice-3
+    // `StoreChangeBus` — every mutation funnel in SyncV2Service notifies
+    // after its batch applies): the maps rebuild only when the underlying
+    // store data actually changes, never per debounced keystroke.
+    _changeSubscription = (storeChanges ?? StoreChangeBus.instance.changes)
+        .listen((_) => _invalidateResolverMaps());
+  }
 
   final AppDatabase _database;
   final NodeCacheRepository _cache;
   QueryRunner? _runner;
+  StreamSubscription<void>? _changeSubscription;
+
+  /// The cached resolver name maps (class / property-schema / node display
+  /// names), derived from the local store like any other projection:
+  /// rebuilt on demand, invalidated by the store-change bus. Null = not
+  /// built yet.
+  _ResolverMaps? _resolverMaps;
+
+  /// Bumped on every invalidation; a build that raced a mid-flight store
+  /// change (its queries ran against a moving store) discards its result
+  /// and rebuilds instead of caching stale names.
+  int _resolverMapsGeneration = 0;
+
+  /// Test pin: how many times the resolver maps were rebuilt from the
+  /// store (two parses without an intervening change must read 1).
+  @visibleForTesting
+  int get resolverMapBuildCount => _resolverMapBuildCount;
+  int _resolverMapBuildCount = 0;
+
+  void _invalidateResolverMaps() {
+    _resolverMaps = null;
+    _resolverMapsGeneration++;
+  }
+
+  /// Drops the change-bus subscription. Called by Provider's dispose.
+  void dispose() {
+    unawaited(_changeSubscription?.cancel());
+    _changeSubscription = null;
+  }
 
   Future<QueryRunner> get _queryRunner async =>
       _runner ??= QueryRunner(await _database.database);
@@ -147,6 +190,40 @@ class QueryService {
   /// [query_dsl.QueryLanguageError] — the DSL fails loud, never silently
   /// degrades to a text search.
   Future<QueryAst> parseQueryLanguage(String text) async {
+    final maps = await _resolverMapsOrBuild();
+    return query_dsl.parseQueryLanguage(
+      text,
+      query_dsl.ParseQueryLanguageOptions(
+        resolvers: query_dsl.QueryLanguageResolvers(
+          resolveClass: (name) => maps.classes[name.toLowerCase()],
+          resolvePropertySchema: (name) => maps.schemas[name.toLowerCase()],
+          resolveNode: (name) => maps.nodes[name.toLowerCase()],
+        ),
+        knownFields: maps.schemaNames,
+      ),
+    );
+  }
+
+  Future<_ResolverMaps> _resolverMapsOrBuild() async {
+    final cached = _resolverMaps;
+    if (cached != null) return cached;
+    final generation = _resolverMapsGeneration;
+    final built = await _buildResolverMaps();
+    if (generation != _resolverMapsGeneration) {
+      // The store changed mid-build — the queries ran against a moving
+      // store; rebuild against the settled one rather than caching names
+      // that are already stale.
+      return _resolverMapsOrBuild();
+    }
+    return _resolverMaps = built;
+  }
+
+  /// The one O(workspace) sweep the resolver maps cost: classes and
+  /// property schemas by registry name, nodes by derived display name,
+  /// lowercased keys with uuid-order first-wins (a later duplicate name
+  /// does not displace an earlier uuid's mapping).
+  Future<_ResolverMaps> _buildResolverMaps() async {
+    _resolverMapBuildCount++;
     final db = await _database.database;
     final classRows = await db.query(
       'class_cache',
@@ -186,17 +263,18 @@ class QueryService {
         nodes.putIfAbsent(displayName, () => row['uuid'] as String);
       }
     }
-
-    return query_dsl.parseQueryLanguage(
-      text,
-      query_dsl.ParseQueryLanguageOptions(
-        resolvers: query_dsl.QueryLanguageResolvers(
-          resolveClass: (name) => classes[name.toLowerCase()],
-          resolvePropertySchema: (name) => schemas[name.toLowerCase()],
-          resolveNode: (name) => nodes[name.toLowerCase()],
-        ),
-        knownFields: schemaNames,
-      ),
-    );
+    return _ResolverMaps(classes, schemas, schemaNames, nodes);
   }
+}
+
+/// The resolver name maps over the local derived store: lowercased
+/// class/schema registry names and node display names → uuid, plus the
+/// raw schema-name list (the DSL's known-fields surface).
+class _ResolverMaps {
+  const _ResolverMaps(this.classes, this.schemas, this.schemaNames, this.nodes);
+
+  final Map<String, String> classes;
+  final Map<String, String> schemas;
+  final List<String> schemaNames;
+  final Map<String, String> nodes;
 }

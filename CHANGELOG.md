@@ -8,6 +8,30 @@ lives in git history.
 
 ## 2026-11-04
 
+- **perf(query): an invalidation-correct cache for the DSL resolver maps —
+  the slice-2 resolver-map caching follow-up.** `QueryService.parseQueryLanguage`
+  was rebuilding the three resolver name maps (class registry names,
+  property-schema names, node display names) from the local derived store
+  on EVERY call — O(workspace) per debounced search-box keystroke. The
+  maps are now derived-and-cached state: built once, rebuilt ONLY when the
+  slice-3 `StoreChangeBus` fires (every mutation funnel in SyncV2Service
+  notifies after its batch applies — the maps invalidate like any other
+  projection, no staleness window), with a generation guard so a build
+  that races a mid-flight store change discards its result instead of
+  caching stale names. `QueryService` subscribes to the bus (injectable
+  `storeChanges` stream for tests, the slice-3 widget idiom) and exposes
+  `dispose` (wired into the app.dart Provider). Matching semantics are
+  untouched: case-insensitive EXACT matches, uuid-order first-wins, the
+  raw schema-name known-fields list.
+  - Verification: `test/query_resolver_cache_test.dart` (4 pins over the
+    real ffi store: two parses without an intervening change reuse the
+    maps — one rebuild; a bus notification invalidates — a class added
+    after the first parse resolves on the next; a rename funnels through
+    the bus — the old display name stops resolving, the new one resolves;
+    uuid-order first-wins + case-insensitive exact-match parity on the
+    cached maps). `flutter analyze` 0 errors / 0 warnings; `flutter test`
+    all green.
+
 - **feat(query): the query-builder sheet over the v2 AST — the
   register-driven condition model port, the mobile builder chrome, and
   authoring through the content-update op path (P3 slice 4).** A faithful

@@ -59,7 +59,7 @@ class NoteesApp extends StatelessWidget {
         ),
         Provider(create: (_) => secureStorage),
         ChangeNotifierProvider(create: (_) => ConnectivityProvider()),
-        Provider(create: (_) => QueryService()),
+        Provider(create: (_) => QueryService(), dispose: (_, s) => s.dispose()),
         ChangeNotifierProvider(create: (_) => SettingsProvider(prefs)),
         ChangeNotifierProvider(create: (_) => EncryptionProvider(prefs: prefs)),
         ChangeNotifierProxyProvider2<EncryptionProvider, SecureStorage,
