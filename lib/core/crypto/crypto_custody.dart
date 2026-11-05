@@ -151,3 +151,71 @@ Future<SecretKey> _unwrapOrWrongMaster(SecretKey master, String wrapped) async {
     );
   }
 }
+
+/// Fail-loud open refusal (the owner ruling, superseding keyless-open):
+/// the workspace is encrypted and this session holds no master key. Thrown
+/// BEFORE any selection is persisted — a keyed workspace never opens
+/// keyless. The caller surfaces the message; a password sign-in re-derives
+/// the master key and the next open unlocks.
+class EncryptedWorkspaceLockedError implements Exception {
+  EncryptedWorkspaceLockedError(this.workspaceId);
+
+  final String workspaceId;
+
+  @override
+  String toString() =>
+      'This workspace is encrypted — sign in with your password to open it.';
+}
+
+/// The custody outcome of an open attempt (`resolveWorkspaceKey` in
+/// `apps/web/src/ui/app/store-connection.ts`): [key] seals the open when
+/// this session can supply it; [locked] reports a keyed workspace this
+/// session cannot open.
+class WorkspaceKeyResolution {
+  const WorkspaceKeyResolution({required this.key, required this.locked});
+
+  final SecretKey? key;
+  final bool locked;
+}
+
+/// Resolves the workspace key for an open, fail-loud:
+///
+/// - Master key held: fetch-or-ensure; on failure probe the wrapped-key row
+///   — a row proves the workspace is keyed (locked); a probe failure with a
+///   non-HTTP original error (a crypto/unwrap failure) also reports locked,
+///   so an open never degrades silently without the sign-in guidance. An
+///   HTTP failure with no stored key is genuinely keyless.
+/// - No master key (a reloaded / 2FA-completed session — custody is
+///   memory-only): the wrapped-key row needs only membership, not the
+///   master — a row means locked, no row means keyless.
+///
+/// Flutter sessions are always user (session-token) sessions; the web's
+/// API-key-session arm (the workspaces listing's `encrypted` flag, the key
+/// route being user custody) has no counterpart sign-in mode here.
+Future<WorkspaceKeyResolution> resolveWorkspaceKey(
+  Dio dio,
+  String workspaceId,
+) async {
+  final relay = RelayClient(dio: dio);
+  final master = _masterKey;
+  if (master != null) {
+    try {
+      return WorkspaceKeyResolution(
+        key: await ensureWorkspaceKey(dio, workspaceId),
+        locked: false,
+      );
+    } catch (error) {
+      final wrapped = await relay
+          .fetchWorkspaceKey(workspaceId)
+          .catchError((Object _) => null);
+      if (wrapped != null) {
+        return const WorkspaceKeyResolution(key: null, locked: true);
+      }
+      return WorkspaceKeyResolution(key: null, locked: error is! DioException);
+    }
+  }
+  final wrapped =
+      await relay.fetchWorkspaceKey(workspaceId).catchError((Object _) => null);
+  if (wrapped != null) return const WorkspaceKeyResolution(key: null, locked: true);
+  return const WorkspaceKeyResolution(key: null, locked: false);
+}

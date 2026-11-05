@@ -48,12 +48,17 @@ class SyncV2Service {
     required this.dio,
     required this._clientId,
     this.serverless = false,
+    int? snapshotChunkThreshold,
+    int? snapshotPartSize,
   }) : _database = database,
        _outbox = RelayOutboxRepository(database),
        _watermarks = SyncWatermarkRepository(database),
        _cache = NodeCacheRepository(database),
        _clock = HlcClock(),
-       _relay = RelayClient(dio: dio);
+       _relay = RelayClient(dio: dio),
+       _snapshotChunkThreshold =
+           snapshotChunkThreshold ?? 48 * 1024 * 1024,
+       _snapshotPartSize = snapshotPartSize ?? 64 * 1024 * 1024;
 
   final AppDatabase _database;
   final RelayOutboxRepository _outbox;
@@ -506,40 +511,49 @@ class SyncV2Service {
     var lastReceived =
         await _watermarks.getReceived(workspaceId) ??
         const Hlc(physical: 0, logical: 0);
-    // Snapshot freshness is decided by the seq cursor (SPEC); the HLC
-    // comparison is only a fallback for snapshots recorded before the seq
-    // cursor existed (upToSeq == null).
+    // Snapshot freshness by the server-side HLC watermark (TS-engine
+    // parity): a skipped snapshot still advances `lastReceived` below, so
+    // it is not re-downloaded on every pull.
     final snapshotIsNewer =
-        snapshot.hasSnapshot &&
-        (snapshot.upToSeq != null
-            ? snapshot.upToSeq! > cursorSeq
-            : snapshot.hlc.compareTo(lastReceived) > 0);
+        snapshot.hasSnapshot && snapshot.hlc.compareTo(lastReceived) > 0;
     // The blob is fetched only when the metadata probe says the snapshot is
     // worth restoring — `GET /relay/v2/snapshot` is metadata-only, so
     // the probe stays cheap on large workspaces.
     if (snapshotIsNewer) {
       final bytes = await _relay.latestSnapshotData(workspaceId);
       if (bytes != null && bytes.isNotEmpty) {
-        // E2EE: sealed snapshots open here, at the engine boundary. With a
-        // key installed a decrypt failure is real corruption (wrong
-        // key/tamper) and fails loud (`decryptSnapshotOrThrow` in the TS
-        // engine). With NO key (locked) a sealed blob cannot be restored:
-        // skip it with a counted warning and continue to seq catch-up —
-        // the locked $e skip semantics — leaving the cursor put so catch-up
-        // replays the full log.
+        // The restore contract (WIRE.md `sealed`): a keyed client decrypts
+        // and restores ONLY a `sealed: true` blob (a decrypt failure with a
+        // key installed is real corruption — `decryptSnapshotOrThrow`
+        // parity). Keyed + PLAINTEXT image (a keyless upload or the
+        // server's own content-empty self-heal snapshot, whose derived
+        // store skips sealed envelopes): restoring it and jumping the
+        // cursor to upToSeq would blank the workspace (the empty-store
+        // trap) — skip with a counted warning and replay the log. Keyless
+        // clients restore a plaintext image as-is (legacy) and skip a
+        // sealed blob (opaque bytes; a garbage restore would throw).
         Uint8List? restored;
-        if (_workspaceKey != null) {
-          restored = await _decryptSnapshot(bytes);
-        } else if (_hasSqliteMagic(bytes)) {
-          restored = bytes;
-        } else {
+        if (_workspaceKey != null && snapshot.sealed != true) {
+          lockedSkipCount++;
+          debugPrint(
+            'SyncV2Service: server snapshot is plaintext for an encrypted '
+            'workspace (${bytes.length} bytes) — replaying the log instead; '
+            'the checkpoint images the server\'s derived store, which skips '
+            'sealed envelopes.',
+          );
+        } else if (_workspaceKey == null && !_hasSqliteMagic(bytes)) {
           lockedSkipCount++;
           debugPrint(
             'SyncV2Service: workspace key unavailable: skipped a sealed '
-            'snapshot ($lockedSkipCount this session); catching up from '
-            'seq $cursorSeq instead. Local writes stay plaintext until '
+            'snapshot (${bytes.length} bytes, $lockedSkipCount this '
+            'session) — seq catch-up covers the content; restore it later '
+            'by unlocking the workspace. Local writes stay plaintext until '
             'unlocked.',
           );
+        } else {
+          restored = _workspaceKey != null
+              ? await _decryptSnapshot(bytes)
+              : bytes;
         }
         if (restored != null) {
           await _cache.restoreFromSnapshot(restored, workspaceId);
@@ -548,6 +562,19 @@ class SyncV2Service {
           // Snapshots recorded before the seq cursor existed report null; catch
           // up from 0 and rely on operation-id dedupe.
           cursorSeq = snapshot.upToSeq ?? 0;
+          await _watermarks.setReceived(
+            workspaceId,
+            lastReceived,
+            restoreEpoch: snapshot.restoreEpoch,
+            cursorSeq: cursorSeq,
+          );
+        } else {
+          // Skip arms: mark the snapshot seen (no re-download next pull);
+          // the seq cursor stays put so the catch-up below replays the log
+          // from the durable cursor.
+          if (snapshot.hlc.compareTo(lastReceived) > 0) {
+            lastReceived = snapshot.hlc;
+          }
           await _watermarks.setReceived(
             workspaceId,
             lastReceived,
@@ -841,6 +868,21 @@ class SyncV2Service {
   /// to the relay (`PUT /snapshot/data`). Explicit/manual only — settings
   /// surfaces the trigger; the client never auto-uploads on pull. The
   /// covering HLC is the pushed watermark (falling back to received).
+  ///
+  /// E2EE: a sealed COPY crosses the wire — the local cache keeps the raw
+  /// projection (a restore decrypts symmetrically in _pullGeneration). The
+  /// upload declares `sealed=1`; past the single-body comfort threshold
+  /// (48 MiB, WIRE.md) the sealed image rides the part+commit multipart
+  /// flow instead of one giant PUT.
+  /// Sealed-image single-PUT ceiling; above it the upload rides the
+  /// part+commit multipart flow (WIRE.md; `SNAPSHOT_CHUNK_THRESHOLD` in the
+  /// TS engine). Injectable for tests.
+  final int _snapshotChunkThreshold;
+
+  /// Part size for the multipart flow (the relay's per-part contract is
+  /// ≤64 MiB; `SNAPSHOT_PART_SIZE` in the TS engine). Injectable for tests.
+  final int _snapshotPartSize;
+
   Future<void> uploadSnapshot() async {
     if (serverless) return;
     final workspaceId = await getWorkspaceId();
@@ -850,15 +892,40 @@ class SyncV2Service {
     final hlc = await _watermarks.getPushed(workspaceId) ??
         await _watermarks.getReceived(workspaceId) ??
         const Hlc(physical: 0, logical: 0);
-    // E2EE: seal a copy at the boundary — the local cache keeps the raw
-    // projection (a restore decrypts symmetrically in _pullGeneration).
     final wireBytes = _workspaceKey != null
         ? await encryptBytes(_workspaceKey!, bytes)
         : bytes;
+    final sealed = _workspaceKey != null;
+    if (wireBytes.length > _snapshotChunkThreshold) {
+      final uploadId = Uuid7.generate();
+      final partCount =
+          (wireBytes.length + _snapshotPartSize - 1) ~/ _snapshotPartSize;
+      for (var index = 0; index < partCount; index++) {
+        final start = index * _snapshotPartSize;
+        final end = start + _snapshotPartSize < wireBytes.length
+            ? start + _snapshotPartSize
+            : wireBytes.length;
+        await _relay.uploadSnapshotPart(
+          workspaceId: workspaceId,
+          uploadId: uploadId,
+          index: index,
+          bytes: Uint8List.sublistView(wireBytes, start, end),
+        );
+      }
+      await _relay.commitSnapshot(
+        workspaceId: workspaceId,
+        uploadId: uploadId,
+        parts: partCount,
+        hlc: hlc,
+        sealed: sealed,
+      );
+      return;
+    }
     await _relay.uploadSnapshot(
       workspaceId: workspaceId,
       bytes: wireBytes,
       hlc: hlc,
+      sealed: sealed,
     );
   }
 

@@ -377,6 +377,140 @@ void main() {
       );
     });
   });
+
+  group('resolveWorkspaceKey (fail-loud ruling)', () {
+    // Distinct workspace ids per test (module-level custody cache).
+    const wsOk = '10000000-0000-4000-8000-0000000000e1';
+    const wsWrongMaster = '10000000-0000-4000-8000-0000000000e2';
+    const wsOffline = '10000000-0000-4000-8000-0000000000e3';
+    const wsProbeLocked = '10000000-0000-4000-8000-0000000000e4';
+    const wsProbeKeyless = '10000000-0000-4000-8000-0000000000e5';
+
+    late final MasterAndKdf masterAndKdf;
+
+    setUpAll(() async {
+      masterAndKdf = await buildMasterAndKdf(password);
+      await deriveMasterKey(password, masterAndKdf.record.toJson());
+    });
+
+    setUp(() async {
+      if (!hasMasterKey) {
+        await deriveMasterKey(password, masterAndKdf.record.toJson());
+      }
+    });
+
+    tearDownAll(() {
+      clearCryptoCustody();
+    });
+
+    /// Key routes for [ws]: GET serves [storedWrapped] (404 when null); a
+    /// PUT stores the wrapped key; everything fails with a connection error
+    /// when [offline].
+    Dio probeDio({
+      required String ws,
+      String? storedWrapped,
+      bool offline = false,
+    }) {
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (offline || options.path != '/workspaces/$ws/key') {
+              handler.reject(DioException(
+                requestOptions: options,
+                type: DioExceptionType.connectionError,
+                error: 'offline',
+              ));
+              return;
+            }
+            if (options.method == 'GET') {
+              if (storedWrapped == null) {
+                handler.reject(DioException(
+                  requestOptions: options,
+                  response: Response(
+                    requestOptions: options,
+                    statusCode: 404,
+                  ),
+                  type: DioExceptionType.badResponse,
+                ));
+                return;
+              }
+              handler.resolve(Response(
+                requestOptions: options,
+                data: {'wrappedKey': storedWrapped},
+                statusCode: 200,
+              ));
+              return;
+            }
+            storedWrapped =
+                (options.data as Map<String, dynamic>)['wrappedKey']
+                    as String;
+            handler.resolve(Response(requestOptions: options, statusCode: 204));
+          },
+        ),
+      );
+      return dio;
+    }
+
+    test('master held + fetch-or-ensure succeeds: the open is sealed',
+        () async {
+      final resolution =
+          await resolveWorkspaceKey(probeDio(ws: wsOk), wsOk);
+      expect(resolution.locked, isFalse);
+      expect(resolution.key, isNotNull);
+    });
+
+    test('master held + stored key under another master: the wrapped row '
+        'proves keyed → locked', () async {
+      final otherMaster = generateMasterKey();
+      final foreign = generateWorkspaceKey();
+      final dio = probeDio(
+        ws: wsWrongMaster,
+        storedWrapped: await wrapWorkspaceKey(otherMaster, foreign),
+      );
+      final resolution =
+          await resolveWorkspaceKey(dio, wsWrongMaster);
+      expect(resolution.locked, isTrue);
+      expect(resolution.key, isNull);
+    });
+
+    test('master held + relay unreachable: an HTTP failure with no proof '
+        'of keying stays keyless', () async {
+      final resolution =
+          await resolveWorkspaceKey(probeDio(ws: wsOffline, offline: true), wsOffline);
+      expect(resolution.locked, isFalse);
+      expect(resolution.key, isNull);
+    });
+
+    test('no master + wrapped row: locked (the row needs only membership)',
+        () async {
+      clearCryptoCustody();
+      addTearDown(() async {
+        await deriveMasterKey(password, masterAndKdf.record.toJson());
+      });
+      final existing = generateWorkspaceKey();
+      final dio = probeDio(
+        ws: wsProbeLocked,
+        storedWrapped:
+            await wrapWorkspaceKey(masterAndKdf.master, existing),
+      );
+      final resolution =
+          await resolveWorkspaceKey(dio, wsProbeLocked);
+      expect(resolution.locked, isTrue);
+      expect(resolution.key, isNull);
+    });
+
+    test('no master + no wrapped row: keyless open', () async {
+      clearCryptoCustody();
+      addTearDown(() async {
+        await deriveMasterKey(password, masterAndKdf.record.toJson());
+      });
+      final resolution =
+          await resolveWorkspaceKey(probeDio(ws: wsProbeKeyless), wsProbeKeyless);
+      expect(resolution.locked, isFalse);
+      expect(resolution.key, isNull);
+    });
+  });
 }
 
 /// A master key plus its server-style kdf record, built once per test.

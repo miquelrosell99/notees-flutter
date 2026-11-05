@@ -439,6 +439,48 @@ lives in git history.
   SDK's repo-wide `material.dart` deprecation infos are unchanged from
   main's baseline of 115) + full gate green — 1066 tests, all passed.
 
+## 2026-11-05
+
+- **feat(sync,e2ee): lockstep debt — sealed snapshots, chunked uploads, the
+  fail-loud locked ruling.** Catches the mobile client up with the
+  post-custody monorepo slices (TS reference commits `8b1776b2a`,
+  `115d69d32`, `c29ed8c73`, `f0e87d1ef`). (1) SEALED SNAPSHOTS: snapshot meta
+  carries `sealed` (`LatestSnapshotResponse.sealed`, WIRE.md `GET
+  /relay/v2/snapshot`) and the restore contract ports the TS four-arm rule —
+  a keyed client decrypts and restores ONLY a `sealed: true` blob; a keyed
+  workspace facing a PLAINTEXT image (a keyless upload or the server's
+  content-empty self-heal snapshot, whose derived store skips sealed
+  envelopes) SKIPS it with a counted warning instead of restoring an
+  empty-store trap and jumping the cursor to `upToSeq` — the log replays
+  from the durable cursor; a keyless client restores a plaintext image
+  as-is (SQLite-magic probe) and skips a sealed blob the same counted way.
+  Snapshot freshness moves to the server-side HLC watermark (TS parity) so
+  a skipped snapshot is marked seen — never re-downloaded every pull — while
+  the seq cursor stays put. (2) CHUNKED UPLOADS: `RelayClient` gains
+  `PUT /snapshot/data/part` + `POST /snapshot/data/commit` (WIRE.md
+  multipart contract, ≤64 MiB parts); `SyncV2Service.uploadSnapshot`
+  declares `sealed=1` on the single PUT and rides part+commit above the 48
+  MiB single-body threshold (both thresholds injectable for tests, the TS
+  engine's option parity). (3) FAIL-LOUD RULING (owner decision, supersedes
+  keyless-open): a keyed workspace never opens keyless — the
+  `store-connection.ts` `resolveWorkspaceKey` ports into
+  `lib/core/crypto/crypto_custody.dart` (master-held fetch-or-ensure with a
+  wrapped-row probe; no-master sessions probe the row — membership-only);
+  `AuthProvider._setActiveWorkspace` resolves custody BEFORE persisting
+  anything and a locked refusal throws `EncryptedWorkspaceLockedError`
+  ("This workspace is encrypted — sign in with your password to open it.")
+  without touching the selection — the boot path catches it separately so
+  it can never fall through to the offline keyless open. The workspace
+  management view surfaces the refusal as a persistent banner plus lock
+  badges from the listing's new `encrypted` flag; password sign-in unlocks.
+  `docs/lockstep-debt.md` updated: the unlock re-prompt modal (no
+  in-session re-login exists) and the TS locked-skip cursor rewind remain
+  the registered debt. Tests: `sync_v2_e2ee_test` grows the
+  keyed-plaintext-skip + replay (cursor stays, no re-download), the
+  locked-sealed no-re-download, and the single-PUT-vs-multipart upload
+  matrix; `crypto_custody_test` grows the `resolveWorkspaceKey`
+  decision matrix (five arms pinned).
+
 ## 2026-11-03
 
 - **fix(assets): align the asset channel with the shipped server routes

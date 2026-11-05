@@ -98,6 +98,7 @@ class LatestSnapshotResponse {
     required this.hasSnapshot,
     required this.restoreEpoch,
     this.upToSeq,
+    this.sealed = false,
   });
 
   final String? snapshotId;
@@ -110,6 +111,11 @@ class LatestSnapshotResponse {
   /// existed — catch up from `0` and rely on operation-id dedupe.
   final int? upToSeq;
 
+  /// What the blob IS (WIRE.md `GET /relay/v2/snapshot`): true = a SEALED
+  /// image (a keyed client sealed it); false = a plaintext derived store
+  /// (a keyless client upload, or the server's own content-empty image).
+  final bool sealed;
+
   factory LatestSnapshotResponse.fromJson(Map<String, dynamic> json) =>
       LatestSnapshotResponse(
         snapshotId: json['snapshotId'] as String?,
@@ -117,5 +123,6 @@ class LatestSnapshotResponse {
         hasSnapshot: json['hasSnapshot'] as bool? ?? false,
         restoreEpoch: (json['restoreEpoch'] as num?)?.toInt() ?? 0,
         upToSeq: (json['upToSeq'] as num?)?.toInt(),
+        sealed: json['sealed'] as bool? ?? false,
       );
 }

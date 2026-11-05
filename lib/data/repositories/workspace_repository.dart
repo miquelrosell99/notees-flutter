@@ -9,6 +9,7 @@ class Workspace {
     this.createdAt,
     this.envelopeCount = 0,
     this.latestSeq = 0,
+    this.encrypted = false,
   });
 
   final String uuid;
@@ -17,6 +18,11 @@ class Workspace {
   final DateTime? createdAt;
   final int envelopeCount;
   final int latestSeq;
+
+  /// The workspace carries an E2EE key (the server's per-entry flag): it is
+  /// encrypted, and a session without the master key cannot open it
+  /// (the fail-loud ruling).
+  final bool encrypted;
 
   /// The server stores name|null; an unnamed workspace displays as
   /// "Workspace" (the web client's fallback label).
@@ -27,7 +33,8 @@ class Workspace {
   /// the server 403s non-owners on those routes.
   bool get isOwner => role == 'owner';
 
-  // Server entries: {id, name|null, role, createdAt, envelopeCount, latestSeq}.
+  // Server entries: {id, name|null, role, createdAt, envelopeCount,
+  // latestSeq, encrypted}.
   factory Workspace.fromJson(Map<String, dynamic> json) => Workspace(
         uuid: json['id'] as String,
         name: json['name'] as String?,
@@ -37,6 +44,7 @@ class Workspace {
             : DateTime.fromMillisecondsSinceEpoch(json['createdAt'] as int),
         envelopeCount: (json['envelopeCount'] as num?)?.toInt() ?? 0,
         latestSeq: (json['latestSeq'] as num?)?.toInt() ?? 0,
+        encrypted: json['encrypted'] as bool? ?? false,
       );
 }
 

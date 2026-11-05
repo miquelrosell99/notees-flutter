@@ -23,7 +23,19 @@ class FakeRelay {
   final envelopes = <Map<String, dynamic>>[]; // each carries its seq
   final pushedBatches = <List<Map<String, dynamic>>>[];
   Uint8List? snapshotBlob;
+
+  /// What the stored snapshot row declares (the single-PUT/commit `sealed`
+  /// flag, served back in `GET /snapshot` meta).
+  bool snapshotSealed = false;
   int? snapshotUpToSeq;
+
+  /// Staged multipart parts: index → bytes, in arrival order.
+  final parts = <int, Uint8List>{};
+  String? lastUploadId;
+  Map<String, dynamic>? lastCommit;
+  int? lastPartCount;
+  List<int>? lastPartSizes;
+  var snapshotDataGets = 0;
   var nextSeq = 0;
 
   void ingestBatch(List<Map<String, dynamic>> batch) {
@@ -78,6 +90,7 @@ void main() {
                 'hasSnapshot': relay.snapshotBlob != null,
                 'restoreEpoch': 0,
                 'upToSeq': relay.snapshotUpToSeq,
+                'sealed': relay.snapshotSealed,
               },
               statusCode: 200,
             ));
@@ -85,6 +98,7 @@ void main() {
           }
           if (options.path == '/relay/v2/snapshot/data' &&
               options.method == 'GET') {
+            relay.snapshotDataGets++;
             final blob = relay.snapshotBlob;
             if (blob == null) {
               handler.reject(DioException(
@@ -108,7 +122,54 @@ void main() {
               options.method == 'PUT') {
             relay.snapshotBlob =
                 Uint8List.fromList(options.data as List<int>);
+            relay.snapshotSealed =
+                options.queryParameters['sealed'] == '1';
             handler.resolve(Response(requestOptions: options, statusCode: 204));
+            return;
+          }
+          if (options.path == '/relay/v2/snapshot/data/part' &&
+              options.method == 'PUT') {
+            final index = options.queryParameters['index'] as int;
+            relay.lastUploadId =
+                options.queryParameters['upload'] as String;
+            expect(
+              relay.parts.containsKey(index),
+              isFalse,
+              reason: 'duplicate part index $index',
+            );
+            relay.parts[index] =
+                Uint8List.fromList(options.data as List<int>);
+            handler.resolve(Response(
+              requestOptions: options,
+              data: {
+                'upload': relay.lastUploadId,
+                'index': index,
+              },
+              statusCode: 201,
+            ));
+            return;
+          }
+          if (options.path == '/relay/v2/snapshot/data/commit' &&
+              options.method == 'POST') {
+            relay.lastCommit = Map<String, dynamic>.from(
+                options.queryParameters);
+            final partCount = options.queryParameters['parts'] as int;
+            relay.lastPartCount = partCount;
+            relay.lastPartSizes =
+                relay.parts.values.map((p) => p.length).toList();
+            final assembled = <int>[];
+            for (var i = 0; i < partCount; i++) {
+              assembled.addAll(relay.parts[i]!.toList());
+            }
+            relay.snapshotBlob = Uint8List.fromList(assembled);
+            relay.snapshotSealed =
+                options.queryParameters['sealed'] == '1';
+            relay.parts.clear();
+            handler.resolve(Response(
+              requestOptions: options,
+              data: {'snapshotId': 'snap-committed'},
+              statusCode: 201,
+            ));
             return;
           }
           if (options.path == '/relay/v2/catch-up') {
@@ -429,6 +490,8 @@ void main() {
       relay.snapshotUpToSeq = 1;
       await serviceA.uploadSnapshot();
 
+      // The upload declared sealed=1 (the snapshot row serves it back).
+      expect(relay.snapshotSealed, isTrue);
       // The stored blob is sealed — it does not even parse as a database…
       final blob = relay.snapshotBlob!;
       expect(blob, isNotNull);
@@ -462,6 +525,7 @@ void main() {
         importWorkspaceKey(b64uEncode(List<int>.filled(32, 0x11))),
         Uint8List.fromList(latin1.encode('not a database at all')),
       );
+      relay.snapshotSealed = true;
       relay.snapshotUpToSeq = 1;
 
       final service = await buildService(database, relay);
@@ -480,6 +544,7 @@ void main() {
         workspaceKey,
         Uint8List.fromList(latin1.encode('sealed snapshot bytes')),
       );
+      relay.snapshotSealed = true;
       // The snapshot claims to cover seq 5 — a restore would shortcut the
       // cursor there; the skip must NOT adopt that shortcut.
       relay.snapshotUpToSeq = 5;
@@ -551,6 +616,168 @@ void main() {
           'legacy snapshot page');
       expect(await cursorSeq(databaseB), 1);
       expect(serviceB.lockedSkipCount, 0);
+    });
+
+    test('keyed: a PLAINTEXT server snapshot is skipped (the empty-store '
+        'trap); the log replays instead and the blob is not re-downloaded',
+        () async {
+      // A keyless device uploaded a plaintext snapshot (legacy workspace);
+      // the server now serves it to a KEYED client (e.g. after the workspace
+      // was keyed on another device). Restoring the content-empty image and
+      // jumping the cursor to upToSeq would blank the workspace — the skip
+      // replays the log from the durable cursor instead.
+      final serviceA = await buildService(database, relay);
+      await serviceA.enqueue(
+        type: 'create',
+        nodeUuid: node1,
+        contentAst: const [
+          {'type': 'text', 'text': 'replayed page'},
+        ],
+        isPage: true,
+      );
+      await serviceA.flush();
+      relay.snapshotUpToSeq = 1;
+      await serviceA.uploadSnapshot();
+      // Keyless upload ⇒ plaintext row, sealed flag absent.
+      expect(relay.snapshotSealed, isFalse);
+      await database.close();
+      AppDatabase.reset();
+
+      final databaseB = await freshDatabase();
+      addTearDown(() async {
+        await databaseB.close();
+        AppDatabase.reset();
+      });
+      final serviceB = await buildService(databaseB, relay);
+      serviceB.workspaceKey = workspaceKey;
+      await serviceB.pull();
+
+      // The snapshot was skipped (counted), the log replay covered the
+      // content, and the cursor advanced over the REPLAY (seq 1), not the
+      // snapshot's upToSeq shortcut.
+      expect(serviceB.lockedSkipCount, 1);
+      expect((await serviceB.cache.getByUuid(node1))!.displayName,
+          'replayed page');
+      expect(await cursorSeq(databaseB), 1);
+
+      // The watermark marked the snapshot seen: a second pull does not
+      // re-download the blob.
+      final getsAfterFirst = relay.snapshotDataGets;
+      await serviceB.pull();
+      expect(relay.snapshotDataGets, getsAfterFirst);
+    });
+
+    test('locked: a sealed snapshot is not re-downloaded after the skip '
+        '(the HLC watermark advances)', () async {
+      relay.snapshotBlob = await encryptBytes(
+        workspaceKey,
+        Uint8List.fromList(latin1.encode('sealed snapshot bytes')),
+      );
+      relay.snapshotSealed = true;
+      relay.snapshotUpToSeq = 3;
+      relay.envelopes.add({
+        ...envelopeJson(
+          '0192a000-0000-7000-8000-000000000001',
+          createPayload(node1, 'plain page'),
+        ),
+        'seq': 1,
+      });
+      relay.nextSeq = 1;
+
+      final service = await buildService(database, relay);
+      await service.pull();
+      expect(service.lockedSkipCount, 1);
+      expect(await cursorSeq(database), 1);
+
+      final getsAfterFirst = relay.snapshotDataGets;
+      await service.pull();
+      expect(relay.snapshotDataGets, getsAfterFirst);
+    });
+
+    test('upload below the chunk threshold rides a single PUT declaring '
+        'sealed=1 (keyed) or no flag (keyless)', () async {
+      // Keyed small upload: single PUT (no parts), sealed declared.
+      final serviceA = await buildService(database, relay);
+      serviceA.workspaceKey = workspaceKey;
+      await serviceA.enqueue(
+        type: 'create',
+        nodeUuid: node1,
+        contentAst: const [
+          {'type': 'text', 'text': 'small snapshot'},
+        ],
+        isPage: true,
+      );
+      await serviceA.flush();
+      await serviceA.uploadSnapshot();
+      expect(relay.parts, isEmpty);
+      expect(relay.lastCommit, isNull);
+      expect(relay.snapshotSealed, isTrue);
+      expect(relay.snapshotBlob, isNotNull);
+      await database.close();
+      AppDatabase.reset();
+
+      // Keyless small upload: single PUT, no sealed flag.
+      final databaseB = await freshDatabase();
+      addTearDown(() async {
+        await databaseB.close();
+        AppDatabase.reset();
+      });
+      final serviceB = await buildService(databaseB, relay);
+      await serviceB.enqueue(
+        type: 'create',
+        nodeUuid: node2,
+        contentAst: const [
+          {'type': 'text', 'text': 'plain small snapshot'},
+        ],
+        isPage: true,
+      );
+      await serviceB.flush();
+      await serviceB.uploadSnapshot();
+      expect(relay.parts, isEmpty);
+      expect(relay.lastCommit, isNull);
+      expect(relay.snapshotSealed, isFalse);
+    });
+
+    test('upload past the chunk threshold rides part+commit (sealed '
+        'declared on the commit)', () async {
+      // Tiny thresholds stand in for the 48 MiB/64 MiB wire constants so
+      // the multipart flow is exercisable with a small snapshot.
+      final service = SyncV2Service(
+        database: database,
+        dio: buildDio(relay),
+        clientId: device,
+        snapshotChunkThreshold: 64,
+        snapshotPartSize: 32,
+      );
+      await service.setWorkspaceId(workspaceId);
+      service.workspaceKey = workspaceKey;
+      await service.enqueue(
+        type: 'create',
+        nodeUuid: node1,
+        contentAst: const [
+          {'type': 'text', 'text': 'chunked snapshot page'},
+        ],
+        isPage: true,
+      );
+      await service.flush();
+      await service.uploadSnapshot();
+
+      // No single-PUT: the blob arrived through staged parts + commit.
+      expect(relay.lastCommit, isNotNull);
+      expect(relay.lastUploadId, isNotNull);
+      expect(relay.lastCommit!['sealed'], '1');
+      expect(relay.lastCommit!['upload'], relay.lastUploadId);
+      expect(relay.lastPartCount, relay.lastPartSizes!.length);
+      for (final size in relay.lastPartSizes!) {
+        expect(size, lessThanOrEqualTo(32));
+      }
+      // The committed blob reassembles the parts and opens under the key.
+      expect(relay.snapshotSealed, isTrue);
+      final opened = await decryptBytes(workspaceKey, relay.snapshotBlob!);
+      expect(latin1.decode(opened.toList(), allowInvalid: true)
+          .contains('chunked snapshot page'), isTrue);
+      // The staging area was cleared by the commit.
+      expect(relay.parts, isEmpty);
     });
   });
 }

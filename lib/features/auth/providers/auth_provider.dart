@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MissingPluginException;
@@ -45,6 +46,11 @@ class AuthProvider extends ChangeNotifier {
   String? _activeWorkspaceId;
   List<Workspace>? _workspaces;
   String? _workspaceListError;
+  /// Fail-loud refusal: a keyed workspace this session could not open
+  /// (no master key — a reloaded or 2FA-completed session). Surfaced by the
+  /// workspace management view with the sign-in guidance; null once an open
+  /// succeeds or the state clears.
+  String? _workspaceOpenError;
 
   ServerProfile? get activeServer => _activeServer;
   User? get user => _user;
@@ -70,6 +76,9 @@ class AuthProvider extends ChangeNotifier {
   /// Last workspace-list fetch error, kept for the management view's retry
   /// state; any previously fetched list stays usable alongside it.
   String? get workspaceListError => _workspaceListError;
+
+  /// Fail-loud locked-refusal message (see [_workspaceOpenError]), or null.
+  String? get workspaceOpenError => _workspaceOpenError;
 
   /// Whether the session may enter the main shell. A local (offline) session
   /// always may — it is its own workspace. A server session needs an active
@@ -193,7 +202,19 @@ class AuthProvider extends ChangeNotifier {
       _workspaces = list;
       _workspaceListError = null;
       if (remembered != null && list.any((w) => w.uuid == remembered)) {
-        await _setActiveWorkspace(remembered);
+        try {
+          await _setActiveWorkspace(remembered);
+        } on EncryptedWorkspaceLockedError catch (e) {
+          // Fail-loud: a keyed workspace refuses the open. Drop the
+          // selection (the router guard lands on the management view,
+          // which surfaces the sign-in guidance) — never fall through to
+          // the offline catch below, which would open it keyless.
+          _workspaceOpenError = e.toString();
+          _activeWorkspaceId = null;
+          await prefs.remove(key);
+          await _syncService?.stopRealtime();
+          return;
+        }
         _kickWorkspacePull();
       } else {
         // None remembered, or it vanished (deleted / membership revoked):
@@ -242,39 +263,45 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// The single write path for the active-workspace selection: sets the
-  /// in-memory source of truth, persists it per server+account, and points
-  /// the sync service at it.
+  /// The single write path for the active-workspace selection.
+  ///
+  /// Fail-loud ruling: custody resolves BEFORE anything is persisted — a
+  /// keyed workspace never opens keyless. A locked refusal throws
+  /// [EncryptedWorkspaceLockedError] and the selection stays untouched;
+  /// a keyless workspace opens plaintext (key = null).
   Future<void> _setActiveWorkspace(String workspaceId) async {
-    _activeWorkspaceId = workspaceId;
     final server = _activeServer;
     final user = _user;
-    if (server == null || user == null) return;
+    if (server == null || user == null) {
+      _activeWorkspaceId = workspaceId;
+      return;
+    }
+    final crypto = await _resolveWorkspaceCrypto(workspaceId);
+    _activeWorkspaceId = workspaceId;
+    _workspaceOpenError = null;
     await prefs.setString(
         _activeWorkspaceKey(server.id, user.uuid), workspaceId);
     await _syncService?.setWorkspaceId(workspaceId);
-    await _applyWorkspaceCrypto(workspaceId);
+    _syncService?.workspaceKey = crypto;
   }
 
-  /// Installs the workspace's E2EE key on the sync service (fetch-or-ensure
-  /// against the relay, first-write-wins adoption inside). Best-effort by
-  /// design: offline starts, keyless sessions (no master key held), and
-  /// relay errors leave the workspace locked — the locked semantic keeps
-  /// sync green with local writes plaintext until a key arrives.
-  Future<void> _applyWorkspaceCrypto(String workspaceId) async {
+  /// Resolves the workspace's E2EE key for an open (`resolveWorkspaceKey`,
+  /// fail-loud). Local sessions and keyless workspaces resolve null; a
+  /// keyed workspace this session cannot unlock throws
+  /// [EncryptedWorkspaceLockedError] before any state is written.
+  Future<SecretKey?> _resolveWorkspaceCrypto(String workspaceId) async {
     final sync = _syncService;
     final dio = _dio;
     // Asset I/O resolves the active workspace's key through custody; note
-    // the id even when the ensure below cannot run (keyless, offline).
+    // the id even when the resolution below cannot run (local, keyless).
     noteActiveWorkspace(workspaceId);
-    if (sync == null || dio == null || !hasMasterKey) return;
-    try {
-      sync.workspaceKey = await ensureWorkspaceKey(dio, workspaceId);
-    } catch (e) {
+    if (sync == null || dio == null || isLocalMode) return null;
+    final resolution = await resolveWorkspaceKey(dio, workspaceId);
+    if (resolution.locked) {
       sync.workspaceKey = null;
-      debugPrint(
-          'AuthProvider: workspace key unavailable; syncing locked: $e');
+      throw EncryptedWorkspaceLockedError(workspaceId);
     }
+    return resolution.key;
   }
 
   /// Fire-and-forget convergence pull after entering a workspace (the web
@@ -291,6 +318,7 @@ class AuthProvider extends ChangeNotifier {
     _activeWorkspaceId = null;
     _workspaces = null;
     _workspaceListError = null;
+    _workspaceOpenError = null;
   }
 
   /// Creates the local profile: a synthetic user with no server and no auth,
@@ -437,7 +465,16 @@ class AuthProvider extends ChangeNotifier {
   Future<void> switchWorkspace(String workspaceId) async {
     final sync = _syncService;
     await sync?.stopRealtime();
-    await _setActiveWorkspace(workspaceId);
+    try {
+      await _setActiveWorkspace(workspaceId);
+    } on EncryptedWorkspaceLockedError catch (e) {
+      // Fail-loud: the previous selection stays active; the refusal message
+      // surfaces here (and on the management view) with the sign-in
+      // guidance.
+      _workspaceOpenError = e.toString();
+      notifyListeners();
+      rethrow;
+    }
     await _applyRealtimeSession();
     await _adoptLocalWorkspaceIfPending();
     _kickWorkspacePull();

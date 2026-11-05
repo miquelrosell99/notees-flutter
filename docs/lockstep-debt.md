@@ -18,14 +18,25 @@ them into GTK's asset upload/download surfaces yet — that boundary slice is
 the GTK repo's own follow-up; this app tracks it here so the cross-client
 contract stays visible.
 
-## 2026-11-03 — Flutter locked-state UI is missing
+## 2026-11-05 — Flutter unlock re-prompt UI is missing
 
-Reloaded / 2FA-completed / API-key sessions have no master key and sync in
-the locked semantic (remote `$e` envelopes skip with a counted `debugPrint`
-warning — invisible in release builds; local writes stay plaintext). The
-web client's W1 EncryptedLockedBanner + W2 unlock modal (the notees main
-repo) are the reference design for the future Flutter banner/unlock slice,
-which should also surface the skip counter the sync engine already counts.
+The fail-loud ruling ships (2026-11-05 lockstep slice): a keyed workspace
+refuses to open keyless — `resolveWorkspaceKey` (the
+`apps/web/src/ui/app/store-connection.ts` port) reports locked, the open
+throws `EncryptedWorkspaceLockedError` BEFORE any selection is persisted,
+and the workspace management view surfaces the refusal banner ("sign in
+with your password") plus lock badges from the listing's `encrypted` flag.
+Password sign-in unlocks (the login kdf derives the master key; the next
+open fetch-or-ensures the workspace key).
+
+What remains: the web client's W2 unlock MODAL — an in-session re-prompt
+that re-derives the master key without a full sign-out. Flutter has no
+re-login-without-logout flow, so a reloaded / 2FA-completed session must
+sign out and back in to unlock; that re-prompt UX (and its
+`account_locked` rate-limit surface) is the remaining locked-UI port. The
+TS engine's locked-skip cursor rewind (`firstSkippedSeq`, self-heal on
+unlock) is likewise still unported — moot while locked workspaces refuse
+to open, but it becomes relevant again the day an unlock path exists.
 
 ## 2026-11-03 — Mention token model drifts from the TS reference
 

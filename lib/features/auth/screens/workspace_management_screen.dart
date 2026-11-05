@@ -111,6 +111,7 @@ class _WorkspaceManagementScreenState extends State<WorkspaceManagementScreen> {
     final auth = context.watch<AuthProvider>();
     final workspaces = auth.workspaces;
     final error = auth.workspaceListError;
+    final colors = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -145,6 +146,28 @@ class _WorkspaceManagementScreenState extends State<WorkspaceManagementScreen> {
             ListView(
               padding: const EdgeInsets.all(20),
               children: [
+                // Fail-loud refusal: a keyed workspace this session cannot
+                // open stays visible with the sign-in guidance until an open
+                // succeeds (or the state clears).
+                if (auth.workspaceOpenError != null) ...[
+                  FleetCard(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 16),
+                      child: Row(
+                        children: [
+                          Icon(MdiIcons.lockOutline,
+                              color: colors.error),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(auth.workspaceOpenError!),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 FleetCard(
                   child: Column(
                     children: [
@@ -202,6 +225,12 @@ class _WorkspaceManagementScreenState extends State<WorkspaceManagementScreen> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Encrypted workspaces carry the lock badge (the listing's
+          // `encrypted` flag); without the master key a tap refuses loud.
+          if (workspace.encrypted)
+            Icon(MdiIcons.lockOutline,
+                size: 18, color: colors.onSurfaceVariant),
+          if (workspace.encrypted) const SizedBox(width: 8),
           if (isActive)
             Icon(MdiIcons.check, color: colors.primary),
           // Owner-only, matching the server's PATCH semantics; the web

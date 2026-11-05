@@ -24,6 +24,8 @@ class RelayClient {
   static const _catchUpPath = '/relay/v2/catch-up';
   static const _snapshotPath = '/relay/v2/snapshot';
   static const _snapshotDataPath = '/relay/v2/snapshot/data';
+  static const _snapshotPartPath = '/relay/v2/snapshot/data/part';
+  static const _snapshotCommitPath = '/relay/v2/snapshot/data/commit';
 
   /// Push a batch of operation envelopes to the relay.
   ///
@@ -120,11 +122,15 @@ class RelayClient {
   /// `PUT /snapshot/data` with the covering HLC as query parameters).
   ///
   /// Callers decide when: only an explicit [SyncV2Service.uploadSnapshot]
-  /// trigger — the client never auto-uploads on pull.
+  /// trigger — the client never auto-uploads on pull. [sealed] declares the
+  /// body a SEALED image (the engine's crypto branch is the only sealer);
+  /// the flag rides the snapshot row and is served back as `sealed` in
+  /// `GET /snapshot` meta (the restore contract).
   Future<void> uploadSnapshot({
     required String workspaceId,
     required Uint8List bytes,
     required Hlc hlc,
+    bool sealed = false,
   }) async {
     await dio.put<List<int>>(
       _snapshotDataPath,
@@ -132,12 +138,60 @@ class RelayClient {
         'workspaceId': workspaceId,
         'physical': hlc.physical,
         'logical': hlc.logical,
+        if (sealed) 'sealed': '1',
       },
       data: bytes,
       options: Options(
         contentType: 'application/octet-stream',
         responseType: ResponseType.bytes,
       ),
+    );
+  }
+
+  /// `PUT /snapshot/data/part` — stage one chunk of a multipart snapshot
+  /// upload (WIRE.md). [uploadId] is a client-generated uuid; [index] is
+  /// zero-based and stages exactly once (a duplicate index is 422).
+  Future<void> uploadSnapshotPart({
+    required String workspaceId,
+    required String uploadId,
+    required int index,
+    required Uint8List bytes,
+  }) async {
+    // 201 returns {upload, index} (WIRE.md).
+    await dio.put<Map<String, dynamic>>(
+      _snapshotPartPath,
+      queryParameters: {
+        'workspaceId': workspaceId,
+        'upload': uploadId,
+        'index': index,
+      },
+      data: bytes,
+      options: Options(
+        contentType: 'application/octet-stream',
+      ),
+    );
+  }
+
+  /// `POST /snapshot/data/commit` — concatenate the upload's staged parts
+  /// 0..[parts]-1, run the relay's sanity gate, and store the checkpoint
+  /// with the same `sealed` flag semantics as the single PUT (WIRE.md).
+  Future<void> commitSnapshot({
+    required String workspaceId,
+    required String uploadId,
+    required int parts,
+    required Hlc hlc,
+    bool sealed = false,
+  }) async {
+    await dio.post<void>(
+      _snapshotCommitPath,
+      queryParameters: {
+        'workspaceId': workspaceId,
+        'physical': hlc.physical,
+        'logical': hlc.logical,
+        'upload': uploadId,
+        'parts': parts,
+        if (sealed) 'sealed': '1',
+      },
     );
   }
 
