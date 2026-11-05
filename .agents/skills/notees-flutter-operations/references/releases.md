@@ -60,6 +60,6 @@ The regexes in android.yml are the normative derivation; keep the AGENTS.md
 - No Google Play / AAB pipeline, no AUR submission, no docker image, no
   server deployment. The pacman package builds locally from
   `packaging/arch/PKGBUILD` (see above). The Notees server the app talks
-  to is deployed from the main monorepo (docker compose stack; see the
-  monorepo's `notees-operations` skill and `docs/developers/releases.md`
+  to is deployed from the notees-sync repo (docker compose stack; see its
+  `notees-operations` skill and `docs/developers/releases.md`
   there).

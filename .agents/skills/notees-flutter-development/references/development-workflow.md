@@ -14,15 +14,15 @@ CI runs the same analyze/test steps (`.github/workflows/android.yml`), so a
 green local gate means a green CI build. `flutter test` needs no device; the
 sqflite tests run on `sqflite_common_ffi`.
 
-## Fixture sync procedure (protocol change lands in the monorepo first)
+## Fixture sync procedure (protocol change lands in the core repo first)
 
-1. The monorepo authors/updates fixtures under `packages/protocol/fixtures/`
+1. The notees-sync repo authors/updates fixtures under `packages/protocol/fixtures/`
    and its own gate goes green.
 2. Copy the changed files into `test/fixtures/wire/` **verbatim** — byte-for-
    byte, including the `comment` fields (they carry §-era history; that is
    fine, the corpus is pinned). Do not hand-edit, reformat, or "fix" a
-   fixture; if it looks wrong, the monorepo is wrong.
-3. Verify identity: `sha256sum` each file against the monorepo copy.
+   fixture; if it looks wrong, the core repo is wrong.
+3. Verify identity: `sha256sum` each file against the notees-sync copy.
 4. Wire new fixtures into the replay suites (`fixtures_test.dart`,
    `fixture_replay_test.dart`, `content_lockstep_test.dart`, and the
    per-batch acceptance tests) so the Flutter appliers prove convergence with
@@ -38,7 +38,7 @@ sqflite tests run on `sqflite_common_ffi`.
 - Extend the local schema in `app_database.dart` if derived rows change
   (bump `_schemaVersion`, add an idempotent migration, keep vN comments).
 - Add the op to the known-registry test surface and replay the fixture.
-- The change is NOT done until the monorepo and GTK implementations converge
+- The change is NOT done until the notees-sync and GTK implementations converge
   on the same fixture outcomes.
 
 ## Analyze pitfalls that break CI (from AGENTS.md, kept current)
@@ -65,4 +65,4 @@ sqflite tests run on `sqflite_common_ffi`.
   plan/audit documents, kept for context; the changelog supersedes them as
   the record of what actually shipped.
 - Keep all host references fleet-agnostic: "a sibling clone of
-  `git@github.com:miquelrosell99/notees.git`", never machine-specific paths.
+  `git@github.com:miquelrosell99/notees-sync.git`", never machine-specific paths.

@@ -7,7 +7,7 @@ description: Release and package the Notees Flutter mobile client — the v*-tag
 
 Release/packaging truth for THIS repo only. The server side (the
 `notees-sync` + `notees-web` docker stack) is operated from the main Notees
-monorepo — see its `notees-operations` skill; nothing server-side lives here.
+core repo — see its `notees-operations` skill; nothing server-side lives here.
 
 ## Release mechanism: git tags → GitHub Releases
 
