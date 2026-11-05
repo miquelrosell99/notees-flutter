@@ -65,10 +65,45 @@ class AuthRepository {
   /// Extracts the server's error detail from a failed auth request.
   static String _serverMessage(DioException e, String fallback) {
     final body = e.response?.data;
-    if (body is Map && body['detail'] != null) {
-      return body['detail'].toString();
+    if (body is Map) {
+      // The wire error envelope is {error: {code, message, status}}
+      // (errors.ts); older surfaces used a bare `detail`.
+      final err = body['error'];
+      if (err is Map && err['message'] != null) {
+        return err['message'].toString();
+      }
+      if (body['detail'] != null) return body['detail'].toString();
     }
     return e.message ?? fallback;
+  }
+
+  /// The unlock re-prompt (W2 port): re-derives the master key from the
+  /// kdf record WITHOUT minting a session — the caller already holds a
+  /// live credential. Same per-IP rate limit and per-account lockout as
+  /// login: a 429 `account_locked`/`rate_limited` carries the retry-after
+  /// message, a 401 `invalid_credentials` is the wrong-password form
+  /// error. Returns the kdf record JSON on success.
+  Future<Map<String, dynamic>> unlock({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final response = await dio.post<Map<String, dynamic>>(
+        '/auth/unlock',
+        data: {
+          'email': email,
+          'password': password,
+        },
+      );
+      final data = response.data;
+      final kdf = data?['kdf'];
+      if (kdf is! Map<String, dynamic>) {
+        throw const AuthException('Invalid response from server');
+      }
+      return kdf;
+    } on DioException catch (e) {
+      throw AuthException(_serverMessage(e, 'Unlock failed'));
+    }
   }
 
   Future<User> register({

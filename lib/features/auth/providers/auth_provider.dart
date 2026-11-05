@@ -48,9 +48,13 @@ class AuthProvider extends ChangeNotifier {
   String? _workspaceListError;
   /// Fail-loud refusal: a keyed workspace this session could not open
   /// (no master key — a reloaded or 2FA-completed session). Surfaced by the
-  /// workspace management view with the sign-in guidance; null once an open
+  /// workspace management view with the unlock affordance; null once an open
   /// succeeds or the state clears.
   String? _workspaceOpenError;
+
+  /// The workspace id the refusal belongs to — the unlock re-prompt
+  /// re-opens THIS workspace in place once the master key is derived.
+  String? _lockedWorkspaceId;
 
   ServerProfile? get activeServer => _activeServer;
   User? get user => _user;
@@ -79,6 +83,10 @@ class AuthProvider extends ChangeNotifier {
 
   /// Fail-loud locked-refusal message (see [_workspaceOpenError]), or null.
   String? get workspaceOpenError => _workspaceOpenError;
+
+  /// The workspace a locked refusal is holding for the unlock re-prompt,
+  /// or null when nothing is waiting to unlock.
+  String? get lockedWorkspaceId => _lockedWorkspaceId;
 
   /// Whether the session may enter the main shell. A local (offline) session
   /// always may — it is its own workspace. A server session needs an active
@@ -207,9 +215,10 @@ class AuthProvider extends ChangeNotifier {
         } on EncryptedWorkspaceLockedError catch (e) {
           // Fail-loud: a keyed workspace refuses the open. Drop the
           // selection (the router guard lands on the management view,
-          // which surfaces the sign-in guidance) — never fall through to
+          // which surfaces the unlock re-prompt) — never fall through to
           // the offline catch below, which would open it keyless.
           _workspaceOpenError = e.toString();
+          _lockedWorkspaceId = remembered;
           _activeWorkspaceId = null;
           await prefs.remove(key);
           await _syncService?.stopRealtime();
@@ -279,10 +288,42 @@ class AuthProvider extends ChangeNotifier {
     final crypto = await _resolveWorkspaceCrypto(workspaceId);
     _activeWorkspaceId = workspaceId;
     _workspaceOpenError = null;
+    _lockedWorkspaceId = null;
     await prefs.setString(
         _activeWorkspaceKey(server.id, user.uuid), workspaceId);
     await _syncService?.setWorkspaceId(workspaceId);
     _syncService?.workspaceKey = crypto;
+  }
+
+  /// The unlock re-prompt (the web client's W2 flow): verifies the account
+  /// password against `POST /auth/unlock` (no session minted — the live
+  /// credential stays), derives the master key into the custody holder,
+  /// and re-opens the refused workspace in place. Wrong password and
+  /// account-lockout surface as [AuthException] for the dialog's form
+  /// error; the account-locked message carries the server's retry-after.
+  Future<void> unlockWorkspace(String password) async {
+    final dio = _dio;
+    final user = _user;
+    final workspaceId = _lockedWorkspaceId;
+    if (dio == null || user == null) {
+      throw const AuthException('No session to unlock with');
+    }
+    if (workspaceId == null) return;
+    final repo = AuthRepository(dio: dio, secureStorage: secureStorage);
+    final kdf = await repo.unlock(email: user.email, password: password);
+    try {
+      await deriveMasterKey(password, kdf);
+    } on StateError catch (e) {
+      // The server verified the password but the record does not open —
+      // never a silent keyless session.
+      throw AuthException(e.message);
+    }
+    // Custody holds the master now: the re-open fetch-or-ensures the
+    // workspace key and clears the refusal state.
+    await _setActiveWorkspace(workspaceId);
+    await _applyRealtimeSession();
+    _kickWorkspacePull();
+    notifyListeners();
   }
 
   /// Resolves the workspace's E2EE key for an open (`resolveWorkspaceKey`,
@@ -319,6 +360,7 @@ class AuthProvider extends ChangeNotifier {
     _workspaces = null;
     _workspaceListError = null;
     _workspaceOpenError = null;
+    _lockedWorkspaceId = null;
   }
 
   /// Creates the local profile: a synthetic user with no server and no auth,
@@ -469,9 +511,10 @@ class AuthProvider extends ChangeNotifier {
       await _setActiveWorkspace(workspaceId);
     } on EncryptedWorkspaceLockedError catch (e) {
       // Fail-loud: the previous selection stays active; the refusal message
-      // surfaces here (and on the management view) with the sign-in
-      // guidance.
+      // surfaces here (and on the management view) with the unlock
+      // re-prompt.
       _workspaceOpenError = e.toString();
+      _lockedWorkspaceId = workspaceId;
       notifyListeners();
       rethrow;
     }

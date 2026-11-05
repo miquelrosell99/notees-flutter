@@ -2,9 +2,11 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:notees/core/routing/router.dart';
 import 'package:notees/core/secure/secure_storage.dart';
 import 'package:notees/data/models/server_profile.dart';
+import 'package:notees/data/repositories/auth_repository.dart';
 import 'package:notees/data/repositories/server_repository.dart';
 import 'package:notees/data/repositories/workspace_repository.dart';
 import 'package:notees/features/auth/providers/auth_provider.dart';
@@ -250,6 +252,61 @@ void main() {
     expect(find.text('Personal'), findsNothing);
     expect(find.text('Vault'), findsOneWidget);
   });
+
+  group('unlock re-prompt (W2 port)', () {
+    const refusal = 'This workspace is encrypted — sign in with your '
+        'password to open it.';
+
+    testWidgets('a locked refusal shows the banner with an Unlock '
+        'affordance', (tester) async {
+      final auth = await pumpScreen(
+        tester,
+        workspaces: [ownerWs()],
+      );
+      auth
+        ..fakeOpenError = refusal
+        ..notifyListeners();
+
+      await tester.pump();
+      expect(find.text(refusal), findsOneWidget);
+      expect(find.text('Unlock'), findsOneWidget);
+      expect(find.byIcon(MdiIcons.lockOutline), findsWidgets);
+    });
+
+    testWidgets('wrong password renders the dialog form error; a correct '
+        'one unlocks and enters the shell', (tester) async {
+      final auth = await pumpScreen(
+        tester,
+        workspaces: [ownerWs()],
+      );
+      auth
+        ..fakeOpenError = refusal
+        ..notifyListeners();
+      await tester.pump();
+
+      await tester.tap(find.text('Unlock'));
+      await tester.pumpAndSettle();
+      expect(find.text('Unlock workspace'), findsOneWidget);
+
+      // Wrong password: the error lands under the field, dialog stays.
+      auth.unlockError = AuthException('invalid email or password');
+      await tester.enterText(find.byType(TextFormField), 'wrong');
+      await tester.tap(find.text('Unlock').last);
+      await tester.pumpAndSettle();
+      expect(find.text('invalid email or password'), findsOneWidget);
+      expect(find.text('Unlock workspace'), findsOneWidget);
+      expect(auth.unlockCalls, ['wrong']);
+
+      // Correct password: refusal clears, dialog pops, shell reached.
+      auth.unlockError = null;
+      await tester.enterText(find.byType(TextFormField), 'right');
+      await tester.tap(find.text('Unlock').last);
+      await tester.pumpAndSettle();
+      expect(auth.unlockCalls, ['wrong', 'right']);
+      expect(find.text('Unlock workspace'), findsNothing);
+      expect(find.text(shellMarker), findsOneWidget);
+    });
+  });
 }
 
 class _ScreenAuthProvider extends AuthProvider {
@@ -301,6 +358,16 @@ class _ScreenAuthProvider extends AuthProvider {
   bool get hasValidWorkspace => valid;
 
   @override
+  String? get workspaceOpenError => fakeOpenError;
+
+  @override
+  String? get lockedWorkspaceId => fakeOpenError == null ? null : 'ws-locked';
+
+  String? fakeOpenError;
+  final List<String> unlockCalls = [];
+  Object? unlockError;
+
+  @override
   Future<void> refreshWorkspaces() async {
     refreshCount += 1;
   }
@@ -309,6 +376,18 @@ class _ScreenAuthProvider extends AuthProvider {
   Future<void> switchWorkspace(String workspaceId) async {
     fakeActiveId = workspaceId;
     switched.add(workspaceId);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> unlockWorkspace(String password) async {
+    unlockCalls.add(password);
+    final error = unlockError;
+    if (error != null) throw error;
+    // Unlock succeeded: the refusal clears and the workspace opens.
+    fakeOpenError = null;
+    fakeActiveId = 'ws-locked';
+    valid = true;
     notifyListeners();
   }
 }

@@ -18,25 +18,20 @@ them into GTK's asset upload/download surfaces yet — that boundary slice is
 the GTK repo's own follow-up; this app tracks it here so the cross-client
 contract stays visible.
 
-## 2026-11-05 — Flutter unlock re-prompt UI is missing
+## 2026-11-05 — locked-skip cursor rewind (TS `firstSkippedSeq`) unported
 
-The fail-loud ruling ships (2026-11-05 lockstep slice): a keyed workspace
-refuses to open keyless — `resolveWorkspaceKey` (the
-`apps/web/src/ui/app/store-connection.ts` port) reports locked, the open
-throws `EncryptedWorkspaceLockedError` BEFORE any selection is persisted,
-and the workspace management view surfaces the refusal banner ("sign in
-with your password") plus lock badges from the listing's `encrypted` flag.
-Password sign-in unlocks (the login kdf derives the master key; the next
-open fetch-or-ensures the workspace key).
-
-What remains: the web client's W2 unlock MODAL — an in-session re-prompt
-that re-derives the master key without a full sign-out. Flutter has no
-re-login-without-logout flow, so a reloaded / 2FA-completed session must
-sign out and back in to unlock; that re-prompt UX (and its
-`account_locked` rate-limit surface) is the remaining locked-UI port. The
-TS engine's locked-skip cursor rewind (`firstSkippedSeq`, self-heal on
-unlock) is likewise still unported — moot while locked workspaces refuse
-to open, but it becomes relevant again the day an unlock path exists.
+The fail-loud ruling and the in-session unlock re-prompt both ship (see the
+2026-11-05 changelog entries): a keyed workspace refuses to open keyless,
+and the workspace manager's refusal banner now offers the W2 unlock dialog
+— `POST /auth/unlock` (no session minted; the login rate limits/lockout)
+re-derives the master key into custody and re-opens the refused workspace
+in place. What remains on this register: the TS engine's locked-skip
+cursor rewind (`firstSkippedSeq`, persisted in `app_meta`, self-heal on
+unlock) is still unported — with the unlock flow live the rewind is the
+belt-and-braces path for frames skipped while a locked session still had
+sync running; no Flutter surface reaches that state today (locked opens
+refuse before the sync service is pointed at the workspace), so it stays
+registered here rather than blocking.
 
 ## 2026-11-03 — Mention token model drifts from the TS reference
 

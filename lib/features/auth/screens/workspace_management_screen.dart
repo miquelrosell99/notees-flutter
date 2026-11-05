@@ -7,6 +7,7 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:provider/provider.dart';
 
 import '../../../core/routing/router.dart';
+import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/workspace_repository.dart';
 import '../../../shared/widgets/empty_state.dart';
 import '../../../shared/widgets/fleet_card.dart';
@@ -39,6 +40,24 @@ class _WorkspaceManagementScreenState extends State<WorkspaceManagementScreen> {
 
   Future<void> _refresh() =>
       context.read<AuthProvider>().refreshWorkspaces();
+
+  /// The unlock re-prompt (the web client's W2 modal): asks for the
+  /// account password, re-derives the master key in place, and re-opens
+  /// the refused workspace. Wrong password / account lockout render as the
+  /// dialog's form error (the server message carries the retry-after).
+  Future<void> _showUnlockDialog(AuthProvider auth) async {
+    HapticFeedback.lightImpact();
+    await showDialog<void>(
+      context: context,
+      builder: (_) => const UnlockWorkspaceDialog(),
+    );
+    if (!mounted) return;
+    // Unlocked: the refusal cleared and the workspace is active — leave
+    // the manager for the shell like a normal open would.
+    if (auth.workspaceOpenError == null && auth.hasValidWorkspace) {
+      context.go(Routes.dashboard);
+    }
+  }
 
   Future<void> _enterWorkspace(Workspace workspace, AuthProvider auth) async {
     if (_busy) return;
@@ -147,8 +166,8 @@ class _WorkspaceManagementScreenState extends State<WorkspaceManagementScreen> {
               padding: const EdgeInsets.all(20),
               children: [
                 // Fail-loud refusal: a keyed workspace this session cannot
-                // open stays visible with the sign-in guidance until an open
-                // succeeds (or the state clears).
+                // open stays visible with the unlock re-prompt until an
+                // open succeeds (or the state clears).
                 if (auth.workspaceOpenError != null) ...[
                   FleetCard(
                     child: Padding(
@@ -161,6 +180,10 @@ class _WorkspaceManagementScreenState extends State<WorkspaceManagementScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(auth.workspaceOpenError!),
+                          ),
+                          TextButton(
+                            onPressed: () => _showUnlockDialog(auth),
+                            child: const Text('Unlock'),
                           ),
                         ],
                       ),
@@ -420,6 +443,133 @@ class _WorkspaceNameSheetState extends State<_WorkspaceNameSheet> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The unlock re-prompt (the web client's W2 modal, native patterns from
+/// the biometric Lock screen): asks for the account password, derives the
+/// master key into custody via `POST /auth/unlock`, and lets the provider
+/// re-open the refused workspace in place. Wrong password and the
+/// account-locked rate limit render as the form error — the server's
+/// message carries the retry-after.
+class UnlockWorkspaceDialog extends StatefulWidget {
+  const UnlockWorkspaceDialog({super.key});
+
+  @override
+  State<UnlockWorkspaceDialog> createState() =>
+      _UnlockWorkspaceDialogState();
+}
+
+class _UnlockWorkspaceDialogState extends State<UnlockWorkspaceDialog> {
+  final _passwordController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  bool _obscurePassword = true;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    HapticFeedback.lightImpact();
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await context
+          .read<AuthProvider>()
+          .unlockWorkspace(_passwordController.text);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final email = context.watch<AuthProvider>().user?.email ?? '';
+
+    return AlertDialog(
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: colors.primaryContainer,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Icon(
+                MdiIcons.lockOutline,
+                size: 32,
+                color: colors.onPrimaryContainer,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Unlock workspace',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              email.isEmpty
+                  ? 'Enter your account password to open this workspace.'
+                  : 'Enter the password for $email to open this workspace.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 20),
+            TextFormField(
+              controller: _passwordController,
+              obscureText: _obscurePassword,
+              autofocus: true,
+              enabled: !_busy,
+              decoration: InputDecoration(
+                labelText: 'Password',
+                prefixIcon: Icon(MdiIcons.lockOutline),
+                errorText: _error,
+                suffixIcon: IconButton(
+                  icon: Icon(_obscurePassword
+                      ? MdiIcons.eyeOutline
+                      : MdiIcons.eyeOffOutline),
+                  onPressed: () => setState(
+                      () => _obscurePassword = !_obscurePassword),
+                ),
+              ),
+              onFieldSubmitted: (_) => _submit(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _busy ? null : _submit,
+          child: Text(_busy ? 'Unlocking…' : 'Unlock'),
+        ),
+      ],
     );
   }
 }

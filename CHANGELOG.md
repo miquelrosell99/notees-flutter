@@ -6,6 +6,31 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-11-05
+
+- **feat(e2ee): the in-session unlock re-prompt (the web W2 flow).** A
+  locked session no longer needs a sign-out/sign-in cycle: the fail-loud
+  refusal banner on the workspace management view offers an Unlock
+  affordance that opens a password dialog (the biometric Lock screen's
+  visual patterns — lock container, headline, obscured field, primary
+  action; the account email shown in the copy). The dialog calls the new
+  `AuthRepository.unlock` → `POST /auth/unlock` (routes-auth.ts:443 —
+  returns `{kdf}` only, NO session minted; the same per-IP counter and
+  per-account lockout as login), derives the master key into the custody
+  holder, and `AuthProvider.unlockWorkspace` re-opens the refused
+  workspace in place — fetch-or-ensure, realtime re-evaluated, pull
+  kicked, refusal state cleared. Wrong password renders the server
+  message as the form error; `account_locked`/`rate_limited` 429s surface
+  the retry-after text the same way (the wire error envelope's
+  `error.message` is now read, not just the legacy `detail`). The refusal
+  paths remember the refused workspace id (`_lockedWorkspaceId`) so the
+  re-prompt re-opens exactly what was refused. `docs/lockstep-debt.md`
+  updated: only the TS locked-skip cursor rewind remains on the register.
+  Tests: `auth_unlock_test` (kdf return, wrong-password form error,
+  retry-after message, kdf-less success body) and the management screen's
+  new W2 group (banner affordance, dialog error-then-success flow into
+  the shell).
+
 ## 2026-11-04
 
 - **feat(graph): the graph view — a minimal force-directed graph with
