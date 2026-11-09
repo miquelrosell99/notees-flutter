@@ -90,7 +90,7 @@ void main() {
   /// (b64u 32 bytes). Raw `$e` payloads are SHAPE-validated only
   /// (`OperationEnvelope.fromJson`); the strict op registry runs on the
   /// OPENED plaintext.
-  late final SecretKey _fixtureWorkspaceKey = importWorkspaceKey(
+  late final SecretKey fixtureWorkspaceKey = importWorkspaceKey(
     loadFixture('envelope-encrypted.json')['crypto']['workspaceKey'] as String,
   );
 
@@ -115,7 +115,7 @@ void main() {
         throwsFormatException,
         reason: '$fixtureName raw \$e payload must not be schema-validated',
       );
-      final opened = await decryptEnvelope(_fixtureWorkspaceKey, envelope);
+      final opened = await decryptEnvelope(fixtureWorkspaceKey, envelope);
       expect(
         () =>
             OperationPayloads.validatePayload(opened.opType, opened.payload),

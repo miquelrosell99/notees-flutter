@@ -108,7 +108,7 @@ void main() {
                 'size': 9,
                 'originalName': 'photo.png',
                 'refs': <String>[],
-                if (infoIv != null) 'iv': infoIv,
+                'iv': ?infoIv,
               },
             ));
             return;

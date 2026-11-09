@@ -87,7 +87,7 @@ final class QueryRunner {
   ]) async {
     final compiled = compile(ast, options);
     final rows = await _db.rawQuery(
-      'SELECT 1 FROM (${compiled.sql}) q WHERE q.${_idColumn} = ?',
+      'SELECT 1 FROM (${compiled.sql}) q WHERE q.$_idColumn = ?',
       [...compiled.params, nodeId],
     );
     return rows.isNotEmpty;
