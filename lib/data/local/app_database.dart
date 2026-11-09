@@ -1885,6 +1885,7 @@ class AppDatabase {
     await _migrateV40(db);
     await _migrateV41(db);
     await _migrateV42(db);
+    await _migrateV43(db);
   }
 
   Future<int> enqueue(String method, String payload) async {
