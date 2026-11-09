@@ -37,6 +37,14 @@ android {
         }
     }
 
+    lint {
+        // AGP 9.3.1's lint crashes with an internal NoSuchMethodError
+        // (JavaDocParser) on a plugin's Java sources — a lint bug, not a
+        // finding. Static analysis is gated by `flutter analyze`; release
+        // builds skip lint (checkReleaseBuilds).
+        checkReleaseBuilds = false
+    }
+
     buildTypes {
         release {
             // Release builds are unsigned by default; CI signs them with the
