@@ -33,13 +33,16 @@
 ///    gates the journal SURFACES (the journal nav view, Today-page
 ///    management) while the date classes stay always-on structural seeds
 ///    (F1); it derives no class bits ([isFamilyFeature] is the guard).
+///    The `readItLater` toggle (2026-11-09 lockstep) is the same kind of
+///    surface gate: the read-later capture surface, no classes, no
+///    archival bits.
 library;
 
 import '../../../core/constants/system.dart';
 
-/// Feature ids are the six-toggle enum (validated on the wire by
+/// Feature ids are the seven-toggle enum (validated on the wire by
 /// [OperationPayloads.validatePayload]); the five families derive class
-/// archival bits, `journal` gates surfaces only.
+/// archival bits, `journal` and `readItLater` gate surfaces only.
 typedef WorkspaceFeature = String;
 
 /// One family entry of [workspaceFeatureMap].
@@ -584,7 +587,8 @@ String? systemClassNameForId(String classId) =>
     _systemClassNameById[classId];
 
 /// True when [feature] is a family toggle (derives class archival bits).
-/// The `journal` toggle is surfaces-only — no family, no derivation.
+/// The `journal` and `readItLater` toggles are surfaces-only — no family,
+/// no derivation.
 bool isFamilyFeature(WorkspaceFeature feature) =>
     workspaceFeatureMap.containsKey(feature);
 

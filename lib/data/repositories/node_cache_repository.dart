@@ -4066,8 +4066,12 @@ class NodeCacheRepository {
   /// patch, port of the SQL COALESCE). [active] (PC4) is the soft-unbind
   /// flag: omitted keeps the stored flag; a NEW row defaults to active.
   /// [pinned] is the binary tier flag: omitted keeps the stored flag; a NEW
-  /// row defaults to the unpinned tier. The row carries ONLY the per-class
-  /// mechanics (active, pinned) — `required` retired
+  /// row defaults to the unpinned tier. [showInNodeRows] is the binary
+  /// node-row preview flag (a flagged binding's value renders in the
+  /// node's row, not only the properties panel): omitted keeps the stored
+  /// flag; a NEW row defaults to no preview (absent = false). The row
+  /// carries ONLY the per-class
+  /// mechanics (active, pinned, showInNodeRows) — `required` retired
   /// outright and `defaultValue` moved to the property schema, `sequence` retired outright (
   /// class panels render alphabetically by property name within each tier).
   Future<void> upsertClassPropertyBinding({
@@ -4076,6 +4080,7 @@ class NodeCacheRepository {
     required LwwWinner incoming,
     bool? active,
     bool? pinned,
+    bool? showInNodeRows,
   }) async {
     final db = await _database.database;
     final existing = await db.query(
@@ -4096,6 +4101,9 @@ class NodeCacheRepository {
         'pinned': pinned == null
             ? (stored['pinned'] as num?) ?? 0
             : (pinned ? 1 : 0),
+        'show_in_node_rows': showInNodeRows == null
+            ? (stored['show_in_node_rows'] as num?) ?? 0
+            : (showInNodeRows ? 1 : 0),
         'hlc_physical': incoming.physical,
         'hlc_logical': incoming.logical,
         'actor_id': incoming.actor,

@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 42,
+          version: 43,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 42,
+      version: 43,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -265,6 +265,9 @@ class AppDatabase {
     }
     if (oldVersion < 42) {
       await _migrateV42(db);
+    }
+    if (oldVersion < 43) {
+      await _migrateV43(db);
     }
   }
 
@@ -871,7 +874,10 @@ class AppDatabase {
   }
 
   /// Class → property-schema bindings (SCHEMA.md "Class properties"): the
-  /// genuinely per-class mechanic ONLY — `active`, the soft-unbind flag.
+  /// genuinely per-class mechanic ONLY — `active`, the soft-unbind flag,
+  /// `pinned`, the binary tier flag, and `show_in_node_rows`, the binary
+  /// node-row preview flag (a flagged binding's property value renders in
+  /// the node's row, not only the properties panel; absent = false).
   /// The render contracts moved to the property schema (owner review
   /// 2026-10-05); `required`/`defaultValue` left the binding entirely
   /// (`required` retired outright, `defaultValue`
@@ -889,6 +895,7 @@ class AppDatabase {
         property_schema_id TEXT NOT NULL,
         active INTEGER NOT NULL DEFAULT 1,
         pinned INTEGER NOT NULL DEFAULT 0,
+        show_in_node_rows INTEGER NOT NULL DEFAULT 0,
         hlc_physical INTEGER NOT NULL DEFAULT 0,
         hlc_logical INTEGER NOT NULL DEFAULT 0,
         actor_id TEXT,
@@ -1293,6 +1300,25 @@ class AppDatabase {
     await db.execute(
       'CREATE TABLE IF NOT EXISTS search_index_fts_docid ('
       'node_id TEXT PRIMARY KEY, docid INTEGER NOT NULL)',
+    );
+  }
+
+  /// v43 — the binding row's node-row preview flag (2026-11-09 lockstep
+  /// with the TS store schema v36→v37, SCHEMA.md "Class properties"):
+  /// `class_property` gains `show_in_node_rows` INTEGER NOT NULL DEFAULT 0
+  /// — a flagged binding's property value renders in the node's row (the
+  /// outliner line/chrome preview), not only in the properties panel.
+  /// Absent = false: existing rows converge by the default 0 (the pinned
+  /// additive-column precedent; live workspaces converge by future
+  /// `class.property.set` envelopes, no backfill). The column guard keeps
+  /// the migration idempotent for databases that already carry it (a fresh
+  /// v43 create).
+  Future<void> _migrateV43(Database db) async {
+    await _addColumnIfMissing(
+      db,
+      'class_property',
+      'show_in_node_rows',
+      'INTEGER NOT NULL DEFAULT 0',
     );
   }
 

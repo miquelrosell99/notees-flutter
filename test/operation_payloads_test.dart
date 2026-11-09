@@ -139,13 +139,15 @@ void main() {
       );
     });
 
-    test('workspace.feature.set accepts journal; the plural spelling stays '
-        'rejected outright', () {
-      final journal = OperationPayloads.workspaceFeatureSet(
-        feature: 'journal',
-        enabled: false,
-      );
-      expect(journal, {'feature': 'journal', 'enabled': false});
+    test('workspace.feature.set accepts journal and readItLater; the plural '
+        'spelling stays rejected outright', () {
+      for (final feature in ['journal', 'readItLater']) {
+        final payload = OperationPayloads.workspaceFeatureSet(
+          feature: feature,
+          enabled: false,
+        );
+        expect(payload, {'feature': feature, 'enabled': false});
+      }
       expect(
         () => OperationPayloads.workspaceFeatureSet(
           feature: 'journals',
@@ -731,10 +733,11 @@ void main() {
     test('render contracts are PROPERTY-level (schema), not binding '
         '— option icon unchanged', () {
       // class.property.set carries ONLY the genuinely per-class mechanics
-      // (sequence, active): the binding-level display experiment is gone,
+      // (active, pinned, showInNodeRows): the binding-level display
+      // experiment is gone,
       // readonly/hideWhenEmpty reject here like any retired key, and
       // `required`/`defaultValue` retired outright / moved to the schema
-      // — the strict 4-key payload rejects them
+      // — the strict 5-key payload rejects them
       // exactly like the render contracts.
       for (final retired in [
         'display',
@@ -765,6 +768,52 @@ void main() {
           'active': false,
         }),
         returnsNormally,
+      );
+
+      // The builder carries the three flags additively: omitted stays
+      // absent (the COALESCE patch), present rides the payload.
+      final allFlags = OperationPayloads.classPropertySet(
+        classId: classId,
+        propertySchemaId: objectId,
+        active: true,
+        pinned: true,
+        showInNodeRows: true,
+      );
+      expect(
+        allFlags,
+        {
+          'classId': classId,
+          'propertySchemaId': objectId,
+          'active': true,
+          'pinned': true,
+          'showInNodeRows': true,
+        },
+      );
+      expect(
+        OperationPayloads.classPropertySet(
+          classId: classId,
+          propertySchemaId: objectId,
+        ),
+        {'classId': classId, 'propertySchemaId': objectId},
+      );
+      // The strict schema accepts the showInNodeRows boolean (absent =
+      // false, the pinned/active patch semantics) and still rejects retired
+      // and property-level keys alongside it.
+      expect(
+        () => OperationPayloads.validatePayload('class.property.set', {
+          'classId': classId,
+          'propertySchemaId': objectId,
+          'showInNodeRows': false,
+        }),
+        returnsNormally,
+      );
+      expect(
+        () => OperationPayloads.validatePayload('class.property.set', {
+          'classId': classId,
+          'propertySchemaId': objectId,
+          'showInNodeRows': 'yes',
+        }),
+        throwsFormatException,
       );
 
       // propertySchema.create/update carry the render contracts —

@@ -6,6 +6,45 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-11-09
+
+- **feat(protocol,store): lockstep debt — the readItLater feature toggle, the
+  `showInNodeRows` binding flag, and the three-fixture corpus re-vendor (sync
+  main 4eaa14c).** Three slices landed on the notees-sync wire and were
+  recorded LOCKSTEP-PENDING for the clients; this is the Flutter arm (the GTK
+  arm shipped at 58e41e8). **(1) `workspace.feature.set` gains the seventh
+  feature id `readItLater`** — a SURFACES-only toggle like `journal` (the
+  read-later capture surface; no class family, no archival derivation, LWW row
+  only): the strict feature enum accepts it, the retired pre-reshape list
+  loses it (journals/library/people/collections stay rejected outright), and
+  the applier writes just the `workspace_feature` row (the `isFamilyFeature`
+  guard derives nothing). **(2) `class.property.set` gains the optional
+  additive boolean `showInNodeRows`** (absent = false; omitted = keep the
+  stored flag — the `pinned`/`active` COALESCE-patch semantics, row LWW by
+  envelope HLC): the strict payload carries the fifth key (retired keys still
+  fail loud), the local store schema bumps v42 → v43 with
+  `class_property.show_in_node_rows INTEGER NOT NULL DEFAULT 0` (guarded
+  ALTER, the pinned additive-column precedent — existing rows converge by
+  default 0), and the binding upsert COALESCE-patches the flag. The node-row
+  RENDER consumption stays pending (the displayTemplate precedent: the store
+  carries and resolves the wire key, no Flutter surface renders it yet).
+  **(3) The fixture corpus re-vendors 51 → 54, byte-identical (sha256) from
+  `packages/protocol/fixtures/`**: `workspace-feature-readitlater.json`,
+  `class-property-node-rows.json`, and `recurrence-property.json` (the
+  dedicated Repeat-property fixture — pure value + value-metadata wire over
+  system-seed ids, no payload change; the RR5 grammar port is a separate
+  pending slice). Recorded, not fixed out of scope: the sync changelog marks
+  `pinned` itself LOCKSTEP-PENDING in clients — Flutter already accepts it
+  (payload builder + validator, the v41 additive column, the
+  `class-property-pinned.json` replay), so nothing is owed. Tests: the gate's
+  coverage list (fixtures_test), dedicated replays (the node-rows LWW +
+  COALESCE-patch + unset tail, the readItLater LWW row with no class bits, the
+  recurrence values + metadata), payload pins (readItLater acceptance, the
+  plural spelling + retired ids still rejected, the 5-key binding builder and
+  strict validator), and `schema_v43_test` (fresh-create column shape,
+  absent-false default, the COALESCE patch). No SDK on the reference host —
+  verification rides the Android CI on the PR.
+
 ## 2026-11-05
 
 - **feat(e2ee): the in-session unlock re-prompt (the web W2 flow).** A

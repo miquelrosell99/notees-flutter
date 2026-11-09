@@ -59,7 +59,8 @@ import '../models/relay/workspace_features.dart';
 ///    ancestor) and drops a stored default that no longer matches the
 ///    schema type;
 ///  - the binding row (class.property.set) carries ONLY the genuinely
-///    per-class mechanics (active, pinned): `required` retired outright and
+///    per-class mechanics (active, pinned, showInNodeRows): `required`
+///    retired outright and
 ///    `defaultValue` MOVED to the property schema (one global default per property, the Logseq shape),
 ///    `sequence` retired outright (class panels
 ///    render alphabetically by property name within each pin tier, a
@@ -75,7 +76,8 @@ import '../models/relay/workspace_features.dart';
 ///  - per-workspace feature toggles (workspace.feature.set) LWW by HLC on
 ///    (workspace, feature) derive the membership-preserving archival of the
 ///    five managed class families (F2 absent-row=ON, F3 keep-data; the
-///    `journal` toggle is surfaces-only and derives no class bits; the
+///    `journal` and `readItLater` toggles are surfaces-only and derive no
+///    class bits; the
 ///    tasks enable authors the task family at the fixed seed ids on every
 ///    enable payload); an object.delete on a family base routes to the
 ///    toggle (the class-node delete routing);
@@ -2178,8 +2180,9 @@ List<String> _contentClassLinkIds(dynamic tokens) {
     // before this applier runs. `sequence` followed them with the owner
     // ruling 2026-10-21 (class panels render alphabetically by property
     // name within each pin tier — panel order no longer exists to
-    // configure). The row carries active + pinned only; both ride the row
-    // LWW, omitted fields keep their stored values (the COALESCE patch).
+    // configure). The row carries active + pinned + showInNodeRows; all
+    // ride the row LWW, omitted fields keep their stored values (the
+    // COALESCE patch).
 
     await _cache.upsertClassPropertyBinding(
       classId: classId,
@@ -2189,6 +2192,9 @@ List<String> _contentClassLinkIds(dynamic tokens) {
       active: payload['active'] as bool?,
       // The binary tier flag rides the same row LWW (absent = keep).
       pinned: payload['pinned'] as bool?,
+      // The binary node-row preview flag rides the same row LWW (absent =
+      // keep; a flagged binding's value renders in the node's row).
+      showInNodeRows: payload['showInNodeRows'] as bool?,
     );
     return true;
   }
@@ -2681,9 +2687,9 @@ List<String> _contentClassLinkIds(dynamic tokens) {
   ) async {
     final feature = payload['feature'] as String;
     final enabled = payload['enabled'] == true;
-    // Family toggles derive class archival bits; the journal toggle gates
-    // SURFACES only (the date classes stay always-on) — no family, no
-    // derivation, just the LWW row.
+    // Family toggles derive class archival bits; the journal and readItLater
+    // toggles gate SURFACES only (the journal chrome, the read-later
+    // capture surface) — no family, no derivation, just the LWW row.
     final family = isFamilyFeature(feature) ? feature : null;
     final wrote = await _lwwWriteFeatureRow(
       envelope,

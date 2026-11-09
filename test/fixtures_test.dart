@@ -43,6 +43,7 @@ void main() {
     'class-display-template.json',
     'class-property-active.json',
     'class-property-defaults.json',
+    'class-property-node-rows.json',
     'class-property-pinned.json',
     'class-unassign.json',
     'code-block.json',
@@ -77,10 +78,12 @@ void main() {
     'property-validation-rules.json',
     'property-value-elements.json',
     'query-ast-v2.json',
+    'recurrence-property.json',
     'tag-membership.json',
     'typed-link-mark.json',
     'typed-link-mark-deleted.json',
     'workspace-feature-set.json',
+    'workspace-feature-readitlater.json',
   ];
 
   List<Map<String, dynamic>> envelopesOf(Map<String, dynamic> fixture) =>
