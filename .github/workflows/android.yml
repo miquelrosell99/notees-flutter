@@ -137,7 +137,14 @@ jobs:
           # whose analyzer gained lints (use_null_aware_elements et al.) and
           # turned the nightly red on unchanged code. Bump deliberately with
           # the pubspec sdk constraint + a full CI run, never float.
-          flutter-version: 3.47.9
+          # 3.47.9 → 3.50.0-0.4.pre: the deliberate bump — the 3.50 line
+          # deprecated package:flutter/material.dart in favor of the
+          # material_ui pub package, and every material import became a
+          # deprecated_member_use info (infos fail this gate). The bump
+          # adopts material_ui across the app; the pubspec sdk constraint
+          # (^3.12.0) still covers the pinned Dart 3.14.0-315.3.beta, so
+          # it stays.
+          flutter-version: 3.50.0-0.4.pre
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4

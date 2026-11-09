@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Reusable illustrated empty state for lists/grids.
 class EmptyState extends StatelessWidget {

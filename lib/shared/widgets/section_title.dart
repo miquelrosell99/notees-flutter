@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Small muted section title used above grouped cards.
 class SectionTitle extends StatelessWidget {

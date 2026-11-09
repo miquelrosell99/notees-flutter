@@ -5,7 +5,7 @@
 /// supplied at runtime by the user's device.
 library;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Functional accent for Notees: Advance Green, the brand's annotation,
 /// link, and active-state color.

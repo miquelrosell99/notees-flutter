@@ -8,6 +8,30 @@ lives in git history.
 
 ## 2026-11-09
 
+- **ci(android),deps: the deliberate SDK bump — Flutter 3.47.9 → 3.50.0-0.4.pre
+  (Dart 3.14.0-315.3.beta) with the `material_ui` migration.** The 3.50 line
+  deprecated `package:flutter/material.dart` in favor of the `material_ui` pub
+  package; every material import became a `deprecated_member_use` info on the
+  newer analyzer, and infos fail this gate — fixing them required the bump the
+  workflow comment already prescribes (pin + pubspec + full gate). **(1) CI
+  pin** moves to 3.50.0-0.4.pre with the rationale recorded in the comment;
+  the pubspec `sdk: ^3.12.0` constraint still covers the pinned Dart, so it
+  stays. **(2) All 114 material imports** (93 lib + 21 test) now import
+  `package:material_ui/material_ui.dart` (new direct dependency, `^1.10.0`).
+  **(3) The migration's real API seams:** `dynamic_color` 1.8.1 still built on
+  the deprecated SDK material (its `ColorScheme` is a different class from
+  material_ui's, breaking `DynamicColorBuilder`'s builder signature) — upgraded
+  to 2.1.0, which depends on material_ui itself; the journal calendar's
+  `Localizations.override` delegates now take material_ui's
+  `GlobalMaterialLocalizations` (flutter_localizations' copy is hidden on that
+  import) and `cupertino_ui`'s `GlobalCupertinoLocalizations` (the deprecated
+  SDK copy's own pointer, new direct dependency `^1.1.6`), keeping
+  flutter_localizations only for `GlobalWidgetsLocalizations`. Local gate on
+  the new pin: `flutter analyze` clean (0 issues), full suite green. Also
+  replaced the broken local `/root/flutter-sdk` (version file claimed 3.47.6
+  but bundled Dart 3.7.2, too old for the pubspec) with the pinned release, so
+  the local toolchain now matches CI exactly.
+
 - **fix(routing): break the first-run redirect loop between `/onboarding`
   and `/workspaces`.** A fresh login that was both not-yet-onboarded (the
   per-device `onboarding_completed` flag starts false) and workspace-less

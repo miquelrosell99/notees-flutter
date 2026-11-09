@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// In-card section header with a primary-colored icon, used at the top of a
 /// [FleetCard] section. For the muted title that sits between card groups,
