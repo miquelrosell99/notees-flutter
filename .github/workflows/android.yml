@@ -143,7 +143,11 @@ jobs:
           # deprecated_member_use info (infos fail this gate). The bump
           # adopts material_ui across the app; the pubspec sdk constraint
           # (^3.12.0) still covers the pinned Dart 3.14.0-315.3.beta, so
-          # it stays.
+          # it stays. The pin rides the beta channel — the 3.50 line has
+          # no stable cut yet — so channel must say beta: the action
+          # validates flutter-version against the named channel's release
+          # manifest.
+          channel: beta
           flutter-version: 3.50.0-0.4.pre
 
       - name: Set up Android SDK
