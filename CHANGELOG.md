@@ -8,6 +8,19 @@ lives in git history.
 
 ## 2026-11-09
 
+- **fix(routing): break the first-run redirect loop between `/onboarding`
+  and `/workspaces`.** A fresh login that was both not-yet-onboarded (the
+  per-device `onboarding_completed` flag starts false) and workspace-less
+  (empty workspace list, nothing remembered) bounced forever: the onboarding
+  guard redirects every path except `/onboarding` to `/onboarding`, and the
+  workspace guard redirected every path except `/workspaces` — including
+  `/onboarding` — to `/workspaces`, so the two guards ping-ponged until
+  go_router threw `GoException: redirect loop detected`. The workspace guard
+  now exempts `/onboarding`: the first-run flow runs first (it needs no
+  workspace), and finishing it falls through to the workspace management
+  view, then the shell. Regression tests pin both halves of the sequence
+  (workspace_guard_test).
+
 - **feat(protocol,store): lockstep debt — the readItLater feature toggle, the
   `showInNodeRows` binding flag, and the three-fixture corpus re-vendor (sync
   main 4eaa14c).** Three slices landed on the notees-sync wire and were

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:notees/core/routing/router.dart';
@@ -8,6 +8,7 @@ import 'package:notees/data/repositories/server_repository.dart';
 import 'package:notees/data/repositories/workspace_repository.dart';
 import 'package:notees/features/auth/providers/auth_provider.dart';
 import 'package:notees/features/auth/screens/login_screen.dart';
+import 'package:notees/features/auth/screens/onboarding_screen.dart';
 import 'package:notees/features/auth/screens/server_setup_screen.dart';
 import 'package:notees/features/auth/screens/workspace_management_screen.dart';
 import 'package:notees/features/home/screens/main_shell_screen.dart';
@@ -108,6 +109,38 @@ void main() {
     expect(find.byType(WorkspaceManagementScreen), findsOneWidget);
   });
 
+  testWidgets(
+      'first-run session without a workspace lands on onboarding, not a loop',
+      (tester) async {
+    final (auth, router) = buildHarness();
+    auth.serverConfigured = true;
+    auth.signedIn = true;
+    auth.workspaceValid = false;
+    auth.onboarded = false;
+
+    await pumpHarness(tester, auth, router);
+
+    expect(find.byType(OnboardingScreen), findsOneWidget);
+    expect(find.byType(WorkspaceManagementScreen), findsNothing);
+  });
+
+  testWidgets('completing onboarding falls through to the workspace manager',
+      (tester) async {
+    final (auth, router) = buildHarness();
+    auth.serverConfigured = true;
+    auth.signedIn = true;
+    auth.workspaceValid = false;
+    auth.onboarded = false;
+
+    await pumpHarness(tester, auth, router);
+    auth.onboarded = true;
+    auth.notifyListeners();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byType(WorkspaceManagementScreen), findsOneWidget);
+  });
+
   testWidgets('a valid workspace reaches the main shell', (tester) async {
     final (auth, router) = buildHarness();
     auth.serverConfigured = true;
@@ -146,6 +179,7 @@ class _GuardAuthProvider extends AuthProvider {
   bool serverConfigured = false;
   bool signedIn = false;
   bool workspaceValid = false;
+  bool onboarded = true;
 
   @override
   bool get loading => false;
@@ -166,7 +200,7 @@ class _GuardAuthProvider extends AuthProvider {
   bool get isLocalMode => false;
 
   @override
-  bool get onboardingCompleted => true;
+  bool get onboardingCompleted => onboarded;
 
   @override
   bool get hasValidWorkspace => workspaceValid;

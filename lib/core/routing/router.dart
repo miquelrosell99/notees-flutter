@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -119,11 +119,15 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       // Authenticated without a valid active workspace: land on the
       // fullscreen workspace management view instead of the main shell. It
       // stays reachable while a valid workspace exists (Settings →
-      // Workspaces), so no redirect-away happens in that case.
+      // Workspaces), so no redirect-away happens in that case. The first-run
+      // onboarding flow is exempt: it must run before a workspace exists
+      // (fresh account), and redirecting away from it would ping-pong with
+      // the onboarding guard into a redirect loop.
       if (authenticated &&
           !isLocal &&
           !authProvider.hasValidWorkspace &&
-          path != Routes.workspaces) {
+          path != Routes.workspaces &&
+          path != Routes.onboarding) {
         return Routes.workspaces;
       }
 
