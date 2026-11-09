@@ -135,7 +135,7 @@ class _QueryNodeSectionState extends State<QueryNodeSection> {
   void _sync() {
     final token = _firstQueryToken();
     final rawAst = token == null ? null : token['queryAst'];
-    final astKey = jsonEncode(rawAst ?? null);
+    final astKey = jsonEncode(rawAst);
     final selfNodeId = widget.selfNodeId;
     if (token == null || _isUnspecifiedQueryAst(rawAst)) {
       // Unspecified: never run, and clear a stale result so a query emptied
@@ -334,7 +334,7 @@ class _QueryNodeSectionState extends State<QueryNodeSection> {
 
     // The render window resets when the query itself changes (a different
     // query starts back at the default window).
-    final astKey = jsonEncode(rawAst ?? null);
+    final astKey = jsonEncode(rawAst);
     final limit = _limitAstKey == astKey ? _limit : _resultCap;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

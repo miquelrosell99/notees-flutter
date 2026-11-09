@@ -27,8 +27,8 @@ void main() {
           'logic': 'and',
           'children': [child],
         },
-        if (sort != null) 'sort': sort,
-        if (aggregation != null) 'aggregation': aggregation,
+        'sort': ?sort,
+        'aggregation': ?aggregation,
       });
 
   group('buildMatchExpression (the pure FTS match builder)', () {
