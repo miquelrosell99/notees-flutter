@@ -30,7 +30,7 @@
 ///  - `workspace.feature.set {feature, enabled}` — the per-workspace
 ///    feature toggles; [feature] is the strict five-family enum
 ///    (tasks|events|meetings|sources|persons) and the
-///    retired pre-reshape ids (journals|readItLater|library|people|
+///    retired pre-reshape ids (journals|library|people|
 ///    collections) are rejected outright;
 ///  - `property.set`/`property.unset` gain the optional PG5 `elementId`
 ///    (UUID) — the OR-Set add/remove carrier for multi-value slots;
@@ -64,6 +64,15 @@
 ///    like any unknown op type; class-node deletion routes through
 ///    `object.delete` (four applier-decided arms, SCHEMA.md "Workspace
 ///    features").
+///
+/// Node-rows + read-it-later batch (2026-11-09 lockstep):
+///  - `class.property.set` gains the optional `showInNodeRows` boolean — the
+///    binding row's node-row preview flag (a flagged binding's value renders
+///    in the node's row, not only the properties panel; absent = false, the
+///    pinned/active patch semantics);
+///  - `workspace.feature.set`'s feature enum gains `"readItLater"`, the
+///    seventh toggle — a SURFACES-only gate like `journal` (the capture
+///    surface; no class family, no archival bits).
 ///
 /// External-ref batch (2026-10-23 lockstep, SCHEMA.md "External-id
 /// mappings"):
@@ -158,12 +167,12 @@ class OperationPayloads {
   /// The per-workspace feature toggle ids (reshaped per owner
   /// directive 2026-10-04): the toggles ARE the five core class
   /// families — tasks=task, events=event, meetings=meeting, sources=source,
-  /// persons=person — plus `journal`, a
-  /// SURFACES-only toggle (the journal nav view + Today-page management)
-  /// that derives NO class archival bits. Feature ids are protocol
-  /// vocabulary (not UUIDs); the retired pre-reshape ids
-  /// (journals/readItLater/library/people/collections) are rejected
-  /// outright by [validatePayload].
+  /// persons=person — plus `journal` and `readItLater`, SURFACES-only
+  /// toggles (the journal nav view + Today-page management; the read-later
+  /// capture surface) that derive NO class archival bits. Feature ids are
+  /// protocol vocabulary (not UUIDs); the retired pre-reshape ids
+  /// (journals/library/people/collections) are rejected outright by
+  /// [validatePayload].
   static const workspaceFeatures = {
     'tasks',
     'events',
@@ -171,6 +180,7 @@ class OperationPayloads {
     'sources',
     'persons',
     'journal',
+    'readItLater',
   };
 
   /// The external-ref key cap (`EXTERNAL_REF_MAX_LENGTH` in op-types.ts):
@@ -469,7 +479,11 @@ class OperationPayloads {
 
   /// [type] is the property-schema enum (op-types.ts); [targetClassFilter]
   /// constrains node-typed (m2o/m2m) schemas to those classes.
-  /// Binding upsert: a configuration row on `class_property` (active ONLY).
+  /// Binding upsert: a configuration row on `class_property` carrying the
+  /// genuinely per-class mechanics only — `active` (the soft-unbind flag),
+  /// `pinned` (the binary tier flag), `showInNodeRows` (the binary node-row
+  /// preview flag; a flagged binding's value renders in the node's row, not
+  /// only the properties panel; absent = false).
   /// Row-level LWW by envelope HLC; omitted fields KEEP their
   /// existing values (partial patch, not a replace).
   ///
@@ -490,12 +504,14 @@ class OperationPayloads {
     required String propertySchemaId,
     bool? active,
     bool? pinned,
+    bool? showInNodeRows,
   }) =>
       _validated('class.property.set', {
         'classId': classId,
         'propertySchemaId': propertySchemaId,
         'active': ?active,
         'pinned': ?pinned,
+        'showInNodeRows': ?showInNodeRows,
       });
 
   /// Binding removal: deletes the `class_property` row. No tombstone — a
@@ -789,11 +805,13 @@ class OperationPayloads {
 
   /// Per-workspace feature toggle: LWW by HLC on
   /// (workspace, feature); an absent derived row reads ENABLED. [feature] is
-  /// the strict six-toggle enum ([workspaceFeatures] — the five families
-  /// plus `journal`, surfaces-only); the retired pre-reshape ids fail loud.
+  /// the strict seven-toggle enum ([workspaceFeatures] — the five families
+  /// plus `journal` and `readItLater`, surfaces-only); the retired
+  /// pre-reshape ids fail loud.
   /// Applying a FAMILY toggle derives the membership-preserving archival of
   /// the family's managed system classes (hide surfaces, keep data); the
-  /// `journal` toggle writes only the LWW row (no class bits). An
+  /// `journal` and `readItLater` toggles write only the LWW row (no class
+  /// bits). An
   /// object.delete on a family base routes here (the class-node delete
   /// routing). [settings] is the optional
   /// per-feature configuration record (feature-scoped vocabulary — the
@@ -1127,7 +1145,7 @@ class OperationPayloads {
         _uuidList(payload, 'parentClassIds');
       case 'class.property.set':
         // The binding carries ONLY the genuinely per-class mechanics
-        // (active, pinned) — `required` retired outright and
+        // (active, pinned, showInNodeRows) — `required` retired outright and
         // `defaultValue` moved to the property schema, `sequence`
         // retired outright (class panels render
         // alphabetically by property name within each pin tier); all reject
@@ -1140,11 +1158,13 @@ class OperationPayloads {
           'propertySchemaId',
           'active',
           'pinned',
+          'showInNodeRows',
         });
         _uuid(payload, 'classId');
         _uuid(payload, 'propertySchemaId');
         _bool(payload, 'active', required: false);
         _bool(payload, 'pinned', required: false);
+        _bool(payload, 'showInNodeRows', required: false);
       case 'class.property.unset':
         _strict(payload, {'classId', 'propertySchemaId'});
         _uuid(payload, 'classId');
@@ -1301,9 +1321,9 @@ class OperationPayloads {
         _uuid(payload, 'objectId');
         _uuid(payload, 'propertySchemaId');
       case 'workspace.feature.set':
-        // The strict six-toggle enum (five families + journal,
-        // surfaces-only); the retired pre-reshape ids
-        // (journals/readItLater/library/people/collections) are rejected
+        // The strict seven-toggle enum (five families + journal +
+        // readItLater, both surfaces-only); the retired pre-reshape ids
+        // (journals/library/people/collections) are rejected
         // outright like any unknown value. The optional `settings` record
         // is a plain JSON object (zod `z.record(z.unknown())` parity) —
         // present null is NOT a clear: absent and present are both

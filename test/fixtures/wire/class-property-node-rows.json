@@ -1,0 +1,182 @@
+{
+  "comment": "class_property.showInNodeRows (additive 2026-11-08): the binding row's binary node-row preview flag — a flagged binding's property value renders in the node's row (the outliner line/chrome preview), not only in the properties panel; absent = false (the default). A text schema binds to the Occasion class with showInNodeRows=true; the phone's interleaved flag at a LOWER HLC loses the row LWW race (its showInNodeRows=true arrives between two web writes but never wins), so the stored flag tracks the newest envelope, not the newest position in the file. A later write flips it back off, an active-only patch (showInNodeRows omitted) keeps the stored flag (the identical patch semantics as `active` and `pinned`), and a final class.property.unset deletes the row outright — a plain DELETE ignoring the stored flag entirely (the unset payload schema is unchanged: exactly {classId, propertySchemaId}, strict — preview state never gates removal). LOCKSTEP-PENDING: the showInNodeRows payload key ships inert until the GTK/Flutter releases parse it (the `pinned`/`active` precedent).",
+  "envelopes": [
+    {
+      "id": "0192a000-0000-7000-8000-000000000f23",
+      "protocolVersion": 3,
+      "workspaceId": "0192a000-0000-7000-8000-000000000f20",
+      "actorId": "0192a000-0000-7000-8000-000000000f21",
+      "deviceId": "test-device-laptop",
+      "client": "web",
+      "hlc": {
+        "physical": 1727240022000,
+        "logical": 0
+      },
+      "affectedNodeIds": [],
+      "opType": "propertySchema.create",
+      "timestamp": "2026-09-24T12:00:42.000Z",
+      "payload": {
+        "propertySchemaId": "0192a000-0000-7000-8000-000000000f2b",
+        "name": "venue",
+        "type": "text"
+      }
+    },
+    {
+      "id": "0192a000-0000-7000-8000-000000000f24",
+      "protocolVersion": 3,
+      "workspaceId": "0192a000-0000-7000-8000-000000000f20",
+      "actorId": "0192a000-0000-7000-8000-000000000f21",
+      "deviceId": "test-device-laptop",
+      "client": "web",
+      "hlc": {
+        "physical": 1727240022100,
+        "logical": 0
+      },
+      "affectedNodeIds": [
+        "0192a000-0000-7000-8000-000000000f2c"
+      ],
+      "opType": "class.create",
+      "timestamp": "2026-09-24T12:00:42.100Z",
+      "payload": {
+        "classId": "0192a000-0000-7000-8000-000000000f2c",
+        "contentAst": [
+          {
+            "type": "text",
+            "text": "Occasion"
+          }
+        ]
+      }
+    },
+    {
+      "id": "0192a000-0000-7000-8000-000000000f25",
+      "protocolVersion": 3,
+      "workspaceId": "0192a000-0000-7000-8000-000000000f20",
+      "actorId": "0192a000-0000-7000-8000-000000000f21",
+      "deviceId": "test-device-laptop",
+      "client": "web",
+      "hlc": {
+        "physical": 1727240022200,
+        "logical": 0
+      },
+      "affectedNodeIds": [
+        "0192a000-0000-7000-8000-000000000f2c"
+      ],
+      "opType": "class.property.set",
+      "timestamp": "2026-09-24T12:00:42.200Z",
+      "payload": {
+        "classId": "0192a000-0000-7000-8000-000000000f2c",
+        "propertySchemaId": "0192a000-0000-7000-8000-000000000f2b",
+        "showInNodeRows": true
+      }
+    },
+    {
+      "id": "0192a000-0000-7000-8000-000000000f26",
+      "protocolVersion": 3,
+      "workspaceId": "0192a000-0000-7000-8000-000000000f20",
+      "actorId": "0192a000-0000-7000-8000-000000000f22",
+      "deviceId": "test-device-phone",
+      "client": "flutter",
+      "hlc": {
+        "physical": 1727240022300,
+        "logical": 0
+      },
+      "affectedNodeIds": [
+        "0192a000-0000-7000-8000-000000000f2c"
+      ],
+      "opType": "class.property.set",
+      "timestamp": "2026-09-24T12:00:42.300Z",
+      "payload": {
+        "classId": "0192a000-0000-7000-8000-000000000f2c",
+        "propertySchemaId": "0192a000-0000-7000-8000-000000000f2b",
+        "showInNodeRows": true
+      }
+    },
+    {
+      "id": "0192a000-0000-7000-8000-000000000f27",
+      "protocolVersion": 3,
+      "workspaceId": "0192a000-0000-7000-8000-000000000f20",
+      "actorId": "0192a000-0000-7000-8000-000000000f21",
+      "deviceId": "test-device-laptop",
+      "client": "web",
+      "hlc": {
+        "physical": 1727240022400,
+        "logical": 0
+      },
+      "affectedNodeIds": [
+        "0192a000-0000-7000-8000-000000000f2c"
+      ],
+      "opType": "class.property.set",
+      "timestamp": "2026-09-24T12:00:42.400Z",
+      "payload": {
+        "classId": "0192a000-0000-7000-8000-000000000f2c",
+        "propertySchemaId": "0192a000-0000-7000-8000-000000000f2b",
+        "showInNodeRows": false
+      }
+    },
+    {
+      "id": "0192a000-0000-7000-8000-000000000f28",
+      "protocolVersion": 3,
+      "workspaceId": "0192a000-0000-7000-8000-000000000f20",
+      "actorId": "0192a000-0000-7000-8000-000000000f21",
+      "deviceId": "test-device-laptop",
+      "client": "web",
+      "hlc": {
+        "physical": 1727240022500,
+        "logical": 0
+      },
+      "affectedNodeIds": [
+        "0192a000-0000-7000-8000-000000000f2c"
+      ],
+      "opType": "class.property.set",
+      "timestamp": "2026-09-24T12:00:42.500Z",
+      "payload": {
+        "classId": "0192a000-0000-7000-8000-000000000f2c",
+        "propertySchemaId": "0192a000-0000-7000-8000-000000000f2b",
+        "active": true
+      }
+    },
+    {
+      "id": "0192a000-0000-7000-8000-000000000f29",
+      "protocolVersion": 3,
+      "workspaceId": "0192a000-0000-7000-8000-000000000f20",
+      "actorId": "0192a000-0000-7000-8000-000000000f21",
+      "deviceId": "test-device-laptop",
+      "client": "web",
+      "hlc": {
+        "physical": 1727240022600,
+        "logical": 0
+      },
+      "affectedNodeIds": [
+        "0192a000-0000-7000-8000-000000000f2c"
+      ],
+      "opType": "class.property.set",
+      "timestamp": "2026-09-24T12:00:42.600Z",
+      "payload": {
+        "classId": "0192a000-0000-7000-8000-000000000f2c",
+        "propertySchemaId": "0192a000-0000-7000-8000-000000000f2b",
+        "showInNodeRows": true
+      }
+    },
+    {
+      "id": "0192a000-0000-7000-8000-000000000f2a",
+      "protocolVersion": 3,
+      "workspaceId": "0192a000-0000-7000-8000-000000000f20",
+      "actorId": "0192a000-0000-7000-8000-000000000f21",
+      "deviceId": "test-device-laptop",
+      "client": "web",
+      "hlc": {
+        "physical": 1727240022700,
+        "logical": 0
+      },
+      "affectedNodeIds": [
+        "0192a000-0000-7000-8000-000000000f2c"
+      ],
+      "opType": "class.property.unset",
+      "timestamp": "2026-09-24T12:00:42.700Z",
+      "payload": {
+        "classId": "0192a000-0000-7000-8000-000000000f2c",
+        "propertySchemaId": "0192a000-0000-7000-8000-000000000f2b"
+      }
+    }
+  ]
+}

@@ -14,15 +14,17 @@ import 'package:notees/domain/services/relay_appliers.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Acceptance for the `workspace.feature.set` lockstep op:
-/// the strict six-toggle enum (retired ids rejected outright; `journal` is
-/// surfaces-only and derives no class bits), the `workspace_feature` LWW
-/// row (absent = ON, F2), the membership-preserving family archival via
+/// the strict seven-toggle enum (retired ids rejected outright; `journal`
+/// and `readItLater` are surfaces-only and derive no class bits), the
+/// `workspace_feature` LWW row (absent = ON, F2), the
+/// membership-preserving family archival via
 /// per-class re-derivation (F3 + the event→meeting / birthday / trip
 /// cascade), the class-node delete routing on the five bases only (an
 /// object.delete on a family base routes to the toggle), and the idempotent
 /// task-family seed-ensure riding every enable payload.
-/// Replays the two canonical fixtures (workspace-feature-set,
-/// object-delete-class-routing) through the appliers.
+/// Replays the three canonical fixtures (workspace-feature-set,
+/// workspace-feature-readitlater, object-delete-class-routing) through the
+/// appliers.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
@@ -64,7 +66,7 @@ void main() {
       );
 
   group('workspace.feature.set payload factory + strict enum', () {
-    test('builder round-trips the five families', () {
+    test('builder round-trips the seven toggles', () {
       for (final feature in OperationPayloads.workspaceFeatures) {
         final payload = OperationPayloads.workspaceFeatureSet(
           feature: feature,
@@ -77,7 +79,6 @@ void main() {
     test('the retired pre-reshape ids are rejected outright', () {
       for (final retired in [
         'journals',
-        'readItLater',
         'library',
         'people',
         'collections',
@@ -246,8 +247,10 @@ void main() {
       expect(systemClassNameForId(SystemClassUuids.task), 'task');
       expect(systemClassNameForId('0192a000-0000-7000-8000-00000000ffff'),
           isNull);
-      // The family guard: journal is a toggle but NOT a family.
+      // The family guard: journal and readItLater are toggles but NOT
+      // families.
       expect(isFamilyFeature('journal'), isFalse);
+      expect(isFamilyFeature('readItLater'), isFalse);
       expect(isFamilyFeature('tasks'), isTrue);
     });
   });
@@ -777,6 +780,38 @@ void main() {
       // classes stay always-on structural seeds).
       final classes = await raw('SELECT COUNT(*) AS c FROM class_cache');
       expect(classes.single['c'], 0);
+    });
+
+    test('fixture workspace-feature-readitlater: the seventh toggle is a '
+        'surfaces-only LWW row like journal', () async {
+      for (final envelope
+          in fixtureEnvelopes('workspace-feature-readitlater.json')) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      // The phone's disable (the higher HLC) wins the row; no class bits
+      // derive (the read-it-later surface manages no classes).
+      expect(await cache.featureEnabledNow(ws, 'readItLater'), isFalse);
+      final classes = await raw('SELECT COUNT(*) AS c FROM class_cache');
+      expect(classes.single['c'], 0);
+      final row = await cache.workspaceFeatureRow(ws, 'readItLater');
+      expect(row?.enabled, isFalse);
+      expect(row?.settings, isNull);
+
+      // Absent reads ENABLED (F2): an empty store has the capture surface
+      // on; a re-enable at a higher HLC flips the row back.
+      await database.close();
+      final ffiDb2 = await databaseFactoryFfi.openDatabase(
+        ':memory:',
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      database = AppDatabase.fromDatabase(ffiDb2);
+      await database.initializeSchema();
+      cache = NodeCacheRepository(database);
+      appliers = RelayAppliers(cache);
+      expect(await cache.featureEnabledNow(ws, 'readItLater'), isTrue);
+      expect(await appliers.apply(toggle('readItLater', false, 1000)), isTrue);
+      expect(await appliers.apply(toggle('readItLater', true, 2000)), isTrue);
+      expect(await cache.featureEnabledNow(ws, 'readItLater'), isTrue);
     });
 
     test('settings ride the whole-row LWW: NULL for absent, distinct '

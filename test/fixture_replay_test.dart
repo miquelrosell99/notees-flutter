@@ -2561,6 +2561,88 @@ void main() {
       );
     });
 
+    test('class-property-node-rows: the preview flag rides the binding row '
+        'LWW (partial patches keep the stored flag), absent = false',
+        () async {
+      final envelopes = fixtureEnvelopes('class-property-node-rows.json');
+      const cls = '0192a000-0000-7000-8000-000000000f2c';
+      const schema = '0192a000-0000-7000-8000-000000000f2b';
+
+      Future<({int? showInNodeRows, int? active})> bindingRow() async {
+        final rows = await raw(
+          'SELECT show_in_node_rows, active FROM class_property '
+          'WHERE class_id = ? AND property_schema_id = ?',
+          [cls, schema],
+        );
+        if (rows.isEmpty) return (showInNodeRows: null, active: null);
+        return (
+          showInNodeRows: (rows.single['show_in_node_rows'] as num?)?.toInt(),
+          active: (rows.single['active'] as num?)?.toInt(),
+        );
+      }
+
+      // Through the phone's interleaved flag: the stored flag tracks the
+      // NEWEST envelope's write, not the newest position in the file.
+      for (final envelope in envelopes.take(4)) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      expect(await bindingRow(), (showInNodeRows: 1, active: 1));
+
+      // The web's later showInNodeRows=false flips the preview off.
+      expect(await appliers.apply(envelopes[4]), isTrue);
+      expect(await bindingRow(), (showInNodeRows: 0, active: 1));
+
+      // An active-only patch keeps the stored flag (the COALESCE patch,
+      // the pinned/active identical semantics).
+      expect(await appliers.apply(envelopes[5]), isTrue);
+      expect(await bindingRow(), (showInNodeRows: 0, active: 1));
+
+      // A later flag flips the preview back on.
+      expect(await appliers.apply(envelopes[6]), isTrue);
+      expect(await bindingRow(), (showInNodeRows: 1, active: 1));
+
+      // The unset deletes the row outright — a plain DELETE ignoring the
+      // stored flag.
+      expect(await appliers.apply(envelopes[7]), isTrue);
+      expect(await bindingRow(), (showInNodeRows: null, active: null));
+    });
+
+    test('recurrence-property: the dedicated Repeat schema carries RRULE '
+        'text values and the per-occurrence metadata both ways', () async {
+      for (final envelope in fixtureEnvelopes('recurrence-property.json')) {
+        expect(await appliers.apply(envelope), isTrue);
+      }
+      const repeat = '00000000-0000-0000-0003-000000000013';
+      const eventNode = '0192a000-0000-7000-8000-000000000970';
+      const taskNode = '0192a000-0000-7000-8000-000000000971';
+
+      Future<({String value, String? metadata})> slot(String nodeId) async {
+        final rows = await raw(
+          'SELECT value, metadata FROM property_value WHERE '
+          'node_uuid = ? AND property_schema_id = ? AND idx = 0',
+          [nodeId, repeat],
+        );
+        expect(rows, hasLength(1));
+        return (
+          value: rows.single['value'] as String,
+          metadata: rows.single['metadata'] as String?,
+        );
+      }
+
+      // The system seed ids ride the fixture verbatim — the Repeat schema
+      // needs no propertySchema.create (schema-less writes stay
+      // unchecked) and the event/task classes need no class.create
+      // (system seeds). The RRULE text and the recurrence exceptions are
+      // ordinary value + value-metadata wire, stored untouched for the
+      // compute-on-read consumer.
+      final event = await slot(eventNode);
+      expect(event.value, '"RRULE:FREQ=WEEKLY;BYDAY=MO,FR"');
+      expect(event.metadata, '{"exdates":["2026-11-10"]}');
+      final task = await slot(taskNode);
+      expect(task.value, '"RRULE:FREQ=DAILY;INTERVAL=2"');
+      expect(task.metadata, '{"completedOccurrences":["2026-11-08"]}');
+    });
+
     test('property-assign: presence-row LWW converges both orders; unassign '
         'keeps authored values; empty clears every value but keeps the '
         'assignment (the effective read shows the assigned-empty row)', () async {
