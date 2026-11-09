@@ -18,7 +18,9 @@ lives in git history.
   the pubspec `sdk: ^3.12.0` constraint still covers the pinned Dart, so it
   stays. (flutter-action validates the version against the named channel's
   release manifest, and the 3.50 line rides the beta channel — the workflow
-  says `channel: beta` alongside the pin.) **(2) All 114 material imports** (93 lib + 21 test) now import
+  says `channel: beta` alongside the pin; the Gradle wrapper rides along at
+  9.5.0, the 3.50 template default, since the new flutter-gradle-plugin
+  refuses Gradle < 9.3.1.) **(2) All 114 material imports** (93 lib + 21 test) now import
   `package:material_ui/material_ui.dart` (new direct dependency, `^1.10.0`).
   **(3) The migration's real API seams:** `dynamic_color` 1.8.1 still built on
   the deprecated SDK material (its `ColorScheme` is a different class from
