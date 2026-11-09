@@ -13,7 +13,7 @@ The mobile app is a **first-class native Flutter app** for Notees. It provides n
 - **Functional accent**: Advance Green `#2E5E46` (Margin Green brand identity)
 - **Architecture**: feature-first Flutter with Provider + ChangeNotifier, Dio, go_router, sqflite
 - **Native features**: biometric app lock, offline quick-capture queue, share receiver, native block editor with inline styles and node/class/tag links, native list/card/table views, bottom navigation, advanced search filters, reusable node picker, native settings with server and account management, local task due-date reminders with snooze actions and boot reschedule, Android home-screen widgets (today's tasks, favorites, Inbox preview)
-- **displayTemplate render consumption is PENDING (store done, schema v40, 2026-10-29).** The local store accepts and resolves the class-level `displayTemplate` wire key (fixture `class-display-template.json`), but no Flutter surface renders it yet — the web reference chrome (mentions, pickers, breadcrumbs, search rows) does. When building class-aware titles, follow the contract in the main repo's `packages/protocol/SCHEMA.md` (reference-chrome only, the tri-state, the dual-key/folded placeholder rule, the equal-rank first-index-wins alias precedence).
+- **displayTemplate render consumption is PENDING (store done, schema v40, 2026-10-29).** The local store accepts and resolves the class-level `displayTemplate` wire key (fixture `class-display-template.json`), but no Flutter surface renders it yet — the web reference chrome (mentions, pickers, breadcrumbs, search rows) does. When building class-aware titles, follow the contract in the notees-sync repo's `packages/protocol/SCHEMA.md` (reference-chrome only, the tri-state, the dual-key/folded placeholder rule, the equal-rank first-index-wins alias precedence).
 
 ## Key Files
 
@@ -175,7 +175,7 @@ For major refactors, trigger a CI build via `./trigger-ci-build.sh` rather than 
 ## Server Reference
 
 The backend/server source for Notees is kept in a sibling clone of
-`git@github.com:miquelrosell99/notees.git`, kept up to date, for reference
+`git@github.com:miquelrosell99/notees-sync.git` (the core + sync server repo), kept up to date, for reference
 while building the mobile app:
 
 Keep the clone current when the mobile app needs to align with API contracts,
@@ -188,7 +188,7 @@ repository.
   `CHANGELOG.md` at the repo root — one entry per shipped slice, newest
   first. This file and `docs/` stay static guidance/history; never append
   work-log entries to them. A change without its changelog entry is not done.
-- In-flight proposals and parked decisions live in the main Notees monorepo
+- In-flight proposals and parked decisions live in the notees-sync repo
   (`.plans/YYYY-MM-DD-HHMM-<slug>/` and `.agents/parked-decisions.md` there).
 
 | Record | Home |

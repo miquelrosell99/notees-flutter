@@ -31,6 +31,13 @@ lives in git history.
   new W2 group (banner affordance, dialog error-then-success flow into
   the shell).
 
+- **docs: re-point the reference-repo references at miquelrosell99/notees-sync.**
+  The Notees monorepo split 2026-11-05 into notees-sync (core + server) and
+  notees-web (web client). The reference implementation, the fixture corpus
+  source, and the operations runbooks live in notees-sync now; AGENTS.md and
+  the project skills name it (fixture paths unchanged). Gate green:
+  flutter analyze, flutter test.
+
 ## 2026-11-04
 
 - **feat(graph): the graph view — a minimal force-directed graph with
