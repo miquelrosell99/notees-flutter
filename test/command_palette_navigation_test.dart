@@ -13,14 +13,17 @@ import 'package:notees/data/repositories/server_repository.dart';
 import 'package:notees/data/repositories/workspace_repository.dart';
 import 'package:notees/domain/services/sync_v2_service.dart';
 import 'package:notees/features/auth/providers/auth_provider.dart';
+import 'package:notees/features/editor/screens/journal_continuous_screen.dart';
 import 'package:notees/features/home/screens/main_shell_screen.dart';
+import 'package:notees/features/library/screens/library_screen.dart';
 import 'package:notees/features/settings/providers/settings_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// The command-palette navigation contract: picking a node from the global
 /// palette (Ctrl/Cmd+K) pushes the editor route with the node's wire uuid —
-/// not the local int row id (`Node.id`).
+/// not the local int row id (`Node.id`) — and the static actions land on the
+/// post-Cards-removal tabs (Journal 2, Library 3) or push routes (Cards).
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -117,6 +120,88 @@ void main() {
     // reports the base path in this go_router version, so the match list is
     // the reliable signal.)
     expect(router.routerDelegate.currentConfiguration.matches.length, 2);
+  });
+  group('static command navigation', () {
+    Future<GoRouter> pumpPaletteApp(WidgetTester tester) async {
+      final auth = FakeAuth(
+        serverRepository: ServerRepository(prefs: prefs),
+        secureStorage: const SecureStorage(),
+        prefs: prefs,
+        syncService: service,
+      );
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => const MainShellScreen(),
+          ),
+          GoRoute(
+            path: Routes.cards,
+            builder: (context, state) =>
+                const Scaffold(body: Text('cards stub')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthProvider>.value(
+          value: auth,
+          child: ChangeNotifierProvider<SettingsProvider>(
+            create: (_) => SettingsProvider(prefs),
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Ctrl+K opens the palette; the scripted cache serves the recent page.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      return router;
+    }
+
+    testWidgets('Go to cards pushes the hub route (no Cards tab to switch to)',
+        (tester) async {
+      final router = await pumpPaletteApp(tester);
+
+      await tester.enterText(find.byType(TextField), 'cards');
+      await tester.pump();
+      await tester.tap(find.text('Go to cards'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.text('cards stub'), findsOneWidget);
+      expect(router.routerDelegate.currentConfiguration.matches.length, 2);
+    });
+
+    testWidgets('Go to journals lands on the Journal tab (index 2)',
+        (tester) async {
+      await pumpPaletteApp(tester);
+
+      await tester.enterText(find.byType(TextField), 'journals');
+      await tester.pump();
+      await tester.tap(find.text('Go to journals'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(JournalContinuousScreen), findsOneWidget);
+    });
+
+    testWidgets('Go to library lands on the Library tab (index 3)',
+        (tester) async {
+      await pumpPaletteApp(tester);
+
+      await tester.enterText(find.byType(TextField), 'library');
+      await tester.pump();
+      await tester.tap(find.text('Go to library'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(LibraryScreen), findsOneWidget);
+    });
   });
 }
 
