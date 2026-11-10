@@ -10,23 +10,35 @@ import 'package:notees/core/secure/secure_storage.dart';
 import 'package:notees/data/repositories/auth_repository.dart';
 import 'package:notees/domain/models/relay/payload_crypto.dart';
 
-/// Custody wiring (plan-04 F5): the login kdf record derives the in-memory
-/// master key (wrong password ⇒ a login-level error, never a silent keyless
-/// session), and workspace open fetch-or-ensures the workspace key with
-/// first-write-wins adoption. Keys never touch secure storage.
+/// Custody wiring: the login kdf record derives + holds the master key
+/// (wrong password ⇒ a login-level error, never a silent keyless session)
+/// and persists it (mirroring the web client's IndexedDB persistence) so a
+/// stored-token session restores silently instead of re-prompting; a
+/// keyless login response attempts the restore, which is a silent no-op on
+/// empty storage. Workspace open fetch-or-ensures the workspace key with
+/// first-write-wins adoption. Workspace keys never touch secure storage.
 ///
 /// The scrypt KDF (N=131072) is deliberately expensive; the derivations are
 /// built once per group, not per test.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  // No-op the flutter_secure_storage channel: token persistence is not what
-  // these tests exercise.
+  // No-op the flutter_secure_storage channel: custody tests run against an
+  // injected in-memory master-key store instead.
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
     const MethodChannel('plugins.it_nomads.com/flutter_secure_storage'),
     (call) async => null,
   );
+
+  final store = InMemoryMasterKeyStore();
+
+  setUp(() {
+    store.clear();
+    clearCryptoCustody();
+    setMasterKeyStoreForTests(store);
+    addTearDown(() => setMasterKeyStoreForTests(null, reset: true));
+  });
 
   const password = 'correct horse battery staple';
   const userJson = <String, dynamic>{
@@ -109,11 +121,9 @@ void main() {
       expect(hasMasterKey, isFalse);
     });
 
-    test('a keyless login response drops custody (no master held)', () async {
-      // First establish custody, then sign in somewhere keyless.
-      await deriveMasterKey(password, masterAndKdf.record.toJson());
-      expect(hasMasterKey, isTrue);
-
+    test('a keyless login response attempts a restore; empty storage keeps '
+        'custody empty', () async {
+      expect(store.bytes, isNull);
       final repo = AuthRepository(dio: loginDio(() => {
             'token': 'tok',
             'user': userJson,
@@ -123,14 +133,33 @@ void main() {
       expect(hasMasterKey, isFalse);
     });
 
-    test('a 2FA-completed response has no password: a stale master slot '
-        'drops even when the response carries a kdf record', () async {
-      // First establish custody (a previous account/session), then complete
-      // a 2FA challenge — the response carries the kdf record but the client
-      // has no password at this point, so it cannot derive; the stale slot
-      // must not serve the new session.
+    test('a keyless login response with a persisted record restores the '
+        'master (session resume without a re-prompt)', () async {
+      // A prior password sign-in of the same account persisted the master.
       await deriveMasterKey(password, masterAndKdf.record.toJson());
+      await pumpEventQueue();
+      expect(store.bytes, isNotNull);
+      resetInMemoryCustodyForTests();
+      expect(hasMasterKey, isFalse);
+
+      final repo = AuthRepository(dio: loginDio(() => {
+            'token': 'tok',
+            'user': userJson,
+          }), secureStorage: secureStorage);
+      await repo.login(email: 'user@example.com', password: password);
+
       expect(hasMasterKey, isTrue);
+    });
+
+    test('a 2FA-completed response has no password: a persisted record '
+        'restores the master', () async {
+      // The response carries the kdf record but the client has no password
+      // at this point, so it cannot derive — the persisted record (a prior
+      // sign-in of the same account) re-hydrates the slot instead.
+      await deriveMasterKey(password, masterAndKdf.record.toJson());
+      await pumpEventQueue();
+      resetInMemoryCustodyForTests();
+      expect(hasMasterKey, isFalse);
 
       final dio = Dio();
       dio.interceptors.add(
@@ -160,6 +189,143 @@ void main() {
           AuthRepository(dio: dio, secureStorage: secureStorage);
       await repo.verifyTwoFactor(preauthToken: 'pre', code: '123456');
 
+      expect(hasMasterKey, isTrue);
+    });
+
+    test('a 2FA-completed response with nothing stored keeps custody empty',
+        () async {
+      expect(store.bytes, isNull);
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.path == '/auth/2fa/verify') {
+              handler.resolve(Response(
+                requestOptions: options,
+                data: {
+                  'token': 'tok',
+                  'user': userJson,
+                  'kdf': masterAndKdf.record.toJson(),
+                },
+                statusCode: 200,
+              ));
+              return;
+            }
+            handler.reject(DioException(
+              requestOptions: options,
+              type: DioExceptionType.connectionError,
+              error: 'unexpected request: ${options.path}',
+            ));
+          },
+        ),
+      );
+      final repo =
+          AuthRepository(dio: dio, secureStorage: secureStorage);
+      await repo.verifyTwoFactor(preauthToken: 'pre', code: '123456');
+
+      expect(hasMasterKey, isFalse);
+    });
+  });
+
+  group('master-key persistence (reload restores silently)', () {
+    // Distinct workspace id for the ensure round-trip below.
+    const wsRestore = '10000000-0000-4000-8000-0000000000d1';
+
+    late final MasterAndKdf masterAndKdf;
+
+    setUpAll(() async {
+      masterAndKdf = await buildMasterAndKdf(password);
+    });
+
+    test('derive persists the raw 32 key bytes', () async {
+      final master =
+          await deriveMasterKey(password, masterAndKdf.record.toJson());
+      await pumpEventQueue(); // the persist is fire-and-forget
+      expect(store.bytes, hasLength(32));
+      expect(store.bytes, await master.extractBytes());
+    });
+
+    test('a simulated app restart (memory dropped) restores the master and '
+        'the restored key opens what the original wrapped', () async {
+      final master =
+          await deriveMasterKey(password, masterAndKdf.record.toJson());
+      await pumpEventQueue();
+      final workspaceKey = generateWorkspaceKey();
+      final wrapped = await wrapWorkspaceKey(master, workspaceKey);
+
+      resetInMemoryCustodyForTests();
+      expect(hasMasterKey, isFalse);
+
+      expect(await restoreMasterKeyFromStorage(), isTrue);
+      expect(hasMasterKey, isTrue);
+
+      final dio = Dio();
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            if (options.path == '/workspaces/$wsRestore/key') {
+              handler.resolve(Response(
+                requestOptions: options,
+                data: {'wrappedKey': wrapped},
+                statusCode: 200,
+              ));
+              return;
+            }
+            handler.reject(DioException(
+              requestOptions: options,
+              type: DioExceptionType.connectionError,
+              error: 'unexpected request: ${options.path}',
+            ));
+          },
+        ),
+      );
+      final reopened = await ensureWorkspaceKey(dio, wsRestore);
+      expect(await reopened.extractBytes(), await workspaceKey.extractBytes());
+    });
+
+    test('clearCryptoCustody deletes the persisted record', () async {
+      await deriveMasterKey(password, masterAndKdf.record.toJson());
+      await pumpEventQueue();
+      expect(store.bytes, isNotNull);
+
+      clearCryptoCustody();
+      await pumpEventQueue();
+
+      expect(store.bytes, isNull);
+      expect(await restoreMasterKeyFromStorage(), isFalse);
+      expect(hasMasterKey, isFalse);
+    });
+
+    test('restore is a silent no-op on empty or corrupt storage', () async {
+      expect(await restoreMasterKeyFromStorage(), isFalse);
+      expect(hasMasterKey, isFalse);
+
+      // Corrupt record: not the raw 32 key bytes.
+      store.bytes = Uint8List.fromList([1, 2, 3]);
+      expect(await restoreMasterKeyFromStorage(), isFalse);
+      expect(hasMasterKey, isFalse);
+    });
+
+    test('restore only fills an empty slot', () async {
+      await deriveMasterKey(password, masterAndKdf.record.toJson());
+      await pumpEventQueue();
+      expect(await restoreMasterKeyFromStorage(), isTrue);
+      // A held slot stays held even with the record gone (no-op restore).
+      store.bytes = null;
+      expect(await restoreMasterKeyFromStorage(), isTrue);
+    });
+
+    test('an unavailable store never breaks derive or restore', () async {
+      final failing = InMemoryMasterKeyStore()..failWrites = true;
+      setMasterKeyStoreForTests(failing);
+
+      await deriveMasterKey(password, masterAndKdf.record.toJson());
+      expect(hasMasterKey, isTrue); // memory custody holds regardless
+      await pumpEventQueue();
+      expect(failing.bytes, isNull);
+
+      resetInMemoryCustodyForTests();
+      expect(await restoreMasterKeyFromStorage(), isFalse);
       expect(hasMasterKey, isFalse);
     });
   });
@@ -518,6 +684,31 @@ class MasterAndKdf {
   MasterAndKdf(this.master, this.record);
   final SecretKey master;
   final KdfRecord record;
+}
+
+/// The injected persistence seam's in-memory fake: captures the raw key
+/// bytes, can simulate an unavailable store (writes fail), and lets tests
+/// plant corrupt records.
+class InMemoryMasterKeyStore implements MasterKeyStore {
+  Uint8List? bytes;
+  bool failWrites = false;
+
+  void clear() => bytes = null;
+
+  @override
+  Future<void> write(Uint8List keyBytes) async {
+    if (failWrites) throw StateError('custody store unavailable');
+    bytes = Uint8List.fromList(keyBytes);
+  }
+
+  @override
+  Future<Uint8List?> read() async =>
+      bytes == null ? null : Uint8List.fromList(bytes!);
+
+  @override
+  Future<void> delete() async {
+    bytes = null;
+  }
 }
 
 Future<MasterAndKdf> buildMasterAndKdf(String password) async {

@@ -27,9 +27,11 @@ import './native/widget_service.dart';
 import './features/auth/providers/auth_provider.dart';
 import './features/auth/providers/biometric_provider.dart';
 import './features/home/providers/connectivity_provider.dart';
+import './features/home/providers/sync_status_provider.dart';
 import './features/settings/providers/settings_provider.dart';
 import './features/capture/widgets/audio_recorder_sheet.dart';
 import './features/capture/widgets/floating_capture_bubble.dart';
+import './shared/widgets/catch_up_overlay.dart';
 import './shared/widgets/offline_banner.dart';
 import './features/capture/widgets/quick_capture_sheet.dart';
 
@@ -50,11 +52,13 @@ class NoteesApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider(prefs)),
+        ChangeNotifierProvider(create: (_) => SyncStatusProvider()),
         ChangeNotifierProvider(
-          create: (_) => AuthProvider(
+          create: (context) => AuthProvider(
             serverRepository: serverRepository,
             secureStorage: secureStorage,
             prefs: prefs,
+            syncStatus: context.read<SyncStatusProvider>(),
           ),
         ),
         Provider(create: (_) => secureStorage),
@@ -62,8 +66,11 @@ class NoteesApp extends StatelessWidget {
         Provider(create: (_) => QueryService(), dispose: (_, s) => s.dispose()),
         ChangeNotifierProvider(create: (_) => SettingsProvider(prefs)),
         ChangeNotifierProvider(create: (_) => EncryptionProvider(prefs: prefs)),
-        ChangeNotifierProxyProvider2<EncryptionProvider, SecureStorage,
-            BiometricProvider>(
+        ChangeNotifierProxyProvider2<
+          EncryptionProvider,
+          SecureStorage,
+          BiometricProvider
+        >(
           create: (_) => BiometricProvider(prefs: prefs)..initialize(),
           update: (_, encryption, storage, previous) {
             final provider = previous ?? BiometricProvider(prefs: prefs);
@@ -145,28 +152,42 @@ class _NoteesAppBodyState extends State<_NoteesAppBody> {
       provider: themeProvider,
       builder: (context, light, dark) {
         final auth = context.watch<AuthProvider>();
-        // The wrapper chain (lock screen, offline banner, listeners) sits
-        // above MaterialApp, so provide Directionality for it here.
-        return Directionality(
-          textDirection: TextDirection.ltr,
-          child: AppLocker(
-            child: ShareListener(
-              child: DeepLinkListener(
-                child: QuickNoteTileListener(
-                  child: AudioNoteTileListener(
-                    child: OfflineBanner(
-                      child: OfflineSync(
-                        dio: auth.dio ?? Dio(),
-                        syncService: auth.syncService,
-                        child: ReminderListener(
-                          child: FloatingCaptureBubble(
-                            child: MaterialApp.router(
-                              title: 'Notees',
-                              debugShowCheckedModeBanner: false,
-                              theme: light,
-                              darkTheme: dark,
-                              themeMode: _flutterThemeMode(themeProvider.themeMode),
-                              routerConfig: _router,
+        final brightness = MediaQuery.platformBrightnessOf(context);
+        final mode = themeProvider.themeMode;
+        final isDark =
+            mode == AppThemeMode.dark ||
+            (mode == AppThemeMode.system && brightness == Brightness.dark);
+        // The wrapper chain (lock screen, offline banner, listeners, the
+        // catch-up overlay) sits above MaterialApp, which only injects
+        // Directionality and Theme below itself — so provide both here,
+        // resolved to the same light/dark theme the app renders with.
+        return Theme(
+          data: isDark ? dark : light,
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: AppLocker(
+              child: ShareListener(
+                child: DeepLinkListener(
+                  child: QuickNoteTileListener(
+                    child: AudioNoteTileListener(
+                      child: OfflineBanner(
+                        child: OfflineSync(
+                          dio: auth.dio ?? Dio(),
+                          syncService: auth.syncService,
+                          child: ReminderListener(
+                            child: FloatingCaptureBubble(
+                              child: CatchUpOverlay(
+                                child: MaterialApp.router(
+                                  title: 'Notees',
+                                  debugShowCheckedModeBanner: false,
+                                  theme: light,
+                                  darkTheme: dark,
+                                  themeMode: _flutterThemeMode(
+                                    themeProvider.themeMode,
+                                  ),
+                                  routerConfig: _router,
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -302,7 +323,10 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
     switch (host) {
       case 'journal':
         try {
-          final repo = NodeRepository(dio: auth.dio!, syncService: auth.syncService);
+          final repo = NodeRepository(
+            dio: auth.dio!,
+            syncService: auth.syncService,
+          );
           final journal = await repo.getOrCreateDailyJournal(DateTime.now());
           if (mounted) {
             router.push('${Routes.editor}/${journal.uuid}');
@@ -315,7 +339,9 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
       case 'tasks':
         router.push(Routes.tasks);
       case 'shortcut':
-        final action = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : '';
+        final action = uri.pathSegments.isNotEmpty
+            ? uri.pathSegments.first
+            : '';
         _handleShortcut(action);
     }
   }
@@ -334,21 +360,24 @@ class _DeepLinkListenerState extends State<DeepLinkListener> {
           context: ctx,
           isScrollControlled: true,
           showDragHandle: true,
-          builder: (_) => const QuickCaptureSheet(initialType: QuickCaptureType.note),
+          builder: (_) =>
+              const QuickCaptureSheet(initialType: QuickCaptureType.note),
         );
       case 'task':
         showModalBottomSheet(
           context: ctx,
           isScrollControlled: true,
           showDragHandle: true,
-          builder: (_) => const QuickCaptureSheet(initialType: QuickCaptureType.task),
+          builder: (_) =>
+              const QuickCaptureSheet(initialType: QuickCaptureType.task),
         );
       case 'journal':
         showModalBottomSheet(
           context: ctx,
           isScrollControlled: true,
           showDragHandle: true,
-          builder: (_) => const QuickCaptureSheet(initialType: QuickCaptureType.journal),
+          builder: (_) =>
+              const QuickCaptureSheet(initialType: QuickCaptureType.journal),
         );
     }
   }
@@ -459,15 +488,15 @@ class _AudioNoteTileListenerState extends State<AudioNoteTileListener> {
         syncService: auth.syncService,
       ).uploadAsset(file, parentUuid: parentUuid);
       if (ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('Audio note saved')),
-        );
+        ScaffoldMessenger.of(
+          ctx,
+        ).showSnackBar(const SnackBar(content: Text('Audio note saved')));
       }
     } catch (e) {
       if (ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text('Audio upload failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          ctx,
+        ).showSnackBar(SnackBar(content: Text('Audio upload failed: $e')));
       }
     }
   }
@@ -537,7 +566,9 @@ class _ReminderListenerState extends State<ReminderListener> {
       );
       if (messengerContext != null && messengerContext.mounted) {
         ScaffoldMessenger.of(messengerContext).showSnackBar(
-          SnackBar(content: Text('Snoozed for ${_formatSnooze(event.duration)}')),
+          SnackBar(
+            content: Text('Snoozed for ${_formatSnooze(event.duration)}'),
+          ),
         );
       }
     } catch (e) {

@@ -63,6 +63,9 @@ class _FakeSecureStorage implements SecureStorage {
   Future<void> deleteEncryptionPassword() async => _values.remove('encryption_password');
 
   @override
+  Future<void> deleteMasterKey() async => _values.remove('master_key');
+
+  @override
   Future<String?> readAccessToken() async => null;
 
   @override
@@ -70,6 +73,9 @@ class _FakeSecureStorage implements SecureStorage {
 
   @override
   Future<String?> readEncryptionPassword() async => _values['encryption_password'];
+
+  @override
+  Future<String?> readMasterKey() async => _values['master_key'];
 
   @override
   Future<void> writeAccessToken(String token) async {}
@@ -80,6 +86,10 @@ class _FakeSecureStorage implements SecureStorage {
   @override
   Future<void> writeEncryptionPassword(String password) async =>
       _values['encryption_password'] = password;
+
+  @override
+  Future<void> writeMasterKey(String base64Key) async =>
+      _values['master_key'] = base64Key;
 }
 
 class _AlwaysOkBiometricHelper extends BiometricHelper {

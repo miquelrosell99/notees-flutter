@@ -21,6 +21,7 @@ import '../../../domain/services/local_asset_store.dart';
 import '../../../domain/services/local_workspace_seed.dart';
 import '../../../domain/services/onboarding_service.dart';
 import '../../../domain/services/sync_v2_service.dart';
+import '../../home/providers/sync_status_provider.dart';
 
 /// Exposes the current server, authenticated user, and auth operations.
 class AuthProvider extends ChangeNotifier {
@@ -28,11 +29,13 @@ class AuthProvider extends ChangeNotifier {
     required this.serverRepository,
     required this.secureStorage,
     required this.prefs,
-  });
+    SyncStatusProvider? syncStatus,
+  }) : _syncStatus = syncStatus ?? SyncStatusProvider();
 
   final ServerRepository serverRepository;
   final SecureStorage secureStorage;
   final SharedPreferences prefs;
+  final SyncStatusProvider _syncStatus;
 
   ServerProfile? _activeServer;
   User? _user;
@@ -65,6 +68,10 @@ class AuthProvider extends ChangeNotifier {
   Dio? get dio => _dio;
   SyncV2Service? get syncService => _syncService;
   bool get onboardingCompleted => _onboardingCompleted;
+
+  /// Drives the bootstrap "Catching up…" overlay for workspace-entry pulls
+  /// (provided above the app shell in `app.dart`).
+  SyncStatusProvider get syncStatus => _syncStatus;
 
   /// The active workspace id for the current server+account session, or null
   /// when none is selected (the management view picks up from there). This
@@ -156,6 +163,14 @@ class AuthProvider extends ChangeNotifier {
           // but never completed sign-in), fall back to the local session so
           // local data stays reachable until a successful login adopts it.
           await _restoreLocalSessionIfPresent();
+        } else {
+          // A stored-token session carries no kdf record, so re-hydrate the
+          // persisted master key BEFORE workspace resolution (mirroring the
+          // web client's boot restore): a signed-in app start must not
+          // re-prompt for the password to unlock encrypted workspaces.
+          // Silent no-op when nothing is stored; harmless double-restore on
+          // the login/2FA path, which fills the slot only when empty.
+          await restoreMasterKeyFromStorage();
         }
         _applyActorId();
         await _resolveActiveWorkspace();
@@ -347,12 +362,25 @@ class AuthProvider extends ChangeNotifier {
 
   /// Fire-and-forget convergence pull after entering a workspace (the web
   /// client's connect() syncs on entry); errors stay with the sync layer's
-  /// normal surfacing.
+  /// normal surfacing. The FIRST pull after a workspace session begins
+  /// drives the "Catching up…" overlay (the web client's ConnectingScreen):
+  /// progress events forward into [SyncStatusProvider], and the overlay is
+  /// ended on completion, on failure, and via the provider's timeout
+  /// backstop — later catch-ups outside this path stay silent.
   void _kickWorkspacePull() {
     final sync = _syncService;
     if (sync == null) return;
-    unawaited(sync.pull().catchError(
-        (Object e) => debugPrint('AuthProvider: workspace pull failed: $e')));
+    final status = _syncStatus;
+    sync.onPullProgress = (progress) =>
+        status.updateProgress(progress.applied, progress.total);
+    status.beginCatchUp();
+    unawaited(
+      sync
+          .pull()
+          .catchError((Object e) =>
+              debugPrint('AuthProvider: workspace pull failed: $e'))
+          .whenComplete(status.endCatchUp),
+    );
   }
 
   void _clearWorkspaceState() {
@@ -620,8 +648,9 @@ class AuthProvider extends ChangeNotifier {
       _clearWorkspaceState();
       _applyActorId();
       _twoFactorChallenge = null;
-      // E2EE custody is memory-only: sign-out drops the master key and
-      // every workspace key (the sync service re-locks).
+      // E2EE custody: sign-out drops the master key and every workspace key
+      // (the sync service re-locks) and deletes the persisted master-key
+      // record — session end reverts to the password.
       clearCryptoCustody();
       _syncService?.workspaceKey = null;
       await _applyRealtimeSession();

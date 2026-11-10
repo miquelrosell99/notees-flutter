@@ -215,13 +215,13 @@ class AuthRepository {
     // login-level error, never a silent keyless session (and the token is
     // not persisted for a session that failed custody). A passwordless
     // token response (2FA-completed challenge, session reload) never
-    // derives a master: it drops any previous account's custody so a stale
-    // master slot can't serve the new session (the slot records no user
-    // identity; fresh launch is the dominant case and a same-session
-    // password sign-in re-derives). Keyless operator setups simply never
-    // install a master: every workspace stays in the locked semantic
-    // (remote `$e` envelopes skip with a counted warning, local writes stay
-    // plaintext) until a password sign-in derives the master.
+    // derives a master: it attempts to re-hydrate the persisted record so
+    // the signed-in session keeps its workspaces unlocked across app
+    // restarts (mirroring the web client's restore at boot; silent when
+    // nothing is stored). Keyless operator setups simply never install a
+    // master: every workspace stays in the locked semantic (remote `$e`
+    // envelopes skip with a counted warning, local writes stay plaintext)
+    // until a password sign-in derives the master.
     final kdf = data['kdf'];
     if (password != null && kdf is Map<String, dynamic>) {
       try {
@@ -230,7 +230,7 @@ class AuthRepository {
         throw AuthException(e.message);
       }
     } else if (password == null || kdf == null) {
-      clearCryptoCustody();
+      await restoreMasterKeyFromStorage();
     }
 
     secureStorage.writeAccessToken(accessToken);

@@ -1,24 +1,34 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:cryptography/cryptography.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../data/repositories/relay_client.dart';
 import '../../domain/models/relay/payload_crypto.dart';
+import '../secure/secure_storage.dart';
 
 /// Crypto custody — client-side key custody for the E2EE boundary
 /// (`apps/web/src/core/crypto-custody.ts` port).
 ///
 /// The account master key lives in a module-level single slot (one account
 /// per session), unwrapped from the login response's kdf record at auth
-/// time. Raw workspace keys live ONLY in this module's in-memory cache
-/// (never `flutter_secure_storage` — the web client's memory-only threat
-/// model) and are cleared on sign-out. [ensureWorkspaceKey] fetches the
-/// wrapped key (unwrap) or generates + wraps + stores one (404), returning
-/// the workspace key for the sync service's boundary setter.
+/// time — and PERSISTED at derive time in OS-keystore-backed secure storage
+/// (the `master_key` record, mirroring the web client's IndexedDB
+/// `notees-custody` persistence; owner decision 2026-11-04, replacing the
+/// earlier memory-only ruling so a signed-in session survives an app
+/// restart without re-unlocking). Raw workspace keys stay memory-only and
+/// are cleared on sign-out. [ensureWorkspaceKey] fetches the wrapped key
+/// (unwrap) or generates + wraps + stores one (404), returning the
+/// workspace key for the sync service's boundary setter.
 ///
 /// A session whose sign-in carries no kdf record (keyless operator setups)
 /// simply never installs a master: every workspace stays in the locked
 /// semantic (remote `$e` envelopes skip with a counted warning, local
-/// writes stay plaintext) until a password sign-in derives the master.
+/// writes stay plaintext) until a password sign-in derives the master. A
+/// session restored from a stored token attempts [restoreMasterKeyFromStorage]
+/// to re-hydrate the persisted master; the restore is silent on absence.
 
 SecretKey? _masterKey;
 
@@ -33,6 +43,86 @@ final _workspaceKeys = <String, SecretKey>{};
 /// share ONE flight (first write wins server-side, so they converge on the
 /// same key instead of racing two PUTs).
 final _inFlightEnsures = <String, Future<SecretKey>>{};
+
+/// The expected raw master-key length; a persisted record of any other size
+/// is corrupt and restore skips it.
+const _masterKeyLength = 32;
+
+/// Injectable persistence seam for the derived account master key —
+/// the counterpart of the web client's `MasterKeyStore`
+/// (`apps/web/src/core/master-key-storage.ts`). Tests inject an in-memory
+/// fake (`flutter_secure_storage` is unimplemented on the Dart VM).
+abstract class MasterKeyStore {
+  Future<void> write(Uint8List keyBytes);
+  Future<Uint8List?> read();
+  Future<void> delete();
+}
+
+/// The default [MasterKeyStore]: the raw 32 key bytes base64-encoded under
+/// the `master_key` record of the OS-keystore-backed secure storage. Read
+/// failures (missing plugin, corrupt base64) surface as null.
+class SecureStorageMasterKeyStore implements MasterKeyStore {
+  SecureStorageMasterKeyStore([this._storage = const SecureStorage()]);
+
+  final SecureStorage _storage;
+
+  @override
+  Future<void> write(Uint8List keyBytes) =>
+      _storage.writeMasterKey(base64Encode(keyBytes));
+
+  @override
+  Future<Uint8List?> read() async {
+    final encoded = await _storage.readMasterKey();
+    if (encoded == null) return null;
+    try {
+      return base64Decode(encoded);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> delete() => _storage.deleteMasterKey();
+}
+
+MasterKeyStore? _defaultStore;
+
+/// Test injection seam, mirroring the web client's
+/// `setMasterKeyStoreForTests`: [store] replaces the default (null models an
+/// unavailable store), `null` with [reset] restores the default.
+MasterKeyStore? _injectedStore;
+bool _storeInjected = false;
+
+@visibleForTesting
+void setMasterKeyStoreForTests(MasterKeyStore? store, {bool reset = false}) {
+  if (reset) {
+    _storeInjected = false;
+    _injectedStore = null;
+    return;
+  }
+  _storeInjected = true;
+  _injectedStore = store;
+}
+
+MasterKeyStore? _resolveStore() {
+  if (_storeInjected) return _injectedStore;
+  return _defaultStore ??= SecureStorageMasterKeyStore();
+}
+
+/// Warn-once flag for the best-effort persist: a failed write logs a single
+/// warning (the memory-only fallback and the locked banner cover it, same
+/// as the web client's bounded persist).
+bool _persistWarned = false;
+
+/// Drops the in-memory slot WITHOUT touching the persisted record — a test
+/// hook that models an app restart (the persisted record survives; the
+/// module state does not).
+@visibleForTesting
+void resetInMemoryCustodyForTests() {
+  _masterKey = null;
+  _activeWorkspaceId = null;
+  _workspaceKeys.clear();
+}
 
 /// Whether this session holds an account master key.
 bool get hasMasterKey => _masterKey != null;
@@ -56,7 +146,11 @@ SecretKey? get activeWorkspaceKey {
 /// Unwraps the account master key from the login kdf record and holds it in
 /// the session slot, replacing any previous account's key. Throws
 /// [StateError] at the verifier on a wrong password — the failure surfaces
-/// as a login error, never a silent unencrypted session.
+/// as a login error, never a silent unencrypted session. The raw key bytes
+/// are persisted fire-and-forget so a later app start within the signed-in
+/// session re-hydrates silently (mirroring the web client's derive-time
+/// persist); the write never blocks the caller and a failure only logs,
+/// warn-once.
 Future<SecretKey> deriveMasterKey(
   String password,
   Map<String, dynamic> kdfJson,
@@ -64,15 +158,56 @@ Future<SecretKey> deriveMasterKey(
   final key = await unwrapMasterKey(password, KdfRecord.fromJson(kdfJson));
   _masterKey = key;
   _workspaceKeys.clear();
+  unawaited(_persistMasterKey(key));
   return key;
 }
 
-/// Drops the session's master key and every raw workspace key (sign-out, or
-/// a sign-in whose response carries no kdf record).
+Future<void> _persistMasterKey(SecretKey key) async {
+  final store = _resolveStore();
+  if (store == null) return;
+  try {
+    await store.write(Uint8List.fromList(await key.extractBytes()));
+  } catch (e) {
+    if (!_persistWarned) {
+      _persistWarned = true;
+      debugPrint('crypto_custody: master key not persisted — app restarts '
+          'will ask for the password again: $e');
+    }
+  }
+}
+
+/// Re-hydrates the master key slot from the persisted record (app start
+/// with a stored session token, a 2FA-completed challenge, or a keyless
+/// token response). Fully silent: no record, an unavailable store, or a
+/// corrupt read all leave the slot untouched — the locked workspace refusal
+/// and the unlock re-prompt cover the outcome. Only fills the slot when it
+/// is empty; returns whether the slot now holds a key.
+Future<bool> restoreMasterKeyFromStorage() async {
+  if (_masterKey != null) return true;
+  final store = _resolveStore();
+  if (store == null) return false;
+  try {
+    final bytes = await store.read();
+    if (bytes == null || bytes.length != _masterKeyLength) return false;
+    _masterKey = SecretKey(bytes);
+    _workspaceKeys.clear();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Drops the session's master key and every raw workspace key (sign-out,
+/// server switch, a rejected credential) and deletes the persisted record —
+/// session end reverts to the password, mirroring the web client's
+/// `clearCryptoCustody`. The deletion is best-effort fire-and-forget.
 void clearCryptoCustody() {
   _masterKey = null;
   _activeWorkspaceId = null;
   _workspaceKeys.clear();
+  final store = _resolveStore();
+  if (store == null) return;
+  unawaited(store.delete().catchError((Object _) {}));
 }
 
 /// The workspace's raw key: fetch + unwrap when the server holds a wrapped
@@ -185,9 +320,10 @@ class WorkspaceKeyResolution {
 ///   non-HTTP original error (a crypto/unwrap failure) also reports locked,
 ///   so an open never degrades silently without the sign-in guidance. An
 ///   HTTP failure with no stored key is genuinely keyless.
-/// - No master key (a reloaded / 2FA-completed session — custody is
-///   memory-only): the wrapped-key row needs only membership, not the
-///   master — a row means locked, no row means keyless.
+/// - No master key (a keyless operator session, or a restored session whose
+///   persisted master key was absent/corrupt): the wrapped-key row needs
+///   only membership, not the master — a row means locked, no row means
+///   keyless.
 ///
 /// Flutter sessions are always user (session-token) sessions; the web's
 /// API-key-session arm (the workspaces listing's `encrypted` flag, the key

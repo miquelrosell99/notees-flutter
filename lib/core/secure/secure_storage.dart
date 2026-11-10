@@ -37,4 +37,16 @@ class SecureStorage {
 
   Future<void> deleteEncryptionPassword() =>
       _storage.delete(key: _encryptionPasswordKey);
+
+  static const _masterKeyKey = 'master_key';
+
+  /// The persisted account master key (base64 of the raw 32 key bytes) —
+  /// the OS-keystore-backed counterpart of the web client's IndexedDB
+  /// `notees-custody` record. Deleted at every session end.
+  Future<void> writeMasterKey(String base64Key) =>
+      _storage.write(key: _masterKeyKey, value: base64Key);
+
+  Future<String?> readMasterKey() => _storage.read(key: _masterKeyKey);
+
+  Future<void> deleteMasterKey() => _storage.delete(key: _masterKeyKey);
 }

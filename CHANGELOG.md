@@ -8,6 +8,32 @@ lives in git history.
 
 ## 2026-11-10
 
+- **feat(auth,sync): persistent master-key custody + the "Catching up…"
+  overlay — two web-parity convergences.** (1) The account master key is no
+  longer memory-only: `deriveMasterKey` persists the raw 32 key bytes
+  (base64, best-effort fire-and-forget, warn-once) to OS-keystore-backed
+  secure storage under a new `master_key` record — the counterpart of the web
+  client's IndexedDB `notees-custody` persistence (owner decision
+  2026-11-04). A stored-token session now restores the master silently
+  (`restoreMasterKeyFromStorage`) at boot before workspace resolution, and
+  the passwordless token-response branch (2FA-completed challenge) attempts
+  the same restore instead of dropping custody, so starting the app within a
+  signed-in session no longer re-prompts for the password to unlock
+  encrypted workspaces. Session end still reverts to the password:
+  `clearCryptoCustody` (sign-out, server switch, local-mode entry) also
+  deletes the persisted record. Raw workspace keys stay memory-only. The
+  store sits behind an injectable `MasterKeyStore` seam so tests run an
+  in-memory fake. (2) The first convergence pull after a workspace session
+  begins now shows a full-screen "Catching up…" overlay (the web client's
+  `ConnectingScreen`): opaque surface with the app mark, the floored
+  "Catching up… N%" label and a determinate bar while pull progress events
+  flow, plain indeterminate label otherwise. `SyncStatusProvider` drives it —
+  `beginCatchUp`/`updateProgress`/`endCatchUp` — wired from the
+  workspace-entry pull in `AuthProvider`, ended on completion, failure, and a
+  60s safety-net timeout; later catch-ups outside that path stay silent.
+  Scoped gates green (`crypto_custody`, `auth_unlock`, `sync_v2_pull`, the
+  new sync-status/overlay tests); `flutter analyze` clean.
+
 - **feat(home,routing): the bottom-bar Cards tab is gone — a drag-pill
   more-sheet takes its place.** The bottom navigation bar drops to four tabs
   (Home, Tasks, Journal, Library) plus Search, and a grab-pill stacked on the
