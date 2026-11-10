@@ -11,6 +11,9 @@ import 'package:notees/features/auth/providers/auth_provider.dart';
 import 'package:notees/features/cards/screens/cards_screen.dart';
 import 'package:notees/features/cards/screens/review_session_screen.dart';
 import 'package:notees/features/home/screens/main_shell_screen.dart';
+import 'package:notees/features/editor/screens/journal_continuous_screen.dart';
+import 'package:notees/features/home/screens/home_screen.dart';
+import 'package:notees/features/library/screens/library_screen.dart';
 import 'package:notees/features/settings/providers/settings_provider.dart';
 import 'package:notees/features/tasks/screens/tasks_screen.dart';
 import 'package:provider/provider.dart';
@@ -35,7 +38,7 @@ void main() {
         prefs: prefs,
       );
 
-  Widget appWithShell({int initialIndex = 2}) {
+  Widget appWithShell({int initialIndex = 0}) {
     final auth = fakeAuth();
     return ChangeNotifierProvider<AuthProvider>.value(
       value: auth,
@@ -47,12 +50,15 @@ void main() {
   }
 
   group('main shell navigation', () {
-    testWidgets('Cards is the third destination; tapping switches tabs',
+    testWidgets('Cards is gone; four destinations plus Search, indices remapped',
         (tester) async {
-      await tester.pumpWidget(appWithShell(initialIndex: 2));
+      // A narrow surface (400x600 logical) drives the NavigationBar branch.
+      tester.view.physicalSize = const Size(1200.0, 1800.0);
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(appWithShell());
       await tester.pump();
 
-      // Five destinations + the Search action, in order.
       final labels = tester
           .widgetList<Text>(find.byWidgetPredicate(
               (widget) => widget is Text && widget.data != null))
@@ -61,49 +67,60 @@ void main() {
       final navLabels = [
         'Home',
         'Tasks',
-        'Cards',
         'Journal',
         'Library',
         'Search',
       ].where(labels.contains).toList();
-      expect(navLabels, ['Home', 'Tasks', 'Cards', 'Journal', 'Library', 'Search']);
+      expect(navLabels, ['Home', 'Tasks', 'Journal', 'Library', 'Search']);
+      expect(find.text('Cards'), findsNothing);
 
-      // The Cards tab is active (the hub placeholder builds).
-      expect(find.byType(CardsScreen), findsOneWidget);
-      expect(find.text('Cards'), findsWidgets);
-
-      // Switch to Tasks and back.
+      // The remapped indices: Tasks 1, Journal 2, Library 3.
       await tester.tap(find.text('Tasks'));
       await tester.pump();
       expect(find.byType(TasksScreen), findsOneWidget);
 
-      await tester.tap(find.text('Cards'));
+      await tester.tap(find.text('Journal'));
       await tester.pump();
-      expect(find.byType(CardsScreen), findsOneWidget);
+      expect(find.byType(JournalContinuousScreen), findsOneWidget);
+
+      await tester.tap(find.text('Library'));
+      await tester.pump();
+      expect(find.byType(LibraryScreen), findsOneWidget);
+    });
+
+    testWidgets('a stale out-of-range initialIndex falls back to Home',
+        (tester) async {
+      tester.view.physicalSize = const Size(1200.0, 1800.0);
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(appWithShell(initialIndex: 4));
+      await tester.pump();
+
+      expect(find.byType(HomeScreen), findsOneWidget);
     });
 
     testWidgets('the rail path renders the same five destinations',
         (tester) async {
       // Default test surface (800x600 logical) drives the NavigationRail branch.
-      await tester.pumpWidget(appWithShell(initialIndex: 2));
+      await tester.pumpWidget(appWithShell());
       await tester.pump();
 
       final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
-      expect(rail.destinations.length, 6); // five + Search
+      expect(rail.destinations.length, 5); // four + Search
       expect(find.byType(NavigationBar), findsNothing);
     });
 
-    testWidgets('the bar path renders the same five destinations',
+    testWidgets('the bar path renders five destinations',
         (tester) async {
       // A narrow surface (400x600 logical) drives the NavigationBar branch.
       tester.view.physicalSize = const Size(1200.0, 1800.0);
       addTearDown(tester.view.resetPhysicalSize);
 
-      await tester.pumpWidget(appWithShell(initialIndex: 2));
+      await tester.pumpWidget(appWithShell());
       await tester.pump();
 
       final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
-      expect(bar.destinations.length, 6); // five + Search
+      expect(bar.destinations.length, 5); // four + Search
       expect(find.byType(NavigationRail), findsNothing);
     });
   });

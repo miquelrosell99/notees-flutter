@@ -250,7 +250,7 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       ),
       GoRoute(
         path: Routes.library,
-        builder: (context, state) => const MainShellScreen(initialIndex: 4),
+        builder: (context, state) => const MainShellScreen(initialIndex: 3),
       ),
       GoRoute(
         path: Routes.cards,
