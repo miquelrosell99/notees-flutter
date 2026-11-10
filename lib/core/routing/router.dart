@@ -7,6 +7,7 @@ import '../api/error_reporter.dart';
 import '../../data/repositories/node_repository.dart';
 import '../../domain/models/search_filters.dart';
 import '../../features/auth/providers/auth_provider.dart';
+import '../../features/cards/screens/cards_screen.dart';
 import '../../features/cards/screens/review_session_screen.dart';
 import '../../features/settings/screens/about_screen.dart';
 import '../../features/auth/screens/api_keys_screen.dart';
@@ -254,7 +255,10 @@ GoRouter createRouter({required AuthProvider authProvider}) {
       ),
       GoRoute(
         path: Routes.cards,
-        builder: (context, state) => const MainShellScreen(initialIndex: 2),
+        pageBuilder: (context, state) => _pushTransitionPage(
+          key: state.pageKey,
+          child: const CardsScreen(),
+        ),
       ),
       GoRoute(
         path: Routes.cardsReview,

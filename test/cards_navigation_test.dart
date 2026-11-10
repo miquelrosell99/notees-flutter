@@ -147,12 +147,13 @@ void main() {
       return router;
     }
 
-    testWidgets('/cards lands on the shell with the Cards tab active',
+    testWidgets('/cards builds the hub as a pushed page (no shell)',
         (tester) async {
       final auth = fakeAuth();
       await pumpRouter(tester, auth: auth, location: Routes.cards);
 
       expect(find.byType(CardsScreen), findsOneWidget);
+      expect(find.byType(MainShellScreen), findsNothing);
     });
 
     testWidgets('/cards/review without a hand-off falls back (member resolve fails loud-safe)',
