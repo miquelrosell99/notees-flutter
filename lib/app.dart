@@ -17,6 +17,7 @@ import './core/theme/theme_builder.dart';
 import './core/theme/theme_provider.dart';
 import './data/repositories/node_repository.dart';
 import './data/repositories/server_repository.dart';
+import './domain/services/pending_asset_service.dart';
 import './domain/services/quick_capture.dart';
 import './native/app_locker.dart';
 import './native/background_sync.dart';
@@ -490,14 +491,20 @@ class _AudioNoteTileListenerState extends State<AudioNoteTileListener> {
     if (!ctx.mounted) return;
 
     try {
-      await QuickCaptureService(
+      final outcome = await QuickCaptureService(
         dio: auth.dio!,
         syncService: auth.syncService,
       ).uploadAsset(file, parentUuid: parentUuid);
       if (ctx.mounted) {
-        ScaffoldMessenger.of(
-          ctx,
-        ).showSnackBar(const SnackBar(content: Text('Audio note saved')));
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(
+            content: Text(
+              outcome == AssetUploadOutcome.queued
+                  ? 'Audio note saved — uploads when back online'
+                  : 'Audio note saved',
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (ctx.mounted) {

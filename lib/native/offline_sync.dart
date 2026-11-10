@@ -10,6 +10,7 @@ import '../core/api/error_reporter.dart';
 import '../core/secure/encryption_provider.dart';
 import '../data/local/app_database.dart';
 import '../domain/services/offline_queue.dart';
+import '../domain/services/pending_asset_service.dart';
 import '../domain/services/sync_v2_service.dart';
 
 /// Watches connectivity and app lifecycle and drains the offline queue when
@@ -89,6 +90,19 @@ class _OfflineSyncState extends State<OfflineSync> with WidgetsBindingObserver {
         errors.addAll(syncErrors);
       } catch (e) {
         errors.add('Sync error: $e');
+      }
+      // Foreground drain of the background-asset queue: the flush above
+      // pushed (and locally echoed) any outbox blocks, so attach targets
+      // exist server-side. Runs before the pull, matching the worker order.
+      try {
+        final assetErrors = await PendingAssetService(
+          database: AppDatabase(),
+          dio: widget.dio,
+          syncService: widget.syncService,
+        ).drain();
+        errors.addAll(assetErrors);
+      } catch (e) {
+        errors.add('Pending uploads error: $e');
       }
       try {
         await widget.syncService!.pull();

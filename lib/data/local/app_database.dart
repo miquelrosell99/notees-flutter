@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 44,
+          version: 45,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 44,
+      version: 45,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -272,6 +272,44 @@ class AppDatabase {
     if (oldVersion < 44) {
       await _migrateV44(db);
     }
+    if (oldVersion < 45) {
+      await _createPendingAsset(db);
+    }
+  }
+
+  /// v45 — the background-asset upload queue (mobile-specific reliability
+  /// layer; the web client uploads inline with no queue — a failed upload
+  /// there drops the file). One row per captured file awaiting upload +
+  /// attach; files live under the app-documents pending-assets directory
+  /// ([PendingAssetService] owns the lifecycle). Sealing happens at DRAIN
+  /// time (the foreground session's workspace key, or custody restored in
+  /// the background isolate), so rows store the plaintext capture and the
+  /// sealed/iv columns are unused today — reserved for a future
+  /// seal-at-enqueue optimization. `next_attempt_at` schedules the
+  /// exponential backoff (attach 4xx defers to the next round).
+  Future<void> _createPendingAsset(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS pending_asset (
+        id TEXT PRIMARY KEY,
+        local_path TEXT NOT NULL,
+        node_uuid TEXT,
+        parent_uuid TEXT,
+        mime TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        sealed INTEGER NOT NULL DEFAULT 0,
+        iv TEXT,
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        state TEXT NOT NULL DEFAULT 'pending',
+        created_at INTEGER NOT NULL,
+        last_attempt_at INTEGER,
+        next_attempt_at INTEGER
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_pending_asset_drain ON pending_asset(state, next_attempt_at, created_at)',
+    );
   }
 
   /// v31 — the property-scope + per-block list-style batch (2026-10-20
@@ -1913,6 +1951,7 @@ class AppDatabase {
     await _migrateV42(db);
     await _migrateV43(db);
     await _migrateV44(db);
+    await _createPendingAsset(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

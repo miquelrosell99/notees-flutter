@@ -10,6 +10,7 @@ import '../../../core/constants/capture_types.dart';
 import '../../../core/constants/system.dart';
 import '../../../core/utils/color_presets.dart';
 import '../../../data/repositories/node_repository.dart';
+import '../../../domain/services/pending_asset_service.dart';
 import '../../../domain/services/quick_capture.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../home/providers/connectivity_provider.dart';
@@ -194,14 +195,22 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
         color: _selectedColor,
       );
 
-      await QuickCaptureService(
+      final outcome = await QuickCaptureService(
         dio: auth.dio!,
         syncService: auth.syncService,
       ).uploadAsset(_imageFile!, parentUuid: block.uuid);
 
       if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
         Navigator.of(context).pop();
         widget.onSaved?.call();
+        if (outcome == AssetUploadOutcome.queued) {
+          messenger.showSnackBar(
+            const SnackBar(
+              content: Text('Photo saved — uploads when back online'),
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -258,7 +267,7 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
 
     setState(() => _isSaving = true);
     try {
-      await QuickCaptureService(
+      final outcome = await QuickCaptureService(
         dio: auth.dio!,
         syncService: auth.syncService,
       ).uploadAsset(
@@ -266,8 +275,16 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
         existingNodeUuid: page.uuid,
       );
       if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
         Navigator.of(context).pop();
         widget.onSaved?.call();
+        if (outcome == AssetUploadOutcome.queued) {
+          messenger.showSnackBar(
+            const SnackBar(
+              content: Text('Image saved — uploads when back online'),
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -287,13 +304,21 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
       color: _selectedColor,
       parentUuid: parentUuid,
     );
-    await QuickCaptureService(
+    final outcome = await QuickCaptureService(
       dio: auth.dio!,
       syncService: auth.syncService,
     ).uploadAsset(_imageFile!, parentUuid: block.uuid);
     if (mounted) {
+      final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
       widget.onSaved?.call();
+      if (outcome == AssetUploadOutcome.queued) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Image saved — uploads when back online'),
+          ),
+        );
+      }
     }
   }
 
@@ -315,13 +340,21 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
     try {
       final parentUuid = await _resolveParentUuid(auth, destination);
       if (!mounted) return;
-      await QuickCaptureService(
+      final outcome = await QuickCaptureService(
         dio: auth.dio!,
         syncService: auth.syncService,
       ).uploadAsset(file, parentUuid: parentUuid ?? SystemPageUuids.inbox);
       if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
         Navigator.of(context).pop();
         widget.onSaved?.call();
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(outcome == AssetUploadOutcome.queued
+                ? 'Audio note saved — uploads when back online'
+                : 'Audio note saved'),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {

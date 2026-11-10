@@ -3,6 +3,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:dio/dio.dart';
 import 'package:path/path.dart' as p;
 
@@ -85,25 +86,47 @@ class AssetRepository {
     File file, {
     String? parentUuid,
     String? existingNodeUuid,
+  }) {
+    return uploadPath(
+      file.path,
+      parentUuid: parentUuid,
+      existingNodeUuid: existingNodeUuid,
+      sealKey: activeWorkspaceKey,
+    );
+  }
+
+  /// File-path variant of [uploadFile]: the plaintext arm streams the file
+  /// from disk (never a whole-file read — the background-asset queue drains
+  /// captures up to the server caps); the keyed arm seals single-shot (GCM
+  /// necessarily buffers) and uploads the sealed bytes. Explicit [mimeType]/
+  /// [originalName] override the path-derived values (queue rows carry the
+  /// capture-time values).
+  Future<Asset> uploadPath(
+    String path, {
+    String? parentUuid,
+    String? existingNodeUuid,
+    String? mimeType,
+    String? originalName,
+    SecretKey? sealKey,
   }) async {
     final objectId = existingNodeUuid ?? parentUuid;
+    final mime = mimeType ?? LocalAssetService.mimeTypeForPath(path);
+    final name = originalName ?? p.basename(path);
     final fields = <String, dynamic>{
       if (objectId != null) 'objectId': objectId,
     };
-    final key = activeWorkspaceKey;
     late final MultipartFile part;
-    if (key == null) {
-      part = await MultipartFile.fromFile(file.path);
+    if (sealKey == null) {
+      part = await MultipartFile.fromFile(path, filename: name);
     } else {
-      final plain = await file.readAsBytes();
-      final sealed = await encryptAssetBytes(key, plain);
-      final mime = LocalAssetService.mimeTypeForPath(file.path);
+      final plain = await File(path).readAsBytes();
+      final sealed = await encryptAssetBytes(sealKey, plain);
       fields['encrypted'] = '1';
       fields['mimeType'] = mime;
       fields['iv'] = b64uEncode(sealed.iv);
       part = MultipartFile.fromBytes(
         sealed.blob,
-        filename: p.basename(file.path),
+        filename: name,
         contentType: DioMediaType.parse(mime),
       );
     }

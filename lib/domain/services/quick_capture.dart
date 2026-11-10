@@ -11,6 +11,7 @@ import '../../data/repositories/asset_repository.dart';
 import '../../data/repositories/node_repository.dart';
 import '../../features/settings/providers/settings_provider.dart';
 import './local_asset_store.dart';
+import './pending_asset_service.dart';
 import './sync_v2_service.dart';
 
 /// Saves a quick note, falling back to the offline queue when there is no
@@ -77,7 +78,14 @@ class QuickCaptureService {
   /// In local (serverless) mode the bytes go to the on-device
   /// [LocalAssetStore] and the canonical asset ops are emitted locally, so a
   /// later server attach replays them.
-  Future<void> uploadAsset(
+  ///
+  /// Server mode: uploads inline when online; on offline or a failed upload
+  /// the file is persisted into the [PendingAssetService] queue instead of
+  /// being dropped (the mobile-specific reliability layer — the web client
+  /// has no queue) and `queued` is returned so callers surface "uploads when
+  /// back online". Over-cap captures and un-enqueueable failures still
+  /// throw to the caller's error path.
+  Future<AssetUploadOutcome> uploadAsset(
     File file, {
     String? parentUuid,
     String? existingNodeUuid,
@@ -89,13 +97,33 @@ class QuickCaptureService {
         parentUuid: parentUuid,
         existingNodeUuid: existingNodeUuid,
       );
-      return;
+      return AssetUploadOutcome.uploaded;
     }
-    await AssetRepository(dio: dio).uploadFile(
-      file,
-      parentUuid: parentUuid,
-      existingNodeUuid: existingNodeUuid,
-    );
+    if (!await _isOnline()) {
+      await PendingAssetService(
+        database: _database,
+        dio: dio,
+        syncService: sync,
+      ).enqueue(file, nodeUuid: existingNodeUuid, parentUuid: parentUuid);
+      return AssetUploadOutcome.queued;
+    }
+    try {
+      await AssetRepository(dio: dio).uploadFile(
+        file,
+        parentUuid: parentUuid,
+        existingNodeUuid: existingNodeUuid,
+      );
+      return AssetUploadOutcome.uploaded;
+    } on DioException {
+      // Transient server/network failure: queue for the background drain
+      // instead of dropping the capture.
+      await PendingAssetService(
+        database: _database,
+        dio: dio,
+        syncService: sync,
+      ).enqueue(file, nodeUuid: existingNodeUuid, parentUuid: parentUuid);
+      return AssetUploadOutcome.queued;
+    }
   }
 
   Future<int> pendingCount() async {

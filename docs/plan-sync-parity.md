@@ -59,6 +59,16 @@ network-gate matrix, settings persistence. Update gap-analysis row 36.
 
 ## Slice B — background asset uploads (mobile goes beyond web)
 
+> Landed 2026-11-10 (working tree; uncommitted): `pending_asset` queue (schema
+> v45), capture-path enqueue on offline/failure with server caps at enqueue,
+> drain after flush/before pull in the 15-min worker and OfflineSync,
+> attach-4xx retry-next-round, 5xx exponential backoff, dead-letter after 6
+> with a Settings → Sync surface, file-streamed uploads, defensive
+> background custody (secure-storage-in-isolate unverified). Deviation from
+> the plan's letter: sealing happens at DRAIN time (not enqueue), so the
+> schema's `sealed`/`iv` columns stay reserved; backoff schedules via a
+> `next_attempt_at` column added to the planned list.
+
 Web uploads assets inline, one attempt, no queue (asset-transport.ts) — a
 failed upload drops the file. Mobile matches that today
 (`AssetRepository.uploadFile`, foreground inline; offline capture drops

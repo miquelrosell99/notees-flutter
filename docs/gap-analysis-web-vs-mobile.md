@@ -35,7 +35,7 @@ The Flutter app now matches the Android product description for a **capture-firs
 | Restore-epoch detection | ✅ | ✅ | Parity | Implemented in sync service. |
 | Snapshot upload | ✅ | ✅ | Parity | Auto-upload at the end of a successful pull (`maybeUploadSnapshot` parity), gated to unmetered connections by default with a Settings selector; the upload pipeline is file-based (streamed single PUT / multipart parts read from disk), covering HLC = received watermark. |
 | Real-time WebSocket sync | Experimental / optional | ❌ | Missing | Mobile is pull/push only. |
-| Asset / attachment uploads | ✅ | Partial | Partial | Share receiver handles images; full asset block support unclear. |
+| Asset / attachment uploads | ✅ | ✅ | Mobile ahead | Web uploads inline, one attempt, no queue — a failed upload drops the file. Mobile queues captures (offline or failed) in a `pending_asset` table and drains them in the 15-min worker and on connectivity restore, with attach-retry, backoff, dead-letter + Settings surface. |
 
 **Verdict:** Sync is functionally aligned. The remaining gap is full derived-state rebuild and real-time presence, both of which are acceptable for a phone MVP.
 

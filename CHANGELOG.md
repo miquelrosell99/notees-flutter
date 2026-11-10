@@ -8,6 +8,37 @@ lives in git history.
 
 ## 2026-11-10
 
+- **feat(capture,sync): background asset uploads — the `pending_asset` queue,
+  a mobile-specific reliability layer with no web equivalent** (the web
+  client uploads inline, one attempt, no queue: asset-transport.ts — a
+  failed upload there drops the file; mobile matched that failure mode until
+  now). Captures (photos, shared images, audio) that fail to upload — or are
+  taken offline — now persist into a new `pending_asset` table (schema v45:
+  file path under the app-documents pending-assets dir, target node/parent,
+  mime, size, retry state, backoff schedule) and drain automatically instead
+  of dropping: Settings → Sync shows "Pending uploads" (waiting/failed
+  counts) with a dead-letter sheet (retry-now / discard). The drain runs in
+  the 15-min WorkManager task after flush, before pull (attach targets exist
+  server-side; `NetworkType.connected` unchanged, the SQLCipher skip covers
+  it like all local-DB work) and in the foreground on connectivity restore /
+  app start via OfflineSync. State machine per row: target node not yet
+  synced → defer to the next round; attach 4xx (node missing server-side) →
+  retry next round, no backoff; upload 5xx/network → exponential backoff via
+  `next_attempt_at`; 6 attempts → `failed` dead letter. Server caps (50 MB
+  media / 100 MB docs, assets.ts) are enforced at enqueue — over-cap captures
+  keep the fail-loud path. Uploads stream the file from disk
+  (`AssetRepository.uploadPath`; plaintext rides `MultipartFile.fromFile`,
+  never a whole-file read); sealing uses the session workspace key —
+  foreground the custody cache's active key, background a defensive
+  restore (`restoreMasterKeyFromStorage` + `ensureWorkspaceKey`) where ANY
+  custody error degrades the round to keyless plaintext (legal on the wire,
+  never a crash) — flutter_secure_storage in a WorkManager isolate is
+  UNVERIFIED on device, hence the defensive design. Scoped gates green
+  (enqueue offline/failure/caps, drain order, defer, attach-4xx retry, 5xx
+  backoff, dead-letter + retry/discard, sealed background drain, custody
+  failure fallback, worker order, SQLCipher skip gate, sheet widget test);
+  `flutter analyze` clean.
+
 - **feat(sync): snapshot auto-upload after a successful pull — the
   `maybeUploadSnapshot` port, closing the last snapshot-upload gap.** Mobile
   now best-effort uploads a client checkpoint at the end of every successful

@@ -13,6 +13,7 @@ import '../data/repositories/node_repository.dart';
 import '../data/repositories/server_repository.dart';
 import '../domain/models/search_filters.dart';
 import '../domain/services/offline_queue.dart';
+import '../domain/services/pending_asset_service.dart';
 import '../domain/services/sync_v2_service.dart';
 import './reminder_service.dart';
 import './widget_service.dart';
@@ -59,7 +60,7 @@ void _backgroundSyncCallback() {
 
       // Background isolates cannot access an in-memory encryption key, so skip
       // all local-DB work while encryption is enabled.
-      if (prefs.getBool('encryption_enabled') ?? false) {
+      if (skipsLocalDbWork(prefs)) {
         return true;
       }
 
@@ -93,9 +94,15 @@ void _backgroundSyncCallback() {
         database: AppDatabase(),
         syncService: syncService,
       );
-      await queue.process();
-      await syncService.flush();
-      await syncService.pull();
+      await runPeriodicSync(
+        queue: queue,
+        syncService: syncService,
+        pendingAssets: PendingAssetService(
+          database: AppDatabase(),
+          dio: dio,
+          syncService: syncService,
+        ),
+      );
       await _updateWidgetData(prefs);
 
       return true;
@@ -106,6 +113,29 @@ void _backgroundSyncCallback() {
       return false;
     }
   });
+}
+
+/// Whether the background isolate must skip all local-DB work: with
+/// `encryption_enabled` the isolate lacks the SQLCipher key. Extracted for
+/// testing; the pending-asset drain follows the same skip (its rows live in
+/// the same database).
+@visibleForTesting
+bool skipsLocalDbWork(SharedPreferences prefs) =>
+    prefs.getBool('encryption_enabled') ?? false;
+
+/// The periodic task's local-DB sequence, extracted for testing: offline
+/// queue → flush → pending-asset drain → pull. The drain runs after the
+/// flush (attach targets exist server-side) and before the pull.
+@visibleForTesting
+Future<void> runPeriodicSync({
+  required OfflineQueue queue,
+  required SyncV2Service syncService,
+  required PendingAssetService pendingAssets,
+}) async {
+  await queue.process();
+  await syncService.flush();
+  await pendingAssets.drain(background: true);
+  await syncService.pull();
 }
 
 /// Fetches open tasks with future due dates and re-schedules local reminders.
