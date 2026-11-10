@@ -6,6 +6,23 @@ is where history goes; those stay static guidance. Before implementing a
 change, skim this file for recent related work. Anything before 2026-10-06
 lives in git history.
 
+## 2026-11-10
+
+- **feat(home,routing): the bottom-bar Cards tab is gone — a drag-pill
+  more-sheet takes its place.** The bottom navigation bar drops to four tabs
+  (Home, Tasks, Journal, Library) plus Search, and a grab-pill stacked on the
+  bar's top edge expands a bottom sheet of secondary targets: Cards, Inbox,
+  Graph, Notifications, Settings (tap, upward drag past a small threshold, or
+  a fling all open it). The Cards hub is still one tap away — it moves from a
+  shell tab to a pushed page: `/cards` builds `CardsScreen` with the standard
+  push transition (deep links and the review-session hand-off unchanged), and
+  the command palette's Cards action pushes the route instead of switching
+  tabs. Tab indices remap (Journal 2, Library 3) with a `MainShellScreen`
+  fallback to Home for any stale out-of-range `initialIndex`. Wide layouts
+  (≥600dp) keep everything visible: the `NavigationRail` gains the four sheet
+  targets directly (nine destinations) and shows no pill. Scoped gate: the
+  shell/palette/guard tests green, `flutter analyze` clean.
+
 ## 2026-11-09
 
 - **ci(android),deps: the deliberate SDK bump — Flutter 3.47.9 → 3.50.0-0.4.pre
