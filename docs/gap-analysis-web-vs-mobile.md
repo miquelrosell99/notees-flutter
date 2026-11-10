@@ -30,7 +30,7 @@ The Flutter app now matches the Android product description for a **capture-firs
 | Operation-relay protocol (`/api/relay/*`) | ✅ | ✅ | Parity | Mobile rewritten to the relay protocol. |
 | HLC/version-vector conflict resolution | ✅ | ✅ | Parity | Implemented in `hlc_clock.dart`, `relay_models.dart`. |
 | Offline outbox / background sync | Service worker + IndexedDB | WorkManager + SQLite | Parity in concept | Mobile background sync exists; asset uploads may still need foreground. |
-| Local-first derived state rebuild | ✅ Full SQLite rebuild from op log | Partial (`node_cache` appliers) | Partial | Mobile appliers cover node CRUD, content, properties, class assign. Not a full derived rebuild. |
+| Local-first derived state rebuild | ✅ Full SQLite rebuild from op log | ✅ (offline, from the local archive) | Mobile ahead on availability | Mobile replays its durable `relay_operations` archive through the appliers fully offline (Settings → Sync → "Rebuild local data"); the restoreEpoch server replay stays the path for a wiped server. `relay_operations` pruning (durable-snapshot-watermark) is a noted follow-up. |
 | Multi-workspace / server switching | ✅ | ✅ | Parity | Mobile supports multiple server profiles. |
 | Restore-epoch detection | ✅ | ✅ | Parity | Implemented in sync service. |
 | Snapshot upload | ✅ | ✅ | Parity | Auto-upload at the end of a successful pull (`maybeUploadSnapshot` parity), gated to unmetered connections by default with a Settings selector; the upload pipeline is file-based (streamed single PUT / multipart parts read from disk), covering HLC = received watermark. |

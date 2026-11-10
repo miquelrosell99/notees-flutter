@@ -98,6 +98,19 @@ dead-letter, SQLCipher skip, cap enforcement. Update gap-analysis row 38.
 
 ## Slice C — local-first derived rebuild (gap-analysis :33/:259)
 
+> Landed 2026-11-10 (working tree; uncommitted):
+> `SyncV2Service.rebuildLocalDerivedState()` — offline replay of the durable
+> `relay_operations` archive (HLC + rowid order, bounded batches) through the
+> live appliers and the shared `_decryptForApply` E2EE chokepoint; watermarks
+> preserved; no dedupe/re-record; StoreError skip mirrors live apply;
+> mid-replay failure stays cleared and idempotent; `_flushInFlight` guard +
+> pull guard refuse concurrent runs; Settings → Sync "Rebuild local data"
+> tile with confirm sheet. Deviation from the plan's letter: the plan said
+> "watermark reset" — preserved instead (they describe server cursors, and
+> the archive is exactly the applied ops, so they stay correct; resetting
+> would force a needless server re-fetch). No bulk window exists in the repo;
+> replay rides per-envelope apply + indexing (per plan: no new subsystem).
+
 Mobile keeps the full envelope log (`relay_operations`, apply-and-keep) but
 has no replay driver; the only wipe+rebuild path is the restoreEpoch
 server round-trip. Build:

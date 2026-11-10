@@ -15,6 +15,7 @@ import '../../auth/providers/auth_provider.dart';
 import '../../auth/providers/biometric_provider.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/pending_uploads_tile.dart';
+import '../widgets/rebuild_local_tile.dart';
 import '../../../shared/views/node_view_mode.dart';
 import '../../../shared/widgets/fleet_card.dart';
 import '../../../shared/widgets/section_title.dart';
@@ -429,6 +430,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const Divider(height: 1),
                 const PendingUploadsTile(),
+                const Divider(height: 1),
+                const RebuildLocalTile(),
               ],
             ),
           ),

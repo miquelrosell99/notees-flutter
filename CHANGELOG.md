@@ -8,6 +8,36 @@ lives in git history.
 
 ## 2026-11-10
 
+- **feat(sync,settings): local-first derived rebuild — an offline rebuild
+  from the durable envelope archive, a mobile-only capability** (the web
+  client has no local archive and no manual rebuild; its rebuild is the
+  restoreEpoch server round-trip). `SyncV2Service.rebuildLocalDerivedState()`
+  wipes the derived tables (`_cache.clear()`) and replays the full local
+  `relay_operations` log — server and local ops, HLC-ordered with a rowid
+  tiebreak, in bounded batches — through the same appliers live apply uses,
+  fully offline (zero relay/dio traffic). `$e` payloads ride the exact live
+  decrypt path (extracted shared chokepoint `_decryptForApply`): a keyed
+  session decrypts through the custody workspace key; a locked session skips
+  encrypted rows with the counted locked semantic. Watermarks are preserved
+  (they describe server cursors/received HLC, independent of the derived
+  tables; the archive holds exactly the applied ops), the replay runs
+  without the applied-id dedupe (the dedupe table IS the archive) and
+  without re-recording, applier-level StoreErrors skip with a log like live
+  apply, and a mid-replay failure leaves the cleared store cleared and
+  reports loud — the operation is idempotent, so re-running finishes the
+  job. A new `_flushInFlight` guard (plus the existing pull guard) makes the
+  rebuild refuse to run while a pull/flush/rebuild is in flight. Settings →
+  Sync gains a "Rebuild local data" tile with a confirm sheet (busy state,
+  replay-count / error SnackBar). The restoreEpoch resync path is untouched
+  (a wiped server must still be re-fetched). Scoped gates green
+  (convergence-after-corruption vs a fresh-apply baseline, zero-network
+  proof via a throwing relay, local-op inclusion, watermark preservation,
+  E2EE keyed + locked arms incl. a raw `$e` archive row, in-flight refusal,
+  mid-replay failure + idempotent re-run, confirm-sheet widget test); the
+  full sync suites confirm the epoch path and live apply are unchanged.
+  `flutter analyze` clean. Follow-up (noted, out of scope): `relay_operations`
+  is unbounded — pruning ops covered by a durable snapshot watermark.
+
 - **feat(capture,sync): background asset uploads — the `pending_asset` queue,
   a mobile-specific reliability layer with no web equivalent** (the web
   client uploads inline, one attempt, no queue: asset-transport.ts — a

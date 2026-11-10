@@ -353,6 +353,18 @@ class SyncV2Service {
   ///
   /// Returns a list of errors for operations that need retry or quarantine.
   Future<List<String>> flush() async {
+    if (_flushInFlight) return const [];
+    _flushInFlight = true;
+    try {
+      return await _flush();
+    } finally {
+      _flushInFlight = false;
+    }
+  }
+
+  bool _flushInFlight = false;
+
+  Future<List<String>> _flush() async {
     final pending = await _outbox.pending();
     if (pending.isEmpty) return [];
 
@@ -733,27 +745,7 @@ class SyncV2Service {
   ) async {
     var applied = 0;
     var maxHlc = const Hlc(physical: 0, logical: 0);
-    List<OperationEnvelope> batch = envelopes;
-    if (_workspaceKey != null) {
-      batch = await Future.wait(
-        envelopes.map((e) => decryptEnvelope(_workspaceKey!, e)),
-      );
-    } else {
-      final plain = envelopes
-          .where((e) => !e.payload.containsKey(r'$e'))
-          .toList(growable: false);
-      final skipped = envelopes.length - plain.length;
-      if (skipped > 0) {
-        lockedSkipCount += skipped;
-        debugPrint(
-          'SyncV2Service: workspace key unavailable: skipped $skipped '
-          'encrypted envelope(s) ($lockedSkipCount this session); local '
-          'writes stay plaintext until unlocked. Plaintext envelopes in '
-          'the batch applied normally.',
-        );
-      }
-      batch = plain;
-    }
+    final batch = await _decryptForApply(envelopes);
     final knownIds = await _appliedOperationIds(
       batch.map((e) => e.id).toList(),
     );
@@ -781,6 +773,154 @@ class SyncV2Service {
     if (applied > 0) _notifyStoreChanged();
     return (applied: applied, maxHlc: maxHlc);
   }
+
+  /// The E2EE boundary (the single decrypt chokepoint), shared by live
+  /// apply and the local rebuild replay: with a workspace key installed,
+  /// `$e` envelopes are decrypted before the appliers see them (a decrypt
+  /// failure is real corruption and throws). With NO key (locked) the
+  /// encrypted envelopes are filtered out with a counted warning — the
+  /// plaintext batch-mates apply (`skipEncryptedWithoutKey` in the TS
+  /// engine).
+  Future<List<OperationEnvelope>> _decryptForApply(
+    List<OperationEnvelope> envelopes,
+  ) async {
+    if (_workspaceKey != null) {
+      return Future.wait(
+        envelopes.map((e) => decryptEnvelope(_workspaceKey!, e)),
+      );
+    }
+    final plain = envelopes
+        .where((e) => !e.payload.containsKey(r'$e'))
+        .toList(growable: false);
+    final skipped = envelopes.length - plain.length;
+    if (skipped > 0) {
+      lockedSkipCount += skipped;
+      debugPrint(
+        'SyncV2Service: workspace key unavailable: skipped $skipped '
+        'encrypted envelope(s) ($lockedSkipCount this session); local '
+        'writes stay plaintext until unlocked. Plaintext envelopes in '
+        'the batch applied normally.',
+      );
+    }
+    return plain;
+  }
+
+  // --- local-first derived rebuild (mobile ahead of web) ---------------------
+
+  bool _rebuildInFlight = false;
+
+  /// Rebuilds the derived state from the durable local envelope archive —
+  /// fully offline, no relay/dio involvement. Mobile goes beyond the web
+  /// client here: the web has no local archive and no manual rebuild (its
+  /// rebuild is the restoreEpoch server round-trip); this replays the local
+  /// `relay_operations` log (server + local ops, HLC-ordered) through the
+  /// same appliers live apply uses, so a keyed session decrypts `$e`
+  /// payloads through the normal custody path.
+  ///
+  /// Semantics:
+  ///  - Watermarks are PRESERVED: they describe server cursors / the
+  ///    received HLC, independent of the derived tables, and the archive
+  ///    holds exactly the applied ops — so cursorSeq / receivedHlc stay
+  ///    correct after the replay.
+  ///  - Archive rows are replayed WITHOUT the applied-id dedupe (the
+  ///    dedupe table IS the archive — a fresh replay must not skip) and
+  ///    without re-recording (the rows already exist).
+  ///  - Applier-level [StoreError]s skip the op with a log, exactly like
+  ///    live apply (the row stays; the archive is the authority).
+  ///  - A mid-replay failure propagates with the store left cleared — the
+  ///    operation is idempotent, so re-running finishes the job.
+  ///  - Refuses to run while a pull/flush/rebuild is in flight.
+  ///
+  /// Returns the number of archive envelopes replayed.
+  Future<int> rebuildLocalDerivedState() async {
+    if (_pullInFlight || _flushInFlight || _rebuildInFlight) {
+      throw StateError(
+        'Sync is busy (a pull, flush, or rebuild is running) — try again '
+        'in a moment',
+      );
+    }
+    final workspaceId = await getWorkspaceId();
+    if (workspaceId == null) return 0;
+    _rebuildInFlight = true;
+    var replayed = 0;
+    try {
+      await _cache.clear();
+      final archive = await _operationsArchive(workspaceId);
+      final appliers = RelayAppliers(_cache);
+      // Replay in bounded batches (the archive is unbounded; per-envelope
+      // apply + indexing rides the existing applier path — the repo has no
+      // bulk window and this slice does not invent one).
+      const batchSize = 400;
+      for (var start = 0; start < archive.length; start += batchSize) {
+        final end = start + batchSize < archive.length
+            ? start + batchSize
+            : archive.length;
+        final batch = archive
+            .sublist(start, end)
+            .map(_envelopeFromRow)
+            .toList(growable: false);
+        for (final envelope in await _decryptForApply(batch)) {
+          try {
+            await appliers.apply(envelope);
+            replayed++;
+          } on StoreError catch (e) {
+            debugPrint(
+              'SyncV2Service: rebuild skipping ${envelope.id} '
+              '(${envelope.opType}): $e',
+            );
+          }
+        }
+      }
+      if (await _cache.shouldReindexSearch()) {
+        await _cache.reindexAll();
+      }
+      _notifyStoreChanged();
+      return replayed;
+    } catch (e) {
+      // Fail loud with progress; the store stays cleared and the replay is
+      // idempotent — the user re-runs.
+      debugPrint(
+        'SyncV2Service: local rebuild failed after $replayed replayed '
+        'operation(s): $e',
+      );
+      rethrow;
+    } finally {
+      _rebuildInFlight = false;
+    }
+  }
+
+  /// The full durable archive for [workspaceId]: every applied envelope
+  /// (server + local), HLC-ordered with the rowid tiebreak for a
+  /// deterministic replay of same-HLC ops.
+  Future<List<Map<String, dynamic>>> _operationsArchive(
+    String workspaceId,
+  ) async {
+    final db = await _database.database;
+    return db.rawQuery(
+      'SELECT * FROM relay_operations WHERE workspace_id = ? '
+      'ORDER BY hlc_physical ASC, hlc_logical ASC, rowid ASC',
+      [workspaceId],
+    );
+  }
+
+  static OperationEnvelope _envelopeFromRow(Map<String, dynamic> row) =>
+      OperationEnvelope(
+        id: row['id'] as String,
+        workspaceId: row['workspace_id'] as String,
+        actorId: row['actor_id'] as String,
+        // deviceId is provenance-only and not part of the archive columns.
+        deviceId: '',
+        hlc: Hlc(
+          physical: row['hlc_physical'] as int,
+          logical: row['hlc_logical'] as int,
+        ),
+        affectedNodeIds:
+            (jsonDecode(row['affected_node_ids'] as String) as List<dynamic>)
+                .cast<String>(),
+        opType: row['op_type'] as String,
+        payload: jsonDecode(row['payload'] as String) as Map<String, dynamic>,
+        timestamp: row['timestamp'] as String,
+      );
 
   // --- realtime acceleration path (WIRE.md) -----------------------------------
 
