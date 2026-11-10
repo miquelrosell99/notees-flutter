@@ -99,14 +99,14 @@ void main() {
       expect(find.byType(HomeScreen), findsOneWidget);
     });
 
-    testWidgets('the rail path renders the same five destinations',
+    testWidgets('the rail path renders the tab set plus Search and the extras',
         (tester) async {
       // Default test surface (800x600 logical) drives the NavigationRail branch.
       await tester.pumpWidget(appWithShell());
       await tester.pump();
 
       final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
-      expect(rail.destinations.length, 5); // four + Search
+      expect(rail.destinations.length, 9); // four tabs + Search + four extras
       expect(find.byType(NavigationBar), findsNothing);
     });
 
@@ -122,6 +122,116 @@ void main() {
       final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
       expect(bar.destinations.length, 5); // four + Search
       expect(find.byType(NavigationRail), findsNothing);
+    });
+  });
+
+  group('drag pill and more sheet', () {
+    void narrow(WidgetTester tester) {
+      tester.view.physicalSize = const Size(1200.0, 1800.0);
+      addTearDown(tester.view.resetPhysicalSize);
+    }
+
+    Future<GoRouter> pumpShell(
+      WidgetTester tester, {
+      required FakeAuth auth,
+    }) async {
+      final router = createRouter(authProvider: auth);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AuthProvider>.value(
+          value: auth,
+          child: ChangeNotifierProvider<SettingsProvider>(
+            create: (_) => SettingsProvider(prefs),
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        ),
+      );
+      router.go(Routes.dashboard);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      return router;
+    }
+
+    testWidgets('the pill sits above the five-destination bar', (tester) async {
+      narrow(tester);
+      await pumpShell(tester, auth: fakeAuth());
+
+      expect(find.byKey(const Key('nav-more-pill')), findsOneWidget);
+      final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
+      expect(bar.destinations.length, 5);
+    });
+
+    testWidgets('tapping the pill opens the sheet; Cards pushes the hub',
+        (tester) async {
+      narrow(tester);
+      final router = await pumpShell(tester, auth: fakeAuth());
+
+      await tester.tap(find.byKey(const Key('nav-more-pill')));
+      await tester.pumpAndSettle();
+      for (final label in ['Cards', 'Inbox', 'Graph', 'Notifications', 'Settings']) {
+        expect(find.text(label), findsWidgets);
+      }
+
+      await tester.tap(find.text('Cards'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CardsScreen), findsOneWidget);
+      expect(router.routerDelegate.currentConfiguration.matches.length, 2);
+    });
+
+    testWidgets('dragging the pill upward opens the sheet', (tester) async {
+      narrow(tester);
+      await pumpShell(tester, auth: fakeAuth());
+
+      await tester.drag(
+        find.byKey(const Key('nav-more-pill')),
+        const Offset(0, -80),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Notifications'), findsWidgets);
+    });
+
+    testWidgets('a fast fling on the pill opens the sheet', (tester) async {
+      narrow(tester);
+      await pumpShell(tester, auth: fakeAuth());
+
+      await tester.fling(
+        find.byKey(const Key('nav-more-pill')),
+        const Offset(0, -200),
+        800,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Notifications'), findsWidgets);
+    });
+
+    testWidgets('the rail exposes every sheet target and no pill',
+        (tester) async {
+      // Default test surface (800x600 logical) drives the NavigationRail branch.
+      await pumpShell(tester, auth: fakeAuth());
+
+      expect(find.byKey(const Key('nav-more-pill')), findsNothing);
+      final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
+      expect(rail.destinations.length, 9); // four + Search + four extras
+
+      await tester.tap(find.text('Cards'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CardsScreen), findsOneWidget);
+    });
+
+    testWidgets('the sheet Inbox entry switches back to the home tab',
+        (tester) async {
+      narrow(tester);
+      await pumpShell(tester, auth: fakeAuth());
+
+      // Leave Home first so the switch is observable.
+      await tester.tap(find.text('Tasks'));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('nav-more-pill')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Inbox'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(find.text('Notifications'), findsNothing); // sheet closed
     });
   });
 

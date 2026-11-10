@@ -63,6 +63,31 @@ class _MainShellScreenState extends State<MainShellScreen> {
     ),
   ];
 
+  /// Secondary targets, phone: behind the drag-pill sheet. On the rail they
+  /// are appended as regular destinations.
+  final _moreDestinations = <_NavDestination>[
+    _NavDestination(
+      label: 'Cards',
+      icon: MdiIcons.cardsPlayingOutline,
+      selectedIcon: MdiIcons.cardsPlaying,
+    ),
+    _NavDestination(
+      label: 'Graph',
+      icon: MdiIcons.graphOutline,
+      selectedIcon: MdiIcons.graph,
+    ),
+    _NavDestination(
+      label: 'Notifications',
+      icon: MdiIcons.bellOutline,
+      selectedIcon: MdiIcons.bell,
+    ),
+    _NavDestination(
+      label: 'Settings',
+      icon: MdiIcons.cogOutline,
+      selectedIcon: MdiIcons.cog,
+    ),
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -151,6 +176,13 @@ class _MainShellScreenState extends State<MainShellScreen> {
                   selectedIcon: Icon(MdiIcons.magnify),
                   label: Text('Search'),
                 ),
+                ..._moreDestinations.map(
+                  (d) => NavigationRailDestination(
+                    icon: Icon(d.icon),
+                    selectedIcon: Icon(d.selectedIcon),
+                    label: Text(d.label),
+                  ),
+                ),
               ],
             ),
           Expanded(child: _buildBody()),
@@ -167,32 +199,44 @@ class _MainShellScreenState extends State<MainShellScreen> {
           useRail ? null : FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: useRail
           ? null
-          : NavigationBar(
-              selectedIndex: _currentIndex,
-              onDestinationSelected: _onDestinationSelected,
-              backgroundColor: theme.colorScheme.surface,
-              indicatorColor: theme.colorScheme.primaryContainer,
-              destinations: [
-                ..._destinations.map(
-                  (d) => NavigationDestination(
-                    icon: Icon(d.icon),
-                    selectedIcon: Icon(d.selectedIcon),
-                    label: d.label,
+          : ColoredBox(
+              color: theme.colorScheme.surface,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _NavPill(
+                    key: const Key('nav-more-pill'),
+                    onExpand: _openMoreSheet,
                   ),
-                ),
-                NavigationDestination(
-                  icon: Icon(MdiIcons.magnify),
-                  selectedIcon: Icon(MdiIcons.magnify),
-                  label: 'Search',
-                ),
-              ],
+                  NavigationBar(
+                    selectedIndex: _currentIndex,
+                    onDestinationSelected: _onDestinationSelected,
+                    backgroundColor: theme.colorScheme.surface,
+                    indicatorColor: theme.colorScheme.primaryContainer,
+                    destinations: [
+                      ..._destinations.map(
+                        (d) => NavigationDestination(
+                          icon: Icon(d.icon),
+                          selectedIcon: Icon(d.selectedIcon),
+                          label: d.label,
+                        ),
+                      ),
+                      NavigationDestination(
+                        icon: Icon(MdiIcons.magnify),
+                        selectedIcon: Icon(MdiIcons.magnify),
+                        label: 'Search',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
     );
   }
 
   void _onDestinationSelected(int index) {
-    if (index == _destinations.length) {
-      _openSearch();
+    if (index >= _destinations.length) {
+      _onExtraSelected(index - _destinations.length);
       return;
     }
     HapticFeedback.lightImpact();
@@ -208,6 +252,71 @@ class _MainShellScreenState extends State<MainShellScreen> {
       return;
     }
     setState(() => _currentIndex = index);
+  }
+
+  /// Handles the destinations after the tabs: extra 0 is Search (both bar and
+  /// rail); extras 1-4 are the [_moreDestinations] targets (rail-only).
+  void _onExtraSelected(int extra) {
+    if (extra == 0) {
+      _openSearch();
+      return;
+    }
+    HapticFeedback.lightImpact();
+    switch (extra) {
+      case 1:
+        context.push(Routes.cards);
+      case 2:
+        context.push(Routes.graph);
+      case 3:
+        context.push(Routes.notifications);
+      case 4:
+        context.push(Routes.settings);
+    }
+  }
+
+  void _openMoreSheet() {
+    HapticFeedback.lightImpact();
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final width = MediaQuery.of(sheetContext).size.width;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                SizedBox(
+                  width: (width - 48) / 3,
+                  child: _MoreSheetEntry(
+                    label: 'Inbox',
+                    icon: MdiIcons.inboxOutline,
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      setState(() => _currentIndex = 0);
+                    },
+                  ),
+                ),
+                for (var i = 0; i < _moreDestinations.length; i++)
+                  SizedBox(
+                    width: (width - 48) / 3,
+                    child: _MoreSheetEntry(
+                      label: _moreDestinations[i].label,
+                      icon: _moreDestinations[i].icon,
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _onExtraSelected(i + 1);
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _openCaptureSheet() {
@@ -251,4 +360,91 @@ class _NavDestination {
   final String label;
   final IconData icon;
   final IconData selectedIcon;
+}
+
+/// The grab-pill stacked above the bottom bar. Tap, an upward drag past a
+/// small threshold, or a fast upward fling all expand the more-sheet.
+class _NavPill extends StatefulWidget {
+  const _NavPill({super.key, required this.onExpand});
+
+  final VoidCallback onExpand;
+
+  @override
+  State<_NavPill> createState() => _NavPillState();
+}
+
+class _NavPillState extends State<_NavPill> {
+  double _dragDistance = 0;
+
+  void _expand() {
+    HapticFeedback.lightImpact();
+    widget.onExpand();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: (_) => _dragDistance = 0,
+      onVerticalDragUpdate: (details) => _dragDistance += details.delta.dy,
+      onVerticalDragEnd: (details) {
+        final velocity = details.primaryVelocity ?? 0;
+        if (velocity < -300 || _dragDistance < -24) {
+          _expand();
+        }
+      },
+      child: Tooltip(
+        message: 'More',
+        child: InkWell(
+          onTap: _expand,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Container(
+                width: 32,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MoreSheetEntry extends StatelessWidget {
+  const _MoreSheetEntry({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 26),
+            const SizedBox(height: 6),
+            Text(label, style: theme.textTheme.labelMedium),
+          ],
+        ),
+      ),
+    );
+  }
 }
