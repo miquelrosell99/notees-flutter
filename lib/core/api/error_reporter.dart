@@ -24,9 +24,14 @@ class ApiErrorReporter extends Interceptor {
     final method = err.requestOptions.method;
     final uri = err.requestOptions.uri.toString();
     final data = response?.data;
+    // Never stringify a binary body — a bytes payload can be huge.
     final detail = data is Map<String, dynamic>
         ? (data['detail'] ?? data['message'] ?? data.toString())
-        : data?.toString();
+        : data is String
+            ? data
+            : data == null
+                ? null
+                : '<${data.runtimeType}>';
 
     final message = '[$method $status] $uri\n${detail ?? err.message}';
     debugPrint('[API ERROR] $message');

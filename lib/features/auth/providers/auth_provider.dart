@@ -361,12 +361,13 @@ class AuthProvider extends ChangeNotifier {
   }
 
   /// Fire-and-forget convergence pull after entering a workspace (the web
-  /// client's connect() syncs on entry); errors stay with the sync layer's
-  /// normal surfacing. The FIRST pull after a workspace session begins
-  /// drives the "Catching up…" overlay (the web client's ConnectingScreen):
-  /// progress events forward into [SyncStatusProvider], and the overlay is
-  /// ended on completion, on failure, and via the provider's timeout
-  /// backstop — later catch-ups outside this path stay silent.
+  /// client's connect() syncs on entry); failures surface in the catching-up
+  /// overlay (error mode with retry), successes end it. The FIRST pull after
+  /// a workspace session begins drives the "Catching up…" overlay (the web
+  /// client's ConnectingScreen): progress events forward into
+  /// [SyncStatusProvider], ended on completion or failure — plus the
+  /// provider's generous timeout backstop — while later catch-ups outside
+  /// this path stay silent.
   void _kickWorkspacePull() {
     final sync = _syncService;
     if (sync == null) return;
@@ -375,13 +376,18 @@ class AuthProvider extends ChangeNotifier {
         status.updateProgress(progress.applied, progress.total);
     status.beginCatchUp();
     unawaited(
-      sync
-          .pull()
-          .catchError((Object e) =>
-              debugPrint('AuthProvider: workspace pull failed: $e'))
-          .whenComplete(status.endCatchUp),
+      sync.pull().then((_) {
+        status.endCatchUp();
+      }).catchError((Object e) {
+        debugPrint('AuthProvider: workspace pull failed: $e');
+        status.failCatchUp(e.toString());
+      }),
     );
   }
+
+  /// Re-runs the workspace-entry pull after a surfaced failure (the
+  /// catching-up overlay's Retry action).
+  void retryWorkspacePull() => _kickWorkspacePull();
 
   void _clearWorkspaceState() {
     _activeWorkspaceId = null;

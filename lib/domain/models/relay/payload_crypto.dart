@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -275,6 +276,35 @@ Future<Uint8List> decryptBytes(
     secretKey: workspaceKey,
   );
   return Uint8List.fromList(plain);
+}
+
+/// File-based inverse of [encryptBytes] for the snapshot pipeline: reads
+/// the sealed blob from [sourcePath] ONCE, decrypts single-shot (AES-256-GCM
+/// is not streamable — the wire format would have to change), and writes the
+/// plaintext to [destinationPath]. Zero-copy where possible: the SecretBox is
+/// built from sublist VIEWS of the read buffer (no `sublist` copies) and the
+/// cipher's output buffer is reused when it is already a [Uint8List].
+/// Lets [SecretBoxAuthenticationError] propagate on a wrong key or tampering.
+Future<void> decryptBytesToFile(
+  SecretKey workspaceKey,
+  String sourcePath,
+  String destinationPath,
+) async {
+  final bytes = await File(sourcePath).readAsBytes();
+  if (bytes.length < 12 + 16 + 1) {
+    throw const FormatException('sealed blob is too short');
+  }
+  final box = SecretBox(
+    Uint8List.sublistView(bytes, 28),
+    nonce: Uint8List.sublistView(bytes, 0, 12),
+    mac: Mac(Uint8List.sublistView(bytes, 12, 28)),
+  );
+  final plain = await AesGcm.with256bits().decrypt(
+    box,
+    secretKey: workspaceKey,
+  );
+  final Uint8List out = plain is Uint8List ? plain : Uint8List.fromList(plain);
+  await File(destinationPath).writeAsBytes(out, flush: true);
 }
 
 /// The raw 32-byte key behind a [SecretKey] (`exportWorkspaceKey` in

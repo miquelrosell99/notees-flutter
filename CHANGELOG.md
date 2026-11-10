@@ -8,6 +8,36 @@ lives in git history.
 
 ## 2026-11-10
 
+- **fix(sync,api): the first-sync snapshot pipeline is file-based, logging no
+  longer materializes bodies, and pull failures surface with retry.** A
+  ~1.2M-op workspace ships as a 160MB sealed snapshot; the old path buffered
+  it ~4× in RAM (dio bytes + `decryptBytes` sublist copies + restore input)
+  and the stock `LogInterceptor(responseBody: true)` stringified the binary
+  response into a ~700MB string — together an OOM/freeze on phones. Now: (1)
+  `createApiClient` swaps the dio `LogInterceptor` for a trimming interceptor
+  (`TrimmingLogInterceptor`) that logs one line per request/response, caps
+  String/JSON bodies at 1000 chars, and logs binary bodies by byte length
+  only — never `toString()` on bytes; `ApiErrorReporter` hardens the same
+  way. (2) The snapshot restore pipeline streams to disk:
+  `RelayClient.downloadSnapshotData` writes the blob chunk-by-chunk to a temp
+  file (content-length verified, `RelayException` on non-2xx, partial files
+  deleted), `decryptBytesToFile` decrypts sealed→plain temp file with
+  zero-copy sublist views and a reused output buffer (peak ≈ 2× snapshot:
+  ciphertext + plaintext buffers, everything else on disk), and
+  `NodeCacheRepository.restoreFromSnapshotFile` opens the plaintext file
+  directly; the sealed temp file is deleted before the restore and every
+  temp file is removed in a `finally`. The skip-with-counted-warning
+  semantics (plaintext image for a keyed workspace, sealed blob when keyless)
+  are unchanged. (3) A failed first pull no longer vanishes into debugPrint:
+  the catching-up overlay switches to error mode with the message plus Retry
+  (re-runs the workspace pull via `AuthProvider.retryWorkspacePull`) and
+  Dismiss; the overlay's safety-net backstop rises 60s → 10 minutes (a legit
+  first-sync restore takes minutes) and error mode cancels it entirely — a
+  surfaced failure stays until the user acts. Scoped gates green (new
+  trimming-interceptor/download/decrypt-file tests, sync pull/e2ee pull
+  suites with temp-cleanup assertions, overlay/provider error-mode tests);
+  `flutter analyze` clean.
+
 - **feat(auth,sync): persistent master-key custody + the "Catching up…"
   overlay — two web-parity convergences.** (1) The account master key is no
   longer memory-only: `deriveMasterKey` persists the raw 32 key bytes

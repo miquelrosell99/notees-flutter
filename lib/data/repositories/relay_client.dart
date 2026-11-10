@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -214,6 +215,96 @@ class RelayClient {
       if (err.response?.statusCode == 404) return null;
       rethrow;
     }
+  }
+
+  /// Streams the newest snapshot's blob for [workspaceId] straight into
+  /// [destinationPath] — the memory-flat counterpart of
+  /// [latestSnapshotData] for first-sync restores, where the blob can be
+  /// hundreds of MB (the file-based pipeline never holds it all in RAM).
+  ///
+  /// Chunks are written as they arrive; the written length is verified
+  /// against content-length when the server sends one. Non-2xx responses
+  /// throw [RelayException]; a partial file is deleted on failure.
+  Future<void> downloadSnapshotData({
+    required String workspaceId,
+    required String destinationPath,
+  }) async {
+    final Response<dynamic> response;
+    try {
+      response = await dio.get<dynamic>(
+        _snapshotDataPath,
+        queryParameters: {'workspaceId': workspaceId},
+        options: Options(responseType: ResponseType.stream),
+      );
+    } on DioException catch (err) {
+      final status = err.response?.statusCode;
+      if (status != null && (status < 200 || status >= 300)) {
+        throw RelayException('snapshot download failed with status $status');
+      }
+      rethrow;
+    }
+
+    final status = response.statusCode;
+    if (status != null && (status < 200 || status >= 300)) {
+      throw RelayException('snapshot download failed with status $status');
+    }
+
+    final data = response.data;
+    // Interceptor-served (or otherwise pre-buffered) payloads have no live
+    // stream to drain — write them out directly.
+    if (data is List<int>) {
+      await File(destinationPath).writeAsBytes(data, flush: true);
+      return;
+    }
+    final Stream<Uint8List> stream;
+    final int? contentLength;
+    if (data is ResponseBody) {
+      stream = data.stream;
+      contentLength = _contentLengthOf(data.headers);
+    } else if (data is Stream<Uint8List>) {
+      stream = data;
+      contentLength = null;
+    } else {
+      throw RelayException(
+        'snapshot download returned an unexpected payload '
+        '(${data.runtimeType})',
+      );
+    }
+
+    final file = File(destinationPath);
+    final raf = await file.open(mode: FileMode.write);
+    var written = 0;
+    try {
+      await for (final chunk in stream) {
+        await raf.writeFrom(chunk);
+        written += chunk.length;
+      }
+      if (contentLength != null && written != contentLength) {
+        throw RelayException(
+          'snapshot download incomplete: wrote $written of '
+          '$contentLength bytes',
+        );
+      }
+    } catch (_) {
+      try {
+        await file.delete();
+      } catch (_) {
+        // Best-effort cleanup of the partial download.
+      }
+      rethrow;
+    } finally {
+      await raf.close();
+    }
+  }
+
+  static int? _contentLengthOf(Map<String, List<String>> headers) {
+    for (final entry in headers.entries) {
+      if (entry.key.toLowerCase() == 'content-length' &&
+          entry.value.isNotEmpty) {
+        return int.tryParse(entry.value.first);
+      }
+    }
+    return null;
   }
 }
 

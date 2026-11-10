@@ -326,6 +326,31 @@ void main() {
       );
     });
 
+    test('decryptBytesToFile round-trips through files; wrong key fails',
+        () async {
+      final workspaceKey = generateWorkspaceKey();
+      final other = SecretKey(List<int>.filled(32, 9));
+      final bytes = Uint8List.fromList(
+          List<int>.generate(300 * 1024 + 11, (i) => i % 256));
+      final sealed = await encryptBytes(workspaceKey, bytes);
+
+      final tempDir = await Directory.systemTemp.createTemp('notees_crypto');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final sealedPath = '${tempDir.path}/blob.sealed';
+      final plainPath = '${tempDir.path}/blob.db';
+      final wrongPath = '${tempDir.path}/blob.wrong';
+      await File(sealedPath).writeAsBytes(sealed, flush: true);
+
+      await decryptBytesToFile(workspaceKey, sealedPath, plainPath);
+      expect(await File(plainPath).readAsBytes(), bytes);
+
+      expect(
+        decryptBytesToFile(other, sealedPath, wrongPath),
+        throwsA(isA<SecretBoxAuthenticationError>()),
+      );
+      expect(await File(wrongPath).exists(), isFalse);
+    });
+
     test('export/import round-trips a workspace key', () async {
       final workspaceKey = generateWorkspaceKey();
       final raw = await exportWorkspaceKey(workspaceKey);

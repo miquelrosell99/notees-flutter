@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' show join;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
 import '../../core/constants/system.dart';
@@ -518,69 +521,118 @@ class SyncV2Service {
         snapshot.hasSnapshot && snapshot.hlc.compareTo(lastReceived) > 0;
     // The blob is fetched only when the metadata probe says the snapshot is
     // worth restoring — `GET /relay/v2/snapshot` is metadata-only, so
-    // the probe stays cheap on large workspaces.
+    // the probe stays cheap on large workspaces. The download/decrypt/restore
+    // pipeline is file-based (first-sync snapshots are hundreds of MB — the
+    // blob is never held whole in RAM beyond the single-shot decrypt's
+    // ciphertext + plaintext buffers).
     if (snapshotIsNewer) {
-      final bytes = await _relay.latestSnapshotData(workspaceId);
-      if (bytes != null && bytes.isNotEmpty) {
-        // The restore contract (WIRE.md `sealed`): a keyed client decrypts
-        // and restores ONLY a `sealed: true` blob (a decrypt failure with a
-        // key installed is real corruption — `decryptSnapshotOrThrow`
-        // parity). Keyed + PLAINTEXT image (a keyless upload or the
-        // server's own content-empty self-heal snapshot, whose derived
-        // store skips sealed envelopes): restoring it and jumping the
-        // cursor to upToSeq would blank the workspace (the empty-store
-        // trap) — skip with a counted warning and replay the log. Keyless
-        // clients restore a plaintext image as-is (legacy) and skip a
-        // sealed blob (opaque bytes; a garbage restore would throw).
-        Uint8List? restored;
-        if (_workspaceKey != null && snapshot.sealed != true) {
-          lockedSkipCount++;
-          debugPrint(
-            'SyncV2Service: server snapshot is plaintext for an encrypted '
-            'workspace (${bytes.length} bytes) — replaying the log instead; '
-            'the checkpoint images the server\'s derived store, which skips '
-            'sealed envelopes.',
-          );
-        } else if (_workspaceKey == null && !_hasSqliteMagic(bytes)) {
-          lockedSkipCount++;
-          debugPrint(
-            'SyncV2Service: workspace key unavailable: skipped a sealed '
-            'snapshot (${bytes.length} bytes, $lockedSkipCount this '
-            'session) — seq catch-up covers the content; restore it later '
-            'by unlocking the workspace. Local writes stay plaintext until '
-            'unlocked.',
-          );
+      final tempDir = await getTemporaryDirectory();
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final sealedPath = join(tempDir.path, 'notees_snapshot_$stamp.sealed');
+      final plainPath = join(tempDir.path, 'notees_snapshot_$stamp.db');
+      try {
+        await _relay.downloadSnapshotData(
+          workspaceId: workspaceId,
+          destinationPath: sealedPath,
+        );
+        final length = await File(sealedPath).length();
+        if (length == 0) {
+          // Nothing stored after all — behave as if the blob were absent
+          // (catch-up below runs from the durable cursor).
         } else {
-          restored = _workspaceKey != null
-              ? await _decryptSnapshot(bytes)
-              : bytes;
-        }
-        if (restored != null) {
-          await _cache.restoreFromSnapshot(restored, workspaceId);
-          _notifyStoreChanged();
-          lastReceived = snapshot.hlc;
-          // Snapshots recorded before the seq cursor existed report null; catch
-          // up from 0 and rely on operation-id dedupe.
-          cursorSeq = snapshot.upToSeq ?? 0;
-          await _watermarks.setReceived(
-            workspaceId,
-            lastReceived,
-            restoreEpoch: snapshot.restoreEpoch,
-            cursorSeq: cursorSeq,
-          );
-        } else {
-          // Skip arms: mark the snapshot seen (no re-download next pull);
-          // the seq cursor stays put so the catch-up below replays the log
-          // from the durable cursor.
-          if (snapshot.hlc.compareTo(lastReceived) > 0) {
-            lastReceived = snapshot.hlc;
+          // The restore contract (WIRE.md `sealed`): a keyed client decrypts
+          // and restores ONLY a `sealed: true` blob (a decrypt failure with
+          // a key installed is real corruption — `decryptSnapshotOrThrow`
+          // parity). Keyed + PLAINTEXT image (a keyless upload or the
+          // server's own content-empty self-heal snapshot, whose derived
+          // store skips sealed envelopes): restoring it and jumping the
+          // cursor to upToSeq would blank the workspace (the empty-store
+          // trap) — skip with a counted warning and replay the log. Keyless
+          // clients restore a plaintext image as-is (legacy) and skip a
+          // sealed blob (opaque bytes; a garbage restore would throw).
+          String? restorePath;
+          if (_workspaceKey != null && snapshot.sealed != true) {
+            lockedSkipCount++;
+            debugPrint(
+              'SyncV2Service: server snapshot is plaintext for an encrypted '
+              'workspace ($length bytes) — replaying the log instead; the '
+              'checkpoint images the server\'s derived store, which skips '
+              'sealed envelopes.',
+            );
+          } else if (_workspaceKey == null) {
+            final head = await _readFileHead(sealedPath, _sqliteMagic.length);
+            if (!_hasSqliteMagic(head)) {
+              lockedSkipCount++;
+              debugPrint(
+                'SyncV2Service: workspace key unavailable: skipped a sealed '
+                'snapshot ($length bytes, $lockedSkipCount this session) — '
+                'seq catch-up covers the content; restore it later by '
+                'unlocking the workspace. Local writes stay plaintext until '
+                'unlocked.',
+              );
+            } else {
+              restorePath = sealedPath;
+            }
+          } else {
+            try {
+              await decryptBytesToFile(_workspaceKey!, sealedPath, plainPath);
+            } on SecretBoxAuthenticationError catch (e) {
+              throw SyncV2Exception(
+                'snapshot decryption failed: wrong workspace key or '
+                'corrupted snapshot ($e)',
+              );
+            } on FormatException catch (e) {
+              throw SyncV2Exception(
+                'snapshot decryption failed: malformed sealed snapshot ($e)',
+              );
+            }
+            // The sealed bytes are no longer needed — drop them BEFORE the
+            // restore so the peak stays ~2× the snapshot (ciphertext buffer
+            // + plaintext buffer), not 3×.
+            try {
+              await File(sealedPath).delete();
+            } catch (_) {
+              // Best-effort; the finally cleanup retries.
+            }
+            restorePath = plainPath;
           }
-          await _watermarks.setReceived(
-            workspaceId,
-            lastReceived,
-            restoreEpoch: snapshot.restoreEpoch,
-            cursorSeq: cursorSeq,
-          );
+
+          if (restorePath != null) {
+            await _cache.restoreFromSnapshotFile(restorePath, workspaceId);
+            _notifyStoreChanged();
+            lastReceived = snapshot.hlc;
+            // Snapshots recorded before the seq cursor existed report null;
+            // catch up from 0 and rely on operation-id dedupe.
+            cursorSeq = snapshot.upToSeq ?? 0;
+            await _watermarks.setReceived(
+              workspaceId,
+              lastReceived,
+              restoreEpoch: snapshot.restoreEpoch,
+              cursorSeq: cursorSeq,
+            );
+          } else {
+            // Skip arms: mark the snapshot seen (no re-download next pull);
+            // the seq cursor stays put so the catch-up below replays the
+            // log from the durable cursor.
+            if (snapshot.hlc.compareTo(lastReceived) > 0) {
+              lastReceived = snapshot.hlc;
+            }
+            await _watermarks.setReceived(
+              workspaceId,
+              lastReceived,
+              restoreEpoch: snapshot.restoreEpoch,
+              cursorSeq: cursorSeq,
+            );
+          }
+        }
+      } finally {
+        for (final path in [sealedPath, plainPath]) {
+          try {
+            final file = File(path);
+            if (await file.exists()) await file.delete();
+          } catch (_) {
+            // Best-effort cleanup.
+          }
         }
       }
     }
@@ -946,21 +998,14 @@ class SyncV2Service {
     return true;
   }
 
-  /// Opens a sealed snapshot blob, translating any decrypt failure into a
-  /// clear [SyncV2Exception] (wrong workspace key or corrupted snapshot —
-  /// `decryptSnapshotOrThrow` in the TS engine).
-  Future<Uint8List> _decryptSnapshot(Uint8List bytes) async {
+  /// Reads the first [length] bytes of the file at [path] (the cheap
+  /// locked-state probe on a downloaded snapshot without loading it).
+  Future<Uint8List> _readFileHead(String path, int length) async {
+    final raf = await File(path).open();
     try {
-      return await decryptBytes(_workspaceKey!, bytes);
-    } on SecretBoxAuthenticationError catch (e) {
-      throw SyncV2Exception(
-        'snapshot decryption failed: wrong workspace key or corrupted '
-        'snapshot ($e)',
-      );
-    } on FormatException catch (e) {
-      throw SyncV2Exception(
-        'snapshot decryption failed: malformed sealed snapshot ($e)',
-      );
+      return await raf.read(length);
+    } finally {
+      await raf.close();
     }
   }
 

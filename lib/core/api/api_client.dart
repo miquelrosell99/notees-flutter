@@ -11,6 +11,7 @@ import '../secure/secure_storage.dart';
 import './api_key_interceptor.dart';
 import './auth_interceptor.dart';
 import './error_reporter.dart';
+import './trimming_log_interceptor.dart';
 
 CookieJar? _sharedCookieJar;
 
@@ -60,7 +61,7 @@ Dio createApiClient({
   }
 
   dio.interceptors.add(ApiErrorReporter());
-  dio.interceptors.add(LogInterceptor(requestBody: true, responseBody: true));
+  dio.interceptors.add(TrimmingLogInterceptor());
 
   if (trustSelfSigned) {
     dio.httpClientAdapter = IOHttpClientAdapter(

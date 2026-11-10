@@ -61,6 +61,13 @@ void main() {
     (call) async => tempDir.path,
   );
 
+  /// The file-based snapshot pipeline's temp files (the pull must always
+  /// clean them up, success or failure).
+  List<FileSystemEntity> snapshotTempFiles() => tempDir
+      .listSync()
+      .where((entity) => entity.path.contains('notees_snapshot_'))
+      .toList();
+
   const workspaceId = '10000000-0000-4000-8000-000000000001';
   const node1 = '20000000-0000-4000-8000-000000000001';
   const node2 = '20000000-0000-4000-8000-000000000002';
@@ -517,6 +524,8 @@ void main() {
       expect((await serviceB.cache.getByUuid(node1))!.displayName,
           'snapshot me');
       expect(await cursorSeq(databaseB), 1);
+      // The file-based pipeline left nothing behind.
+      expect(snapshotTempFiles(), isEmpty);
     });
 
     test('snapshot restore with a wrong key fails loud (real corruption)',
@@ -534,6 +543,8 @@ void main() {
         service.pull(),
         throwsA(isA<SyncV2Exception>()),
       );
+      // A failed restore still cleans its temp files.
+      expect(snapshotTempFiles(), isEmpty);
     });
 
     test('locked: a sealed snapshot blob is skipped with a counted warning; '
@@ -577,6 +588,7 @@ void main() {
       // The cursor advanced only over the replayed log, not the snapshot's
       // upToSeq shortcut.
       expect(await cursorSeq(database), 2);
+      expect(snapshotTempFiles(), isEmpty);
     });
 
     test('locked: a plaintext snapshot still restores (the magic probe '
@@ -616,6 +628,7 @@ void main() {
           'legacy snapshot page');
       expect(await cursorSeq(databaseB), 1);
       expect(serviceB.lockedSkipCount, 0);
+      expect(snapshotTempFiles(), isEmpty);
     });
 
     test('keyed: a PLAINTEXT server snapshot is skipped (the empty-store '
@@ -665,6 +678,7 @@ void main() {
       final getsAfterFirst = relay.snapshotDataGets;
       await serviceB.pull();
       expect(relay.snapshotDataGets, getsAfterFirst);
+      expect(snapshotTempFiles(), isEmpty);
     });
 
     test('locked: a sealed snapshot is not re-downloaded after the skip '
@@ -692,6 +706,7 @@ void main() {
       final getsAfterFirst = relay.snapshotDataGets;
       await service.pull();
       expect(relay.snapshotDataGets, getsAfterFirst);
+      expect(snapshotTempFiles(), isEmpty);
     });
 
     test('upload below the chunk threshold rides a single PUT declaring '

@@ -501,9 +501,33 @@ class NodeCacheRepository {
     final tempFile = File(tempPath);
     await tempFile.writeAsBytes(bytes, flush: true);
 
+    try {
+      await _restoreFromSnapshotPath(tempPath, workspaceId);
+    } finally {
+      try {
+        await tempFile.delete();
+      } catch (_) {
+        // Best-effort cleanup.
+      }
+    }
+  }
+
+  /// The file-based restore entry point (the first-sync pipeline downloads
+  /// and decrypts the snapshot straight to disk). [path] is the plaintext
+  /// snapshot database file; it is NOT deleted here — the caller owns it.
+  Future<void> restoreFromSnapshotFile(
+    String path,
+    String workspaceId,
+  ) =>
+      _restoreFromSnapshotPath(path, workspaceId);
+
+  Future<void> _restoreFromSnapshotPath(
+    String path,
+    String workspaceId,
+  ) async {
     Database? snapshotDb;
     try {
-      snapshotDb = await snapshotDbOpener(tempPath);
+      snapshotDb = await snapshotDbOpener(path);
       final snapshot = await readSnapshot(snapshotDb, workspaceId);
       final db = await _database.database;
       await db.transaction((txn) async {
@@ -608,11 +632,6 @@ class NodeCacheRepository {
       await rebuildClassHierarchy();
     } finally {
       await snapshotDb?.close();
-      try {
-        await tempFile.delete();
-      } catch (_) {
-        // Best-effort cleanup.
-      }
     }
   }
 
