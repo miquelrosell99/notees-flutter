@@ -32,13 +32,20 @@ class SyncWatermarkRepository {
     int cursorSeq = 0,
   }) async {
     final db = await _database.database;
-    await db.insert('sync_watermark', {
-      'workspace_id': workspaceId,
-      'hlc_physical': hlc.physical,
-      'hlc_logical': hlc.logical,
-      'restore_epoch': restoreEpoch,
-      'cursor_seq': cursorSeq,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    // A targeted upsert, not a row replace: the received watermark is
+    // persisted on every catch-up page and must not wipe the
+    // uploaded-snapshot columns written by [setUploadedSnapshotHlc].
+    await db.rawInsert(
+      'INSERT INTO sync_watermark ('
+      'workspace_id, hlc_physical, hlc_logical, restore_epoch, cursor_seq) '
+      'VALUES (?, ?, ?, ?, ?) '
+      'ON CONFLICT(workspace_id) DO UPDATE SET '
+      'hlc_physical = excluded.hlc_physical, '
+      'hlc_logical = excluded.hlc_logical, '
+      'restore_epoch = excluded.restore_epoch, '
+      'cursor_seq = excluded.cursor_seq',
+      [workspaceId, hlc.physical, hlc.logical, restoreEpoch, cursorSeq],
+    );
   }
 
   /// Highest applied server-assigned envelope seq for [workspaceId].
@@ -92,6 +99,48 @@ class SyncWatermarkRepository {
     );
     if (rows.isEmpty) return 0;
     return rows.first['restore_epoch'] as int? ?? 0;
+  }
+
+  /// The HLC this device last covered with a client-uploaded snapshot
+  /// (`uploadedSnapshotHlc` in the TS engine), or null when never uploaded.
+  /// Durable across restarts; a workspace reset drops it.
+  Future<Hlc?> getUploadedSnapshotHlc(String workspaceId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'sync_watermark',
+      columns: [
+        'uploaded_snapshot_hlc_physical',
+        'uploaded_snapshot_hlc_logical',
+      ],
+      where: 'workspace_id = ?',
+      whereArgs: [workspaceId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.first;
+    final physical = row['uploaded_snapshot_hlc_physical'];
+    if (physical == null) return null;
+    return Hlc(
+      physical: physical as int,
+      logical: row['uploaded_snapshot_hlc_logical'] as int? ?? 0,
+    );
+  }
+
+  /// Records the covering HLC of a client-uploaded snapshot, preserving the
+  /// row's other watermark columns (a first insert seeds a zero received
+  /// watermark — the catch-up overwrites it).
+  Future<void> setUploadedSnapshotHlc(String workspaceId, Hlc hlc) async {
+    final db = await _database.database;
+    await db.rawInsert(
+      'INSERT INTO sync_watermark ('
+      'workspace_id, hlc_physical, hlc_logical, restore_epoch, cursor_seq, '
+      'uploaded_snapshot_hlc_physical, uploaded_snapshot_hlc_logical) '
+      'VALUES (?, 0, 0, 0, 0, ?, ?) '
+      'ON CONFLICT(workspace_id) DO UPDATE SET '
+      'uploaded_snapshot_hlc_physical = excluded.uploaded_snapshot_hlc_physical, '
+      'uploaded_snapshot_hlc_logical = excluded.uploaded_snapshot_hlc_logical',
+      [workspaceId, hlc.physical, hlc.logical],
+    );
   }
 
   Future<void> resetWorkspace(String workspaceId) async {

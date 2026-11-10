@@ -100,6 +100,13 @@ class _NoteesAppBodyState extends State<_NoteesAppBody> {
     super.initState();
     final encryption = context.read<EncryptionProvider>();
     final auth = context.read<AuthProvider>();
+    final connectivity = context.read<ConnectivityProvider>();
+    final settings = context.read<SettingsProvider>();
+    // The snapshot auto-upload's network gate: the Settings switch composed
+    // with the unmetered heuristic (both read live on each call). Stored on
+    // AuthProvider so every rebuilt sync service inherits it.
+    auth.snapshotUploadGate = () =>
+        !settings.uploadSnapshotsOnWifiOnly || connectivity.unmetered;
     _router = createRouter(authProvider: auth);
     _initializeAfterFirstFrame(encryption, auth);
     unawaited(IntentReceiver.instance.initialize());

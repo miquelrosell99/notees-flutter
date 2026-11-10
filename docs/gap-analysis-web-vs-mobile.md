@@ -33,7 +33,7 @@ The Flutter app now matches the Android product description for a **capture-firs
 | Local-first derived state rebuild | ✅ Full SQLite rebuild from op log | Partial (`node_cache` appliers) | Partial | Mobile appliers cover node CRUD, content, properties, class assign. Not a full derived rebuild. |
 | Multi-workspace / server switching | ✅ | ✅ | Parity | Mobile supports multiple server profiles. |
 | Restore-epoch detection | ✅ | ✅ | Parity | Implemented in sync service. |
-| Snapshot upload | ✅ | ❌ | Missing | Mobile does not upload snapshots. |
+| Snapshot upload | ✅ | ✅ | Parity | Auto-upload at the end of a successful pull (`maybeUploadSnapshot` parity), gated to unmetered connections by default with a Settings selector; the upload pipeline is file-based (streamed single PUT / multipart parts read from disk), covering HLC = received watermark. |
 | Real-time WebSocket sync | Experimental / optional | ❌ | Missing | Mobile is pull/push only. |
 | Asset / attachment uploads | ✅ | Partial | Partial | Share receiver handles images; full asset block support unclear. |
 

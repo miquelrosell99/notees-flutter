@@ -78,7 +78,7 @@ class AppDatabase {
       return factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 43,
+          version: 44,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -86,7 +86,7 @@ class AppDatabase {
     }
     return openDatabase(
       path,
-      version: 43,
+      version: 44,
       password: encryptionPassword,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
@@ -268,6 +268,9 @@ class AppDatabase {
     }
     if (oldVersion < 43) {
       await _migrateV43(db);
+    }
+    if (oldVersion < 44) {
+      await _migrateV44(db);
     }
   }
 
@@ -1657,9 +1660,32 @@ class AppDatabase {
         hlc_physical INTEGER NOT NULL,
         hlc_logical INTEGER NOT NULL,
         restore_epoch INTEGER NOT NULL DEFAULT 0,
-        cursor_seq INTEGER NOT NULL DEFAULT 0
+        cursor_seq INTEGER NOT NULL DEFAULT 0,
+        uploaded_snapshot_hlc_physical INTEGER,
+        uploaded_snapshot_hlc_logical INTEGER
       )
     ''');
+  }
+
+  /// v44 — the durable snapshot-upload watermark (`uploadedSnapshotHlc` in
+  /// the TS engine): the HLC this device last covered with a client-uploaded
+  /// snapshot, per workspace. NULL = never uploaded. Survives restarts so a
+  /// restarted app does not re-upload against a lagging server checkpoint;
+  /// a workspace reset (restoreEpoch resync) drops the row with the rest of
+  /// the watermark state.
+  Future<void> _migrateV44(Database db) async {
+    await _addColumnIfMissing(
+      db,
+      'sync_watermark',
+      'uploaded_snapshot_hlc_physical',
+      'INTEGER',
+    );
+    await _addColumnIfMissing(
+      db,
+      'sync_watermark',
+      'uploaded_snapshot_hlc_logical',
+      'INTEGER',
+    );
   }
 
   Future<void> _migrateSyncWatermarkV13(Database db) async {
@@ -1886,6 +1912,7 @@ class AppDatabase {
     await _migrateV41(db);
     await _migrateV42(db);
     await _migrateV43(db);
+    await _migrateV44(db);
   }
 
   Future<int> enqueue(String method, String payload) async {

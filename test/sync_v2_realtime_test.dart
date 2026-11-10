@@ -84,14 +84,25 @@ void main() {
       final dio = Dio(BaseOptions(baseUrl: 'https://notees.example.com/api'));
       dio.interceptors.add(
         InterceptorsWrapper(
-          onRequest: (options, handler) {
-            httpCalls.add({
+          onRequest: (options, handler) async {
+            final call = <String, dynamic>{
               'method': options.method,
               'path': options.path,
               'query': options.queryParameters,
-              if (options.data is List<int>)
-                'body': Uint8List.fromList(options.data as List<int>),
-            });
+            };
+            final body = options.data;
+            if (body is List<int>) {
+              call['body'] = Uint8List.fromList(body);
+            } else if (body is Stream) {
+              // The snapshot pipeline streams file bodies — drain so
+              // assertions can inspect the bytes.
+              final drained = <int>[];
+              await for (final chunk in body.cast<List<int>>()) {
+                drained.addAll(chunk);
+              }
+              call['body'] = Uint8List.fromList(drained);
+            }
+            httpCalls.add(call);
             if (options.path == '/relay/v2/snapshot') {
               handler.resolve(Response(
                 requestOptions: options,

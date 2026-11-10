@@ -104,6 +104,20 @@ class SettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- Sync -----------------------------------------------------------------
+
+  /// The snapshot auto-upload's network gate: when on (default), checkpoints
+  /// upload only on unmetered connections. The explicit Settings trigger
+  /// bypasses the gate.
+  bool get uploadSnapshotsOnWifiOnly =>
+      _prefs.getBool(_uploadSnapshotsOnWifiOnlyKey) ?? true;
+
+  Future<void> setUploadSnapshotsOnWifiOnly(bool value) async {
+    await _prefs.setBool(_uploadSnapshotsOnWifiOnlyKey, value);
+    HapticFeedback.lightImpact();
+    notifyListeners();
+  }
+
   // --- Keys -----------------------------------------------------------------
 
   static const _defaultViewModeKey = 'default_view_mode';
@@ -117,6 +131,8 @@ class SettingsProvider extends ChangeNotifier {
       'floating_capture_bubble_enabled';
   static const _floatingCaptureBubbleDefaultTypeKey =
       'floating_capture_bubble_default_type';
+  static const _uploadSnapshotsOnWifiOnlyKey =
+      'upload_snapshots_on_wifi_only';
 }
 
 /// Human-readable label for a [QuickCaptureType].

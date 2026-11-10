@@ -492,8 +492,16 @@ class AuthProvider extends ChangeNotifier {
       database: AppDatabase(),
       dio: dio,
       clientId: clientId,
+      autoUploadGate: () => _snapshotUploadGate?.call() ?? true,
     );
   }
+
+  /// The snapshot AUTO-upload's network gate (Settings "Wi-Fi only" switch
+  /// composed with the unmetered heuristic), wired by the app layer —
+  /// AuthProvider/SyncV2Service cannot reach ConnectivityProvider/
+  /// SettingsProvider (layering). Null until wired; a null gate allows.
+  bool Function()? _snapshotUploadGate;
+  set snapshotUploadGate(bool Function()? gate) => _snapshotUploadGate = gate;
 
   Future<void> selectServer(ServerProfile server) async {
     // The old sync service (and its realtime stream) belongs to the old

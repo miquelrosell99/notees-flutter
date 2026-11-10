@@ -278,6 +278,30 @@ Future<Uint8List> decryptBytes(
   return Uint8List.fromList(plain);
 }
 
+/// File-based counterpart of [encryptBytes] for the snapshot pipeline
+/// (mirrors [decryptBytesToFile]): reads the plaintext image from
+/// [sourcePath] once, seals it `iv(12) ‖ tag(16) ‖ ct`, and writes the
+/// sealed blob to [destinationPath]. The output is assembled into one
+/// fresh buffer; the cipher's ciphertext/mac buffers are copied in place.
+Future<void> encryptBytesToFile(
+  SecretKey workspaceKey,
+  String sourcePath,
+  String destinationPath,
+) async {
+  final bytes = await File(sourcePath).readAsBytes();
+  final iv = randomBytes(12);
+  final box = await AesGcm.with256bits().encrypt(
+    bytes,
+    secretKey: workspaceKey,
+    nonce: iv,
+  );
+  final out = Uint8List(28 + box.cipherText.length);
+  out.setRange(0, 12, iv);
+  out.setRange(12, 28, box.mac.bytes);
+  out.setRange(28, out.length, box.cipherText);
+  await File(destinationPath).writeAsBytes(out, flush: true);
+}
+
 /// File-based inverse of [encryptBytes] for the snapshot pipeline: reads
 /// the sealed blob from [sourcePath] ONCE, decrypts single-shot (AES-256-GCM
 /// is not streamable — the wire format would have to change), and writes the

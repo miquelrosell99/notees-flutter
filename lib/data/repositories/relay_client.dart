@@ -121,12 +121,11 @@ class RelayClient {
 
   /// Upload a client-produced snapshot for [workspaceId] (WIRE.md:
   /// `PUT /snapshot/data` with the covering HLC as query parameters).
-  ///
-  /// Callers decide when: only an explicit [SyncV2Service.uploadSnapshot]
-  /// trigger — the client never auto-uploads on pull. [sealed] declares the
-  /// body a SEALED image (the engine's crypto branch is the only sealer);
-  /// the flag rides the snapshot row and is served back as `sealed` in
-  /// `GET /snapshot` meta (the restore contract).
+  /// [sealed] declares the body a SEALED image; the flag rides the snapshot
+  /// row and is served back as `sealed` in `GET /snapshot` meta (the restore
+  /// contract). Callers: the explicit Settings trigger and the pull-time
+  /// auto-upload (`maybeUploadSnapshot` parity), both through the service's
+  /// file-based pipeline ([uploadSnapshotFile]).
   Future<void> uploadSnapshot({
     required String workspaceId,
     required Uint8List bytes,
@@ -145,6 +144,34 @@ class RelayClient {
       options: Options(
         contentType: 'application/octet-stream',
         responseType: ResponseType.bytes,
+      ),
+    );
+  }
+
+  /// File-based variant of [uploadSnapshot] for the snapshot pipeline:
+  /// streams the file at [path] as the PUT body without loading it into
+  /// RAM (the image can be tens of MB; sealed snapshots up to 48 MiB ride
+  /// this single-body path — WIRE.md).
+  Future<void> uploadSnapshotFile({
+    required String workspaceId,
+    required String path,
+    required Hlc hlc,
+    bool sealed = false,
+  }) async {
+    final file = File(path);
+    final length = await file.length();
+    await dio.put<void>(
+      _snapshotDataPath,
+      queryParameters: {
+        'workspaceId': workspaceId,
+        'physical': hlc.physical,
+        'logical': hlc.logical,
+        if (sealed) 'sealed': '1',
+      },
+      data: file.openRead(),
+      options: Options(
+        contentType: 'application/octet-stream',
+        headers: {Headers.contentLengthHeader: length},
       ),
     );
   }

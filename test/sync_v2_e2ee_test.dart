@@ -84,7 +84,7 @@ void main() {
     final dio = Dio(BaseOptions(baseUrl: 'https://notees.example.com/api'));
     dio.interceptors.add(
       InterceptorsWrapper(
-        onRequest: (options, handler) {
+        onRequest: (options, handler) async {
           if (options.path == '/relay/v2/snapshot') {
             handler.resolve(Response(
               requestOptions: options,
@@ -127,8 +127,19 @@ void main() {
           }
           if (options.path == '/relay/v2/snapshot/data' &&
               options.method == 'PUT') {
-            relay.snapshotBlob =
-                Uint8List.fromList(options.data as List<int>);
+            final body = options.data;
+            final List<int> bytes;
+            if (body is Stream) {
+              // The upload pipeline streams the file body (never buffered).
+              final drained = <int>[];
+              await for (final chunk in body.cast<List<int>>()) {
+                drained.addAll(chunk);
+              }
+              bytes = drained;
+            } else {
+              bytes = (body as List<int>?) ?? const <int>[];
+            }
+            relay.snapshotBlob = Uint8List.fromList(bytes);
             relay.snapshotSealed =
                 options.queryParameters['sealed'] == '1';
             handler.resolve(Response(requestOptions: options, statusCode: 204));

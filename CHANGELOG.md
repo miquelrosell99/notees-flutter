@@ -8,6 +8,40 @@ lives in git history.
 
 ## 2026-11-10
 
+- **feat(sync): snapshot auto-upload after a successful pull — the
+  `maybeUploadSnapshot` port, closing the last snapshot-upload gap.** Mobile
+  now best-effort uploads a client checkpoint at the end of every successful
+  `pull()` (HTTP catch-up and WS-hello resync alike), gated exactly like the
+  web engine: local `receivedHlc` must be ahead of both the server snapshot's
+  HLC (or the server has none) and this device's durable
+  `uploadedSnapshotHlc` watermark — a new nullable column pair on
+  `sync_watermark` (schema v44, upsert-preserved across per-page watermark
+  writes; dropped with the row on restoreEpoch resync, so a wiped relay gets
+  re-covered). The quarantine gate is wired as a documented always-false
+  hook (`hasQuarantinedEnvelopes` — mobile has no quarantine list yet). The
+  covering HLC semantics are fixed: the upload covers the RECEIVED watermark
+  (web parity), not the pushed one. Size rules carry the web constants with
+  `sync-engine.ts parity` annotations: VACUUM-compact the image at ≥32 MiB
+  raw, single PUT at ≤48 MiB sealed, 64 MiB multipart parts above, pre-flight
+  skip at ≥256 MiB sealed, and a 413 reported once per session, never failing
+  the pull. The pipeline is file-based, symmetric to the restore pipeline:
+  `buildV2SnapshotFile` builds the image in a temp file without reading it
+  into RAM, `encryptBytesToFile` seals file→file, the single PUT streams the
+  file body, multipart parts are read from disk, and every temp file is
+  deleted in a `finally` (peak ≈ 2× part size). Auto-upload is additionally
+  gated to unmetered connections by default (Android-convention heuristic in
+  `ConnectivityProvider.unmetered`; mobile/satellite read metered, offline
+  never unmetered) behind a new Settings → Sync switch, "Upload checkpoints
+  on Wi-Fi only" (default ON, persisted in SettingsProvider); the gate is a
+  `bool Function()` composed in `app.dart` and injected into the sync
+  service, and the explicit Settings-tile trigger bypasses it and keeps its
+  SnackBar. The 15-min WorkManager pull inherits the gate automatically
+  (upload runs inside `pull()`; the worker's NetworkType constraint is
+  untouched). Scoped gates green (new auto-upload matrix — watermark gates,
+  transport selection, size rules, 413/oversize warn-once, network gate,
+  temp cleanup, watermark persistence across a service rebuild — plus the
+  sync pull/e2ee/realtime suites); `flutter analyze` clean.
+
 - **fix(sync,api): the first-sync snapshot pipeline is file-based, logging no
   longer materializes bodies, and pull failures surface with retry.** A
   ~1.2M-op workspace ships as a 160MB sealed snapshot; the old path buffered

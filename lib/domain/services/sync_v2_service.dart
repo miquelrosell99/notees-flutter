@@ -24,6 +24,7 @@ import '../models/relay/operation_envelope.dart';
 import '../models/relay/operation_payloads.dart';
 import '../models/relay/payload_crypto.dart';
 import '../models/relay/property_value_shapes.dart';
+import '../models/relay/relay_requests.dart';
 import '../models/relay/store_errors.dart';
 import '../models/sync_v2.dart';
 import './hlc_clock.dart';
@@ -53,6 +54,9 @@ class SyncV2Service {
     this.serverless = false,
     int? snapshotChunkThreshold,
     int? snapshotPartSize,
+    int? snapshotUploadLimit,
+    int? snapshotCompactThreshold,
+    bool Function()? autoUploadGate,
   }) : _database = database,
        _outbox = RelayOutboxRepository(database),
        _watermarks = SyncWatermarkRepository(database),
@@ -61,7 +65,11 @@ class SyncV2Service {
        _relay = RelayClient(dio: dio),
        _snapshotChunkThreshold =
            snapshotChunkThreshold ?? 48 * 1024 * 1024,
-       _snapshotPartSize = snapshotPartSize ?? 64 * 1024 * 1024;
+       _snapshotPartSize = snapshotPartSize ?? 64 * 1024 * 1024,
+       _snapshotUploadLimit = snapshotUploadLimit ?? 256 * 1024 * 1024,
+       _snapshotCompactThreshold =
+           snapshotCompactThreshold ?? 32 * 1024 * 1024,
+       _autoUploadGate = autoUploadGate ?? _allowAutoUpload;
 
   final AppDatabase _database;
   final RelayOutboxRepository _outbox;
@@ -462,14 +470,17 @@ class SyncV2Service {
   /// when producing new operations. `restoreEpoch` changes wipe the derived
   /// state and resync from seq 0 (pending outbox ops survive and are
   /// re-pushed after the catch-up, mirroring the TS engine's park/resync).
-  /// Per-page progress is reported through [onPullProgress].
+  /// Per-page progress is reported through [onPullProgress]. After a
+  /// successful pull the service best-effort auto-uploads a client snapshot
+  /// when the web-parity gates pass ([_maybeAutoUploadSnapshot]).
   Future<void> pull() async {
     if (serverless) return;
     final workspaceId = await getWorkspaceId();
     if (workspaceId == null) return;
     _pullInFlight = true;
     try {
-      await _pullGeneration(workspaceId, requeuePending: true);
+      final pulled = await _pullGeneration(workspaceId, requeuePending: true);
+      await _maybeAutoUploadSnapshot(pulled.meta, pulled.received);
     } finally {
       _pullInFlight = false;
       // Frames buffered while catch-up ran apply now; id-dedupe makes the
@@ -478,7 +489,10 @@ class SyncV2Service {
     }
   }
 
-  Future<void> _pullGeneration(
+  /// One pull generation: snapshot probe/restore + the seq catch-up pages.
+  /// Returns the server snapshot metadata probed at the start and the
+  /// received HLC watermark after the catch-up (the auto-upload gates).
+  Future<({LatestSnapshotResponse meta, Hlc received})> _pullGeneration(
     String workspaceId, {
     required bool requeuePending,
     int depth = 0,
@@ -655,12 +669,11 @@ class SyncV2Service {
             'restoreEpoch changed repeatedly during pull',
           );
         }
-        await _pullGeneration(
+        return _pullGeneration(
           workspaceId,
           requeuePending: requeuePending,
           depth: depth + 1,
         );
-        return;
       }
       if (response.envelopes.isNotEmpty) {
         final stats = await _applyServerEnvelopes(appliers, response.envelopes);
@@ -696,8 +709,9 @@ class SyncV2Service {
       // The outbox survived the wipe: push the parked local ops, then pull
       // once more to fold their echoes into the rebuilt state.
       await flush();
-      await _pullGeneration(workspaceId, requeuePending: false, depth: depth);
+      return _pullGeneration(workspaceId, requeuePending: false, depth: depth);
     }
+    return (meta: snapshot, received: maxHlc);
   }
 
   /// Shared remote-apply path (catch-up pages and buffered WS ops frames):
@@ -870,7 +884,10 @@ class SyncV2Service {
       restoreEpoch: newEpoch,
       cursorSeq: 0,
     );
-    await _pullGeneration(workspaceId, requeuePending: true);
+    final pulled = await _pullGeneration(workspaceId, requeuePending: true);
+    // Web parity: the resync pull is a normal pull, including the
+    // best-effort snapshot auto-upload the wiped relay needs to re-cover.
+    await _maybeAutoUploadSnapshot(pulled.meta, pulled.received);
   }
 
   void _onRemoteOps(
@@ -917,69 +934,233 @@ class SyncV2Service {
   }
 
   /// Builds a derived-state snapshot from the local cache and uploads it
-  /// to the relay (`PUT /snapshot/data`). Explicit/manual only — settings
-  /// surfaces the trigger; the client never auto-uploads on pull. The
-  /// covering HLC is the pushed watermark (falling back to received).
-  ///
-  /// E2EE: a sealed COPY crosses the wire — the local cache keeps the raw
-  /// projection (a restore decrypts symmetrically in _pullGeneration). The
-  /// upload declares `sealed=1`; past the single-body comfort threshold
-  /// (48 MiB, WIRE.md) the sealed image rides the part+commit multipart
-  /// flow instead of one giant PUT.
+  /// to the relay (`PUT /snapshot/data`) — the explicit Settings trigger.
+  /// Bypasses the watermark/network gates (an explicit user action) but
+  /// rides the same file-based pipeline and size rules as the auto-upload;
+  /// the covering HLC is the RECEIVED watermark (web `receivedHlc`
+  /// semantics), not the pushed one. On success the durable
+  /// uploaded-snapshot watermark advances so the next pull does not
+  /// immediately re-upload.
+  Future<void> uploadSnapshot() async {
+    if (serverless) return;
+    final workspaceId = await getWorkspaceId();
+    if (workspaceId == null) return;
+    final hlc = await _watermarks.getReceived(workspaceId) ??
+        const Hlc(physical: 0, logical: 0);
+    await _uploadSnapshotPipeline(workspaceId, hlc);
+    await _watermarks.setUploadedSnapshotHlc(workspaceId, hlc);
+  }
+
+  /// Best-effort snapshot upload at the end of a successful pull, the
+  /// `maybeUploadSnapshot` port (sync-engine.ts): upload only when the local
+  /// projection is ahead of BOTH the server checkpoint and this device's
+  /// durable uploaded-snapshot watermark. A failed upload never fails the
+  /// pull; the relay's body cap (413) is reported once per session and not
+  /// retried that session (the server-side snapshot keeps covering restore).
+  Future<void> _maybeAutoUploadSnapshot(
+    LatestSnapshotResponse meta,
+    Hlc receivedHlc,
+  ) async {
+    if (serverless) return;
+    final workspaceId = await getWorkspaceId();
+    if (workspaceId == null) return;
+    // Quarantine gate (sync-engine.ts parity): a store that skipped ops must
+    // not become the bootstrap source for other devices. Mobile has no
+    // quarantine concept today — failed envelopes are left unrecorded for
+    // re-apply — so this always passes; a future quarantine list plugs in
+    // behind [hasQuarantinedEnvelopes].
+    if (hasQuarantinedEnvelopes) {
+      if (!_snapshotQuarantineReported) {
+        _snapshotQuarantineReported = true;
+        debugPrint(
+          'SyncV2Service: snapshot upload skipped: the local projection '
+          'carries quarantined envelopes — uploading would spread the '
+          'divergence. Wipe the local store to rehydrate cleanly.',
+        );
+      }
+      return;
+    }
+    final newerThanServer =
+        !meta.hasSnapshot || receivedHlc.compareTo(meta.hlc) > 0;
+    final uploaded = await _watermarks.getUploadedSnapshotHlc(workspaceId);
+    final newerThanUploaded =
+        uploaded == null || receivedHlc.compareTo(uploaded) > 0;
+    if (!newerThanServer || !newerThanUploaded) return;
+    // Network gate (auto path only): the Settings "Wi-Fi only" switch plus
+    // the unmetered heuristic, composed by the app layer — the service
+    // cannot reach ConnectivityProvider/SettingsProvider (layering).
+    if (!_autoUploadGate()) return;
+    try {
+      final uploaded = await _uploadSnapshotPipeline(workspaceId, receivedHlc);
+      if (!uploaded) return; // size-rule skip: no watermark, flags stay.
+      await _watermarks.setUploadedSnapshotHlc(workspaceId, receivedHlc);
+      // sync-engine.ts parity: the warn-once flags reset on success.
+      _snapshotOversizeReported = false;
+      _snapshotQuarantineReported = false;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 413) {
+        if (!_snapshotOversizeReported) {
+          _snapshotOversizeReported = true;
+          debugPrint(
+            'SyncV2Service: snapshot upload rejected: the local projection '
+            'exceeds the relay\'s size cap (413). A server-side snapshot '
+            'covers restore; the client upload stays skipped this session.',
+          );
+        }
+      } else {
+        debugPrint('SyncV2Service: snapshot auto-upload failed: $e');
+      }
+    } catch (e) {
+      // Best-effort: a failed upload must not fail sync.
+      debugPrint('SyncV2Service: snapshot auto-upload failed: $e');
+    }
+  }
+
+  /// The file-based upload pipeline shared by the explicit trigger and the
+  /// auto-upload: build the image in a temp file → compact at the web
+  /// threshold → seal (keyed) → size-rule the transport (single PUT streamed
+  /// from disk ≤48 MiB, 64 MiB multipart parts above; ≥256 MiB sealed skips
+  /// with a warn-once) → temp cleanup in a `finally`. Peak RAM ≈ 2× part
+  /// size, not ~3× the image. Returns whether an upload actually happened
+  /// (a size-rule skip returns false so the caller does not advance the
+  /// watermark).
+  Future<bool> _uploadSnapshotPipeline(String workspaceId, Hlc hlc) async {
+    final tempDir = await getTemporaryDirectory();
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final sealedPath =
+        join(tempDir.path, 'notees_snapshot_upload_$stamp.sealed');
+    try {
+      final buildPath = await _cache.buildV2SnapshotFile(workspaceId);
+      if (buildPath == null) return false;
+      try {
+        // sync-engine.ts parity: SNAPSHOT_COMPACT_THRESHOLD — a raw image at
+        // ≥32 MiB gets VACUUM-compacted before sealing (the replay's free
+        // pages ride along otherwise).
+        if (await File(buildPath).length() >= _snapshotCompactThreshold) {
+          await _cache.compactSnapshotFile(buildPath);
+        }
+        final sealed = _workspaceKey != null;
+        String wirePath;
+        if (sealed) {
+          await encryptBytesToFile(_workspaceKey!, buildPath, sealedPath);
+          wirePath = sealedPath;
+        } else {
+          wirePath = buildPath;
+        }
+        final wireSize = await File(wirePath).length();
+        // sync-engine.ts parity: SNAPSHOT_UPLOAD_BODY_LIMIT — the pre-flight
+        // guard mirroring the relay's route-local body cap: skip rather than
+        // transfer a body the relay would reject with 413.
+        if (wireSize >= _snapshotUploadLimit) {
+          if (!_snapshotOversizeReported) {
+            _snapshotOversizeReported = true;
+            debugPrint(
+              'SyncV2Service: snapshot upload skipped: the sealed local '
+              'projection (${wireSize ~/ 1048576} MiB) meets the relay\'s '
+              'body cap — uploading would be rejected. A server-side '
+              'snapshot covers restore; the client upload stays skipped '
+              'this session.',
+            );
+          }
+          return false;
+        }
+        // sync-engine.ts parity: SNAPSHOT_CHUNK_THRESHOLD — sealed ≤48 MiB
+        // rides a single PUT (streamed from disk); above, 64 MiB parts.
+        if (wireSize > _snapshotChunkThreshold) {
+          final uploadId = Uuid7.generate();
+          final partCount =
+              (wireSize + _snapshotPartSize - 1) ~/ _snapshotPartSize;
+          final raf = await File(wirePath).open();
+          try {
+            for (var index = 0; index < partCount; index++) {
+              final part = await raf.read(_snapshotPartSize);
+              await _relay.uploadSnapshotPart(
+                workspaceId: workspaceId,
+                uploadId: uploadId,
+                index: index,
+                bytes: part,
+              );
+            }
+          } finally {
+            await raf.close();
+          }
+          await _relay.commitSnapshot(
+            workspaceId: workspaceId,
+            uploadId: uploadId,
+            parts: partCount,
+            hlc: hlc,
+            sealed: sealed,
+          );
+          return true;
+        }
+        await _relay.uploadSnapshotFile(
+          workspaceId: workspaceId,
+          path: wirePath,
+          hlc: hlc,
+          sealed: sealed,
+        );
+        return true;
+      } finally {
+        for (final path in [buildPath, sealedPath]) {
+          try {
+            final file = File(path);
+            if (await file.exists()) await file.delete();
+          } catch (_) {
+            // Best-effort cleanup.
+          }
+        }
+      }
+    } finally {
+      // The build file is cleaned by the inner finally; this guards the
+      // sealed file when the pipeline dies before entering it.
+      try {
+        final file = File(sealedPath);
+        if (await file.exists()) await file.delete();
+      } catch (_) {
+        // Best-effort cleanup.
+      }
+    }
+  }
+
+  /// Whether the local projection carries quarantined envelopes. Mobile has
+  /// no quarantine concept today (failed envelopes are left unrecorded for
+  /// re-apply), so this is always false — the snapshot auto-upload's
+  /// quarantine gate (sync-engine.ts parity) plugs in here when a quarantine
+  /// list exists.
+  bool get hasQuarantinedEnvelopes => false;
+
+  static bool _allowAutoUpload() => true;
+
+  /// Warn-once flags (sync-engine.ts parity: `snapshotOversizeReported` /
+  /// `snapshotQuarantineReported`).
+  bool _snapshotOversizeReported = false;
+  bool _snapshotQuarantineReported = false;
+
   /// Sealed-image single-PUT ceiling; above it the upload rides the
   /// part+commit multipart flow (WIRE.md; `SNAPSHOT_CHUNK_THRESHOLD` in the
-  /// TS engine). Injectable for tests.
+  /// TS engine, 48 MiB). Injectable for tests.
   final int _snapshotChunkThreshold;
 
   /// Part size for the multipart flow (the relay's per-part contract is
   /// ≤64 MiB; `SNAPSHOT_PART_SIZE` in the TS engine). Injectable for tests.
   final int _snapshotPartSize;
 
-  Future<void> uploadSnapshot() async {
-    if (serverless) return;
-    final workspaceId = await getWorkspaceId();
-    if (workspaceId == null) return;
-    final bytes = await _cache.buildV2SnapshotBytes(workspaceId);
-    if (bytes == null || bytes.isEmpty) return;
-    final hlc = await _watermarks.getPushed(workspaceId) ??
-        await _watermarks.getReceived(workspaceId) ??
-        const Hlc(physical: 0, logical: 0);
-    final wireBytes = _workspaceKey != null
-        ? await encryptBytes(_workspaceKey!, bytes)
-        : bytes;
-    final sealed = _workspaceKey != null;
-    if (wireBytes.length > _snapshotChunkThreshold) {
-      final uploadId = Uuid7.generate();
-      final partCount =
-          (wireBytes.length + _snapshotPartSize - 1) ~/ _snapshotPartSize;
-      for (var index = 0; index < partCount; index++) {
-        final start = index * _snapshotPartSize;
-        final end = start + _snapshotPartSize < wireBytes.length
-            ? start + _snapshotPartSize
-            : wireBytes.length;
-        await _relay.uploadSnapshotPart(
-          workspaceId: workspaceId,
-          uploadId: uploadId,
-          index: index,
-          bytes: Uint8List.sublistView(wireBytes, start, end),
-        );
-      }
-      await _relay.commitSnapshot(
-        workspaceId: workspaceId,
-        uploadId: uploadId,
-        parts: partCount,
-        hlc: hlc,
-        sealed: sealed,
-      );
-      return;
-    }
-    await _relay.uploadSnapshot(
-      workspaceId: workspaceId,
-      bytes: wireBytes,
-      hlc: hlc,
-      sealed: sealed,
-    );
-  }
+  /// Pre-flight sealed-image ceiling mirroring the relay's route-local body
+  /// cap (`SNAPSHOT_UPLOAD_BODY_LIMIT` in the TS engine, 256 MiB): at or
+  /// above it the upload skips with a warn-once report. Injectable for
+  /// tests.
+  final int _snapshotUploadLimit;
+
+  /// Raw-image compact threshold (`SNAPSHOT_COMPACT_THRESHOLD` in the TS
+  /// engine, 32 MiB): at or above it the build file gets VACUUM-compacted
+  /// before sealing. Injectable for tests.
+  final int _snapshotCompactThreshold;
+
+  /// The network gate for the AUTO upload (sync-engine.ts has no such gate;
+  /// this is the plan's mobile extension): the Settings "Wi-Fi only" switch
+  /// composed with the unmetered heuristic, wired by the app layer. The
+  /// explicit Settings trigger bypasses it.
+  final bool Function() _autoUploadGate;
 
   /// The SQLite database-file magic a PLAINTEXT snapshot blob starts with
   /// ("SQLite format 3\0"). A sealed snapshot is AES-GCM output and never

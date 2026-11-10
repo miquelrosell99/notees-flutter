@@ -3735,6 +3735,28 @@ class NodeCacheRepository {
   /// stats tables are intentionally skipped: the server rebuilds them on
   /// restore.
   Future<Uint8List?> buildV2SnapshotBytes(String workspaceId) async {
+    final tempPath = await _buildV2SnapshotToTempFile(workspaceId);
+    if (tempPath == null) return null;
+    final tempFile = File(tempPath);
+    try {
+      return await tempFile.readAsBytes();
+    } finally {
+      try {
+        if (await tempFile.exists()) await tempFile.delete();
+      } catch (_) {
+        // Best-effort cleanup.
+      }
+    }
+  }
+
+  /// The file-based variant of [buildV2SnapshotBytes] for the snapshot
+  /// upload pipeline: builds the image in a temp file and returns its path
+  /// WITHOUT reading the bytes into RAM. The caller owns the file — the
+  /// upload pipeline deletes it in a `finally`.
+  Future<String?> buildV2SnapshotFile(String workspaceId) =>
+      _buildV2SnapshotToTempFile(workspaceId);
+
+  Future<String?> _buildV2SnapshotToTempFile(String workspaceId) async {
     final tempDir = await getTemporaryDirectory();
     final tempPath = join(
       tempDir.path,
@@ -3743,26 +3765,44 @@ class NodeCacheRepository {
     final tempFile = File(tempPath);
 
     Database? buildDb;
+    String? result;
     try {
       buildDb = await snapshotDbOpener(tempPath);
       await _createV2SnapshotSchema(buildDb);
       await _populateV2Snapshot(buildDb, workspaceId);
-      // Read back the raw file bytes (flush by closing first).
+      // Flush by closing before the file is read back / sealed.
       await buildDb.close();
       buildDb = null;
-      return await tempFile.readAsBytes();
+      result = tempPath;
+      return tempPath;
     } catch (error) {
       // A failed build must never crash the caller (the upload is
       // best-effort); surface the reason for debugging.
-      debugPrint('buildV2SnapshotBytes failed: $error');
+      debugPrint('buildV2SnapshotFile failed: $error');
       return null;
     } finally {
       await buildDb?.close();
-      try {
-        if (await tempFile.exists()) await tempFile.delete();
-      } catch (_) {
-        // Best-effort cleanup.
+      if (result == null) {
+        // The build failed: no path escapes, so clean up here.
+        try {
+          if (await tempFile.exists()) await tempFile.delete();
+        } catch (_) {
+          // Best-effort cleanup.
+        }
       }
+    }
+  }
+
+  /// Runs SQLite `VACUUM` on a snapshot build file (`store.compact()` in the
+  /// TS engine): drops the free pages the replay left behind before the
+  /// image is sealed and uploaded.
+  Future<void> compactSnapshotFile(String path) async {
+    Database? db;
+    try {
+      db = await snapshotDbOpener(path);
+      await db.execute('VACUUM');
+    } finally {
+      await db?.close();
     }
   }
 

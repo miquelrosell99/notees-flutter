@@ -53,8 +53,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return 'Select or create a workspace';
   }
 
-  /// Manual snapshot-upload trigger (explicit only — the client never
-  /// auto-uploads on pull).
+  /// Manual snapshot-upload trigger (explicit only — bypasses the watermark
+  /// and network gates the pull-time auto-upload answers to).
   Future<void> _uploadSnapshot(BuildContext context) async {
     final auth = context.read<AuthProvider>();
     final sync = auth.syncService;
@@ -73,6 +73,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     }
+  }
+
+  void _setUploadSnapshotsOnWifiOnly(
+    BuildContext context,
+    SettingsProvider settings,
+    bool value,
+  ) {
+    settings.setUploadSnapshotsOnWifiOnly(value);
   }
 
   Future<void> _logout() async {
@@ -394,14 +402,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SectionTitle(icon: MdiIcons.cloudUploadOutline, label: 'Sync'),
           const SizedBox(height: 8),
           FleetCard(
-            child: ListTile(
-              leading: Icon(MdiIcons.cloudUploadOutline),
-              title: const Text('Upload workspace snapshot'),
-              subtitle: const Text(
-                'Sends the local derived state to the relay so other devices can restore from it',
-              ),
-              trailing: Icon(MdiIcons.chevronRight),
-              onTap: () => _uploadSnapshot(context),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(MdiIcons.cloudUploadOutline),
+                  title: const Text('Upload workspace snapshot'),
+                  subtitle: const Text(
+                    'Sends the local derived state to the relay so other devices can restore from it',
+                  ),
+                  trailing: Icon(MdiIcons.chevronRight),
+                  onTap: () => _uploadSnapshot(context),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: Icon(MdiIcons.wifi),
+                  title: const Text('Upload checkpoints on Wi-Fi only'),
+                  subtitle: const Text(
+                    'After syncing, automatically send a checkpoint on unmetered connections',
+                  ),
+                  trailing: Switch(
+                    value: settings.uploadSnapshotsOnWifiOnly,
+                    onChanged: (value) =>
+                        _setUploadSnapshotsOnWifiOnly(context, settings, value),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 28),
