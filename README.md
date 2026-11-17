@@ -1,3 +1,5 @@
+> **Archived (2026-11-17).** This repository has merged into the Notees monorepo — [`miquelrosell99/notees`](https://github.com/miquelrosell99/notees), under `clients/flutter/` with the full git history (ADR-002, the monorepo reunification). Releases stay available here; new releases, issues, and PRs live in the monorepo, and the per-component pipeline moved with it (tags are now `flutter-v*`-prefixed there — the release history here predates the move). See `clients/flutter/` in the monorepo for the live tree.
+
 # Notees Mobile
 
 A first-class Flutter companion app for [Notees](https://github.com/notees/notees) — your self-hosted notes, journals, and tasks.
